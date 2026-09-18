@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { api, Json } from "./api";
 import { ils, num } from "./util";
+import { t } from "./i18n";
 
 // ── Viral tree WORKSPACE (P0.3-7) — petition-style unified family tree ──────
 // One hierarchy on a draggable/zoomable SVG surface: the deal is the trunk at
@@ -193,10 +194,10 @@ export function VTreeCanvas({ dealId, roots, rootTruncated, dealTitle, onSelect,
   return (
     <div className="vtree-canvas-wrap" ref={wrapRef}>
       <div className="vtree-canvas-controls">
-        <button onClick={() => zoomAt(1.2)} aria-label="הגדלה">+</button>
-        <button onClick={() => zoomAt(0.83)} aria-label="הקטנה">−</button>
-        <button onClick={() => fit()} aria-label="התאמה למסך">⤢ התאמה</button>
-        {hasSelection ? <button onClick={focusSelected} aria-label="מרכוז לענף הנבחר">◎ לענף הנבחר</button> : null}
+        <button onClick={() => zoomAt(1.2)} aria-label={t("vtree.e6ec4e84")}>+</button>
+        <button onClick={() => zoomAt(0.83)} aria-label={t("vtree.bc71906f")}>−</button>
+        <button onClick={() => fit()} aria-label={t("vtree.4337a9af")}>{t("vtree.e3a4d9fa")}</button>
+        {hasSelection ? <button onClick={focusSelected} aria-label={t("vtree.f96d50bd")}>{t("vtree.88974143")}</button> : null}
       </div>
       <svg
         ref={svgRef}
@@ -206,14 +207,14 @@ export function VTreeCanvas({ dealId, roots, rootTruncated, dealTitle, onSelect,
         onPointerUp={onPointerUp}
         onWheel={onWheel}
         role="application"
-        aria-label="עץ הפצה ויראלי"
+        aria-label={t("vtree.d8335e1c")}
       >
         <g transform={`translate(${view.x},${view.y}) scale(${view.k})`}>
           {/* generation bands */}
           {genBands.map((g) => (
             <g key={g}>
               <line x1={-60} x2={layoutResult.width + 60} y1={g * (NODE_H + GAP_Y) - GAP_Y / 2} y2={g * (NODE_H + GAP_Y) - GAP_Y / 2} className="vtree-gen-line" />
-              <text x={-52} y={g * (NODE_H + GAP_Y) + NODE_H / 2} className="vtree-gen-label">דור {g - 1}</text>
+              <text x={-52} y={g * (NODE_H + GAP_Y) + NODE_H / 2} className="vtree-gen-label">{t("vtree.a0661334", { v0: g - 1 })}</text>
             </g>
           ))}
 
@@ -232,8 +233,8 @@ export function VTreeCanvas({ dealId, roots, rootTruncated, dealTitle, onSelect,
           {/* deal root — the trunk of the whole hierarchy */}
           <g transform={`translate(${rootLaid.x - NODE_W / 2},0)`} className={`vtree-node-deal${hasSelection ? " on-path" : ""}`}>
             <rect width={NODE_W} height={NODE_H} rx={14} />
-            <text x={NODE_W / 2} y={26} textAnchor="middle" className="t1">{dealTitle ? String(dealTitle).slice(0, 18) : "העסקה"}</text>
-            <text x={NODE_W / 2} y={46} textAnchor="middle" className="t2">שורש ההפצה — הקישורים המקוריים</text>
+            <text x={NODE_W / 2} y={26} textAnchor="middle" className="t1">{dealTitle ? String(dealTitle).slice(0, 18) : t("vtree.4832d404")}</text>
+            <text x={NODE_W / 2} y={46} textAnchor="middle" className="t2">{t("vtree.e2a87fa0")}</text>
             <text x={NODE_W / 2} y={66} textAnchor="middle" className="t2">{num(directJoins)} מצטרפים ישירים{data.truncated["root"] ? "+" : ""}</text>
           </g>
 
@@ -253,14 +254,14 @@ export function VTreeCanvas({ dealId, roots, rootTruncated, dealTitle, onSelect,
                 onClick={(e) => { e.stopPropagation(); onSelect(n); }}>
                 <rect width={NODE_W} height={NODE_H} rx={12} />
                 <text x={NODE_W - 12} y={22} textAnchor="end" className="t1">{String(n.display || "").slice(0, 16)}</text>
-                <text x={12} y={22} textAnchor="start" className="t3">דור {num(n.generation)}</text>
+                <text x={12} y={22} textAnchor="start" className="t3">{t("vtree.669beca1", { generation: num(n.generation) })}</text>
                 <text x={NODE_W - 12} y={43} textAnchor="end" className="t2">
-                  {num(n.direct_units)} יח׳ · {n.charged ? "חויב ✓" : n.active ? "מסגרת" : "נשר"}
+                  {num(n.direct_units)} יח׳ · {n.charged ? t("vtree.79e91b93") : n.active ? t("vtree.dbfda859") : t("vtree.58c518fb")}
                 </text>
                 <text x={NODE_W - 12} y={64} textAnchor="end" className="t3">
                   {hasKids
-                    ? `ענף: ${num(n.subtree_joins)} מצטרפים · ${ils(n.subtree_charged_gmv || 0)}`
-                    : "ללא המשך שרשרת עדיין"}
+                    ? t("vtree.24a2b5f2", { subtree_joins: num(n.subtree_joins), v1: ils(n.subtree_charged_gmv || 0) })
+                    : t("vtree.61360ef8")}
                 </text>
                 {hasKids ? (
                   <g className="vtree-expand" onClick={(e) => { e.stopPropagation(); void toggle(n); }}>
@@ -275,7 +276,7 @@ export function VTreeCanvas({ dealId, roots, rootTruncated, dealTitle, onSelect,
           })}
         </g>
       </svg>
-      <p className="vtree-canvas-hint">גרירה להזזה · גלגלת להגדלה · + פותח ענף · לחיצה על משתתף מאירה את השרשרת עד העסקה</p>
+      <p className="vtree-canvas-hint">{t("vtree.85f0f3e2")}</p>
     </div>
   );
 }

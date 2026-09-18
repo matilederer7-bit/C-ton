@@ -12,6 +12,7 @@ import { AuthPanel } from "../auth";
 import {
   BrandLoader, Countdown, EmptyState, GroupMeter, Modal, StatusPill, StatTile, Toast, copyText, useToast
 } from "../components";
+import { t } from "../i18n";
 import { LiveCountdown } from "../livecountdown";
 import {
   GEO_OUTCOME_COPY, GEO_OUTCOME_TEST_ID, browserGeoDeps, geoDiagnosticLine, parseManualCoordinates, recordGeoTrace,
@@ -22,7 +23,7 @@ import {
   failReason, fmtDate, formatIsraelDateTime, ils, israelPartsToUtcIso, moneyStateLabel, num, utcIsoToIsraelParts
 } from "../util";
 import { absoluteShareUrl } from "../viral";
-import { CODE_MESSAGES as he } from "../he";
+import { CODE_MESSAGE_KEYS } from "../he";
 import { DEADLINE_TECHNICAL_MAX_MS, classifyDeadlineMs } from "../deadlinePolicy";
 // ROUND 2 (UX-2) — the ONE required-field attention rule (pulsing border on the
 // exact control, aria-invalid, scroll/focus anchor, clears when it becomes valid)
@@ -49,10 +50,10 @@ function SellerLogin({ onDone, initialMode }: { onDone: () => void; initialMode?
   return (
     <AuthPanel
       surface="seller"
-      title="אזור המוכרים"
-      subtitle="חשבון אחד לכל C-ton — נהלו עסקאות קבוצתיות, עקבו אחרי כסף והפצה."
+      title={t("pages.seller.de22b547")}
+      subtitle={t("pages.seller.fc5730bd")}
       initialMode={initialMode}
-      signupLabel="פתיחת חשבון מוכר"
+      signupLabel={t("pages.seller.ade91333")}
       onDone={onDone}
     />
   );
@@ -77,11 +78,11 @@ function SellerBindingNotice({ navigate }: { navigate: (h: string) => void }) {
   return (
     <div style={{ maxWidth: 420, margin: "24px auto -24px" }}>
       <div className="notice err" data-testid="seller-binding-notice" data-binding={hint}>
-        <b>ההתחברות הצליחה, אבל אין לחשבון הזה גישת מוכר.</b>
+        <b>{t("pages.seller.97d0c2ce")}</b>
         <div className="small" style={{ marginTop: 4 }}>{copy}</div>
         <div className="row" style={{ marginTop: 8, gap: 8 }}>
-          <button className="btn btn-sm btn-ghost" onClick={() => navigate("#/support")}>תמיכה ויצירת קשר</button>
-          <button className="btn btn-sm btn-ghost" onClick={() => { clearAuthSession(); clearOwnerSession(); window.location.reload(); }}>יציאה</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => navigate("#/support")}>{t("pages.seller.ed673442")}</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => { clearAuthSession(); clearOwnerSession(); window.location.reload(); }}>{t("pages.seller.b939061e")}</button>
         </div>
       </div>
     </div>
@@ -122,15 +123,15 @@ function SellerJourney({ deal, title }: { deal: Json | null; title: string }) {
   const stage = journeyStageOf(deal);
   const state = String(deal?.state || "");
   const terminal = ["Completed", "Failed", "Cancelled"].includes(state);
-  const outcome = state === "Completed" ? "הושלמה בהצלחה — אפשר לספק"
-    : state === "Failed" ? "לא הגיעה ליעד — המסגרות שוחררו, אף אחד לא חויב"
-    : state === "Cancelled" ? "בוטלה — אף אחד לא חויב"
+  const outcome = state === "Completed" ? t("pages.seller.608cc753")
+    : state === "Failed" ? t("pages.seller.8de92fba")
+    : state === "Cancelled" ? t("pages.seller.5ec9d4f8")
     : "";
   return (
     <section className="journey" data-testid="seller-journey" data-stage={stage} aria-label={title}>
       <div className="journey-head">
         <h3>{title}</h3>
-        <span className="small">סביבת הדגמה — ללא חיובים אמיתיים</span>
+        <span className="small">{t("pages.seller.64398ed9")}</span>
       </div>
       <ol className="journey-steps">
         {JOURNEY_STEPS.map((s, i) => {
@@ -146,7 +147,7 @@ function SellerJourney({ deal, title }: { deal: Json | null; title: string }) {
         })}
       </ol>
       <div className="journey-foot">
-        <span><b>מה סיטון עושה:</b> סופר הצטרפויות, שומר מסגרות אשראי בלבד, ומחייב רק אם הקבוצה הגיעה ליעד עד מועד הסיום.</span>
+        <span><b>{t("pages.seller.a54c7156")}</b>  {t("pages.seller.3be82d92")}</span>
       </div>
     </section>
   );
@@ -179,7 +180,7 @@ function SellerDealCard({ deal, navigate, showToast }: { deal: Json; navigate: (
   const cd = countdownView(countdownUntil);
   const open = () => navigate(`#/seller/deal/${deal.deal_id}`);
 
-  const primaryLabel = state === "Draft" ? "המשך עריכה" : closed ? "צפייה בסיכום" : "ניהול העסקה";
+  const primaryLabel = state === "Draft" ? t("pages.seller.301ce047") : closed ? t("pages.seller.b5146e0d") : t("pages.seller.9e66bf49");
 
   return (
     <div className={`sd-card${urgent ? " urgent" : ""}`}>
@@ -193,22 +194,22 @@ function SellerDealCard({ deal, navigate, showToast }: { deal: Json; navigate: (
           </div>
         </div>
         <div className={`sd-money${state === "Failed" ? " lost" : potential <= 0 ? " zero" : ""}`}>
-          {potential <= 0 && !charged ? "₪0 (עדיין אין הזמנות)" : ils(showMoney)}
-          {closed && charged > 0 ? <span className="small muted"> נגבה בפועל</span> : null}
+          {potential <= 0 && !charged ? t("pages.seller.100a3a11") : ils(showMoney)}
+          {closed && charged > 0 ? <span className="small muted">  {t("pages.seller.e2fca018")}</span> : null}
         </div>
         {state !== "Draft" ? (
           <div className="sd-quants">
-            <span className="q-charged">חויב בהצלחה: {num(money.charged_units || 0)}</span>
+            <span className="q-charged">{t("pages.seller.b6931559", { v0: num(money.charged_units || 0) })}</span>
             <span className={`q-pending${inWindow ? " risk" : ""}`}>
-              {inWindow ? "בסיכון" : "בהמתנה"}: {num(pending)}
+              {inWindow ? t("pages.seller.b7ff8304") : t("pages.seller.7e5634ef")}: {num(pending)}
             </span>
-            <span className="q-none">לא חויב: {num(money.dropped_units || 0)}</span>
+            <span className="q-none">{t("pages.seller.f7e53075", { v0: num(money.dropped_units || 0) })}</span>
           </div>
         ) : null}
         {countdownUntil && cd && cd.tone !== "over" ? (
           <div className="row" style={{ justifyContent: "space-between" }}>
-            <Countdown until={countdownUntil} label={inWindow ? "חלון השלמה:" : "לסגירה:"} />
-            {inWindow && cd.tone === "danger" ? <span style={{ color: "var(--pomegranate)", fontWeight: 800 }}>מסתיים בקרוב • {num(pending)} בהמתנה</span> : null}
+            <Countdown until={countdownUntil} label={inWindow ? t("pages.seller.9f4d5c3c") : t("pages.seller.6df16603")} />
+            {inWindow && cd.tone === "danger" ? <span style={{ color: "var(--pomegranate)", fontWeight: 800 }}>{t("pages.seller.bc02f566", { pending: num(pending) })}</span> : null}
           </div>
         ) : null}
         {state === "Failed" ? <div className="sd-fail-reason">{failReason({ state, joined_units: deal.metrics?.joined_units, threshold_units: deal.threshold_units })}</div> : null}
@@ -217,21 +218,21 @@ function SellerDealCard({ deal, navigate, showToast }: { deal: Json; navigate: (
         <button className="btn btn-sm btn-primary" onClick={open}>{primaryLabel}</button>
         {isOpen ? (
           <button className="btn btn-sm btn-ghost" onClick={async () => {
-            if (await copyText(absoluteShareUrl(deal.deal_id, null))) showToast("הקישור הועתק");
-          }}>העתקת קישור</button>
+            if (await copyText(absoluteShareUrl(deal.deal_id, null))) showToast(t("pages.seller.4aa70f6f"));
+          }}>{t("pages.seller.473c5168")}</button>
         ) : null}
         {closed && state === "Completed" && String(deal.deal_type || "physical_product") === "physical_product" ? (
-          <button className="btn btn-sm btn-ghost" data-testid="card-fulfillment-open" onClick={() => navigate(`#/seller/deal/${deal.deal_id}/fulfillment`)}>הזמנות למסירה</button>
+          <button className="btn btn-sm btn-ghost" data-testid="card-fulfillment-open" onClick={() => navigate(`#/seller/deal/${deal.deal_id}/fulfillment`)}>{t("pages.seller.1ac278ad")}</button>
         ) : null}
         {closed ? (
           <button className="btn btn-sm btn-ghost" onClick={async () => {
             try {
               const r = await api.duplicateDeal(deal.deal_id);
               const newId = r?.deal?.deal_id || r?.deal_id;
-              showToast("נוצרה טיוטה חדשה — בדקו את כל הפרטים לפני פרסום");
+              showToast(t("pages.seller.f3330202"));
               if (newId) navigate(`#/seller/deal/${newId}`);
-            } catch (e: any) { showToast(e.message || "השכפול נכשל"); }
-          }}>יצירת עסקה דומה</button>
+            } catch (e: any) { showToast(e.message || t("pages.seller.96a449fa")); }
+          }}>{t("pages.seller.7c392046")}</button>
         ) : null}
       </div>
     </div>
@@ -256,22 +257,22 @@ function SellerArchiveRow({ deal, navigate, showToast }: { deal: Json; navigate:
         onKeyDown={(e) => { if (e.key === "Enter") open(); }}>
         <span className="sd-archive-title">{deal.title}</span>
         <StatusPill state={state} />
-        <span className="sd-archive-money">{state === "Completed" ? ils(charged) : state === "Failed" ? failReason({ state, joined_units: deal.metrics?.joined_units, threshold_units: deal.threshold_units }) : "בוטלה"}</span>
+        <span className="sd-archive-money">{state === "Completed" ? ils(charged) : state === "Failed" ? failReason({ state, joined_units: deal.metrics?.joined_units, threshold_units: deal.threshold_units }) : t("pages.seller.06d451f3")}</span>
         <span className="sd-archive-when muted small">{fmtDate(deal.last_update_at || deal.created_at)}</span>
       </div>
       <div className="sd-archive-actions">
-        <button className="btn btn-sm btn-ghost" data-testid="archive-open" onClick={open}>צפייה בסיכום</button>
+        <button className="btn btn-sm btn-ghost" data-testid="archive-open" onClick={open}>{t("pages.seller.b5146e0d")}</button>
         {state === "Completed" && String(deal.deal_type || "physical_product") === "physical_product" ? (
-          <button className="btn btn-sm btn-ghost" data-testid="archive-fulfillment-open" onClick={() => navigate(`#/seller/deal/${deal.deal_id}/fulfillment`)}>הזמנות למסירה</button>
+          <button className="btn btn-sm btn-ghost" data-testid="archive-fulfillment-open" onClick={() => navigate(`#/seller/deal/${deal.deal_id}/fulfillment`)}>{t("pages.seller.1ac278ad")}</button>
         ) : null}
         <button className="btn btn-sm btn-ghost" data-testid="archive-duplicate" onClick={async () => {
           try {
             const r = await api.duplicateDeal(deal.deal_id);
             const newId = r?.deal?.deal_id || r?.deal_id;
-            showToast("נוצרה טיוטה חדשה — בדקו את כל הפרטים לפני פרסום");
+            showToast(t("pages.seller.f3330202"));
             if (newId) navigate(`#/seller/deal/${newId}`);
-          } catch (e: any) { showToast(e.message || "השכפול נכשל"); }
-        }}>יצירת עסקה דומה</button>
+          } catch (e: any) { showToast(e.message || t("pages.seller.96a449fa")); }
+        }}>{t("pages.seller.7c392046")}</button>
       </div>
     </div>
   );
@@ -349,7 +350,7 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
     };
   }, [deals]);
 
-  if (!surface && !error) return <BrandLoader label="טוענים את הדשבורד…" minHeight={420} />;
+  if (!surface && !error) return <BrandLoader label={t("pages.seller.2e3a15b9")} minHeight={420} />;
 
   const stale = now - updatedAt > 60_000;
   const profile = surface?.seller_profile || {};
@@ -360,20 +361,20 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
     <>
       <div className="dash-head">
         <div>
-          <h1>{profile.business_name || profile.display_name || "המוכר שלי"}</h1>
-          <span className="dash-updated">מתעדכן אוטומטית · עודכן לפני {Math.max(0, Math.round((now - updatedAt) / 1000))} שניות</span>
-          {stale ? <span className="stale-badge" style={{ marginInlineStart: 8 }}>הנתונים עלולים להיות לא עדכניים — רעננו</span> : null}
+          <h1>{profile.business_name || profile.display_name || t("pages.seller.a987fe9c")}</h1>
+          <span className="dash-updated">{t("pages.seller.a2efee99", { v0: Math.max(0, Math.round((now - updatedAt) / 1000)) })}</span>
+          {stale ? <span className="stale-badge" style={{ marginInlineStart: 8 }}>{t("pages.seller.258c6384")}</span> : null}
         </div>
         <div className="row" style={{ marginInlineStart: "auto" }}>
-          <button className="btn btn-sm btn-ghost" onClick={load} aria-label="רענון">↻ רענון</button>
-          <a className="btn btn-sm btn-ghost" href="#/seller/receipts">מימוש רכישות</a>
-          <button className="btn btn-sm btn-ghost" onClick={() => navigate("#/seller/profile")}>פרופיל עסקי</button>
+          <button className="btn btn-sm btn-ghost" onClick={load} aria-label={t("pages.seller.563d20eb")}>{t("pages.seller.e870e411")}</button>
+          <a className="btn btn-sm btn-ghost" href="#/seller/receipts">{t("pages.seller.f71c1812")}</a>
+          <button className="btn btn-sm btn-ghost" onClick={() => navigate("#/seller/profile")}>{t("pages.seller.d23f05c6")}</button>
           {/* 071 — Product Library: reusable products the seller creates deals from */}
-          <button className="btn btn-sm btn-ghost" data-testid="dash-product-library" onClick={() => navigate("#/seller/products")}>ספריית המוצרים</button>
+          <button className="btn btn-sm btn-ghost" data-testid="dash-product-library" onClick={() => navigate("#/seller/products")}>{t("pages.seller.a971b04f")}</button>
           {/* LAUNCH SPRINT 3 — the counter action: no need to find the deal first */}
-          <button className="btn btn-sm btn-ghost" data-testid="dash-pickup-scan" onClick={() => navigate("#/seller/pickup")}>סריקת איסוף</button>
-          <button className="btn btn-primary" onClick={() => navigate("#/seller/new")}>+ יצירת עסקה חדשה</button>
-          <button className="btn btn-sm btn-ghost" onClick={() => { clearAuthSession(); clearOwnerSession(); window.location.reload(); }}>יציאה</button>
+          <button className="btn btn-sm btn-ghost" data-testid="dash-pickup-scan" onClick={() => navigate("#/seller/pickup")}>{t("pages.seller.2d843402")}</button>
+          <button className="btn btn-primary" onClick={() => navigate("#/seller/new")}>{t("pages.seller.46516a5f")}</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => { clearAuthSession(); clearOwnerSession(); window.location.reload(); }}>{t("pages.seller.b939061e")}</button>
         </div>
       </div>
 
@@ -385,7 +386,7 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
       ) : null}
       {String(profile.verification_status || "") === "rejected" ? (
         <div className="notice err" data-testid="seller-rejected">
-          <b>{copy.rejected_title}</b> {copy.rejected_body} <a href="#/support" onClick={(e) => { e.preventDefault(); navigate("#/support"); }}>תמיכה ויצירת קשר</a>.
+          <b>{copy.rejected_title}</b> {copy.rejected_body} <a href="#/support" onClick={(e) => { e.preventDefault(); navigate("#/support"); }}>{t("pages.seller.ed673442")}</a>.
         </div>
       ) : null}
       {/* LAUNCH POLISH (P3) — a seller who never published sees the whole path once, compactly */}
@@ -393,9 +394,9 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
       {bizStatuses && (!bizStatuses.profile_complete || !bizStatuses.settlement_ready) ? (
         <div className="notice info" style={{ display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
           <span>
-            <b>{copy.profile_incomplete_title}</b> — {!bizStatuses.profile_complete ? "חסרים פרטי העסק ואיש הקשר" : "חסרים פרטי חשבון הבנק לקבלת כספים"}.
+            <b>{copy.profile_incomplete_title}</b> — {!bizStatuses.profile_complete ? t("pages.seller.a3fa705d") : t("pages.seller.2bedcbf6")}.
           </span>
-          <button className="btn btn-sm btn-primary" onClick={() => navigate("#/seller/profile")}>השלמת הפרופיל</button>
+          <button className="btn btn-sm btn-primary" onClick={() => navigate("#/seller/profile")}>{t("pages.seller.bbeffa00")}</button>
         </div>
       ) : null}
 
@@ -404,10 +405,10 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
       {/* P0.4-2A — global seller KPI strip (canonical analytics; potential vs charged vs net) */}
       {analytics ? <KpiStrip analytics={analytics} /> : (
         <div className="stat-row">
-          <StatTile num={num(surface?.totals?.live_deals || 0)} label="עסקאות חיות" />
-          <StatTile num={ils(totalPotential)} label="נפח עסקאות פעיל (מסגרות)" />
-          <StatTile num={ils(totalCharged)} label="נגבה בפועל" tone="good" />
-          <StatTile num={num(surface?.totals?.completed_deals || 0)} label="הושלמו" />
+          <StatTile num={num(surface?.totals?.live_deals || 0)} label={t("pages.seller.9f6ee4a8")} />
+          <StatTile num={ils(totalPotential)} label={t("pages.seller.93079b29")} />
+          <StatTile num={ils(totalCharged)} label={t("pages.seller.e2fca018")} tone="good" />
+          <StatTile num={num(surface?.totals?.completed_deals || 0)} label={t("pages.seller.8a0c3e3e")} />
         </div>
       )}
 
@@ -419,20 +420,20 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
 
       {urgentDeals.length ? (
         <>
-          <div className="section-title">דורש תשומת לב עכשיו <span className="count">({urgentDeals.length})</span></div>
+          <div className="section-title">{t("pages.seller.7f729c04")} <span className="count">({urgentDeals.length})</span></div>
           <div className="sd-grid">
             {urgentDeals.map((d) => <SellerDealCard key={d.deal_id} deal={d} navigate={navigate} showToast={showToast} />)}
           </div>
         </>
       ) : null}
 
-      <div className="section-title">העסקאות שלי <span className="count">({activeDeals.length})</span></div>
+      <div className="section-title">{t("pages.seller.6146baa5")} <span className="count">({activeDeals.length})</span></div>
       {deals.length === 0 ? (
         <EmptyState title={copy.empty_title}
           body={copy.empty_body}
           action={<button className="btn btn-primary" onClick={() => navigate("#/seller/new")}>{copy.empty_cta}</button>} />
       ) : activeDeals.length === 0 && urgentDeals.length === 0 ? (
-        <p className="muted" data-testid="seller-no-active-deals">אין עסקאות פעילות כרגע — כל מה שהיה נמצא בארכיון למטה.</p>
+        <p className="muted" data-testid="seller-no-active-deals">{t("pages.seller.48069ccb")}</p>
       ) : (
         <div className="sd-grid">
           {activeDeals.map((d) => <SellerDealCard key={d.deal_id} deal={d} navigate={navigate} showToast={showToast} />)}
@@ -443,7 +444,7 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
       {archivedDeals.length ? (
         <details className="sd-archive" data-testid="seller-archive">
           <summary data-testid="seller-archive-toggle">
-            ארכיון עסקאות שהסתיימו <span className="count" data-testid="seller-archive-count">({archivedDeals.length})</span>
+            {t("pages.seller.395c84a0")} <span className="count" data-testid="seller-archive-count">({archivedDeals.length})</span>
           </summary>
           <div className="sd-archive-list">
             {archivedDeals.map((d) => <SellerArchiveRow key={d.deal_id} deal={d} navigate={navigate} showToast={showToast} />)}
@@ -457,13 +458,13 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
           <MoneyPanel analytics={analytics} />
           <div className="panel analytics-filters" data-testid="analytics-filters">
             <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-              <span style={{ fontWeight: 700 }}>תקופה:</span>
-              {([["7d", "7 ימים"], ["30d", "30 ימים"], ["all", "כל התקופה"]] as const).map(([value, label]) => (
+              <span style={{ fontWeight: 700 }}>{t("pages.seller.c57fb733")}</span>
+              {([["7d", t("pages.seller.986f9ad7")], ["30d", t("pages.seller.39409dc0")], ["all", t("pages.seller.4157f6dc")]] as const).map(([value, label]) => (
                 <button key={value} className={`btn btn-sm ${aPeriod === value ? "btn-primary" : "btn-ghost"}`} onClick={() => setAPeriod(value)}>{label}</button>
               ))}
-              <span style={{ fontWeight: 700, marginInlineStart: 12 }}>עסקה:</span>
+              <span style={{ fontWeight: 700, marginInlineStart: 12 }}>{t("pages.seller.f09f8462")}</span>
               <select value={aDeal} onChange={(e) => setADeal(e.target.value)} style={{ maxWidth: 240 }}>
-                <option value="">כל העסקאות</option>
+                <option value="">{t("pages.seller.dd3b0aad")}</option>
                 {deals.map((d) => <option key={d.deal_id} value={d.deal_id}>{d.title}</option>)}
               </select>
             </div>
@@ -474,9 +475,9 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
           <ActivityPanel items={analytics.recent_activity || []} />
         </>
       ) : analyticsError ? (
-        <div className="notice err">טעינת האנליטיקות נכשלה: {analyticsError}</div>
+        <div className="notice err">{t("pages.seller.d4f1f5a1", { analyticsError: analyticsError })}</div>
       ) : (
-        <div className="panel"><p className="muted small" style={{ margin: 0 }}>טוענים אנליטיקות…</p></div>
+        <div className="panel"><p className="muted small" style={{ margin: 0 }}>{t("pages.seller.83eb0a24")}</p></div>
       )}
       <Toast msg={toast} />
     </>
@@ -499,7 +500,7 @@ function DeadlinePicker(props: {
   const longHorizon = iso ? classifyDeadlineMs(Date.parse(iso)).long_horizon : false;
   return (
     <div className="field">
-      <label>מועד סיום ההצטרפות <span className="req">*</span> <span className="hint">(שעון ישראל)</span></label>
+      <label>{t("pages.seller.635da720")} <span className="req">*</span> <span className="hint">{t("pages.seller.e948f439")}</span></label>
       <div className="deadline-row">
         <input id={`f-${prefix}-date`} dir="ltr" type="date" value={props.date} min={todayIsrael} max={maxIsrael}
           className={props.error ? "invalid" : ""} onChange={(e) => props.onDate(e.target.value)} />
@@ -510,7 +511,7 @@ function DeadlinePicker(props: {
       {iso && !props.error ? (
         <span className="deadline-confirm">✓ {formatIsraelDateTime(iso)}</span>
       ) : null}
-      <span className="hint">לפחות שעתיים מרגע הפרסום. אפשר לפתוח עסקה לימים, שבועות או חודשים — משך העסקה אינו מוגבל על ידי תוקף אישור התשלום.</span>
+      <span className="hint">{t("pages.seller.82e4bae3")}</span>
       {longHorizon && !props.error ? <LongHorizonWarning /> : null}
     </div>
   );
@@ -523,18 +524,16 @@ function DeadlinePicker(props: {
 function LongHorizonWarning() {
   return (
     <div className="notice warn" data-testid="long-horizon-warning">
-      <strong>שימו לב:</strong> העסקה מוגדרת לטווח ארוך. לאורך זמן כרטיסי אשראי עלולים לפוג, להתחלף או להיחסם,
-      ולכן חלק מהמשתתפים עשויים להידרש לעדכן אמצעי תשלום לפני השלמת העסקה.
-    </div>
+      <strong>{t("pages.seller.1bc016de")}</strong>  {t("pages.seller.a9e471be")}</div>
   );
 }
 
 function validateDeadline(date: string, time: string): { iso: string | null; error: string } {
-  if (!date || !time) return { iso: null, error: "יש לבחור תאריך ושעה למועד הסיום" };
+  if (!date || !time) return { iso: null, error: t("pages.seller.c3970bb1") };
   const iso = israelPartsToUtcIso(date, time);
-  if (!iso) return { iso: null, error: "יש לבחור תאריך ושעה תקינים" };
+  if (!iso) return { iso: null, error: t("pages.seller.9be52a5e") };
   const policy = classifyDeadlineMs(Date.parse(iso));
-  if (!policy.ok) return { iso, error: he[policy.code] || policy.code };
+  if (!policy.ok) return { iso, error: CODE_MESSAGE_KEYS[policy.code] ? t(CODE_MESSAGE_KEYS[policy.code]!) : policy.code };
   return { iso, error: "" };
 }
 
@@ -609,17 +608,16 @@ function LocationCapture({ row, onSet }: { row: DeliveryDraft; onSet: (lat: numb
     return (
       <div className="row" style={{ gap: 8, marginTop: -4, marginBottom: 10, flexWrap: "wrap" }}>
         <span className="small" style={{ fontWeight: 700, color: "var(--accent-cyan)" }} data-testid="geo-captured">
-          ✓ המיקום נקלט ({row.latitude.toFixed(4)}, {row.longitude.toFixed(4)})
-        </span>
-        <a className="btn btn-sm btn-ghost" href={mapUrl} target="_blank" rel="noreferrer">הצגה במפה</a>
-        <button type="button" className="btn btn-sm btn-ghost" data-testid="geo-remove" onClick={() => onSet(null, null)}>הסרת המיקום</button>
+          {t("pages.seller.466cf517", { v0: row.latitude.toFixed(4), v1: row.longitude.toFixed(4) })}</span>
+        <a className="btn btn-sm btn-ghost" href={mapUrl} target="_blank" rel="noreferrer">{t("pages.seller.f5a83bf4")}</a>
+        <button type="button" className="btn btn-sm btn-ghost" data-testid="geo-remove" onClick={() => onSet(null, null)}>{t("pages.seller.246870c8")}</button>
       </div>
     );
   }
 
   const copy = outcome && outcome.kind !== "success" ? GEO_OUTCOME_COPY[outcome.kind] : null;
   const failureTestId = outcome && outcome.kind !== "success" ? GEO_OUTCOME_TEST_ID[outcome.kind] : "";
-  const pendingLabel = attempt?.n === 2 ? "מנסים שוב במצב מדויק…" : "מבקשים גישה למיקום…";
+  const pendingLabel = attempt?.n === 2 ? t("pages.seller.1894cd9e") : t("pages.seller.36b55ff6");
 
   return (
     <div className="stack" style={{ gap: 6, marginTop: -4, marginBottom: 10 }}>
@@ -627,14 +625,13 @@ function LocationCapture({ row, onSet }: { row: DeliveryDraft; onSet: (lat: numb
         <button type="button" className="btn btn-sm btn-ghost" disabled={pending} data-testid="use-my-location"
           data-geo-pending={pending ? "1" : "0"} data-geo-attempt={attempt ? String(attempt.n) : ""}
           onClick={() => { void capture(); }}>
-          {pending ? pendingLabel : "השתמש במיקום שלי"}
+          {pending ? pendingLabel : t("pages.seller.5a282971")}
         </button>
         <button type="button" className="btn btn-sm btn-ghost" style={{ opacity: .7 }} data-testid="geo-manual-toggle"
           onClick={() => setShowManual((v) => !v)}>
-          הזנת קואורדינטות ידנית
-        </button>
+          {t("pages.seller.d1de5699")}</button>
       </div>
-      <span className="hint">לא חובה — מוסיף לקונים כפתור ניווט. הכתובת בשדה התיאור מספיקה תמיד.</span>
+      <span className="hint">{t("pages.seller.161bb396")}</span>
 
       {copy && outcome ? (
         <div className={`notice ${copy.denial ? "err" : "info"}`} data-testid={failureTestId} data-geo-kind={outcome.kind} style={{ marginTop: 2 }}>
@@ -646,7 +643,7 @@ function LocationCapture({ row, onSet }: { row: DeliveryDraft; onSet: (lat: numb
           {copy.retryable ? (
             <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: 6 }} disabled={pending}
               data-testid={copy.denial ? "geo-recheck" : "geo-retry"} onClick={() => { void capture(); }}>
-              {copy.denial ? "בדיקה מחדש" : "ניסיון נוסף"}
+              {copy.denial ? t("pages.seller.a2c489d6") : t("pages.seller.fc2297f3")}
             </button>
           ) : null}
           <code className="small" dir="ltr" data-testid="geo-diag"
@@ -659,14 +656,14 @@ function LocationCapture({ row, onSet }: { row: DeliveryDraft; onSet: (lat: numb
       {showManual ? (
         <div className="row" style={{ gap: 8, alignItems: "flex-end", flexWrap: "wrap" }} data-testid="geo-manual">
           <div className="field" style={{ marginBottom: 0, flex: "1 1 110px" }}>
-            <label>קו רוחב (lat)</label>
+            <label>{t("pages.seller.e180aaa8")}</label>
             <input dir="ltr" inputMode="decimal" data-testid="geo-manual-lat" value={mLat} onChange={(e) => setMLat(e.target.value)} placeholder="32.0668" />
           </div>
           <div className="field" style={{ marginBottom: 0, flex: "1 1 110px" }}>
-            <label>קו אורך (lng)</label>
+            <label>{t("pages.seller.3baff3a8")}</label>
             <input dir="ltr" inputMode="decimal" data-testid="geo-manual-lng" value={mLng} onChange={(e) => setMLng(e.target.value)} placeholder="34.7647" />
           </div>
-          <button type="button" className="btn btn-sm btn-ghost" data-testid="geo-manual-apply" onClick={applyManual}>שמירה</button>
+          <button type="button" className="btn btn-sm btn-ghost" data-testid="geo-manual-apply" onClick={applyManual}>{t("pages.seller.e6932339")}</button>
         </div>
       ) : null}
       {manualError ? <span className="field-error" data-testid="geo-manual-error">{manualError}</span> : null}
@@ -686,12 +683,12 @@ function DeliveryEstimateInputs({ row, index, onChange, error }: { row: Delivery
   const preview = estimateTextFor(row);
   return (
     <div className="field" style={{ marginBottom: 8 }} data-testid={`delivery-estimate-${index}`}>
-      <label>זמן אספקה משוער <span className="hint">(ימי עסקים מהשלמת העסקה — לא חובה)</span></label>
+      <label>{t("pages.seller.7115a7f8")} <span className="hint">{t("pages.seller.1a374048")}</span></label>
       <div className="row" style={{ alignItems: "center", gap: 8 }}>
-        <input dir="ltr" type="number" min={0} max={365} style={{ maxWidth: 100 }} value={row.est_min} aria-label="מינימום ימי עסקים" data-testid={`delivery-est-min-${index}`} onChange={(e) => onChange(e.target.value, row.est_max)} />
-        <span>עד</span>
-        <input dir="ltr" type="number" min={0} max={365} style={{ maxWidth: 100 }} value={row.est_max} aria-label="מקסימום ימי עסקים" data-testid={`delivery-est-max-${index}`} onChange={(e) => onChange(row.est_min, e.target.value)} />
-        {preview ? <span className="muted small">יוצג לקונים: {preview}</span> : null}
+        <input dir="ltr" type="number" min={0} max={365} style={{ maxWidth: 100 }} value={row.est_min} aria-label={t("pages.seller.8a7a1302")} data-testid={`delivery-est-min-${index}`} onChange={(e) => onChange(e.target.value, row.est_max)} />
+        <span>{t("pages.seller.344c1d0e")}</span>
+        <input dir="ltr" type="number" min={0} max={365} style={{ maxWidth: 100 }} value={row.est_max} aria-label={t("pages.seller.4b28237d")} data-testid={`delivery-est-max-${index}`} onChange={(e) => onChange(row.est_min, e.target.value)} />
+        {preview ? <span className="muted small">{t("pages.seller.93be3d39", { preview: preview })}</span> : null}
       </div>
       <FieldError msg={error} />
     </div>
@@ -761,7 +758,7 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
     api.sellerProduct(productId).then((r) => {
       if (!alive) return;
       const p = r.product as Json;
-      if (String(p.status) !== "active") { setProductError("המוצר נמצא בארכיון — שחזרו אותו מספריית המוצרים לפני יצירת עסקה."); return; }
+      if (String(p.status) !== "active") { setProductError(t("pages.seller.9be5799b")); return; }
       setProduct(p);
       const type = String(p.product_type || "physical_product") as WizardDealType;
       setDealType(type);
@@ -786,7 +783,7 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
       const min = d.estimated_min_business_days == null ? "" : String(d.estimated_min_business_days);
       const max = d.estimated_max_business_days == null ? "" : String(d.estimated_max_business_days);
       setDelivery((rows) => rows.map((row) => ({ ...row, est_min: row.est_min || min, est_max: row.est_max || max })));
-    }).catch((e) => { if (alive) setProductError(e.message || "לא ניתן לטעון את המוצר"); });
+    }).catch((e) => { if (alive) setProductError(e.message || t("pages.seller.3116ae3f")); });
     return () => { alive = false; };
   }, [productId]);
   const productImages: Json[] = product?.images || [];
@@ -803,40 +800,40 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
   const validateStep = (s: number): Record<string, string> => {
     const errs: Record<string, string> = {};
     if (s === 0) {
-      if (productId && !product) errs.product = productError || "ממתינים לטעינת המוצר";
-      if (!product && !title.trim()) errs.title = "יש להזין שם לעסקה";
-      if (!product && !shortDesc.trim()) errs.short = "יש להזין תיאור קצר — המשפט שמוכר את העסקה";
-      if (!(priceNum > 0)) errs.price = "יש להזין מחיר ליחידה";
-      if (listPrice.trim() && !(Number(listPrice) > priceNum)) errs.listPrice = "המחיר הרגיל חייב להיות גבוה מהמחיר הקבוצתי (או להישאר ריק)";
-      if (images.length === 0 && productImages.length === 0) errs.images = "יש להעלות לפחות תמונה אחת";
+      if (productId && !product) errs.product = productError || t("pages.seller.871a7a85");
+      if (!product && !title.trim()) errs.title = t("pages.seller.bd4a8380");
+      if (!product && !shortDesc.trim()) errs.short = t("pages.seller.30c78602");
+      if (!(priceNum > 0)) errs.price = t("pages.seller.ffac3007");
+      if (listPrice.trim() && !(Number(listPrice) > priceNum)) errs.listPrice = t("pages.seller.e5e1b021");
+      if (images.length === 0 && productImages.length === 0) errs.images = t("pages.seller.885cafa8");
     }
     if (s === 1) {
-      if (!isPositiveIntegerText(minUnits)) errs.min = "יש להזין כמות מינימום";
-      if (!isPositiveIntegerText(maxUnits) || !(maxNum >= minNum)) errs.max = "כמות המקסימום חייבת להיות לפחות כמו המינימום";
+      if (!isPositiveIntegerText(minUnits)) errs.min = t("pages.seller.9e2a133c");
+      if (!isPositiveIntegerText(maxUnits) || !(maxNum >= minNum)) errs.max = t("pages.seller.28254e08");
     }
     if (s === 2) {
-      if (dealType === "physical_product" && !delivery.some((d) => d.label.trim())) errs.delivery = "יש להוסיף לפחות אפשרות אספקה אחת";
+      if (dealType === "physical_product" && !delivery.some((d) => d.label.trim())) errs.delivery = t("pages.seller.15bb7786");
       if (dealType === "voucher") {
-        if (!(Number(voucherFaceValue) > 0)) errs.voucherFace = "יש להזין את שווי השובר";
-        if (!voucherValidUntil || new Date(`${voucherValidUntil}T23:59:59`).getTime() <= Date.now()) errs.voucherValid = "יש לבחור תוקף עתידי לשובר";
-        if (!redemptionLocation.trim()) errs.voucherLocation = "יש להזין מקום מימוש";
-        if (!redemptionInstructions.trim()) errs.voucherInstructions = "יש להזין הוראות מימוש";
-        if (!voucherTerms.trim()) errs.voucherTerms = "יש להזין את תנאי השובר";
+        if (!(Number(voucherFaceValue) > 0)) errs.voucherFace = t("pages.seller.5b94bfb4");
+        if (!voucherValidUntil || new Date(`${voucherValidUntil}T23:59:59`).getTime() <= Date.now()) errs.voucherValid = t("pages.seller.f40ecf80");
+        if (!redemptionLocation.trim()) errs.voucherLocation = t("pages.seller.5e121497");
+        if (!redemptionInstructions.trim()) errs.voucherInstructions = t("pages.seller.c164cc8c");
+        if (!voucherTerms.trim()) errs.voucherTerms = t("pages.seller.6e3adf78");
       }
       if (dealType === "ticket") {
-        if (!eventName.trim()) errs.eventName = "יש להזין שם אירוע";
-        if (!eventStartsAt || new Date(eventStartsAt).getTime() <= Date.now()) errs.eventStart = "יש לבחור מועד עתידי לאירוע";
-        if (!venueName.trim()) errs.venueName = "יש להזין את מקום האירוע";
-        if (!venueCity.trim()) errs.venueCity = "יש להזין עיר";
-        if (!entryInstructions.trim()) errs.entry = "יש להזין הוראות כניסה";
-        if (eventEndsAt && new Date(eventEndsAt).getTime() <= new Date(eventStartsAt).getTime()) errs.eventEnd = "מועד הסיום חייב להיות אחרי ההתחלה";
+        if (!eventName.trim()) errs.eventName = t("pages.seller.018096b9");
+        if (!eventStartsAt || new Date(eventStartsAt).getTime() <= Date.now()) errs.eventStart = t("pages.seller.99eb5d8e");
+        if (!venueName.trim()) errs.venueName = t("pages.seller.c2e0fc70");
+        if (!venueCity.trim()) errs.venueCity = t("pages.seller.93669fa2");
+        if (!entryInstructions.trim()) errs.entry = t("pages.seller.069b556b");
+        if (eventEndsAt && new Date(eventEndsAt).getTime() <= new Date(eventStartsAt).getTime()) errs.eventEnd = t("pages.seller.cce60aad");
       }
     }
     // P0.7 — self-pickup / distribution point must carry a usable location
     if (s === 2 && dealType === "physical_product" && !errs.delivery) {
       const configured = delivery.filter((d) => d.label.trim());
       if (configured.some((d) => !hasUsablePickupLocation(d))) {
-        errs.delivery = "לאיסוף עצמי / נקודת חלוקה יש להזין כתובת או מיקום (או ללחוץ על ״השתמש במיקום שלי״)";
+        errs.delivery = t("pages.seller.09cec36d");
       }
     }
     if (s === 2 && dealType === "physical_product") {
@@ -844,12 +841,12 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
         if (!d.label.trim()) return;
         const estError = validateEstimateRange(d.est_min, d.est_max);
         if (estError) errs[`delivery-estimate-${i}`] = estError;
-        else if (product && (!d.est_min.trim() || !d.est_max.trim())) errs[`delivery-estimate-${i}`] = "לעסקה שנוצרת ממוצר יש להזין זמן אספקה משוער (מינימום ומקסימום) לכל אפשרות";
+        else if (product && (!d.est_min.trim() || !d.est_max.trim())) errs[`delivery-estimate-${i}`] = t("pages.seller.796cf56c");
       });
     }
-    if (s === 2 && receiptMethodsOf(receipt).includes("instructions") && !receipt.instructions.trim()) errs.receipt = "יש להזין הוראות מימוש";
+    if (s === 2 && receiptMethodsOf(receipt).includes("instructions") && !receipt.instructions.trim()) errs.receipt = t("pages.seller.c164cc8c");
     if (s === 2 && receiptMethodsOf(receipt).includes("digital_link")) {
-      try { const u = new URL(receipt.url); if (u.protocol !== "https:" || u.username || u.password) errs.receipt = "יש להזין קישור HTTPS תקין"; } catch { errs.receipt = "יש להזין קישור HTTPS תקין"; }
+      try { const u = new URL(receipt.url); if (u.protocol !== "https:" || u.username || u.password) errs.receipt = t("pages.seller.4d12fcee"); } catch { errs.receipt = t("pages.seller.4d12fcee"); }
     }
     if (s === 3 && deadlineCheck.error) errs.deadline = deadlineCheck.error;
     return errs;
@@ -932,11 +929,11 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
         ...typeSpecific
       });
       const dealId = created?.deal?.deal_id || created?.deal_id;
-      if (!dealId) throw new Error("יצירת העסקה נכשלה — נסו שוב");
+      if (!dealId) throw new Error(t("pages.seller.384d637e"));
       try {
         await productRequest(`/api/seller/deals/${dealId}/receipt`, { method: "PUT", body: JSON.stringify(receipt) }, "seller");
       } catch {
-        setError("הטיוטה נשמרה, אך אופן המימוש לא נשמר. השלימו אותו במסך העסקה לפני הפרסום.");
+        setError(t("pages.seller.71fa638d"));
         setTimeout(() => navigate(`#/seller/deal/${dealId}`), 2200);
         return;
       }
@@ -944,16 +941,16 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
       // and the deal screen's image manager offers a retry.
       for (let i = 0; i < images.length; i += 1) {
         const img = images[i]!;
-        setUploadStatus(`מעלים תמונה ${i + 1} מתוך ${images.length}…`);
+        setUploadStatus(t("pages.seller.d6f41988", { v0: i + 1, length: images.length }));
         try {
           await uploadDealImage(dealId, img, {
             isPrimary: i === 0,
             sortOrder: i,
-            onProgress: (pct) => setUploadStatus(`מעלים תמונה ${i + 1} מתוך ${images.length} · ${pct}%`)
+            onProgress: (pct) => setUploadStatus(t("pages.seller.03eebbe5", { v0: i + 1, length: images.length, pct: pct }))
           });
         } catch (imgErr: any) {
           setUploadStatus("");
-          setError(`הטיוטה נשמרה, אך העלאת "${img.name}" נכשלה. אפשר להשלים את התמונות במסך העסקה.`);
+          setError(t("pages.seller.dd5c0ca6", { name: img.name }));
           setTimeout(() => navigate(`#/seller/deal/${dealId}`), 2200);
           return;
         }
@@ -963,16 +960,16 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
       navigate(`#/seller/deal/${dealId}`);
     } catch (err: any) {
       setUploadStatus("");
-      setError(err.message || "השמירה נכשלה — נסו שוב");
+      setError(err.message || t("pages.seller.b12046d2"));
       setBusy(false);
     }
   };
 
   return (
     <div style={{ maxWidth: 640, margin: "0 auto" }}>
-      <a className="back" href="#/seller" onClick={(e) => { e.preventDefault(); navigate("#/seller"); }}>→ לדשבורד</a>
+      <a className="back" href="#/seller" onClick={(e) => { e.preventDefault(); navigate("#/seller"); }}>{t("pages.seller.227cf122")}</a>
       <div className="panel">
-        <h2>יצירת עסקה קבוצתית</h2>
+        <h2>{t("pages.seller.293ad2e4")}</h2>
         <div className="wizard-steps">
           {WIZARD_STEPS.map((s, i) => (
             <div key={s} className={`wizard-step${i === step ? " active" : i < step ? " done" : ""}`}>{i + 1}. {s}</div>
@@ -980,63 +977,63 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
         </div>
 
         {step === 0 && productId ? (
-          productError ? <div className="notice err" data-testid="wizard-product-error">{productError} <a href="#/seller/products" onClick={(e) => { e.preventDefault(); navigate("#/seller/products"); }}>לספריית המוצרים</a></div>
-          : !product ? <div className="notice info">טוענים את המוצר…</div>
+          productError ? <div className="notice err" data-testid="wizard-product-error">{productError} <a href="#/seller/products" onClick={(e) => { e.preventDefault(); navigate("#/seller/products"); }}>{t("pages.seller.820d7c7e")}</a></div>
+          : !product ? <div className="notice info">{t("pages.seller.28eb5686")}</div>
           : (
             <div className="notice info product-locked-summary" data-testid="wizard-product-summary">
-              <b>עסקה מהמוצר: {product.name}</b> · {dealTypeLabel(String(product.product_type))} · גרסה {num(product.revision || 1)}
+              <b>{t("pages.seller.3641471e", { name: product.name })}</b> · {dealTypeLabel(String(product.product_type))} · גרסה {num(product.revision || 1)}
               <div className="small muted" style={{ marginTop: 4 }}>{product.short_description}</div>
-              <div className="small muted" style={{ marginTop: 4 }}>השם, התיאור והסוג מגיעים מספריית המוצרים ומוקפאים בעסקה. לשינוי — ערכו את המוצר ואז צרו את העסקה מחדש. <a href={`#/seller/products/${product.product_id}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/products/${product.product_id}`); }}>למוצר</a></div>
-              {productImages.length ? <div className="small muted" style={{ marginTop: 4 }}>{num(productImages.length)} תמונות המוצר יועתקו לעסקה; אפשר להוסיף תמונות נוספות למטה.</div> : null}
+              <div className="small muted" style={{ marginTop: 4 }}>{t("pages.seller.09090ea9")} <a href={`#/seller/products/${product.product_id}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/products/${product.product_id}`); }}>{t("pages.seller.6a6d03cd")}</a></div>
+              {productImages.length ? <div className="small muted" style={{ marginTop: 4 }}>{t("pages.seller.5da5b83f", { length: num(productImages.length) })}</div> : null}
             </div>
           )
         ) : null}
         {step === 0 ? (
           <>
             {!productId ? <div className="field">
-              <label htmlFor="deal-type">סוג העסקה</label>
+              <label htmlFor="deal-type">{t("pages.seller.15527b30")}</label>
               <select id="deal-type" data-testid="deal-type" value={dealType} onChange={(e) => setDealType(e.target.value as WizardDealType)}>
-                <option value="physical_product">מוצר פיזי</option>
-                <option value="voucher">שובר</option>
-                <option value="ticket">כרטיס לאירוע</option>
+                <option value="physical_product">{t("pages.seller.8479bde7")}</option>
+                <option value="voucher">{t("pages.seller.a3a06e68")}</option>
+                <option value="ticket">{t("pages.seller.d83a090b")}</option>
               </select>
-              <span className="hint">השלב הבא יבקש רק את פרטי האספקה או המימוש שמתאימים לסוג שנבחר.</span>
+              <span className="hint">{t("pages.seller.64f78aee")}</span>
             </div> : null}
             {!productId ? <><div className="field">
-              <label htmlFor="f-title">שם העסקה <span className="req">*</span></label>
+              <label htmlFor="f-title">{t("pages.seller.60af138e")} <span className="req">*</span></label>
               <input {...attention(errors, "title")} data-testid="deal-title" value={title}
-                onChange={(e) => setTitle(e.target.value)} maxLength={200} placeholder="למשל: מארז זיתי סורי 5 ק״ג" />
+                onChange={(e) => setTitle(e.target.value)} maxLength={200} placeholder={t("pages.seller.759b4106")} />
               <FieldError msg={errors.title} />
             </div>
             <div className="field">
-              <label htmlFor="f-short">תיאור קצר <span className="req">*</span> <span className="hint">(המשפט שמוכר — מופיע בראש העסקה ובשיתופים, עד 200 תווים)</span></label>
+              <label htmlFor="f-short">{t("pages.seller.5b561b20")} <span className="req">*</span> <span className="hint">{t("pages.seller.8953c4c0")}</span></label>
               <input {...attention(errors, "short")} data-testid="deal-short" value={shortDesc}
-                onChange={(e) => setShortDesc(e.target.value)} maxLength={200} placeholder="למשל: זיתים חצי במחיר — רק כשנסגרים 20 מארזים" />
+                onChange={(e) => setShortDesc(e.target.value)} maxLength={200} placeholder={t("pages.seller.44d2dd2e")} />
               <FieldError msg={errors.short} />
             </div>
             <div className="field">
-              <label htmlFor="f-long">תיאור מלא <span className="hint">(לא חובה — כל מה שחשוב לקונים, מופיע בהמשך דף העסקה)</span></label>
+              <label htmlFor="f-long">{t("pages.seller.4dc3b47c")} <span className="hint">{t("pages.seller.f9756409")}</span></label>
               <textarea {...attention(errors, "long")} data-testid="deal-long" rows={6} value={longDesc} onChange={(e) => setLongDesc(e.target.value)} maxLength={4000}
-                placeholder="מה בדיוק מקבלים, איך זה מגיע, למה זה משתלם…" />
+                placeholder={t("pages.seller.b8e0d0d6")} />
             </div></> : null}
             <div className="field">
-              <label htmlFor="f-price">מחיר ליחידה (₪) <span className="req">*</span></label>
+              <label htmlFor="f-price">{t("pages.seller.1221db3b")} <span className="req">*</span></label>
               <input {...attention(errors, "price")} data-testid="deal-price" dir="ltr" type="number" min={1} step="0.5"
                 value={price} onChange={(e) => setPrice(e.target.value)} />
               <FieldError msg={errors.price} />
-              <span className="hint">המחיר ננעל לאחר הפרסום</span>
+              <span className="hint">{t("pages.seller.f2dd6f53")}</span>
             </div>
             <div className="field">
-              <label htmlFor="f-listPrice">מחיר רגיל ליחידה (₪) <span className="hint">(לא חובה — המחיר ״הרגיל״ מחוץ לקבוצה; הקונים יראו את החיסכון באחוזים)</span></label>
+              <label htmlFor="f-listPrice">{t("pages.seller.19041a71")} <span className="hint">{t("pages.seller.3fef0872")}</span></label>
               <input {...attention(errors, "listPrice")} data-testid="deal-list-price" dir="ltr" type="number" min={1} step="0.5"
                 value={listPrice} onChange={(e) => setListPrice(e.target.value)} placeholder={priceNum > 0 ? String(Math.round(priceNum * 1.3)) : ""} />
               <FieldError msg={errors.listPrice} />
               {listPrice.trim() && Number(listPrice) > priceNum && priceNum > 0
-                ? <span className="hint">יוצג לקונים: חיסכון {Math.round((1 - priceNum / Number(listPrice)) * 100)}% מהמחיר הרגיל</span>
+                ? <span className="hint">{t("pages.seller.73d7e4f0", { v0: Math.round((1 - priceNum / Number(listPrice)) * 100) })}</span>
                 : null}
             </div>
             <div {...attentionBlock(errors, "images", "field")}>
-              <label>תמונות (עד 12) {productImages.length ? <span className="hint">(לא חובה — {num(productImages.length)} תמונות מגיעות מהמוצר)</span> : <span className="req">*</span>}</label>
+              <label>תמונות (עד 12) {productImages.length ? <span className="hint">{t("pages.seller.b70f7ace", { length: num(productImages.length) })}</span> : <span className="req">*</span>}</label>
               <LocalImageManager images={images} onChange={setImages} />
               <FieldError msg={errors.images} />
             </div>
@@ -1047,22 +1044,22 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
           <>
             <div className="field-row">
               <div className="field">
-                <label htmlFor="f-min">כמות מינימום <span className="req">*</span></label>
+                <label htmlFor="f-min">{t("pages.seller.00fc351e")} <span className="req">*</span></label>
                 <input {...attention(errors, "min")} data-testid="deal-min" {...QUANTITY_INPUT_ATTRS}
                   value={minUnits} onChange={(e) => setMinUnits(e.target.value)} />
                 <FieldError msg={errors.min} />
-                <span className="hint">היעד שהקבוצה צריכה להגיע אליו</span>
+                <span className="hint">{t("pages.seller.c1dd88d3")}</span>
               </div>
               <div className="field">
-                <label htmlFor="f-max">כמות מקסימלית (מלאי) <span className="req">*</span></label>
+                <label htmlFor="f-max">{t("pages.seller.d15ff67f")} <span className="req">*</span></label>
                 <input {...attention(errors, "max")} data-testid="deal-max" {...QUANTITY_INPUT_ATTRS}
                   value={maxUnits} onChange={(e) => setMaxUnits(e.target.value)} />
                 <FieldError msg={errors.max} />
-                <span className="hint">כשמגיעים — המכירה נסגרת</span>
+                <span className="hint">{t("pages.seller.5922c962")}</span>
               </div>
             </div>
             <div className="notice info">
-              סף ההצלחה הסופי הוא <b>90% מהמינימום</b> ({num(threshold)} יחידות מחויבות בפועל) —
+              סף ההצלחה הסופי הוא <b>{t("pages.seller.ac0e625a")}</b> ({num(threshold)} יחידות מחויבות בפועל) —
               נקבע אוטומטית ואינו ניתן לשינוי.
             </div>
           </>
@@ -1072,111 +1069,111 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
           <>
             <ReceiptFields value={receipt} onChange={setReceipt} attention={Boolean(errors.receipt)} /><FieldError msg={errors.receipt} />
             {dealType === "physical_product" ? <>
-            <div {...attentionBlock(errors, "delivery", "notice info attention-block")} data-testid="delivery-required-notice">בחרו לפחות אפשרות אספקה אחת למוצר.</div>
+            <div {...attentionBlock(errors, "delivery", "notice info attention-block")} data-testid="delivery-required-notice">{t("pages.seller.7bec7427")}</div>
             <FieldError msg={errors.delivery} />
             {delivery.map((d, i) => (
               <React.Fragment key={i}>
                 <div className="row" style={{ marginBottom: 10, alignItems: "flex-end" }}>
                   <div className="field" style={{ marginBottom: 0, flex: "1 1 130px" }}>
-                    <label>סוג</label>
+                    <label>{t("pages.seller.f45000d5")}</label>
                     <select value={d.option_type} onChange={(e) => {
                       const t = e.target.value;
                       setDelivery(delivery.map((x, j) => j === i ? { ...x, option_type: t, ...(t === "delivery" ? { latitude: null, longitude: null } : {}) } : x));
                     }}>
-                      <option value="pickup">איסוף עצמי</option>
-                      <option value="delivery">משלוח</option>
-                      <option value="distribution_point">נקודת חלוקה</option>
+                      <option value="pickup">{t("pages.seller.ffe01f8e")}</option>
+                      <option value="delivery">{t("pages.seller.ee0500fa")}</option>
+                      <option value="distribution_point">{t("pages.seller.821c337a")}</option>
                     </select>
                   </div>
                   <div className="field grow" style={{ marginBottom: 0, flex: "2 1 180px" }}>
-                    <label>{isPickupOptionType(d.option_type) ? "כתובת / מיקום האיסוף" : "תיאור"}</label>
-                    <input data-testid={`delivery-label-${i}`} value={d.label} onChange={(e) => setDelivery(delivery.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder={isPickupOptionType(d.option_type) ? "למשל: רח׳ הרצל 12, תל אביב — חנות הקפה" : "למשל: משלוח שליח עד הבית"} />
+                    <label>{isPickupOptionType(d.option_type) ? t("pages.seller.f45eda46") : t("pages.seller.927492f8")}</label>
+                    <input data-testid={`delivery-label-${i}`} value={d.label} onChange={(e) => setDelivery(delivery.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder={isPickupOptionType(d.option_type) ? t("pages.seller.a76219f5") : t("pages.seller.b79cf051")} />
                   </div>
                   <div className="field" style={{ marginBottom: 0, flex: "1 1 100px" }}>
-                    <label>עלות (₪)</label>
+                    <label>{t("pages.seller.b9f1a67a")}</label>
                     <input dir="ltr" type="number" min={0} value={d.cost} onChange={(e) => setDelivery(delivery.map((x, j) => j === i ? { ...x, cost: e.target.value } : x))} />
                   </div>
-                  {delivery.length > 1 ? <button className="x" onClick={() => setDelivery(delivery.filter((_, j) => j !== i))} aria-label="הסרה">✕</button> : null}
+                  {delivery.length > 1 ? <button className="x" onClick={() => setDelivery(delivery.filter((_, j) => j !== i))} aria-label={t("pages.seller.a99e68e9")}>✕</button> : null}
                 </div>
                 <LocationCapture row={d} onSet={(lat, lng) => setDelivery(delivery.map((x, j) => j === i ? { ...x, latitude: lat, longitude: lng } : x))} />
                 <DeliveryEstimateInputs row={d} index={i} error={errors[`delivery-estimate-${i}`]} onChange={(min, max) => setDelivery(delivery.map((x, j) => j === i ? { ...x, est_min: min, est_max: max } : x))} />
               </React.Fragment>
             ))}
-            {delivery.length < 5 ? <button className="btn btn-sm btn-ghost" onClick={() => setDelivery([...delivery, { option_type: "delivery", label: "", cost: "0", latitude: null, longitude: null, est_min: productEstDefaults.min, est_max: productEstDefaults.max }])}>+ הוספת אפשרות</button> : null}
+            {delivery.length < 5 ? <button className="btn btn-sm btn-ghost" onClick={() => setDelivery([...delivery, { option_type: "delivery", label: "", cost: "0", latitude: null, longitude: null, est_min: productEstDefaults.min, est_max: productEstDefaults.max }])}>{t("pages.seller.18231b14")}</button> : null}
             </> : null}
 
             {dealType === "voucher" ? <>
               <div className="field-row">
                 <div className="field">
-                  <label htmlFor="f-voucherFace">שווי נקוב של השובר (₪) <span className="req">*</span></label>
+                  <label htmlFor="f-voucherFace">{t("pages.seller.67c8a2b8")} <span className="req">*</span></label>
                   <input {...attention(errors, "voucherFace")} data-testid="voucher-face-value" dir="ltr" type="number" min={1} step="0.5" value={voucherFaceValue} onChange={(e) => setVoucherFaceValue(e.target.value)} />
                   <FieldError msg={errors.voucherFace} />
                 </div>
                 <div className="field">
-                  <label htmlFor="f-voucherValid">בתוקף עד <span className="req">*</span></label>
+                  <label htmlFor="f-voucherValid">{t("pages.seller.03baa387")} <span className="req">*</span></label>
                   <input {...attention(errors, "voucherValid")} data-testid="voucher-valid-until" dir="ltr" type="date" value={voucherValidUntil} onChange={(e) => setVoucherValidUntil(e.target.value)} />
                   <FieldError msg={errors.voucherValid} />
                 </div>
               </div>
               <div className="field">
-                <label htmlFor="f-voucherLocation">מקום מימוש <span className="req">*</span></label>
-                <input {...attention(errors, "voucherLocation")} data-testid="voucher-location" value={redemptionLocation} onChange={(e) => setRedemptionLocation(e.target.value)} maxLength={500} placeholder="בסניפי העסק או באתר" />
+                <label htmlFor="f-voucherLocation">{t("pages.seller.2461095e")} <span className="req">*</span></label>
+                <input {...attention(errors, "voucherLocation")} data-testid="voucher-location" value={redemptionLocation} onChange={(e) => setRedemptionLocation(e.target.value)} maxLength={500} placeholder={t("pages.seller.6a4d214a")} />
                 <FieldError msg={errors.voucherLocation} />
               </div>
               <div className="field">
-                <label htmlFor="f-voucherInstructions">הוראות מימוש <span className="req">*</span></label>
-                <textarea {...attention(errors, "voucherInstructions")} data-testid="voucher-instructions" rows={3} value={redemptionInstructions} onChange={(e) => setRedemptionInstructions(e.target.value)} maxLength={1000} placeholder="איך מציגים את הקוד וממשים" />
+                <label htmlFor="f-voucherInstructions">{t("pages.seller.119fefce")} <span className="req">*</span></label>
+                <textarea {...attention(errors, "voucherInstructions")} data-testid="voucher-instructions" rows={3} value={redemptionInstructions} onChange={(e) => setRedemptionInstructions(e.target.value)} maxLength={1000} placeholder={t("pages.seller.2fd79d66")} />
                 <FieldError msg={errors.voucherInstructions} />
               </div>
               <div className="field">
-                <label htmlFor="f-voucherTerms">תנאי השובר <span className="req">*</span></label>
-                <textarea {...attention(errors, "voucherTerms")} data-testid="voucher-terms" rows={3} value={voucherTerms} onChange={(e) => setVoucherTerms(e.target.value)} maxLength={2000} placeholder="הגבלות, כפל מבצעים ומדיניות מימוש" />
+                <label htmlFor="f-voucherTerms">{t("pages.seller.c6d02b8f")} <span className="req">*</span></label>
+                <textarea {...attention(errors, "voucherTerms")} data-testid="voucher-terms" rows={3} value={voucherTerms} onChange={(e) => setVoucherTerms(e.target.value)} maxLength={2000} placeholder={t("pages.seller.16eb2cd4")} />
                 <FieldError msg={errors.voucherTerms} />
               </div>
-              <div className="notice info">קוד השובר יופק אוטומטית רק לאחר השלמה וגבייה מוצלחת.</div>
+              <div className="notice info">{t("pages.seller.38c11cf9")}</div>
             </> : null}
 
             {dealType === "ticket" ? <>
               <div className="field">
-                <label htmlFor="f-eventName">שם האירוע <span className="req">*</span></label>
+                <label htmlFor="f-eventName">{t("pages.seller.1acb417f")} <span className="req">*</span></label>
                 <input {...attention(errors, "eventName")} data-testid="ticket-event-name" value={eventName} onChange={(e) => setEventName(e.target.value)} maxLength={200} />
                 <FieldError msg={errors.eventName} />
               </div>
               <div className="field-row">
                 <div className="field">
-                  <label htmlFor="f-eventStart">מתי מתחיל <span className="req">*</span></label>
+                  <label htmlFor="f-eventStart">{t("pages.seller.2ac887ba")} <span className="req">*</span></label>
                   <input {...attention(errors, "eventStart")} data-testid="ticket-start" dir="ltr" type="datetime-local" value={eventStartsAt} onChange={(e) => setEventStartsAt(e.target.value)} />
                   <FieldError msg={errors.eventStart} />
                 </div>
                 <div className="field">
-                  <label htmlFor="f-eventEnd">מתי מסתיים <span className="hint">(לא חובה)</span></label>
+                  <label htmlFor="f-eventEnd">{t("pages.seller.341ea200")} <span className="hint">{t("pages.seller.9fbd1f49")}</span></label>
                   <input {...attention(errors, "eventEnd")} dir="ltr" type="datetime-local" value={eventEndsAt} onChange={(e) => setEventEndsAt(e.target.value)} />
                   <FieldError msg={errors.eventEnd} />
                 </div>
               </div>
               <div className="field-row">
                 <div className="field">
-                  <label htmlFor="f-venueName">מקום האירוע <span className="req">*</span></label>
+                  <label htmlFor="f-venueName">{t("pages.seller.acc2a875")} <span className="req">*</span></label>
                   <input {...attention(errors, "venueName")} data-testid="ticket-venue" value={venueName} onChange={(e) => setVenueName(e.target.value)} maxLength={200} />
                   <FieldError msg={errors.venueName} />
                 </div>
                 <div className="field">
-                  <label htmlFor="f-venueCity">עיר <span className="req">*</span></label>
+                  <label htmlFor="f-venueCity">{t("pages.seller.b2136c90")} <span className="req">*</span></label>
                   <input {...attention(errors, "venueCity")} data-testid="ticket-city" value={venueCity} onChange={(e) => setVenueCity(e.target.value)} maxLength={100} />
                   <FieldError msg={errors.venueCity} />
                 </div>
               </div>
-              <div className="field"><label>כתובת</label><input value={venueAddress} onChange={(e) => setVenueAddress(e.target.value)} maxLength={300} /></div>
+              <div className="field"><label>{t("pages.seller.daab1ad0")}</label><input value={venueAddress} onChange={(e) => setVenueAddress(e.target.value)} maxLength={300} /></div>
               <div className="field">
-                <label htmlFor="f-entry">הוראות כניסה <span className="req">*</span></label>
+                <label htmlFor="f-entry">{t("pages.seller.21a635a8")} <span className="req">*</span></label>
                 <textarea {...attention(errors, "entry")} data-testid="ticket-entry" rows={3} value={entryInstructions} onChange={(e) => setEntryInstructions(e.target.value)} maxLength={1000} />
                 <FieldError msg={errors.entry} />
               </div>
               <div className="field-row">
-                <div className="field"><label>סוג כרטיס</label><select value={ticketType} onChange={(e) => setTicketType(e.target.value)}><option value="general_admission">כניסה כללית</option><option value="vip">VIP</option><option value="reserved_external">מקום שמור במערכת חיצונית</option><option value="other">אחר</option></select></div>
-                <div className="field"><label>אופן הושבה</label><select value={seatMode} onChange={(e) => setSeatMode(e.target.value)}><option value="general_admission">ללא מקום שמור</option><option value="external_seating">שיבוץ במערכת חיצונית</option></select></div>
+                <div className="field"><label>{t("pages.seller.250987a7")}</label><select value={ticketType} onChange={(e) => setTicketType(e.target.value)}><option value="general_admission">{t("pages.seller.eb69ad58")}</option><option value="vip">VIP</option><option value="reserved_external">{t("pages.seller.bb5d694c")}</option><option value="other">{t("pages.seller.cdf4bce0")}</option></select></div>
+                <div className="field"><label>{t("pages.seller.aa0eed57")}</label><select value={seatMode} onChange={(e) => setSeatMode(e.target.value)}><option value="general_admission">{t("pages.seller.25b87c02")}</option><option value="external_seating">{t("pages.seller.af7ea7c5")}</option></select></div>
               </div>
-              <label className="check"><input type="checkbox" checked={transferAllowed} onChange={(e) => setTransferAllowed(e.target.checked)} /><span>ניתן להעביר את הכרטיס לאדם אחר</span></label>
+              <label className="check"><input type="checkbox" checked={transferAllowed} onChange={(e) => setTransferAllowed(e.target.checked)} /><span>{t("pages.seller.9379be58")}</span></label>
             </> : null}
           </>
         ) : null}
@@ -1189,60 +1186,56 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
               error={errors.deadline || (deadlineDate && deadlineTime ? deadlineCheck.error : "")}
             />
             <div className="notice info">
-              חלון השלמה לכשלי חיוב: <b>24 שעות</b> (ברירת מחדל של המערכת).
-              עמלת C-ton: <b>8% + מע״מ</b> מהסכום שנגבה בפועל בלבד.
-            </div>
+              {t("pages.seller.c52f270e")} <b>{t("pages.seller.28ff46c8")}</b>  {t("pages.seller.731c82d6")} <b>{t("pages.seller.de207bdc")}</b>  {t("pages.seller.6b118527")}</div>
           </>
         ) : null}
 
         {step === 4 ? (
           <>
-            <h3>סיכום העסקה</h3>
+            <h3>{t("pages.seller.1d1e2551")}</h3>
             {images.length ? (
               <div className="img-strip">
                 {images.map((img, i) => (
                   <span key={img.id} className={`img-strip-thumb${i === 0 ? " primary" : ""}`}>
                     <img src={img.previewUrl} alt={img.name} />
-                    {i === 0 ? <em>ראשית</em> : null}
+                    {i === 0 ? <em>{t("pages.seller.7e35e511")}</em> : null}
                   </span>
                 ))}
               </div>
             ) : null}
             <div className="kv" style={{ marginBottom: 14 }}>
-              <span className="k">סוג</span><span className="v">{dealTypeLabel(dealType)}</span>
-              <span className="k">שם</span><span className="v">{title}</span>
-              <span className="k">תיאור קצר</span><span className="v" style={{ fontWeight: 500 }}>{shortDesc}</span>
-              <span className="k">מחיר ליחידה</span><span className="v">{ils(priceNum)}</span>
-              <span className="k">מינימום</span><span className="v">{num(minNum)} יחידות</span>
-              <span className="k">מקסימום (מלאי)</span><span className="v">{num(maxNum)} יחידות</span>
-              <span className="k">סף הצלחה (90%)</span><span className="v">{num(threshold)} יחידות מחויבות</span>
-              <span className="k">מועד סיום</span><span className="v">{deadlineCheck.iso ? formatIsraelDateTime(deadlineCheck.iso) : "—"}</span>
-              {product ? <><span className="k">מוצר</span><span className="v">{product.name} (גרסה {num(product.revision || 1)})</span></> : null}
-              {dealType === "physical_product" ? <><span className="k">אספקה</span><span className="v">{delivery.filter((d) => d.label.trim()).map((d) => `${d.label}${estimateTextFor(d) ? ` (${estimateTextFor(d)})` : ""}`).join(" · ")}</span></> : null}
+              <span className="k">{t("pages.seller.f45000d5")}</span><span className="v">{dealTypeLabel(dealType)}</span>
+              <span className="k">{t("pages.seller.8b1aa6b1")}</span><span className="v">{title}</span>
+              <span className="k">{t("pages.seller.5b561b20")}</span><span className="v" style={{ fontWeight: 500 }}>{shortDesc}</span>
+              <span className="k">{t("pages.seller.86b1b870")}</span><span className="v">{ils(priceNum)}</span>
+              <span className="k">{t("pages.seller.7a683618")}</span><span className="v">{t("pages.seller.90977ff5", { minNum: num(minNum) })}</span>
+              <span className="k">{t("pages.seller.174f88b7")}</span><span className="v">{t("pages.seller.3df77830", { maxNum: num(maxNum) })}</span>
+              <span className="k">{t("pages.seller.99772d1d")}</span><span className="v">{t("pages.seller.43c9de56", { threshold: num(threshold) })}</span>
+              <span className="k">{t("pages.seller.1d5bf5b3")}</span><span className="v">{deadlineCheck.iso ? formatIsraelDateTime(deadlineCheck.iso) : "—"}</span>
+              {product ? <><span className="k">{t("pages.seller.80a08f9c")}</span><span className="v">{t("pages.seller.e4690311", { name: product.name, v1: num(product.revision || 1) })}</span></> : null}
+              {dealType === "physical_product" ? <><span className="k">{t("pages.seller.65e1ef42")}</span><span className="v">{delivery.filter((d) => d.label.trim()).map((d) => `${d.label}${estimateTextFor(d) ? ` (${estimateTextFor(d)})` : ""}`).join(" · ")}</span></> : null}
               {dealType === "voucher" ? <>
-                <span className="k">שווי שובר</span><span className="v">{ils(Number(voucherFaceValue))}</span>
-                <span className="k">מימוש</span><span className="v">{redemptionLocation}</span>
+                <span className="k">{t("pages.seller.0e87de71")}</span><span className="v">{ils(Number(voucherFaceValue))}</span>
+                <span className="k">{t("pages.seller.a458744a")}</span><span className="v">{redemptionLocation}</span>
               </> : null}
               {dealType === "ticket" ? <>
-                <span className="k">אירוע</span><span className="v">{eventName}</span>
-                <span className="k">מקום</span><span className="v">{venueName} · {venueCity}</span>
+                <span className="k">{t("pages.seller.2266a5aa")}</span><span className="v">{eventName}</span>
+                <span className="k">{t("pages.seller.98b93265")}</span><span className="v">{venueName} · {venueCity}</span>
               </> : null}
-              <span className="k">עמלת C-ton</span><span className="v">8% + מע״מ מהנגבה בפועל</span>
+              <span className="k">{t("pages.seller.704079d2")}</span><span className="v">{t("pages.seller.c85d104e")}</span>
             </div>
             <div className="notice info">
-              העסקה נשמרת כטיוטה — שום דבר לא מתפרסם עדיין. את הפרסום עושים
-              מתוך מסך העסקה, אחרי שרואים שהכול מוכן.
-            </div>
+              {t("pages.seller.ebc366b3")}</div>
           </>
         ) : null}
 
         {error ? <div className="notice err">{error}</div> : null}
         {uploadStatus ? <div className="notice info">{uploadStatus}</div> : null}
         <div className="wizard-nav">
-          {step > 0 ? <button className="btn btn-ghost" onClick={() => { setErrors({}); setStep(step - 1); }}>→ חזרה</button> : <span />}
+          {step > 0 ? <button className="btn btn-ghost" onClick={() => { setErrors({}); setStep(step - 1); }}>{t("pages.seller.b95be293")}</button> : <span />}
           {step < 4
-            ? <button data-testid="wizard-next" className="btn btn-primary" onClick={continueStep}>המשך ←</button>
-            : <button data-testid="wizard-save" className="btn btn-primary btn-lg" disabled={busy} onClick={save}>{busy ? (uploadStatus || "שומרים…") : "שמירה ומעבר לעסקה ←"}</button>}
+            ? <button data-testid="wizard-next" className="btn btn-primary" onClick={continueStep}>{t("pages.seller.855e71aa")}</button>
+            : <button data-testid="wizard-save" className="btn btn-primary btn-lg" disabled={busy} onClick={save}>{busy ? (uploadStatus || t("pages.seller.cafc2ef5")) : t("pages.seller.4a3f2fc8")}</button>}
         </div>
       </div>
     </div>
@@ -1257,22 +1250,22 @@ function whatHappensNow(deal: Json, chargedUnits: number): string {
   switch (state) {
     case "PendingTarget":
       return joined >= threshold
-        ? "אם זה יסתיים עכשיו — העסקה תעבור לסגירה."
-        : `אם מועד הסיום יגיע עכשיו — העסקה לא תצא לפועל (חסרות ${num(Math.max(0, threshold - joined))} יחידות ליעד).`;
-    case "TargetReached": return "המינימום הושג. במועד הסיום (או בסגירה יזומה) העסקה תעבור לחיוב.";
+        ? t("pages.seller.71990144")
+        : t("pages.seller.878c78de", { joined: num(Math.max(0, threshold - joined)) });
+    case "TargetReached": return t("pages.seller.f33fc388");
     case "ClosedForJoining":
       return String(deal.close_reason || "") === "manual"
-        ? "ההצטרפות מושהית ביוזמתכם — אף קונה לא מחויב. אפשר לפתוח מחדש כל עוד מועד הסיום לא עבר."
-        : "הרשימה נסגרה. המערכת מתכוננת לנעילה ולחיובים — אין צורך לעשות דבר.";
-    case "ReadyForCharging": return "העסקה נעולה. החיובים יחלו אוטומטית.";
-    case "Charging": return "החיובים מתבצעים כעת. כשלים יקבלו חלון השלמה של 24 שעות.";
+        ? t("pages.seller.3b8245e4")
+        : t("pages.seller.9245d452");
+    case "ReadyForCharging": return t("pages.seller.fc44028b");
+    case "Charging": return t("pages.seller.29f27a69");
     case "CompletionWindow":
       return chargedUnits >= threshold
-        ? "כבר עברנו את סף ה-90% — אם זה יסתיים עכשיו העסקה תיסגר בהצלחה."
-        : `אם חלון ההשלמה יסתיים עכשיו — העסקה לא תושלם (נדרשות ${num(threshold)} יחידות מחויבות, יש ${num(chargedUnits)}).`;
-    case "Completed": return "העסקה הושלמה. אפשר להתחיל אספקה ולהפיק קבלות.";
-    case "Failed": return "העסקה לא הושלמה. כל המסגרות שוחררו וכל חיוב הוחזר.";
-    case "Cancelled": return "העסקה בוטלה. המסגרות שוחררו.";
+        ? t("pages.seller.9df1dec3")
+        : t("pages.seller.36ff9884", { threshold: num(threshold), chargedUnits: num(chargedUnits) });
+    case "Completed": return t("pages.seller.ad918e06");
+    case "Failed": return t("pages.seller.15795239");
+    case "Cancelled": return t("pages.seller.981bdf9f");
     default: return "";
   }
 }
@@ -1312,20 +1305,20 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
   // (same rule as the create wizard) instead of only on submit.
   const validateEdit = (): Record<string, string> => {
     const errs: Record<string, string> = {};
-    if (!title.trim()) errs.title = "יש להזין שם לעסקה";
-    if (!(Number(price) > 0)) errs.price = "יש להזין מחיר ליחידה";
-    if (listPrice.trim() && !(Number(listPrice) > Number(price))) errs.listPrice = "המחיר הרגיל חייב להיות גבוה מהמחיר הקבוצתי (או להישאר ריק)";
-    if (!isPositiveIntegerText(minUnits)) errs.min = "יש להזין כמות מינימום";
-    if (!isPositiveIntegerText(maxUnits) || !(Number(maxUnits) >= Number(minUnits))) errs.max = "כמות המקסימום חייבת להיות לפחות כמו המינימום";
+    if (!title.trim()) errs.title = t("pages.seller.bd4a8380");
+    if (!(Number(price) > 0)) errs.price = t("pages.seller.ffac3007");
+    if (listPrice.trim() && !(Number(listPrice) > Number(price))) errs.listPrice = t("pages.seller.e5e1b021");
+    if (!isPositiveIntegerText(minUnits)) errs.min = t("pages.seller.9e2a133c");
+    if (!isPositiveIntegerText(maxUnits) || !(Number(maxUnits) >= Number(minUnits))) errs.max = t("pages.seller.28254e08");
     const dl = validateDeadline(deadlineDate, deadlineTime);
     if (dl.error) errs.editDeadline = dl.error;
     if (dealType === "voucher") {
-      if (!(Number(vFace) > 0)) errs.vFace = "יש להזין את שווי השובר";
-      if (!vValid) errs.vValid = "יש לבחור תוקף לשובר";
+      if (!(Number(vFace) > 0)) errs.vFace = t("pages.seller.5b94bfb4");
+      if (!vValid) errs.vValid = t("pages.seller.dd778626");
     }
     if (dealType === "ticket") {
-      if (!tEventName.trim()) errs.tEventName = "יש להזין שם אירוע";
-      if (!tStart) errs.tStart = "יש לבחור מועד לאירוע";
+      if (!tEventName.trim()) errs.tEventName = t("pages.seller.018096b9");
+      if (!tStart) errs.tStart = t("pages.seller.d1343da5");
     }
     return errs;
   };
@@ -1379,11 +1372,11 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
           }
         } : {})
       });
-      showToast("הטיוטה נשמרה");
+      showToast(t("pages.seller.3624971b"));
       setOpen(false);
       onSaved();
     } catch (e: any) {
-      showToast(e.message || "השמירה נכשלה");
+      showToast(e.message || t("pages.seller.1072e99d"));
     }
     setBusy(false);
   };
@@ -1392,47 +1385,47 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
     return (
       <div className="panel">
         <div className="row" style={{ justifyContent: "space-between" }}>
-          <div className="panel-title" style={{ marginBottom: 0 }}>פרטי העסקה</div>
-          <button className="btn btn-sm btn-ghost" data-testid="draft-edit-open" onClick={() => setOpen(true)}>עריכת הפרטים</button>
+          <div className="panel-title" style={{ marginBottom: 0 }}>{t("pages.seller.d84405f7")}</div>
+          <button className="btn btn-sm btn-ghost" data-testid="draft-edit-open" onClick={() => setOpen(true)}>{t("pages.seller.eae2c936")}</button>
         </div>
       </div>
     );
   }
   return (
     <div className="panel">
-      <div className="panel-title">עריכת פרטי העסקה</div>
+      <div className="panel-title">{t("pages.seller.54eefa0a")}</div>
       <div className="field">
-        <label htmlFor="f-title">שם העסקה <span className="req">*</span></label>
+        <label htmlFor="f-title">{t("pages.seller.60af138e")} <span className="req">*</span></label>
         <input {...attention(errors, "title")} value={title} disabled={Boolean(deal.product_id)} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
-        {deal.product_id ? <span className="hint" data-testid="draft-product-locked">השם והתיאור מגיעים מהמוצר בספרייה ומוקפאים בעסקה.</span> : null}
+        {deal.product_id ? <span className="hint" data-testid="draft-product-locked">{t("pages.seller.d74c331a")}</span> : null}
         <FieldError msg={errors.title} />
       </div>
       <div className="field">
-        <label>תיאור קצר <span className="hint">(עד 200 תווים)</span></label>
+        <label>{t("pages.seller.5b561b20")} <span className="hint">{t("pages.seller.4a4852ff")}</span></label>
         <input value={shortDesc} disabled={Boolean(deal.product_id)} onChange={(e) => setShortDesc(e.target.value)} maxLength={200} />
       </div>
       <div className="field">
-        <label>תיאור מלא</label>
+        <label>{t("pages.seller.4dc3b47c")}</label>
         <textarea rows={6} value={longDesc} disabled={Boolean(deal.product_id)} onChange={(e) => setLongDesc(e.target.value)} maxLength={4000} />
       </div>
       <div className="field-row">
         <div className="field">
-          <label htmlFor="f-price">מחיר ליחידה (₪) <span className="req">*</span></label>
+          <label htmlFor="f-price">{t("pages.seller.1221db3b")} <span className="req">*</span></label>
           <input {...attention(errors, "price")} dir="ltr" type="number" min={1} step="0.5" value={price} onChange={(e) => setPrice(e.target.value)} />
           <FieldError msg={errors.price} />
         </div>
         <div className="field">
-          <label htmlFor="f-listPrice">מחיר רגיל (₪) <span className="hint">(לא חובה)</span></label>
+          <label htmlFor="f-listPrice">{t("pages.seller.46ed2219")} <span className="hint">{t("pages.seller.9fbd1f49")}</span></label>
           <input {...attention(errors, "listPrice")} dir="ltr" type="number" min={1} step="0.5" value={listPrice} onChange={(e) => setListPrice(e.target.value)} />
           <FieldError msg={errors.listPrice} />
         </div>
         <div className="field">
-          <label htmlFor="f-min">כמות מינימום <span className="req">*</span></label>
+          <label htmlFor="f-min">{t("pages.seller.00fc351e")} <span className="req">*</span></label>
           <input {...attention(errors, "min")} {...QUANTITY_INPUT_ATTRS} value={minUnits} onChange={(e) => setMinUnits(e.target.value)} />
           <FieldError msg={errors.min} />
         </div>
         <div className="field">
-          <label htmlFor="f-max">מקסימום (מלאי) <span className="req">*</span></label>
+          <label htmlFor="f-max">{t("pages.seller.174f88b7")} <span className="req">*</span></label>
           <input {...attention(errors, "max")} {...QUANTITY_INPUT_ATTRS} value={maxUnits} onChange={(e) => setMaxUnits(e.target.value)} />
           <FieldError msg={errors.max} />
         </div>
@@ -1440,49 +1433,49 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
       <DeadlinePicker idPrefix="edit-deadline" date={deadlineDate} time={deadlineTime} onDate={setDeadlineDate} onTime={setDeadlineTime} error={errors.editDeadline} />
       {dealType === "voucher" ? (
         <>
-          <div className="section-title" style={{ margin: "12px 0 8px" }}>פרטי השובר</div>
+          <div className="section-title" style={{ margin: "12px 0 8px" }}>{t("pages.seller.58bb1b80")}</div>
           <div className="field-row">
             <div className="field">
-              <label htmlFor="f-vFace">שווי נקוב (₪) <span className="req">*</span></label>
+              <label htmlFor="f-vFace">{t("pages.seller.5fd3a061")} <span className="req">*</span></label>
               <input {...attention(errors, "vFace")} dir="ltr" type="number" min={1} value={vFace} onChange={(e) => setVFace(e.target.value)} />
               <FieldError msg={errors.vFace} />
             </div>
             <div className="field">
-              <label htmlFor="f-vValid">בתוקף עד <span className="req">*</span></label>
+              <label htmlFor="f-vValid">{t("pages.seller.03baa387")} <span className="req">*</span></label>
               <input {...attention(errors, "vValid")} dir="ltr" type="date" value={vValid} onChange={(e) => setVValid(e.target.value)} />
               <FieldError msg={errors.vValid} />
             </div>
           </div>
-          <div className="field"><label>מקום מימוש</label><input value={vLocation} onChange={(e) => setVLocation(e.target.value)} maxLength={500} /></div>
-          <div className="field"><label>הוראות מימוש</label><textarea rows={2} value={vInstructions} onChange={(e) => setVInstructions(e.target.value)} maxLength={1000} /></div>
-          <div className="field"><label>תנאי השובר</label><textarea rows={2} value={vTerms} onChange={(e) => setVTerms(e.target.value)} maxLength={2000} /></div>
+          <div className="field"><label>{t("pages.seller.2461095e")}</label><input value={vLocation} onChange={(e) => setVLocation(e.target.value)} maxLength={500} /></div>
+          <div className="field"><label>{t("pages.seller.119fefce")}</label><textarea rows={2} value={vInstructions} onChange={(e) => setVInstructions(e.target.value)} maxLength={1000} /></div>
+          <div className="field"><label>{t("pages.seller.c6d02b8f")}</label><textarea rows={2} value={vTerms} onChange={(e) => setVTerms(e.target.value)} maxLength={2000} /></div>
         </>
       ) : null}
       {dealType === "ticket" ? (
         <>
-          <div className="section-title" style={{ margin: "12px 0 8px" }}>פרטי האירוע</div>
+          <div className="section-title" style={{ margin: "12px 0 8px" }}>{t("pages.seller.10124253")}</div>
           <div className="field-row">
             <div className="field">
-              <label htmlFor="f-tEventName">שם האירוע <span className="req">*</span></label>
+              <label htmlFor="f-tEventName">{t("pages.seller.1acb417f")} <span className="req">*</span></label>
               <input {...attention(errors, "tEventName")} value={tEventName} onChange={(e) => setTEventName(e.target.value)} maxLength={200} />
               <FieldError msg={errors.tEventName} />
             </div>
             <div className="field">
-              <label htmlFor="f-tStart">מתי מתחיל <span className="req">*</span></label>
+              <label htmlFor="f-tStart">{t("pages.seller.2ac887ba")} <span className="req">*</span></label>
               <input {...attention(errors, "tStart")} dir="ltr" type="datetime-local" value={tStart} onChange={(e) => setTStart(e.target.value)} />
               <FieldError msg={errors.tStart} />
             </div>
           </div>
           <div className="field-row">
-            <div className="field"><label>מקום האירוע</label><input value={tVenue} onChange={(e) => setTVenue(e.target.value)} maxLength={200} /></div>
-            <div className="field"><label>עיר</label><input value={tCity} onChange={(e) => setTCity(e.target.value)} maxLength={100} /></div>
+            <div className="field"><label>{t("pages.seller.acc2a875")}</label><input value={tVenue} onChange={(e) => setTVenue(e.target.value)} maxLength={200} /></div>
+            <div className="field"><label>{t("pages.seller.b2136c90")}</label><input value={tCity} onChange={(e) => setTCity(e.target.value)} maxLength={100} /></div>
           </div>
-          <div className="field"><label>הוראות כניסה</label><textarea rows={2} value={tEntry} onChange={(e) => setTEntry(e.target.value)} maxLength={1000} /></div>
+          <div className="field"><label>{t("pages.seller.21a635a8")}</label><textarea rows={2} value={tEntry} onChange={(e) => setTEntry(e.target.value)} maxLength={1000} /></div>
         </>
       ) : null}
       <div className="row" style={{ justifyContent: "flex-end" }}>
-        <button className="btn btn-ghost" onClick={() => setOpen(false)}>ביטול</button>
-        <button className="btn btn-primary" data-testid="draft-edit-save" disabled={busy} onClick={save}>{busy ? "שומרים…" : "שמירת השינויים"}</button>
+        <button className="btn btn-ghost" onClick={() => setOpen(false)}>{t("pages.seller.a7c55a8d")}</button>
+        <button className="btn btn-primary" data-testid="draft-edit-save" disabled={busy} onClick={save}>{busy ? t("pages.seller.cafc2ef5") : t("pages.seller.b95cbc6b")}</button>
       </div>
     </div>
   );
@@ -1515,15 +1508,15 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
   const dealType = String(deal.deal_type || "physical_product");
   const validateDelivery = () => {
     const errors: Record<string, string> = {};
-    if (!rows.some(row => row.label.trim())) errors[rows.length ? "delivery-label-0" : "delivery-options"] = "יש להשאיר לפחות אפשרות אספקה אחת";
+    if (!rows.some(row => row.label.trim())) errors[rows.length ? "delivery-label-0" : "delivery-options"] = t("pages.seller.d3eda730");
     else if (String(deal.state) !== "Draft") rows.forEach((row, index) => {
-      if (row.label.trim() && !hasUsablePickupLocation(row)) errors[`delivery-label-${index}`] = "לאיסוף עצמי / נקודת חלוקה יש להזין כתובת או מיקום";
+      if (row.label.trim() && !hasUsablePickupLocation(row)) errors[`delivery-label-${index}`] = t("pages.seller.349188e4");
     });
     rows.forEach((row, index) => {
       if (!row.label.trim()) return;
       const estError = validateEstimateRange(row.est_min, row.est_max);
       if (estError) errors[`delivery-estimate-${index}`] = estError;
-      else if (deal.product_id && (!row.est_min.trim() || !row.est_max.trim())) errors[`delivery-estimate-${index}`] = "לעסקה שנוצרה ממוצר יש להזין זמן אספקה משוער (מינימום ומקסימום) לכל אפשרות";
+      else if (deal.product_id && (!row.est_min.trim() || !row.est_max.trim())) errors[`delivery-estimate-${index}`] = t("pages.seller.c593f532");
     });
     return errors;
   };
@@ -1535,9 +1528,9 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
   if (dealType !== "physical_product") {
     return (
       <div className="panel" data-testid="delivery-section">
-        <div className="panel-title">אספקה ומשלוח</div>
+        <div className="panel-title">{t("pages.seller.92d04751")}</div>
         <p className="muted small" style={{ marginBottom: 0 }}>
-          {dealType === "voucher" ? "עסקת שובר — המימוש דיגיטלי, ללא משלוח פיזי." : "עסקת כרטיסים — הכניסה עם הכרטיס, ללא משלוח פיזי."}
+          {dealType === "voucher" ? t("pages.seller.2a4b3ca6") : t("pages.seller.e113bcac")}
         </p>
       </div>
     );
@@ -1574,29 +1567,29 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
           ...deliveryEstimatePayload(r)
         }))
       });
-      showToast("אפשרויות האספקה נשמרו");
+      showToast(t("pages.seller.34f9ca70"));
       setEditing(false);
       onSaved();
-    } catch (e: any) { setError(e.message || "השמירה נכשלה"); }
+    } catch (e: any) { setError(e.message || t("pages.seller.1072e99d")); }
     setBusy(false);
   };
 
   return (
     <div className="panel" data-testid="delivery-section">
       <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
-        <div className="panel-title" style={{ marginBottom: 0 }}>אספקה ומשלוח</div>
+        <div className="panel-title" style={{ marginBottom: 0 }}>{t("pages.seller.92d04751")}</div>
         {editable && !editing ? (
-          <button className="btn btn-sm btn-ghost" data-testid="delivery-edit-open" onClick={beginEdit}>עריכה</button>
+          <button className="btn btn-sm btn-ghost" data-testid="delivery-edit-open" onClick={beginEdit}>{t("pages.seller.39fe2593")}</button>
         ) : null}
       </div>
 
       {!editable ? (
         <p className="muted small" style={{ margin: "8px 0 0" }} data-testid="delivery-locked-note">
           {lockReason === "buyer_reliance"
-            ? "לא ניתן לשנות פרט זה לאחר שהעסקה פורסמה והצטרפו אליה קונים."
+            ? t("pages.seller.0950115b")
             : lockReason === "deal_state"
-              ? "לא ניתן לשנות פרט זה במצב הנוכחי של העסקה."
-              : "לא ניתן לשנות פרט זה לאחר שהעסקה פורסמה."}
+              ? t("pages.seller.cb7b64cc")
+              : t("pages.seller.af0a635c")}
         </p>
       ) : null}
 
@@ -1616,19 +1609,19 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
                           <span className={`small ${pickupPrecision(o) === "exact" ? "muted" : "pickup-precision-warn"}`} data-testid={`pickup-precision-${pickupPrecision(o)}`}> · {PICKUP_PRECISION_COPY[pickupPrecision(o)]}</span>
                         </span>
                       ) : (
-                        <span className="pickup-missing" data-testid="pickup-location-missing"> · חסרה כתובת/מיקום איסוף — קונים לא רואים איפה לאסוף</span>
+                        <span className="pickup-missing" data-testid="pickup-location-missing">  {t("pages.seller.aa25a611")}</span>
                       )
                     ) : null}
                   </span>
-                  <span className="delivery-cost">{Number(o.cost) ? ils(o.cost) : "חינם"}</span>
+                  <span className="delivery-cost">{Number(o.cost) ? ils(o.cost) : t("pages.seller.323814d1")}</span>
                   {deliveryEstimateText(o) ? <span className="muted small" data-testid="seller-delivery-estimate">{deliveryEstimateText(o)}</span> : null}
-                  {nav ? <a className="btn btn-sm btn-ghost" href={nav} target="_blank" rel="noreferrer">הצגה במפה</a> : null}
+                  {nav ? <a className="btn btn-sm btn-ghost" href={nav} target="_blank" rel="noreferrer">{t("pages.seller.f5a83bf4")}</a> : null}
                 </div>
               );
             })}
           </div>
         ) : (
-          <p className="muted small" style={{ margin: "8px 0 0" }}>לא הוגדרו אפשרויות אספקה.</p>
+          <p className="muted small" style={{ margin: "8px 0 0" }}>{t("pages.seller.94b49198")}</p>
         )
       ) : (
         <div className="stack" style={{ gap: 4, marginTop: 10 }}>
@@ -1636,26 +1629,26 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
             <React.Fragment key={i}>
               <div className="row" style={{ marginBottom: 6, alignItems: "flex-end" }}>
                 <div className="field" style={{ marginBottom: 0, flex: "1 1 120px" }}>
-                  <label>סוג</label>
+                  <label>{t("pages.seller.f45000d5")}</label>
                   <select value={d.option_type} onChange={(e) => {
                     const t = e.target.value;
                     setRows(rows.map((x, j) => j === i ? { ...x, option_type: t, ...(t === "delivery" ? { latitude: null, longitude: null } : {}) } : x));
                   }}>
-                    <option value="pickup">איסוף עצמי</option>
-                    <option value="delivery">משלוח</option>
-                    <option value="distribution_point">נקודת חלוקה</option>
+                    <option value="pickup">{t("pages.seller.ffe01f8e")}</option>
+                    <option value="delivery">{t("pages.seller.ee0500fa")}</option>
+                    <option value="distribution_point">{t("pages.seller.821c337a")}</option>
                   </select>
                 </div>
                 <div className="field grow" style={{ marginBottom: 0, flex: "2 1 160px" }}>
-                  <label>{isPickupOptionType(d.option_type) ? "כתובת / מיקום האיסוף" : "תיאור"}</label>
-                  <input {...attention(fieldErrors, `delivery-label-${i}`)} aria-label={isPickupOptionType(d.option_type) ? "כתובת / מיקום האיסוף" : "תיאור האספקה"} value={d.label} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder={isPickupOptionType(d.option_type) ? "למשל: רח׳ הרצל 12, תל אביב — חנות הקפה" : "למשל: משלוח שליח עד הבית"} />
+                  <label>{isPickupOptionType(d.option_type) ? t("pages.seller.f45eda46") : t("pages.seller.927492f8")}</label>
+                  <input {...attention(fieldErrors, `delivery-label-${i}`)} aria-label={isPickupOptionType(d.option_type) ? t("pages.seller.f45eda46") : t("pages.seller.235e9e55")} value={d.label} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder={isPickupOptionType(d.option_type) ? t("pages.seller.a76219f5") : t("pages.seller.b79cf051")} />
                   <FieldError msg={fieldErrors[`delivery-label-${i}`]} />
                 </div>
                 <div className="field" style={{ marginBottom: 0, flex: "1 1 90px" }}>
-                  <label>עלות (₪)</label>
+                  <label>{t("pages.seller.b9f1a67a")}</label>
                   <input dir="ltr" type="number" min={0} value={d.cost} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, cost: e.target.value } : x))} />
                 </div>
-                {rows.length > 1 ? <button className="x" onClick={() => setRows(rows.filter((_, j) => j !== i))} aria-label="הסרה">✕</button> : null}
+                {rows.length > 1 ? <button className="x" onClick={() => setRows(rows.filter((_, j) => j !== i))} aria-label={t("pages.seller.a99e68e9")}>✕</button> : null}
               </div>
               <LocationCapture row={d} onSet={(lat, lng) => setRows(rows.map((x, j) => j === i ? { ...x, latitude: lat, longitude: lng } : x))} />
               <DeliveryEstimateInputs row={d} index={i} error={fieldErrors[`delivery-estimate-${i}`]} onChange={(min, max) => setRows(rows.map((x, j) => j === i ? { ...x, est_min: min, est_max: max } : x))} />
@@ -1664,14 +1657,13 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
           {rows.length < 5 ? (
             <button {...attention(fieldErrors, "delivery-options", "btn btn-sm btn-ghost")} style={{ alignSelf: "flex-start" }}
               onClick={() => setRows([...rows, { option_type: "delivery", label: "", cost: "0", latitude: null, longitude: null, est_min: "", est_max: "" }])}>
-              + הוספת אפשרות
-            </button>
+              {t("pages.seller.18231b14")}</button>
           ) : null}
           <FieldError msg={fieldErrors["delivery-options"]} />
           {error ? <div className="notice err">{error}</div> : null}
           <div className="row" style={{ justifyContent: "flex-end" }}>
-            <button className="btn btn-ghost" disabled={busy} onClick={() => setEditing(false)}>ביטול</button>
-            <button className="btn btn-primary" data-testid="delivery-save" disabled={busy} onClick={save}>{busy ? "שומרים…" : "שמירת האספקה"}</button>
+            <button className="btn btn-ghost" disabled={busy} onClick={() => setEditing(false)}>{t("pages.seller.a7c55a8d")}</button>
+            <button className="btn btn-primary" data-testid="delivery-save" disabled={busy} onClick={save}>{busy ? t("pages.seller.cafc2ef5") : t("pages.seller.c0a0c3af")}</button>
           </div>
         </div>
       )}
@@ -1687,10 +1679,10 @@ function ProductLinkPanel({ deal, isDraft, onChanged, showToast, navigate }: { d
   if (deal.product_id) {
     return (
       <div className="panel" data-testid="product-link-panel" data-product-id={String(deal.product_id)}>
-        <div className="panel-title">המוצר בספרייה</div>
+        <div className="panel-title">{t("pages.seller.c118a172")}</div>
         <p className="muted small" style={{ margin: 0 }}>
           העסקה נוצרה מהמוצר <a href={`#/seller/products/${deal.product_id}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/products/${deal.product_id}`); }}><b>{snapshot?.name || deal.title}</b></a>
-          {snapshot?.product_revision ? <> (גרסה {num(snapshot.product_revision)})</> : null}. השם, התיאור והסוג הוקפאו בעסקה ואינם ניתנים לעריכה כאן; עריכת המוצר יוצרת גרסה חדשה לעסקאות הבאות.
+          {snapshot?.product_revision ? <> {t("pages.seller.0828f33e", { product_revision: num(snapshot.product_revision) })}</> : null}. השם, התיאור והסוג הוקפאו בעסקה ואינם ניתנים לעריכה כאן; עריכת המוצר יוצרת גרסה חדשה לעסקאות הבאות.
         </p>
       </div>
     );
@@ -1701,17 +1693,17 @@ function ProductLinkPanel({ deal, isDraft, onChanged, showToast, navigate }: { d
     setBusy(true);
     try {
       const r = await api.promoteDealToProduct(String(deal.deal_id));
-      showToast("הטיוטה נשמרה כמוצר בספרייה");
+      showToast(t("pages.seller.8523c5aa"));
       onChanged();
       if (r?.product?.product_id) navigate(`#/seller/products/${r.product.product_id}`);
-    } catch (e: any) { showToast(e.message || "השמירה כמוצר נכשלה"); }
+    } catch (e: any) { showToast(e.message || t("pages.seller.8f55e6cc")); }
     setBusy(false);
   };
   return (
     <div className="panel" data-testid="product-link-panel" data-product-id="">
-      <div className="panel-title">שמירה כמוצר בספרייה</div>
-      <p className="muted small">שמרו את הפרטים והתמונות של הטיוטה כמוצר לשימוש חוזר — העסקה הזו תוקפא על הגרסה הזו, ובעתיד תוכלו ליצור ממנו עסקאות נוספות בלחיצה.</p>
-      <button className="btn btn-sm btn-ghost" data-testid="deal-promote-product" disabled={busy} onClick={() => void promote()}>{busy ? "שומרים…" : "שמירה כמוצר"}</button>
+      <div className="panel-title">{t("pages.seller.d709638d")}</div>
+      <p className="muted small">{t("pages.seller.48c3b1c6")}</p>
+      <button className="btn btn-sm btn-ghost" data-testid="deal-promote-product" disabled={busy} onClick={() => void promote()}>{busy ? t("pages.seller.cafc2ef5") : t("pages.seller.cecc223d")}</button>
     </div>
   );
 }
@@ -1723,18 +1715,18 @@ function TypeTermsPanel({ deal }: { deal: Json }) {
     const v = deal.voucher_terms;
     return (
       <div className="panel" data-testid="type-terms">
-        <div className="panel-title">פרטי השובר</div>
+        <div className="panel-title">{t("pages.seller.58bb1b80")}</div>
         <div className="kv">
-          <span className="k">שווי נקוב</span><span className="v">{ils(v.face_value_amount)}</span>
-          <span className="k">בתוקף עד</span><span className="v">{fmtDate(v.valid_until)}</span>
-          <span className="k">מקום מימוש</span><span className="v">{v.redemption_location || "—"}</span>
-          <span className="k">הוראות מימוש</span><span className="v" style={{ fontWeight: 500 }}>{v.redemption_instructions || "—"}</span>
-          <span className="k">תנאים</span><span className="v" style={{ fontWeight: 500 }}>{v.terms || "—"}</span>
+          <span className="k">{t("pages.seller.f2e0e0d5")}</span><span className="v">{ils(v.face_value_amount)}</span>
+          <span className="k">{t("pages.seller.03baa387")}</span><span className="v">{fmtDate(v.valid_until)}</span>
+          <span className="k">{t("pages.seller.2461095e")}</span><span className="v">{v.redemption_location || "—"}</span>
+          <span className="k">{t("pages.seller.119fefce")}</span><span className="v" style={{ fontWeight: 500 }}>{v.redemption_instructions || "—"}</span>
+          <span className="k">{t("pages.seller.ffc8ecdb")}</span><span className="v" style={{ fontWeight: 500 }}>{v.terms || "—"}</span>
         </div>
         {String(deal.state) === "Draft" ? (
-          <p className="muted small" style={{ margin: "10px 0 0" }}>עריכת פרטי השובר זמינה בטיוטה דרך ״עריכת הפרטים״.</p>
+          <p className="muted small" style={{ margin: "10px 0 0" }}>{t("pages.seller.08a364d3")}</p>
         ) : (
-          <p className="muted small" style={{ margin: "10px 0 0" }}>לא ניתן לשנות את תנאי השובר לאחר הפרסום.</p>
+          <p className="muted small" style={{ margin: "10px 0 0" }}>{t("pages.seller.d737d321")}</p>
         )}
       </div>
     );
@@ -1743,20 +1735,20 @@ function TypeTermsPanel({ deal }: { deal: Json }) {
     const t = deal.ticket_terms;
     return (
       <div className="panel" data-testid="type-terms">
-        <div className="panel-title">פרטי האירוע</div>
+        <div className="panel-title">{t("pages.seller.10124253")}</div>
         <div className="kv">
-          <span className="k">אירוע</span><span className="v">{t.event_name || "—"}</span>
-          <span className="k">מתחיל</span><span className="v">{fmtDate(t.event_starts_at)}</span>
-          {t.event_ends_at ? (<><span className="k">מסתיים</span><span className="v">{fmtDate(t.event_ends_at)}</span></>) : null}
-          <span className="k">מקום</span><span className="v">{[t.venue_name, t.venue_city].filter(Boolean).join(" · ") || "—"}</span>
-          {t.venue_address ? (<><span className="k">כתובת</span><span className="v">{t.venue_address}</span></>) : null}
-          <span className="k">הוראות כניסה</span><span className="v" style={{ fontWeight: 500 }}>{t.entry_instructions || "—"}</span>
-          <span className="k">העברת כרטיס</span><span className="v">{t.transfer_allowed ? "מותרת" : "לא מותרת"}</span>
+          <span className="k">{t("pages.seller.2266a5aa")}</span><span className="v">{t.event_name || "—"}</span>
+          <span className="k">{t("pages.seller.a7ee0f16")}</span><span className="v">{fmtDate(t.event_starts_at)}</span>
+          {t.event_ends_at ? (<><span className="k">{t("pages.seller.fdd5f329")}</span><span className="v">{fmtDate(t.event_ends_at)}</span></>) : null}
+          <span className="k">{t("pages.seller.98b93265")}</span><span className="v">{[t.venue_name, t.venue_city].filter(Boolean).join(" · ") || "—"}</span>
+          {t.venue_address ? (<><span className="k">{t("pages.seller.daab1ad0")}</span><span className="v">{t.venue_address}</span></>) : null}
+          <span className="k">{t("pages.seller.21a635a8")}</span><span className="v" style={{ fontWeight: 500 }}>{t.entry_instructions || "—"}</span>
+          <span className="k">{t("pages.seller.e7c036d1")}</span><span className="v">{t.transfer_allowed ? t("pages.seller.e6ec5958") : t("pages.seller.2d189b2d")}</span>
         </div>
         {String(deal.state) === "Draft" ? (
-          <p className="muted small" style={{ margin: "10px 0 0" }}>עריכת פרטי האירוע זמינה בטיוטה דרך ״עריכת הפרטים״.</p>
+          <p className="muted small" style={{ margin: "10px 0 0" }}>{t("pages.seller.8c42cc7b")}</p>
         ) : (
-          <p className="muted small" style={{ margin: "10px 0 0" }}>לא ניתן לשנות את פרטי האירוע לאחר הפרסום.</p>
+          <p className="muted small" style={{ margin: "10px 0 0" }}>{t("pages.seller.644299d7")}</p>
         )}
       </div>
     );
@@ -1772,9 +1764,9 @@ function SellerViralTreePage({ dealId, navigate }: { dealId: string; navigate: (
   }, [dealId]);
   return (
     <>
-      <a className="back" href={`#/seller/deal/${dealId}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/deal/${dealId}`); }}>→ לעסקה</a>
+      <a className="back" href={`#/seller/deal/${dealId}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/deal/${dealId}`); }}>{t("pages.seller.fbd4509a")}</a>
       <div className="panel">
-        <div className="panel-title">עץ ההפצה — {title || "העסקה שלי"}</div>
+        <div className="panel-title">{t("pages.seller.bc3483ce", { v0: title || t("pages.seller.7b647458") })}</div>
         <PropagationTree
           dealId={dealId}
           dealTitle={title}
@@ -1803,18 +1795,18 @@ function PublishModal(props: { deal: Json; onClose: () => void; onPublished: () 
   const isPhysical = String(deal.deal_type || "physical_product") === "physical_product";
 
   const checks: { label: string; ok: boolean; blocker: string | null }[] = [
-    { label: "שם ומחיר", ok: Boolean(String(deal.title || "").trim()) && Number(deal.price_per_unit) > 0, blocker: "חסרים שם או מחיר לעסקה" },
-    { label: "יעד וכמויות", ok: Number(deal.min_units) >= 1 && Number(deal.max_units) >= Number(deal.min_units), blocker: "יש להשלים כמות מינימום ומקסימום" },
+    { label: t("pages.seller.53d47efb"), ok: Boolean(String(deal.title || "").trim()) && Number(deal.price_per_unit) > 0, blocker: t("pages.seller.f26141df") },
+    { label: t("pages.seller.b641d617"), ok: Number(deal.min_units) >= 1 && Number(deal.max_units) >= Number(deal.min_units), blocker: t("pages.seller.02f0f3c1") },
     {
-      label: "מועד סיום עתידי",
+      label: t("pages.seller.b34edb91"),
       ok: Number.isFinite(deadlineMs) && deadlineMs - Date.now() > 30 * 60_000,
-      blocker: "מועד הסיום עבר או קרוב מדי — יש לעדכן אותו בעריכת הפרטים"
+      blocker: t("pages.seller.763b1846")
     },
-    { label: "תמונה ראשית", ok: images.length > 0, blocker: "יש להעלות לפחות תמונה אחת" },
-    ...(isPhysical ? [{ label: "אפשרות אספקה", ok: deliveryOptions.length > 0, blocker: "יש להוסיף לפחות אפשרות אספקה אחת" }] : []),
+    { label: t("pages.seller.ccfc5019"), ok: images.length > 0, blocker: t("pages.seller.885cafa8") },
+    ...(isPhysical ? [{ label: t("pages.seller.b4b0fa50"), ok: deliveryOptions.length > 0, blocker: t("pages.seller.15bb7786") }] : []),
     // P0.7 — the same pickup rule the server enforces at publish
     ...(isPhysical && deliveryOptions.some((o) => isPickupOptionType(o.option_type))
-      ? [{ label: "מיקום לאיסוף עצמי", ok: deliveryOptions.every((o) => hasUsablePickupLocation(o)), blocker: "לאיסוף עצמי / נקודת חלוקה חסרה כתובת או מיקום — עדכנו באפשרויות האספקה" }]
+      ? [{ label: t("pages.seller.8fbf7755"), ok: deliveryOptions.every((o) => hasUsablePickupLocation(o)), blocker: t("pages.seller.b6abab97") }]
       : [])
   ];
   const blockers = checks.filter((c) => !c.ok).map((c) => c.blocker!).filter(Boolean);
@@ -1822,41 +1814,40 @@ function PublishModal(props: { deal: Json; onClose: () => void; onPublished: () 
 
   const publish = async () => {
     if (busy) return;
-    if (!ack1 || !ack2) { setAttentionRequested(true); setError("יש לאשר את שני התנאים לפני הפרסום"); focusField(!ack1 ? "publish-terms" : "publish-threshold"); return; }
+    if (!ack1 || !ack2) { setAttentionRequested(true); setError(t("pages.seller.8c777a58")); focusField(!ack1 ? "publish-terms" : "publish-threshold"); return; }
     setBusy(true); setError("");
     try {
       await api.publishDeal(String(deal.deal_id));
       props.onPublished();
     } catch (e: any) {
-      setError(e.message || "הפרסום נכשל — נסו שוב");
+      setError(e.message || t("pages.seller.f7ab0532"));
       setBusy(false);
     }
   };
 
   return (
     <Modal
-      title="פרסום העסקה"
+      title={t("pages.seller.4292fa9a")}
       onClose={props.onClose}
       footer={
         <>
           {error ? <div className="notice err" style={{ marginTop: 0 }}>{error}</div> : null}
           {!ready ? (
             <div className="notice err" style={{ marginTop: 0 }}>
-              <b>לא ניתן לפרסם עדיין:</b>
+              <b>{t("pages.seller.23bfb0b6")}</b>
               <ul style={{ margin: "6px 0 0", paddingInlineStart: 18 }}>
                 {blockers.map((b) => <li key={b}>{b}</li>)}
               </ul>
             </div>
           ) : null}
           <button className="btn btn-join btn-block" data-testid="publish-confirm" disabled={busy || !ready} onClick={publish}>
-            {busy ? "מפרסמים…" : "פרסום העסקה"}
+            {busy ? t("pages.seller.59a5e646") : t("pages.seller.4292fa9a")}
           </button>
         </>
       }
     >
       <p className="muted small" style={{ marginTop: 0 }}>
-        רגע לפני שהעסקה עולה לאוויר — בדיקת מוכנות קצרה:
-      </p>
+        {t("pages.seller.f8a5318c")}</p>
       <div className="publish-checklist">
         {checks.map((c) => (
           <div key={c.label} className={`publish-check${c.ok ? " ok" : " missing"}`}>
@@ -1865,22 +1856,22 @@ function PublishModal(props: { deal: Json; onClose: () => void; onPublished: () 
         ))}
       </div>
       <div className="kv" style={{ margin: "14px 0" }}>
-        <span className="k">מחיר ליחידה</span><span className="v">{ils(deal.price_per_unit)}</span>
+        <span className="k">{t("pages.seller.86b1b870")}</span><span className="v">{ils(deal.price_per_unit)}</span>
         {Number(deal.list_price_per_unit) > Number(deal.price_per_unit) ? <>
-          <span className="k">מחיר רגיל (יוצג כחיסכון)</span><span className="v">{ils(deal.list_price_per_unit)} · חיסכון {Math.round((1 - Number(deal.price_per_unit) / Number(deal.list_price_per_unit)) * 100)}%</span>
+          <span className="k">{t("pages.seller.89b17d40")}</span><span className="v">{t("pages.seller.df2f5454", { list_price_per_unit: ils(deal.list_price_per_unit), v1: Math.round((1 - Number(deal.price_per_unit) / Number(deal.list_price_per_unit)) * 100) })}</span>
         </> : null}
-        <span className="k">יעד (מינימום)</span><span className="v">{num(deal.min_units)} יחידות</span>
-        <span className="k">סף הצלחה (90%)</span><span className="v">{num(threshold)} יחידות מחויבות</span>
-        <span className="k">מועד סיום</span><span className="v">{formatIsraelDateTime(deal.deadline) || "—"}</span>
+        <span className="k">{t("pages.seller.ebab85ea")}</span><span className="v">{t("pages.seller.8e654f1b", { min_units: num(deal.min_units) })}</span>
+        <span className="k">{t("pages.seller.99772d1d")}</span><span className="v">{t("pages.seller.43c9de56", { threshold: num(threshold) })}</span>
+        <span className="k">{t("pages.seller.1d5bf5b3")}</span><span className="v">{formatIsraelDateTime(deal.deadline) || "—"}</span>
       </div>
       <div className="publish-warning">
         <label className="check">
           <input {...attention(consentErrors, "publish-terms")} data-testid="publish-lock-terms" type="checkbox" checked={ack1} onChange={(e) => { setAck1(e.target.checked); setError(""); }} />
-          <span>קראתי והבנתי כי לאחר הפרסום <b>לא ניתן לשנות</b> מחיר, כמויות, מועד סיום או עמלות.</span>
+          <span>{t("pages.seller.2b0ee95a")} <b>{t("pages.seller.c759db5a")}</b>  {t("pages.seller.eca09517")}</span>
         </label>
         <label className="check" style={{ marginBottom: 0 }}>
           <input {...attention(consentErrors, "publish-threshold")} data-testid="publish-lock-threshold" type="checkbox" checked={ack2} onChange={(e) => { setAck2(e.target.checked); setError(""); }} />
-          <span>אני מאשר/ת שהתנאים סופיים, כולל כלל ה-90%: העסקה תושלם רק אם יחויבו בפועל לפחות {num(threshold)} יחידות.</span>
+          <span>{t("pages.seller.3e778c74", { threshold: num(threshold) })}</span>
         </label>
       </div>
     </Modal>
@@ -1911,8 +1902,8 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
     return () => clearInterval(id);
   }, [dealId]);
 
-  if (error) return <EmptyState title="לא ניתן לטעון את העסקה" body={error} />;
-  if (!payload?.deal) return <BrandLoader label="טוענים את העסקה…" minHeight={420} />;
+  if (error) return <EmptyState title={t("pages.seller.c9018512")} body={error} />;
+  if (!payload?.deal) return <BrandLoader label={t("pages.seller.7441b7d8")} minHeight={420} />;
 
   const deal = payload.deal;
   // delivery options come as a sibling collection on this endpoint
@@ -1946,28 +1937,28 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
     setReopening(true);
     try {
       await api.reopenJoining(dealId);
-      showToast("ההצטרפות נפתחה מחדש");
+      showToast(t("pages.seller.2b1e3fe9"));
       await load();
-    } catch (e: any) { showToast(e.message || "הפתיחה מחדש נכשלה"); }
+    } catch (e: any) { showToast(e.message || t("pages.seller.e29ad510")); }
     setReopening(false);
   };
 
   return (
     <>
-      <a className="back" href="#/seller" onClick={(e) => { e.preventDefault(); navigate("#/seller"); }}>→ לדשבורד</a>
+      <a className="back" href="#/seller" onClick={(e) => { e.preventDefault(); navigate("#/seller"); }}>{t("pages.seller.227cf122")}</a>
 
       {paused ? (
         <div className="paused-banner" data-testid="paused-banner">
           <div>
-            <b>ההצטרפות מושהית.</b>
+            <b>{t("pages.seller.aace8d77")}</b>
             <div className="small">
               קונים רואים את העסקה אך לא יכולים להצטרף.{" "}
-              {canReopen ? "אפשר לפתוח מחדש כל עוד מועד הסיום לא עבר והמלאי לא הסתיים." : "מועד הסיום עבר או שהמלאי הסתיים — לא ניתן לפתוח מחדש."}
+              {canReopen ? t("pages.seller.8b11cf63") : t("pages.seller.030050bc")}
             </div>
           </div>
           {canReopen ? (
             <button className="btn btn-primary" data-testid="reopen-joining" disabled={reopening} onClick={reopen}>
-              {reopening ? "פותחים…" : "פתיחת ההצטרפות מחדש"}
+              {reopening ? t("pages.seller.78a04145") : t("pages.seller.3da2364c")}
             </button>
           ) : null}
         </div>
@@ -1977,15 +1968,15 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
       {isDraft ? (
         <div className="draft-banner" data-testid="draft-banner">
           <div>
-            <b>טיוטה — העסקה עדיין לא פורסמה.</b>
-            <div className="small">קונים לא רואים אותה. כשהכול מוכן — מפרסמים, ומקבלים קישור לשיתוף.</div>
+            <b>{t("pages.seller.67233903")}</b>
+            <div className="small">{t("pages.seller.9ac7771e")}</div>
           </div>
-          <button className="btn btn-join" data-testid="publish-open" onClick={() => setPublishing(true)}>פרסום העסקה</button>
+          <button className="btn btn-join" data-testid="publish-open" onClick={() => setPublishing(true)}>{t("pages.seller.4292fa9a")}</button>
         </div>
       ) : null}
 
       {/* LAUNCH POLISH (P3) — where this deal is on the path, in one glance */}
-      <SellerJourney deal={deal} title="איך העסקה עובדת?" />
+      <SellerJourney deal={deal} title={t("pages.seller.28e09562")} />
 
       {/* constant header: name, image, big colored status */}
       <div className="panel">
@@ -2004,12 +1995,12 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
             own labeled block, never fused into the status sentence. */}
         {inWindow || state === "Charging" ? (
           <div className="seller-countdown-block">
-            <span className="lbl">חלון ההשלמה מסתיים בעוד</span>
+            <span className="lbl">{t("pages.seller.0ae99ff5")}</span>
             <LiveCountdown deadline={deal.completion_window_until} compact />
           </div>
         ) : isOpen ? (
           <div className="seller-countdown-block" data-testid="seller-countdown">
-            <span className="lbl">סיום ההצטרפות בעוד</span>
+            <span className="lbl">{t("pages.seller.4b6c2e39")}</span>
             <LiveCountdown deadline={deal.deadline} compact />
           </div>
         ) : null}
@@ -2022,26 +2013,25 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
 
         {!isDraft ? (
           <div className="sd-quants" style={{ fontSize: "1rem", marginTop: 12 }}>
-            <span className="q-charged">חויב בהצלחה: {num(chargedUnits)}</span>
-            <span className={`q-pending${inWindow ? " risk" : ""}`}>{inWindow ? "ממתין לאישור סופי" : "בהמתנה"}: {num(pendingUnits)}</span>
-            <span className="q-none">לא חויב: {num(droppedUnits)}</span>
+            <span className="q-charged">{t("pages.seller.4c6059cd", { chargedUnits: num(chargedUnits) })}</span>
+            <span className={`q-pending${inWindow ? " risk" : ""}`}>{inWindow ? t("pages.seller.887ef470") : t("pages.seller.7e5634ef")}: {num(pendingUnits)}</span>
+            <span className="q-none">{t("pages.seller.4e617e29", { droppedUnits: num(droppedUnits) })}</span>
           </div>
         ) : null}
         {inWindow && pendingRows.length ? (
           <p className="small" style={{ color: "var(--saffron)", marginTop: 6 }}>
-            נשלחה הודעה ל-{num(pendingRows.length)} קונים — עדכון אשראי תוך 24 שעות.
-          </p>
+            {t("pages.seller.2a66192f", { length: num(pendingRows.length) })}</p>
         ) : null}
 
         {!isDraft ? (
           <div className="notice info" style={{ marginTop: 14 }}>
-            <b>מה יקרה עכשיו:</b> {whatHappensNow(deal, chargedUnits)}
+            <b>{t("pages.seller.dd50f275")}</b> {whatHappensNow(deal, chargedUnits)}
           </div>
         ) : (
           <div className="kv" style={{ marginTop: 14 }}>
-            <span className="k">מחיר ליחידה</span><span className="v">{ils(deal.price_per_unit)}</span>
-            <span className="k">יעד (מינימום)</span><span className="v">{num(deal.min_units)} יחידות</span>
-            <span className="k">מועד סיום</span><span className="v">{formatIsraelDateTime(deal.deadline) || "—"}</span>
+            <span className="k">{t("pages.seller.86b1b870")}</span><span className="v">{ils(deal.price_per_unit)}</span>
+            <span className="k">{t("pages.seller.ebab85ea")}</span><span className="v">{t("pages.seller.8e654f1b", { min_units: num(deal.min_units) })}</span>
+            <span className="k">{t("pages.seller.1d5bf5b3")}</span><span className="v">{formatIsraelDateTime(deal.deadline) || "—"}</span>
           </div>
         )}
 
@@ -2049,36 +2039,36 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
           {isOpen ? (
             <>
               <button className="btn btn-primary" onClick={async () => {
-                if (await copyText(absoluteShareUrl(dealId, null))) showToast("הקישור הועתק");
-              }}>שיתוף הקישור</button>
-              <a className="btn btn-ghost" href={`#/deal/${dealId}`} target="_blank">צפייה בדף הציבורי</a>
-              <button className="btn btn-ghost" data-testid="pause-joining-open" onClick={() => setConfirmClose(true)}>השהיית הצטרפות</button>
+                if (await copyText(absoluteShareUrl(dealId, null))) showToast(t("pages.seller.4aa70f6f"));
+              }}>{t("pages.seller.6311b463")}</button>
+              <a className="btn btn-ghost" href={`#/deal/${dealId}`} target="_blank">{t("pages.seller.a7e3f458")}</a>
+              <button className="btn btn-ghost" data-testid="pause-joining-open" onClick={() => setConfirmClose(true)}>{t("pages.seller.6f86d5ed")}</button>
             </>
           ) : isDraft ? (
-            <a className="btn btn-ghost" data-testid="draft-preview-open" href={`#/seller/deal/${dealId}/preview`} target="_blank">תצוגה מקדימה כקונה</a>
+            <a className="btn btn-ghost" data-testid="draft-preview-open" href={`#/seller/deal/${dealId}/preview`} target="_blank">{t("pages.seller.3a6faba4")}</a>
           ) : closed ? (
             <>
               {/* LAUNCH SPRINT 3 — a completed physical deal is now an operational
                   handoff queue: the list + the counter scanner come first */}
               {state === "Completed" && String(deal.deal_type || "physical_product") === "physical_product" ? (
                 <>
-                  <button className="btn btn-primary" data-testid="deal-fulfillment-open" onClick={() => navigate(`#/seller/deal/${dealId}/fulfillment`)}>הזמנות למסירה</button>
-                  <button className="btn btn-ghost" data-testid="deal-pickup-scan" onClick={() => navigate("#/seller/pickup")}>סריקת איסוף</button>
+                  <button className="btn btn-primary" data-testid="deal-fulfillment-open" onClick={() => navigate(`#/seller/deal/${dealId}/fulfillment`)}>{t("pages.seller.1ac278ad")}</button>
+                  <button className="btn btn-ghost" data-testid="deal-pickup-scan" onClick={() => navigate("#/seller/pickup")}>{t("pages.seller.2d843402")}</button>
                 </>
               ) : null}
               <button className="btn btn-ghost" onClick={async () => {
                 try {
                   const r = await api.duplicateDeal(dealId);
                   const newId = r?.deal?.deal_id || r?.deal_id;
-                  if (newId) { showToast("נוצרה טיוטה — חובה לעדכן תאריכים"); navigate(`#/seller/deal/${newId}`); }
-                } catch (e: any) { showToast(e.message || "השכפול נכשל"); }
-              }}>יצירת עסקה דומה</button>
+                  if (newId) { showToast(t("pages.seller.6d1c666b")); navigate(`#/seller/deal/${newId}`); }
+                } catch (e: any) { showToast(e.message || t("pages.seller.96a449fa")); }
+              }}>{t("pages.seller.7c392046")}</button>
             </>
           ) : (
-            <span className="muted small">העסקה נעולה לצפייה בלבד. כל הפעולות מתבצעות אוטומטית.</span>
+            <span className="muted small">{t("pages.seller.31b95e34")}</span>
           )}
           {deletable ? (
-            <button className="btn btn-ghost btn-danger-ghost" data-testid="deal-delete-open" onClick={() => setConfirmDelete(true)}>מחיקת העסקה</button>
+            <button className="btn btn-ghost btn-danger-ghost" data-testid="deal-delete-open" onClick={() => setConfirmDelete(true)}>{t("pages.seller.c19c0198")}</button>
           ) : null}
           {/* LAUNCH POLISH (P2) — visible, not prominent: ghost + last in the row.
               Offered for every non-terminal, pre-charging state; the SERVER
@@ -2088,8 +2078,7 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
           {(isDraft || isOpen || paused) && !closed ? (
             <button className="btn btn-sm btn-ghost btn-danger-ghost" data-testid="deal-cancel-open" style={{ marginInlineStart: "auto" }}
               onClick={() => { cancelIntentKey.current = crypto.randomUUID(); setCancelRefusal(""); setConfirmCancel(true); }}>
-              ביטול העסקה
-            </button>
+              {t("pages.seller.2b0debce")}</button>
           ) : null}
         </div>
       </div>
@@ -2111,10 +2100,9 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
 
       {isDraft ? (
         <div className="panel">
-          <div className="panel-title">תמונות העסקה</div>
+          <div className="panel-title">{t("pages.seller.e6f926b3")}</div>
           <p className="muted small" style={{ marginTop: 0 }}>
-            הוספה ומחיקה אפשריות רק בטיוטה. גם אחרי הפרסום אפשר לשנות סדר ולבחור תמונה ראשית.
-          </p>
+            {t("pages.seller.4d0b00dd")}</p>
           <DraftImageManager
             dealId={dealId}
             images={(deal.images || []) as ServerImage[]}
@@ -2123,7 +2111,7 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
         </div>
       ) : isOpen ? (
         <div className="panel">
-          <div className="panel-title">סדר התמונות והתמונה הראשית</div>
+          <div className="panel-title">{t("pages.seller.0ab0564d")}</div>
           <DraftImageManager
             dealId={dealId}
             images={(deal.images || []) as ServerImage[]}
@@ -2135,22 +2123,22 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
 
       {closed && state === "Completed" ? (
         <div className="panel">
-          <div className="panel-title">כספים (על בסיס חיובים שבוצעו בפועל)</div>
+          <div className="panel-title">{t("pages.seller.a28c4cdb")}</div>
           <div className="stat-row" style={{ marginBottom: 0 }}>
-            <StatTile num={ils(gross)} label="ברוטו שנגבה" tone="good" />
-            <StatTile num={ils(fee)} label="עמלת C-ton (8%)" />
-            <StatTile num={ils(Math.round((gross - fee * 1.18) * 100) / 100)} label="נטו משוער למוכר" sub="צפוי להעברה תוך 3–7 ימי עסקים" />
-            <StatTile num={num(chargedUnits)} label="יחידות מחויבות" />
+            <StatTile num={ils(gross)} label={t("pages.seller.caea9760")} tone="good" />
+            <StatTile num={ils(fee)} label={t("pages.seller.74cd385f")} />
+            <StatTile num={ils(Math.round((gross - fee * 1.18) * 100) / 100)} label={t("pages.seller.1453c245")} sub={t("pages.seller.25027f2a")} />
+            <StatTile num={num(chargedUnits)} label={t("pages.seller.c2156ef5")} />
           </div>
         </div>
       ) : null}
 
       {closed || inWindow || state === "Charging" ? (
         <div className="panel">
-          <div className="panel-title">קונים {state === "Completed" ? "(מחויבים סופית)" : ""}</div>
+          <div className="panel-title">קונים {state === "Completed" ? t("pages.seller.2a906eb3") : ""}</div>
           <div className="table-wrap">
             <table className="data">
-              <thead><tr><th>קונה</th><th>טלפון</th><th className="num">כמות</th><th>אופן קבלה</th><th>מצב תשלום</th></tr></thead>
+              <thead><tr><th>{t("pages.seller.628febf8")}</th><th>{t("pages.seller.737232c2")}</th><th className="num">{t("pages.seller.d4e2d05b")}</th><th>{t("pages.seller.bd008360")}</th><th>{t("pages.seller.e2325f60")}</th></tr></thead>
               <tbody>
                 {(state === "Completed" ? chargedRows : participants).slice(0, 100).map((p) => (
                   <tr key={p.participant_id}>
@@ -2167,9 +2155,9 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
           {state === "Completed" ? (
             <div className="row" style={{ marginTop: 10 }}>
               {String(deal.deal_type || "physical_product") === "physical_product" ? (
-                <button className="btn btn-sm btn-primary" data-testid="buyers-fulfillment-open" onClick={() => navigate(`#/seller/deal/${dealId}/fulfillment`)}>הזמנות למסירה</button>
+                <button className="btn btn-sm btn-primary" data-testid="buyers-fulfillment-open" onClick={() => navigate(`#/seller/deal/${dealId}/fulfillment`)}>{t("pages.seller.1ac278ad")}</button>
               ) : null}
-              <a className="btn btn-sm btn-ghost" href={`/api/seller/deals/${dealId}/export.xlsx`} target="_blank">הורדת רשימת משלוחים (Excel)</a>
+              <a className="btn btn-sm btn-ghost" href={`/api/seller/deals/${dealId}/export.xlsx`} target="_blank">{t("pages.seller.f71ebef9")}</a>
             </div>
           ) : null}
         </div>
@@ -2182,26 +2170,25 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
       {!isDraft ? (
         <div className="panel">
           <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
-            <div className="panel-title" style={{ marginBottom: 0 }}>הפצה ויראלית של העסקה</div>
+            <div className="panel-title" style={{ marginBottom: 0 }}>{t("pages.seller.ff73b9c2")}</div>
             <button className="btn btn-sm btn-primary" data-testid="open-viral-tree" onClick={() => navigate(`#/seller/deal/${dealId}/viral`)}>
-              פתיחת העץ הוויראלי
-            </button>
+              {t("pages.seller.c559769a")}</button>
           </div>
           {vm ? (
             <>
               <div className="stat-row" style={{ marginBottom: 10 }}>
-                <StatTile num={num((vm.viral as Json)?.attributed_participants || 0)} label="הצטרפויות דרך שיתוף" />
-                <StatTile num={num((vm.viral as Json)?.attributed_charged_units || 0)} label="יחידות מחויבות מהפצה" tone="good" />
-                <StatTile num={ils((vm.viral as Json)?.attributed_charged_gmv || 0)} label="ברוטו מחויב מהפצה" />
-                <StatTile num={num((vm.viral as Json)?.max_generation || 0)} label="עומק שרשרת (דורות)" />
-                <StatTile num={num((vm.viral as Json)?.sharing_participants || 0)} label="משתתפים שהביאו חברים" />
+                <StatTile num={num((vm.viral as Json)?.attributed_participants || 0)} label={t("pages.seller.7fa4e58d")} />
+                <StatTile num={num((vm.viral as Json)?.attributed_charged_units || 0)} label={t("pages.seller.7a2638c1")} tone="good" />
+                <StatTile num={ils((vm.viral as Json)?.attributed_charged_gmv || 0)} label={t("pages.seller.49c7de88")} />
+                <StatTile num={num((vm.viral as Json)?.max_generation || 0)} label={t("pages.seller.150d9538")} />
+                <StatTile num={num((vm.viral as Json)?.sharing_participants || 0)} label={t("pages.seller.398a032a")} />
               </div>
               {(vm.top_sharers as Json[])?.length ? (
                 <>
-                  <div className="section-title" style={{ margin: "10px 0 8px" }}>מפיצים אישיים מובילים</div>
+                  <div className="section-title" style={{ margin: "10px 0 8px" }}>{t("pages.seller.eebe7a0c")}</div>
                   <div className="table-wrap">
                     <table className="data">
-                      <thead><tr><th>משתתף</th><th className="num">הביא ישירות</th><th className="num">בכל הענף</th><th className="num">יחידות מחויבות</th><th className="num">עומק</th></tr></thead>
+                      <thead><tr><th>{t("pages.seller.3cffea29")}</th><th className="num">{t("pages.seller.31a483d1")}</th><th className="num">{t("pages.seller.3258ebab")}</th><th className="num">{t("pages.seller.c2156ef5")}</th><th className="num">{t("pages.seller.038da02c")}</th></tr></thead>
                       <tbody>
                         {(vm.top_sharers as Json[]).slice(0, 8).map((s) => (
                           <tr key={s.participant_id}>
@@ -2216,10 +2203,10 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
                     </table>
                   </div>
                 </>
-              ) : <p className="muted small">עדיין אין שיתופים שהביאו הצטרפויות — כל מצטרף מקבל קישור אישי אוטומטית.</p>}
-              {viral?.stale ? <p className="muted small" style={{ marginTop: 8 }}>הנתונים מחושבים ברקע · עודכנו {fmtDate(viral.computed_at)}</p> : null}
+              ) : <p className="muted small">{t("pages.seller.4e6ecd3b")}</p>}
+              {viral?.stale ? <p className="muted small" style={{ marginTop: 8 }}>{t("pages.seller.60959a72", { computed_at: fmtDate(viral.computed_at) })}</p> : null}
             </>
-          ) : <p className="muted small">נתוני ההפצה יחושבו אחרי ההצטרפות הראשונה.</p>}
+          ) : <p className="muted small">{t("pages.seller.1273a41a")}</p>}
         </div>
       ) : null}
 
@@ -2227,37 +2214,37 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
         <PublishModal
           deal={deal}
           onClose={() => setPublishing(false)}
-          onPublished={() => { setPublishing(false); showToast("העסקה פורסמה — עכשיו אפשר לשתף"); load(); }}
+          onPublished={() => { setPublishing(false); showToast(t("pages.seller.b8815a93")); load(); }}
         />
       ) : null}
 
       {confirmClose ? (
-        <Modal title="השהיית ההצטרפות לעסקה?" onClose={() => setConfirmClose(false)}>
-          <p>קונים חדשים לא יוכלו להצטרף. משתתפים קיימים נשארים בעסקה — אף אחד לא מחויב.</p>
-          <p className="muted small">אפשר לפתוח את ההצטרפות מחדש כל עוד מועד הסיום לא עבר והמלאי לא הסתיים.</p>
+        <Modal title={t("pages.seller.363e90f4")} onClose={() => setConfirmClose(false)}>
+          <p>{t("pages.seller.29ec3a1c")}</p>
+          <p className="muted small">{t("pages.seller.32ddc0d8")}</p>
           <div className="row" style={{ justifyContent: "flex-end" }}>
-            <button className="btn btn-ghost" onClick={() => setConfirmClose(false)}>ביטול</button>
+            <button className="btn btn-ghost" onClick={() => setConfirmClose(false)}>{t("pages.seller.a7c55a8d")}</button>
             <button className="btn btn-danger" data-testid="pause-joining-confirm" onClick={async () => {
-              try { await api.closeJoining(dealId); setConfirmClose(false); showToast("ההצטרפות הושהתה"); load(); }
-              catch (e: any) { showToast(e.message || "ההשהיה נכשלה"); setConfirmClose(false); }
-            }}>השהיה עכשיו</button>
+              try { await api.closeJoining(dealId); setConfirmClose(false); showToast(t("pages.seller.47df058b")); load(); }
+              catch (e: any) { showToast(e.message || t("pages.seller.a6af8e7a")); setConfirmClose(false); }
+            }}>{t("pages.seller.bdc8e100")}</button>
           </div>
         </Modal>
       ) : null}
 
       {confirmDelete ? (
-        <Modal title="מחיקת העסקה" onClose={() => setConfirmDelete(false)}>
-          <p><b>למחוק את העסקה?</b> לא ניתן לבטל פעולה זו.</p>
-          <p className="muted small">המחיקה אפשרית רק כל עוד אין בעסקה אף הצטרפות או פעילות כספית.</p>
+        <Modal title={t("pages.seller.c19c0198")} onClose={() => setConfirmDelete(false)}>
+          <p><b>{t("pages.seller.6d8d1136")}</b>  {t("pages.seller.17c2ea6f")}</p>
+          <p className="muted small">{t("pages.seller.be20cbeb")}</p>
           <div className="row" style={{ justifyContent: "flex-end" }}>
-            <button className="btn btn-ghost" onClick={() => setConfirmDelete(false)}>ביטול</button>
+            <button className="btn btn-ghost" onClick={() => setConfirmDelete(false)}>{t("pages.seller.a7c55a8d")}</button>
             <button className="btn btn-danger" data-testid="deal-delete-confirm" onClick={async () => {
               try {
                 await api.deleteDeal(dealId);
-                showToast("העסקה נמחקה");
+                showToast(t("pages.seller.360733e0"));
                 navigate("#/seller");
-              } catch (e: any) { showToast(e.message || "המחיקה נכשלה"); setConfirmDelete(false); }
-            }}>מחיקה סופית</button>
+              } catch (e: any) { showToast(e.message || t("pages.seller.3456899c")); setConfirmDelete(false); }
+            }}>{t("pages.seller.1d260ac0")}</button>
           </div>
         </Modal>
       ) : null}
@@ -2268,35 +2255,32 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
           canonical rules guarantee (nobody is charged in the pilot; frames are
           released when a deal ends without success). */}
       {confirmCancel ? (
-        <Modal title="ביטול העסקה — לצמיתות" onClose={() => { if (!cancelling) setConfirmCancel(false); }}>
+        <Modal title={t("pages.seller.25089153")} onClose={() => { if (!cancelling) setConfirmCancel(false); }}>
           <div className="cancel-compare" data-testid="cancel-vs-pause">
             <div className="is-cancel">
-              <b>ביטול</b>
-              סופי. העסקה נסגרת ולא ניתן לפתוח אותה מחדש. קונים לא יוכלו להצטרף, והיא תוצג כ״בוטלה״.
-            </div>
+              <b>{t("pages.seller.a7c55a8d")}</b>
+              {t("pages.seller.ed907a6e")}</div>
             <div className="is-pause">
-              <b>השהיה (חלופה)</b>
-              זמנית. עוצרת הצטרפויות חדשות בלבד; אפשר לפתוח מחדש כל עוד מועד הסיום לא עבר.
-            </div>
+              <b>{t("pages.seller.d0b94d4b")}</b>
+              {t("pages.seller.448f0c21")}</div>
           </div>
           <p className="muted small">
             השרת מחליט אם הביטול מותר במצב הנוכחי של העסקה
-            {!isDraft ? " — עסקה שכבר פורסמה עשויה להיות מוגנת מביטול כדי לא לפגוע במצטרפים." : "."}
+            {!isDraft ? t("pages.seller.a9016d29") : "."}
           </p>
           {cancelRefusal ? (
             <div className="notice err" data-testid="cancel-refused">
-              <b>הביטול נדחה על ידי השרת.</b>
+              <b>{t("pages.seller.580282d6")}</b>
               <div className="small" style={{ marginTop: 4 }}>{cancelRefusal}</div>
               {isOpen ? (
                 <button className="btn btn-sm btn-ghost" style={{ marginTop: 8 }} data-testid="cancel-refused-pause"
                   onClick={() => { setConfirmCancel(false); setConfirmClose(true); }}>
-                  להשהות את ההצטרפות במקום
-                </button>
+                  {t("pages.seller.3d599fc2")}</button>
               ) : null}
             </div>
           ) : null}
           <div className="row" style={{ justifyContent: "flex-end" }}>
-            <button className="btn btn-ghost" disabled={cancelling} onClick={() => setConfirmCancel(false)}>חזרה</button>
+            <button className="btn btn-ghost" disabled={cancelling} onClick={() => setConfirmCancel(false)}>{t("pages.seller.10a2352b")}</button>
             {!cancelRefusal ? (
               <button className="btn btn-danger" data-testid="deal-cancel-confirm" disabled={cancelling} onClick={async () => {
                 if (cancelling) return;
@@ -2304,20 +2288,20 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
                 try {
                   await api.cancelDeal(dealId, cancelIntentKey.current);
                   setConfirmCancel(false);
-                  showToast("העסקה בוטלה");
+                  showToast(t("pages.seller.a89c4afb"));
                   await load(); // refresh the seller state immediately after success
                 } catch (e: any) {
                   const code = String(e?.body?.code || e?.body?.error || "");
                   setCancelRefusal(
                     code === "STATE_CONFLICT" && !isDraft
-                      ? "עסקה שכבר פורסמה אינה ניתנת לביטול מלא. אפשר להשהות את ההצטרפות; אם היעד לא יושג עד מועד הסיום, העסקה תיסגר מעצמה והמסגרות של המצטרפים ישוחררו."
+                      ? t("pages.seller.568f7471")
                       : code === "STATE_CONFLICT"
-                        ? "מצב העסקה השתנה בינתיים — רעננו את המסך ונסו שוב."
-                        : String(e?.message || "הביטול נכשל — נסו שוב")
+                        ? t("pages.seller.750eb0cb")
+                        : String(e?.message || t("pages.seller.98264ec2"))
                   );
                 }
                 setCancelling(false);
-              }}>{cancelling ? "מבטלים…" : "ביטול סופי של העסקה"}</button>
+              }}>{cancelling ? t("pages.seller.49adf6f9") : t("pages.seller.63a8a6c5")}</button>
             ) : null}
           </div>
         </Modal>
@@ -2378,8 +2362,8 @@ function BusinessProfilePage({ navigate }: { navigate: (h: string) => void }) {
     api.sellerBusinessProfile().then(adopt).catch((e) => setError(e.message));
   }, []);
 
-  if (error && !payload) return <EmptyState title="לא ניתן לטעון את הפרופיל העסקי" body={error} />;
-  if (!payload) return <BrandLoader label="טוענים את הפרופיל העסקי…" minHeight={420} />;
+  if (error && !payload) return <EmptyState title={t("pages.seller.1ae5cb39")} body={error} />;
+  if (!payload) return <BrandLoader label={t("pages.seller.17227955")} minHeight={420} />;
 
   const statuses = payload.statuses || {};
   const last4 = payload.business_profile?.bank_account_last4 || "";
@@ -2392,76 +2376,75 @@ function BusinessProfilePage({ navigate }: { navigate: (h: string) => void }) {
     try {
       const r = await api.saveSellerBusinessProfile({ ...form, bank_account_number: bankNumber });
       adopt(r);
-      showToast("הפרופיל העסקי נשמר");
-    } catch (e: any) { setError(e.message || "השמירה נכשלה"); }
+      showToast(t("pages.seller.99775b6c"));
+    } catch (e: any) { setError(e.message || t("pages.seller.1072e99d")); }
     setBusy(false);
   };
 
   return (
     <div style={{ maxWidth: 680, margin: "0 auto" }}>
-      <a className="back" href="#/seller" onClick={(e) => { e.preventDefault(); navigate("#/seller"); }}>→ לדשבורד</a>
+      <a className="back" href="#/seller" onClick={(e) => { e.preventDefault(); navigate("#/seller"); }}>{t("pages.seller.227cf122")}</a>
 
       <div className="panel">
-        <div className="panel-title">מצב החשבון העסקי</div>
+        <div className="panel-title">{t("pages.seller.eca3bcbf")}</div>
         <div className="kv">
-          <span className="k">פרטי העסק</span>
-          <span className="v"><StatusBadge ok={Boolean(statuses.profile_complete)} okText="הושלמו" missingText="חסרים פרטים" /></span>
-          <span className="k">אימות העסק</span>
-          <span className="v"><span className="status ClosedForJoining">{VERIFICATION_LABELS[String(statuses.verification_status)] || String(statuses.verification_status || "בבדיקה")}</span></span>
-          <span className="k">פרטי התחשבנות</span>
-          <span className="v"><StatusBadge ok={Boolean(statuses.settlement_ready)} okText="מוכנים" missingText="חסרים פרטי בנק" /></span>
-          <span className="k">חיבור לספק הסליקה</span>
-          <span className="v"><span className="status ClosedForJoining">{GROW_LABELS[String(statuses.grow_onboarding)] || "טרם החל"}</span></span>
+          <span className="k">{t("pages.seller.64278e79")}</span>
+          <span className="v"><StatusBadge ok={Boolean(statuses.profile_complete)} okText={t("pages.seller.8a0c3e3e")} missingText={t("pages.seller.8b2bb096")} /></span>
+          <span className="k">{t("pages.seller.f3fa4276")}</span>
+          <span className="v"><span className="status ClosedForJoining">{VERIFICATION_LABELS[String(statuses.verification_status)] || String(statuses.verification_status || t("pages.seller.51a7047c"))}</span></span>
+          <span className="k">{t("pages.seller.23f4a225")}</span>
+          <span className="v"><StatusBadge ok={Boolean(statuses.settlement_ready)} okText={t("pages.seller.0d74c234")} missingText={t("pages.seller.47b4be61")} /></span>
+          <span className="k">{t("pages.seller.b8a4eea9")}</span>
+          <span className="v"><span className="status ClosedForJoining">{GROW_LABELS[String(statuses.grow_onboarding)] || t("pages.seller.9a11e343")}</span></span>
         </div>
         <p className="muted small" style={{ marginBottom: 0, marginTop: 10 }}>
-          אימות העסק והחיבור לספק הסליקה הם תהליכים נפרדים שמאושרים על ידי הצוות והספק — מילוי הטופס אינו מאשר אותם אוטומטית.
-        </p>
+          {t("pages.seller.92e7564a")}</p>
       </div>
 
       <div className="panel">
-        <div className="panel-title">פרטי העסק</div>
+        <div className="panel-title">{t("pages.seller.64278e79")}</div>
         <div className="field-row">
-          <div className="field"><label>שם העסק <span className="req">*</span></label><input value={form.business_name || ""} onChange={set("business_name")} maxLength={200} /></div>
-          <div className="field"><label>שם משפטי רשום</label><input value={form.legal_name || ""} onChange={set("legal_name")} maxLength={200} /></div>
+          <div className="field"><label>{t("pages.seller.06ea2f1a")} <span className="req">*</span></label><input value={form.business_name || ""} onChange={set("business_name")} maxLength={200} /></div>
+          <div className="field"><label>{t("pages.seller.40ad1c01")}</label><input value={form.legal_name || ""} onChange={set("legal_name")} maxLength={200} /></div>
         </div>
         <div className="field-row">
-          <div className="field"><label>ח.פ / עוסק <span className="req">*</span></label><input dir="ltr" inputMode="numeric" value={form.business_id_number || ""} onChange={set("business_id_number")} maxLength={20} /></div>
+          <div className="field"><label>{t("pages.seller.8f0d7d8e")} <span className="req">*</span></label><input dir="ltr" inputMode="numeric" value={form.business_id_number || ""} onChange={set("business_id_number")} maxLength={20} /></div>
           <div className="field">
-            <label>סוג התאגדות</label>
+            <label>{t("pages.seller.e5d83e77")}</label>
             <select value={form.entity_type || ""} onChange={set("entity_type")}>
-              <option value="">בחירה…</option>
+              <option value="">{t("pages.seller.116d3c56")}</option>
               {ENTITY_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
           </div>
         </div>
-        <div className="field"><label>כתובת העסק</label><input value={form.business_address || ""} onChange={set("business_address")} maxLength={200} /></div>
+        <div className="field"><label>{t("pages.seller.37c9d0a0")}</label><input value={form.business_address || ""} onChange={set("business_address")} maxLength={200} /></div>
       </div>
 
       <div className="panel">
-        <div className="panel-title">איש קשר והתחשבנות</div>
+        <div className="panel-title">{t("pages.seller.2f5996d9")}</div>
         <div className="field-row">
-          <div className="field"><label>שם איש קשר <span className="req">*</span></label><input value={form.contact_name || ""} onChange={set("contact_name")} maxLength={120} /></div>
-          <div className="field"><label>טלפון</label><input dir="ltr" inputMode="tel" value={form.contact_phone || ""} onChange={set("contact_phone")} maxLength={30} /></div>
+          <div className="field"><label>{t("pages.seller.29470368")} <span className="req">*</span></label><input value={form.contact_name || ""} onChange={set("contact_name")} maxLength={120} /></div>
+          <div className="field"><label>{t("pages.seller.737232c2")}</label><input dir="ltr" inputMode="tel" value={form.contact_phone || ""} onChange={set("contact_phone")} maxLength={30} /></div>
         </div>
         <div className="field-row">
-          <div className="field"><label>אימייל ליצירת קשר</label><input dir="ltr" inputMode="email" value={form.contact_email || ""} onChange={set("contact_email")} maxLength={200} /></div>
-          <div className="field"><label>אימייל לחשבוניות וכספים</label><input dir="ltr" inputMode="email" value={form.finance_email || ""} onChange={set("finance_email")} maxLength={200} /></div>
+          <div className="field"><label>{t("pages.seller.ad57e6f7")}</label><input dir="ltr" inputMode="email" value={form.contact_email || ""} onChange={set("contact_email")} maxLength={200} /></div>
+          <div className="field"><label>{t("pages.seller.bde6a124")}</label><input dir="ltr" inputMode="email" value={form.finance_email || ""} onChange={set("finance_email")} maxLength={200} /></div>
         </div>
       </div>
 
       <div className="panel">
-        <div className="panel-title">חשבון בנק לקבלת כספים</div>
+        <div className="panel-title">{t("pages.seller.ff7b2afb")}</div>
         <div className="field-row">
-          <div className="field"><label>שם בעל החשבון</label><input value={form.bank_account_holder || ""} onChange={set("bank_account_holder")} maxLength={120} /></div>
-          <div className="field"><label>בנק</label><input value={form.bank_name || ""} onChange={set("bank_name")} maxLength={100} /></div>
+          <div className="field"><label>{t("pages.seller.2b583092")}</label><input value={form.bank_account_holder || ""} onChange={set("bank_account_holder")} maxLength={120} /></div>
+          <div className="field"><label>{t("pages.seller.b4e346d4")}</label><input value={form.bank_name || ""} onChange={set("bank_name")} maxLength={100} /></div>
         </div>
         <div className="field-row">
-          <div className="field"><label>סניף</label><input dir="ltr" inputMode="numeric" value={form.bank_branch || ""} onChange={set("bank_branch")} maxLength={10} /></div>
+          <div className="field"><label>{t("pages.seller.bd17dd80")}</label><input dir="ltr" inputMode="numeric" value={form.bank_branch || ""} onChange={set("bank_branch")} maxLength={10} /></div>
           <div className="field">
-            <label>מספר חשבון</label>
+            <label>{t("pages.seller.f8e2aa25")}</label>
             <input dir="ltr" inputMode="numeric" autoComplete="off" value={bankNumber} onChange={(e) => setBankNumber(e.target.value)}
-              placeholder={last4 ? `נשמר · מסתיים ב-${last4}` : ""} maxLength={30} />
-            <span className="hint">{last4 ? "המספר המלא שמור ומוצפן — הזינו מספר חדש רק כדי להחליף אותו." : "המספר המלא נשמר בצד השרת בלבד ולעולם לא מוצג חזרה."}</span>
+              placeholder={last4 ? t("pages.seller.0cffe7d2", { last4: last4 }) : ""} maxLength={30} />
+            <span className="hint">{last4 ? t("pages.seller.d2350b58") : t("pages.seller.674f96b3")}</span>
           </div>
         </div>
       </div>
@@ -2469,7 +2452,7 @@ function BusinessProfilePage({ navigate }: { navigate: (h: string) => void }) {
       {error ? <div className="notice err">{error}</div> : null}
       <div className="row" style={{ justifyContent: "flex-end", marginBottom: 24 }}>
         <button className="btn btn-primary btn-lg" data-testid="business-profile-save" disabled={busy} onClick={save}>
-          {busy ? "שומרים…" : "שמירת הפרופיל העסקי"}
+          {busy ? t("pages.seller.cafc2ef5") : t("pages.seller.5cc296da")}
         </button>
       </div>
       <Toast msg={toast} />

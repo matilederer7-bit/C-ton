@@ -11,8 +11,9 @@ import { publicWebOrigin } from "./mobileUrls";
 // Every error surfaced from here is Hebrew (see he.ts) — raw provider/backend
 // text never reaches the user.
 
-import { hebrewError } from "./he";
+import { localizedError } from "./he";
 import { beginSession, ensureFreshSession, endSession, surfaceAccessToken, type AuthSessionPayload } from "./session";
+import { t } from "./i18n";
 
 export type Json = Record<string, any>;
 
@@ -52,7 +53,7 @@ async function req(path: string, init: RequestInit = {}, auth: "none" | "seller"
   try { body = text ? JSON.parse(text) : {}; } catch { body = { raw: text }; }
   if (!res.ok) {
     const raw: any = { status: res.status, body, message: body?.message || body?.error };
-    const err: any = new Error(hebrewError(raw));
+    const err: any = new Error(localizedError(raw));
     err.status = res.status; err.body = body;
     throw err;
   }
@@ -268,7 +269,7 @@ export async function supabaseSignIn(cfg: SupabaseCfg, email: string, password: 
   const { res, body } = await authPost(cfg, `/auth/v1/token?grant_type=password`, { email, password });
   if (!res.ok || !body?.access_token) {
     const msg = String(body?.error_description || body?.msg || body?.error || "");
-    const err: any = new Error(hebrewError({ status: res.status, message: msg }, "התחברות נכשלה — נסו שוב"));
+    const err: any = new Error(localizedError({ status: res.status, message: msg }, t("api.8d72d128")));
     err.status = res.status;
     throw err;
   }
@@ -295,7 +296,7 @@ export async function supabaseSignUp(cfg: SupabaseCfg, email: string, password: 
   });
   if (!res.ok) {
     const msg = String(body?.error_description || body?.msg || body?.error || "");
-    const err: any = new Error(hebrewError({ status: res.status, message: msg }, "הרשמה נכשלה — נסו שוב"));
+    const err: any = new Error(localizedError({ status: res.status, message: msg }, t("api.d97465a4")));
     err.status = res.status;
     throw err;
   }
@@ -316,7 +317,7 @@ export async function supabaseResendConfirmation(cfg: SupabaseCfg, email: string
   });
   if (!res.ok) {
     const msg = String(body?.error_description || body?.msg || body?.error || "");
-    throw new Error(hebrewError({ status: res.status, message: msg }, "שליחת בקשת האימות נכשלה — נסו שוב מאוחר יותר"));
+    throw new Error(localizedError({ status: res.status, message: msg }, t("api.9359c63a")));
   }
 }
 
@@ -328,7 +329,7 @@ export async function supabaseRecoverPassword(cfg: SupabaseCfg, email: string): 
   });
   if (!res.ok) {
     const msg = String(body?.error_description || body?.msg || body?.error || "");
-    throw new Error(hebrewError({ status: res.status, message: msg }, "בקשת איפוס הסיסמה נכשלה — נסו שוב מאוחר יותר"));
+    throw new Error(localizedError({ status: res.status, message: msg }, t("api.60ad1541")));
   }
 }
 

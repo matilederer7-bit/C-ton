@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 // SPRINT 4 (A9) — quantities are TYPED, never stepped.
 //
 // Owner rule: "In quantities I do not want arrows. I want pure number typing."
@@ -34,13 +35,13 @@ export function parseQuantityInput(raw: unknown, min: number, max: number): Quan
   const digits = quantityDigits(raw);
   if (!digits) return { digits, value: null, error: null };
   if (!/^[0-9]+$/.test(digits) || !Number.isSafeInteger(Number(digits))) {
-    return { digits, value: null, error: "יש להזין מספר שלם בלבד" };
+    return { digits, value: null, error: t("quantity_input.8dead351") };
   }
   const n = Number(digits);
   if (!Number.isInteger(n) || n < lo) {
-    return { digits, value: null, error: lo === 1 ? "הכמות חייבת להיות לפחות יחידה אחת" : `הכמות חייבת להיות לפחות ${lo}` };
+    return { digits, value: null, error: lo === 1 ? t("quantity_input.d43a7e20") : t("quantity_input.4d61574d", { lo: lo }) };
   }
-  if (n > hi) return { digits, value: null, error: `ניתן להזמין עד ${hi} יחידות` };
+  if (n > hi) return { digits, value: null, error: t("quantity_input.cf80acfb", { hi: hi }) };
   return { digits, value: n, error: null };
 }
 

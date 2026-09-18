@@ -8,6 +8,7 @@ import { readViewerMotionConditions, resolveHeroMedium, type HeroMedium } from "
 import { resolveFaqItems } from "../faqContent";
 import { pageOf, useSiteContent } from "../siteContent";
 import { type Block, enabledBlocks } from "../content/cmsTemplates";
+import { t } from "../i18n";
 
 // ── C-ton public landing (seller-first root; Mall stays hidden) ─────────────
 // SITE CMS — the page is the ordered block list of the PUBLISHED `home` page
@@ -195,7 +196,7 @@ function LandingBlock({ block, navigate, authed }: { block: Block; navigate: (h:
           {f.button_label ? <button className="btn btn-primary" onClick={() => follow(navigate, f.button_link || "")}>{f.button_label}</button> : null}
           {block.id === "contact" ? (
             <button className="btn btn-ghost" onClick={() => navigate(authed ? "#/seller/new" : "#/seller?signup=1")}>
-              {authed ? "+ יצירת עסקה חדשה" : "פתיחת חשבון מוכר"}
+              {authed ? t("pages.landing.46516a5f") : t("pages.landing.ade91333")}
             </button>
           ) : null}
         </div>
@@ -226,13 +227,13 @@ export function Landing({ navigate }: { navigate: (h: string) => void }) {
           <div className="landing-actions">
             {authed ? (
               <>
-                <button className="btn btn-primary btn-lg" onClick={() => navigate("#/seller")}>לדשבורד שלי ←</button>
-                <button className="btn btn-ghost btn-lg" onClick={() => navigate("#/seller/new")}>+ יצירת עסקה חדשה</button>
+                <button className="btn btn-primary btn-lg" onClick={() => navigate("#/seller")}>{t("pages.landing.67520eda")}</button>
+                <button className="btn btn-ghost btn-lg" onClick={() => navigate("#/seller/new")}>{t("pages.landing.46516a5f")}</button>
               </>
             ) : (
               <>
-                <button className="btn btn-primary btn-lg" onClick={() => follow(navigate, hero.primary_cta_link || "#/seller")}>{hero.primary_cta_label || "התחברות מוכר"}</button>
-                <button className="btn btn-ghost btn-lg" onClick={() => follow(navigate, hero.secondary_cta_link || "#/seller?signup=1")}>{hero.secondary_cta_label || "פתיחת חשבון מוכר"}</button>
+                <button className="btn btn-primary btn-lg" onClick={() => follow(navigate, hero.primary_cta_link || "#/seller")}>{hero.primary_cta_label || t("pages.landing.6e9a0939")}</button>
+                <button className="btn btn-ghost btn-lg" onClick={() => follow(navigate, hero.secondary_cta_link || "#/seller?signup=1")}>{hero.secondary_cta_label || t("pages.landing.ade91333")}</button>
               </>
             )}
           </div>

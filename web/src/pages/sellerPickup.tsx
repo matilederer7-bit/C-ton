@@ -4,6 +4,7 @@ import { BrandLoader, EmptyState, Modal, Toast, useToast } from "../components";
 import { formatIsraelDateTime, num } from "../util";
 import { SCAN_OUTCOME_COPY, SCAN_OUTCOME_TEST_ID, formatPickupDigits, formatPickupTyping, normalizePickupInput, type ScanOutcome } from "../pickupCode";
 import { cameraSupported, startPickupScanner, type ScannerHandle } from "../pickupScan";
+import { t } from "../i18n";
 
 // ── LAUNCH SPRINT 3 — seller pickup handoff ─────────────────────────────────
 // Counter flow (docs/PHYSICAL_FULFILLMENT_PICKUP.md §5/§6/§10):
@@ -50,21 +51,21 @@ function verdictTone(verdict: string): "ready" | "already" | "blocked" {
 function OrderFacts({ order, revealPhone, onTogglePhone }: { order: Json; revealPhone: boolean; onTogglePhone: () => void }) {
   return (
     <div className="kv handoff-facts">
-      <span className="k">קונה</span><span className="v" data-testid="handoff-buyer">{order.buyer_name || "—"}</span>
-      <span className="k">טלפון</span>
+      <span className="k">{t("pages.seller_pickup.628febf8")}</span><span className="v" data-testid="handoff-buyer">{order.buyer_name || "—"}</span>
+      <span className="k">{t("pages.seller_pickup.737232c2")}</span>
       <span className="v" dir="ltr">
         {revealPhone && order.buyer_phone ? order.buyer_phone : (order.buyer_phone_masked || "—")}
         {order.buyer_phone ? <button type="button" className="chip-btn" style={{ marginInlineStart: 8 }} onClick={onTogglePhone}>{revealPhone ? SELLER_PICKUP_COPY.hidePhone : SELLER_PICKUP_COPY.showPhone}</button> : null}
       </span>
-      <span className="k">מוצר</span><span className="v" data-testid="handoff-product">{order.product_title}</span>
-      <span className="k">כמות</span><span className="v handoff-qty" data-testid="handoff-qty">{num(order.qty)} יחידות</span>
-      <span className="k">תשלום</span>
+      <span className="k">{t("pages.seller_pickup.80a08f9c")}</span><span className="v" data-testid="handoff-product">{order.product_title}</span>
+      <span className="k">{t("pages.seller_pickup.d4e2d05b")}</span><span className="v handoff-qty" data-testid="handoff-qty">{t("pages.seller_pickup.53ab3dca", { qty: num(order.qty) })}</span>
+      <span className="k">{t("pages.seller_pickup.849f23b3")}</span>
       <span className="v" data-testid="handoff-payment">{order.paid ? <span className="status Completed">{order.payment_label} ✓</span> : <span className="status Failed">{order.payment_label}</span>}</span>
-      <span className="k">אופן קבלה</span><span className="v">{order.method_label}</span>
-      {order.method === "pickup" && order.pickup_location ? <><span className="k">נקודת איסוף</span><span className="v">{order.pickup_location}</span></> : null}
-      {order.method === "delivery" && order.delivery_address ? <><span className="k">כתובת</span><span className="v">{order.delivery_address}{order.delivery_city ? `, ${order.delivery_city}` : ""}</span></> : null}
-      {order.delivery_notes ? <><span className="k">הערה</span><span className="v">{order.delivery_notes}</span></> : null}
-      <span className="k">קוד הזמנה</span><span className="v pickup-code-inline" dir="ltr" data-testid="handoff-code">{order.order_code || "—"}</span>
+      <span className="k">{t("pages.seller_pickup.bd008360")}</span><span className="v">{order.method_label}</span>
+      {order.method === "pickup" && order.pickup_location ? <><span className="k">{t("pages.seller_pickup.08cb93c0")}</span><span className="v">{order.pickup_location}</span></> : null}
+      {order.method === "delivery" && order.delivery_address ? <><span className="k">{t("pages.seller_pickup.daab1ad0")}</span><span className="v">{order.delivery_address}{order.delivery_city ? `, ${order.delivery_city}` : ""}</span></> : null}
+      {order.delivery_notes ? <><span className="k">{t("pages.seller_pickup.adc51e32")}</span><span className="v">{order.delivery_notes}</span></> : null}
+      <span className="k">{t("pages.seller_pickup.3f8e78d1")}</span><span className="v pickup-code-inline" dir="ltr" data-testid="handoff-code">{order.order_code || "—"}</span>
     </div>
   );
 }
@@ -89,7 +90,7 @@ export function HandoffResultCard({ order, mockMoney, onConfirmed, onReset }: { 
     } catch (e: any) {
       const body = e?.body || {};
       if (body.order) { setConfirming(false); onConfirmed({ ...body, refused: true }); return; }
-      setRefusal(String(e?.message || "המסירה לא נרשמה — נסו שוב"));
+      setRefusal(String(e?.message || t("pages.seller_pickup.776da385")));
     } finally {
       setBusy(false);
     }
@@ -100,32 +101,31 @@ export function HandoffResultCard({ order, mockMoney, onConfirmed, onReset }: { 
         <span className="handoff-verdict-icon" aria-hidden="true">{tone === "ready" ? "✓" : tone === "already" ? "◑" : "✕"}</span>
         <span className="handoff-verdict-text" data-testid="handoff-verdict">{tone === "ready" ? SELLER_PICKUP_COPY.green : tone === "already" ? SELLER_PICKUP_COPY.amber : SELLER_PICKUP_COPY.red}</span>
       </div>
-      {tone === "blocked" ? <div className="handoff-reason" data-testid="handoff-reason">{order.not_ready_label || "ההזמנה אינה זכאית למסירה"}</div> : null}
-      {tone === "already" && order.fulfilled_at ? <div className="handoff-reason" data-testid="handoff-fulfilled-at">נמסר ב-{formatIsraelDateTime(String(order.fulfilled_at))}</div> : null}
+      {tone === "blocked" ? <div className="handoff-reason" data-testid="handoff-reason">{order.not_ready_label || t("pages.seller_pickup.db416784")}</div> : null}
+      {tone === "already" && order.fulfilled_at ? <div className="handoff-reason" data-testid="handoff-fulfilled-at">{t("pages.seller_pickup.60c4d50c", { fulfilled_at: formatIsraelDateTime(String(order.fulfilled_at)) })}</div> : null}
       <OrderFacts order={order} revealPhone={revealPhone} onTogglePhone={() => setRevealPhone((v) => !v)} />
       {mockMoney ? <p className="muted small" style={{ margin: "8px 0 0" }}>{SELLER_PICKUP_COPY.mock}</p> : null}
       <div className="row" style={{ marginTop: 14, gap: 8 }}>
         {tone === "ready" ? (
           <button type="button" className="btn btn-primary btn-lg btn-block" data-testid="handoff-confirm-open" onClick={openConfirm}>
-            אישור מסירה — {num(qty)} יחידות
-          </button>
+            {t("pages.seller_pickup.6719a2e4", { qty: num(qty) })}</button>
         ) : null}
       </div>
       <div className="row" style={{ marginTop: 8 }}>
         <button type="button" className="btn btn-ghost btn-sm" data-testid="handoff-reset" onClick={onReset}>{SELLER_PICKUP_COPY.scanAgain}</button>
       </div>
       {confirming ? (
-        <Modal title="אישור מסירה" onClose={() => { if (!busy) setConfirming(false); }}
+        <Modal title={t("pages.seller_pickup.44291ad2")} onClose={() => { if (!busy) setConfirming(false); }}
           footer={
             <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
               <button type="button" className="btn btn-ghost" data-testid="handoff-confirm-back" disabled={busy} onClick={() => setConfirming(false)}>{SELLER_PICKUP_COPY.back}</button>
-              <button type="button" className="btn btn-primary btn-lg" data-testid="handoff-confirm" disabled={busy} onClick={confirm}>{busy ? "רושמים…" : SELLER_PICKUP_COPY.confirm}</button>
+              <button type="button" className="btn btn-primary btn-lg" data-testid="handoff-confirm" disabled={busy} onClick={confirm}>{busy ? t("pages.seller_pickup.dcde6a09") : SELLER_PICKUP_COPY.confirm}</button>
             </div>
           }>
           <p className="handoff-confirm-line" data-testid="handoff-confirm-line">
-            אתם מוסרים עכשיו <b>{num(qty)} יחידות</b> של <b>{order.product_title}</b> ל<b>{order.buyer_name || "הקונה"}</b>.
+            {t("pages.seller_pickup.952d9ba3")} <b>{t("pages.seller_pickup.53ab3dca", { qty: num(qty) })}</b>  {t("pages.seller_pickup.2b6526db")} <b>{order.product_title}</b>  {t("pages.seller_pickup.d67cdc0f")}<b>{order.buyer_name || t("pages.seller_pickup.8f69a20a")}</b>.
           </p>
-          {qty > 1 ? <p className="muted small">אישור המסירה מסמן את כל {num(qty)} היחידות כנמסרו.</p> : null}
+          {qty > 1 ? <p className="muted small">{t("pages.seller_pickup.e77893e3", { qty: num(qty) })}</p> : null}
           {refusal ? <div className="notice err" data-testid="handoff-refused">{refusal}</div> : null}
         </Modal>
       ) : null}
@@ -145,7 +145,7 @@ function HandoffDone({ result, onReset }: { result: Json; onReset: () => void })
       </div>
       <div className="handoff-reason">
         {refused ? (result.message || order.not_ready_label || "") : `${num(order.qty)} יחידות של ${order.product_title} — ${order.buyer_name || "הקונה"}`}
-        {result.fulfilled_at ? <div className="small">נמסר ב-{formatIsraelDateTime(String(result.fulfilled_at))}</div> : null}
+        {result.fulfilled_at ? <div className="small">{t("pages.seller_pickup.60c4d50c", { fulfilled_at: formatIsraelDateTime(String(result.fulfilled_at)) })}</div> : null}
       </div>
       {order.order_code ? <div className="pickup-code-inline" dir="ltr" style={{ marginTop: 6 }}>{order.order_code}</div> : null}
       <div className="row" style={{ marginTop: 14 }}>
@@ -188,7 +188,7 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
     } catch (e: any) {
       const codeName = String(e?.body?.code || "");
       if (Number(e?.status) === 404 || codeName === "pickup_code_not_found") setNotFound(SELLER_PICKUP_COPY.notFoundBody);
-      else setNotFound(String(e?.message || "האימות נכשל — נסו שוב"));
+      else setNotFound(String(e?.message || t("pages.seller_pickup.8d30c587")));
     } finally { setResolving(false); }
   };
 
@@ -207,7 +207,7 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
   const submitTyped = async (e?: React.FormEvent) => {
     e?.preventDefault();
     const digits = normalizePickupInput(typed);
-    if (!digits) { setNotFound("הקלידו 8 ספרות (לדוגמה 4839-2175)."); return; }
+    if (!digits) { setNotFound(t("pages.seller_pickup.0ef6598c")); return; }
     stopCamera();
     await resolveCode(formatPickupDigits(digits), "manual");
   };
@@ -222,7 +222,7 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
       const r = await api.sellerPickupSearch(q);
       setMockMoney(Boolean(r.mock_money));
       setResults(Array.isArray(r.orders) ? r.orders : []);
-    } catch (e: any) { showToast(String(e?.message || "החיפוש נכשל")); }
+    } catch (e: any) { showToast(String(e?.message || t("pages.seller_pickup.78129d3a"))); }
     finally { setSearching(false); }
   };
 
@@ -236,7 +236,7 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
 
   return (
     <div className="pickup-page" data-testid="seller-pickup-page">
-      <a className="back" href="#/seller" onClick={(e) => { e.preventDefault(); stopCamera(); navigate("#/seller"); }}>→ לאזור המוכר</a>
+      <a className="back" href="#/seller" onClick={(e) => { e.preventDefault(); stopCamera(); navigate("#/seller"); }}>{t("pages.seller_pickup.123e15aa")}</a>
       <h1 style={{ marginBottom: 4 }}>{SELLER_PICKUP_COPY.title}</h1>
       <p className="muted" style={{ marginTop: 0 }}>{SELLER_PICKUP_COPY.subtitle}</p>
 
@@ -249,7 +249,7 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
         </div>
       ) : null}
 
-      <div className="pickup-tabs" role="tablist" aria-label="דרך זיהוי">
+      <div className="pickup-tabs" role="tablist" aria-label={t("pages.seller_pickup.3a8ce242")}>
         {([["scan", SELLER_PICKUP_COPY.tabScan], ["type", SELLER_PICKUP_COPY.tabType], ["search", SELLER_PICKUP_COPY.tabSearch]] as const).map(([k, l]) => (
           <button key={k} type="button" role="tab" aria-selected={tab === k} className={`pickup-tab${tab === k ? " active" : ""}`} data-testid={`pickup-tab-${k}`} onClick={() => { if (k !== "scan") stopCamera(); setTab(k); }}>{l}</button>
         ))}
@@ -258,13 +258,13 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
       {tab === "scan" ? (
         <div className="panel" data-testid="pickup-scan-panel">
           <div className="handoff-scan">
-            <video ref={videoRef} className="handoff-video" playsInline muted aria-label="תצוגת מצלמה" />
+            <video ref={videoRef} className="handoff-video" playsInline muted aria-label={t("pages.seller_pickup.8733d9b4")} />
             <canvas ref={canvasRef} hidden aria-hidden="true" />
-            {outcome === "idle" || outcome === "stopped" ? <div className="handoff-scan-overlay">המצלמה כבויה</div> : null}
+            {outcome === "idle" || outcome === "stopped" ? <div className="handoff-scan-overlay">{t("pages.seller_pickup.84fb0aed")}</div> : null}
           </div>
           <p className="small" data-testid={SCAN_OUTCOME_TEST_ID[outcome]} data-outcome={outcome} style={{ margin: "10px 0 6px" }}>
             {SCAN_OUTCOME_COPY[outcome]}
-            {outcome === "not_our_code" && outcomeDetail ? <span className="muted"> (נקרא: {outcomeDetail.slice(0, 40)})</span> : null}
+            {outcome === "not_our_code" && outcomeDetail ? <span className="muted"> {t("pages.seller_pickup.e0c3cdd8", { v0: outcomeDetail.slice(0, 40) })}</span> : null}
           </p>
           <div className="row" style={{ gap: 8 }}>
             {outcome === "scanning" || outcome === "starting" ? (
@@ -300,7 +300,7 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
           </label>
           <p className="muted small" style={{ marginTop: 4 }}>{SELLER_PICKUP_COPY.typeHint}</p>
           <button type="submit" className="btn btn-primary btn-lg btn-block" data-testid="pickup-code-submit" disabled={resolving || !formatPickupTyping(typed).complete}>
-            {resolving ? "מאמתים…" : SELLER_PICKUP_COPY.typeSubmit}
+            {resolving ? t("pages.seller_pickup.b14aaf63") : SELLER_PICKUP_COPY.typeSubmit}
           </button>
         </form>
       ) : null}
@@ -310,9 +310,9 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
           <form onSubmit={submitSearch}>
             <label className="field">
               <span>{SELLER_PICKUP_COPY.searchLabel}</span>
-              <input data-testid="pickup-search-input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="050-1234567 או ישראל ישראלי" autoComplete="off" />
+              <input data-testid="pickup-search-input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("pages.seller_pickup.39f3aeed")} autoComplete="off" />
             </label>
-            <button type="submit" className="btn btn-primary" data-testid="pickup-search-submit" disabled={searching || query.trim().length < 2}>{searching ? "מחפשים…" : SELLER_PICKUP_COPY.searchSubmit}</button>
+            <button type="submit" className="btn btn-primary" data-testid="pickup-search-submit" disabled={searching || query.trim().length < 2}>{searching ? t("pages.seller_pickup.b89c236a") : SELLER_PICKUP_COPY.searchSubmit}</button>
           </form>
           {results ? (
             results.length ? (
@@ -321,7 +321,7 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
                   <button key={o.participant_id} type="button" className={`order-row order-${verdictTone(String(o.verdict))}`} data-testid="pickup-search-hit" onClick={() => { setResults(null); setOrder({ ...o, __source: "search" }); }}>
                     <span className="order-row-main"><b>{o.buyer_name || "—"}</b> · {o.product_title}</span>
                     <span className="order-row-sub" dir="ltr">{o.buyer_phone_masked || ""} · {o.order_code || "—"}</span>
-                    <span className="order-row-state">{verdictTone(String(o.verdict)) === "ready" ? `${SELLER_PICKUP_COPY.green} · ${num(o.qty)} יח׳` : verdictTone(String(o.verdict)) === "already" ? SELLER_PICKUP_COPY.amber : (o.not_ready_label || SELLER_PICKUP_COPY.red)}</span>
+                    <span className="order-row-state">{verdictTone(String(o.verdict)) === "ready" ? t("pages.seller_pickup.6ee010b2", { green: SELLER_PICKUP_COPY.green, qty: num(o.qty) }) : verdictTone(String(o.verdict)) === "already" ? SELLER_PICKUP_COPY.amber : (o.not_ready_label || SELLER_PICKUP_COPY.red)}</span>
                   </button>
                 ))}
               </div>
@@ -345,42 +345,42 @@ export function SellerFulfillmentPage({ dealId, navigate }: { dealId: string; na
   const [toast, showToast] = useToast();
   const load = async () => {
     try { setPayload(await api.sellerDealFulfillment(dealId, { status, q })); setError(""); }
-    catch (e: any) { setError(String(e?.message || "הטעינה נכשלה")); }
+    catch (e: any) { setError(String(e?.message || t("pages.seller_pickup.8574a044"))); }
   };
   useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [dealId, status]);
-  if (error) return <EmptyState title="אי אפשר להציג את רשימת המסירה" body={error} action={<a className="btn btn-ghost" href={`#/seller/deal/${dealId}`}>לעסקה</a>} />;
-  if (!payload) return <BrandLoader label="טוענים את ההזמנות למסירה…" minHeight={360} />;
+  if (error) return <EmptyState title={t("pages.seller_pickup.353a8367")} body={error} action={<a className="btn btn-ghost" href={`#/seller/deal/${dealId}`}>{t("pages.seller_pickup.8d4d7e16")}</a>} />;
+  if (!payload) return <BrandLoader label={t("pages.seller_pickup.8e46b6c8")} minHeight={360} />;
   const counts = payload.counts || {};
   const orders: Json[] = Array.isArray(payload.orders) ? payload.orders : [];
   return (
     <div className="pickup-page" data-testid="seller-fulfillment-page">
-      <a className="back" href={`#/seller/deal/${dealId}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/deal/${dealId}`); }}>→ לעסקה</a>
+      <a className="back" href={`#/seller/deal/${dealId}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/deal/${dealId}`); }}>{t("pages.seller_pickup.fbd4509a")}</a>
       <div className="row" style={{ alignItems: "baseline", gap: 10 }}>
-        <h1 style={{ margin: 0 }}>הזמנות למסירה</h1>
+        <h1 style={{ margin: 0 }}>{t("pages.seller_pickup.1ac278ad")}</h1>
         <span className="muted">{payload.deal?.title}</span>
       </div>
       <div className="stat-row fulfillment-stats">
-        <div className="stat-tile"><div className="num" data-testid="fulfillment-awaiting">{num(counts.awaiting)}</div><div className="lbl">ממתינות למסירה</div></div>
-        <div className="stat-tile good"><div className="num" data-testid="fulfillment-fulfilled">{num(counts.fulfilled)}</div><div className="lbl">נמסרו</div></div>
-        {Number(counts.blocked) > 0 ? <div className="stat-tile bad"><div className="num">{num(counts.blocked)}</div><div className="lbl">אין למסור</div></div> : null}
+        <div className="stat-tile"><div className="num" data-testid="fulfillment-awaiting">{num(counts.awaiting)}</div><div className="lbl">{t("pages.seller_pickup.f1a84bdc")}</div></div>
+        <div className="stat-tile good"><div className="num" data-testid="fulfillment-fulfilled">{num(counts.fulfilled)}</div><div className="lbl">{t("pages.seller_pickup.96ac9ea8")}</div></div>
+        {Number(counts.blocked) > 0 ? <div className="stat-tile bad"><div className="num">{num(counts.blocked)}</div><div className="lbl">{t("pages.seller_pickup.c94e0409")}</div></div> : null}
       </div>
       <div className="row" style={{ gap: 8, marginTop: 12 }}>
-        <button type="button" className="btn btn-primary" data-testid="fulfillment-scan" onClick={() => navigate("#/seller/pickup")}>סריקת איסוף</button>
-        <a className="btn btn-ghost btn-sm" href={`/api/seller/deals/${dealId}/delivery-handoff/export.xlsx`} target="_blank" rel="noreferrer">הורדת Excel לוגיסטי</a>
+        <button type="button" className="btn btn-primary" data-testid="fulfillment-scan" onClick={() => navigate("#/seller/pickup")}>{t("pages.seller_pickup.2d843402")}</button>
+        <a className="btn btn-ghost btn-sm" href={`/api/seller/deals/${dealId}/delivery-handoff/export.xlsx`} target="_blank" rel="noreferrer">{t("pages.seller_pickup.cea01d82")}</a>
       </div>
-      <div className="pickup-tabs" role="tablist" aria-label="סינון" style={{ marginTop: 12 }}>
-        {([["pending", "ממתינות למסירה"], ["fulfilled", "נמסרו"], ["all", "הכול"]] as const).map(([k, l]) => (
+      <div className="pickup-tabs" role="tablist" aria-label={t("pages.seller_pickup.371bb0b5")} style={{ marginTop: 12 }}>
+        {([["pending", t("pages.seller_pickup.f1a84bdc")], ["fulfilled", t("pages.seller_pickup.96ac9ea8")], ["all", t("pages.seller_pickup.d0940366")]] as const).map(([k, l]) => (
           <button key={k} type="button" role="tab" aria-selected={status === k} className={`pickup-tab${status === k ? " active" : ""}`} data-testid={`fulfillment-filter-${k}`} onClick={() => setStatus(k)}>{l}</button>
         ))}
       </div>
       <form className="row" style={{ gap: 8, marginTop: 8 }} onSubmit={(e) => { e.preventDefault(); void load(); }}>
-        <input data-testid="fulfillment-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="קוד הזמנה, טלפון או שם" aria-label="חיפוש הזמנה" style={{ flex: 1, minWidth: 0 }} />
-        <button type="submit" className="btn btn-ghost btn-sm">חיפוש</button>
+        <input data-testid="fulfillment-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("pages.seller_pickup.e555b927")} aria-label={t("pages.seller_pickup.124fb3bd")} style={{ flex: 1, minWidth: 0 }} />
+        <button type="submit" className="btn btn-ghost btn-sm">{t("pages.seller_pickup.6d6d7964")}</button>
       </form>
       {done ? <HandoffDone result={done} onReset={() => { setDone(null); void load(); }} /> : null}
       {active ? <HandoffResultCard order={active} mockMoney={Boolean(payload.mock_money)} onConfirmed={(r) => { setActive(null); setDone(r); void load(); }} onReset={() => setActive(null)} /> : null}
       {!orders.length ? (
-        <p className="muted" style={{ marginTop: 14 }} data-testid="fulfillment-empty">{status === "pending" ? "אין הזמנות שממתינות למסירה." : status === "fulfilled" ? "עדיין לא נמסרו הזמנות." : "אין הזמנות."}</p>
+        <p className="muted" style={{ marginTop: 14 }} data-testid="fulfillment-empty">{status === "pending" ? t("pages.seller_pickup.370f6f1d") : status === "fulfilled" ? t("pages.seller_pickup.460e4463") : t("pages.seller_pickup.c4f1adf3")}</p>
       ) : (
         <div className="stack" style={{ marginTop: 12 }} data-testid="fulfillment-list">
           {orders.map((o) => {
@@ -389,17 +389,16 @@ export function SellerFulfillmentPage({ dealId, navigate }: { dealId: string; na
               <div key={o.participant_id} className={`order-card order-${tone}`} data-testid="fulfillment-row" data-state={tone}>
                 <div className="order-card-head">
                   <span className="pickup-code-inline" dir="ltr">{o.order_code || "—"}</span>
-                  <span className={`status ${tone === "ready" ? "PendingTarget" : tone === "already" ? "Completed" : "Failed"}`}>{tone === "ready" ? "ממתין למסירה" : tone === "already" ? "נמסר" : (o.not_ready_label || "אין למסור")}</span>
+                  <span className={`status ${tone === "ready" ? "PendingTarget" : tone === "already" ? "Completed" : "Failed"}`}>{tone === "ready" ? t("pages.seller_pickup.a21eb3c2") : tone === "already" ? t("pages.seller_pickup.8b72a1ae") : (o.not_ready_label || t("pages.seller_pickup.c94e0409"))}</span>
                 </div>
                 <div className="order-card-main"><b>{o.buyer_name || "—"}</b> <span dir="ltr" className="muted">{o.buyer_phone || ""}</span></div>
                 <div className="order-card-sub">
-                  <span className="handoff-qty">{num(o.qty)} יח׳</span> · {o.method_label}{o.method === "delivery" && o.delivery_city ? ` · ${o.delivery_city}` : ""} · {o.paid ? "שולם ✓" : o.payment_label}
-                  {tone === "already" && o.fulfilled_at ? ` · נמסר ${formatIsraelDateTime(String(o.fulfilled_at))}` : ""}
+                  <span className="handoff-qty">{t("pages.seller_pickup.ef4c4faf", { qty: num(o.qty) })}</span> · {o.method_label}{o.method === "delivery" && o.delivery_city ? ` · ${o.delivery_city}` : ""} · {o.paid ? t("pages.seller_pickup.c529badd") : o.payment_label}
+                  {tone === "already" && o.fulfilled_at ? t("pages.seller_pickup.b882a3d0", { fulfilled_at: formatIsraelDateTime(String(o.fulfilled_at)) }) : ""}
                 </div>
                 {tone === "ready" ? (
                   <button type="button" className="btn btn-primary btn-sm" data-testid="fulfillment-row-confirm" onClick={() => { setDone(null); setActive({ ...o, __source: "list" }); window.scrollTo({ top: 0 }); }}>
-                    אישור מסירה — {num(o.qty)} יחידות
-                  </button>
+                    {t("pages.seller_pickup.6719a2e4", { qty: num(o.qty) })}</button>
                 ) : null}
               </div>
             );

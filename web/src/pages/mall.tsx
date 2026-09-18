@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { GroupMeter, SkeletonCards, EmptyState, StatusPill, Countdown } from "../components";
 import { countdownView, dealTypeLabel, ils, num } from "../util";
+import { t } from "../i18n";
 
 type MallDeal = {
   deal_id: string;
@@ -25,10 +26,10 @@ function urgencyBadge(deal: MallDeal): { text: string; hot: boolean } | null {
   if (!deal.availability.can_join) return null;
   const cd = countdownView(deal.deadline);
   if (deal.remaining_units > 0 && deal.remaining_units <= Math.max(3, deal.max_units * 0.1)) {
-    return { text: `נותרו ${num(deal.remaining_units)} יחידות בלבד`, hot: true };
+    return { text: t("pages.mall.3c35f254", { remaining_units: num(deal.remaining_units) }), hot: true };
   }
-  if (cd && cd.tone === "danger") return { text: "נסגרת בקרוב!", hot: true };
-  if (cd && cd.tone === "warn") return { text: `נסגרת בעוד ${cd.text}`, hot: false };
+  if (cd && cd.tone === "danger") return { text: t("pages.mall.5f0a8707"), hot: true };
+  if (cd && cd.tone === "warn") return { text: t("pages.mall.e28fc25f", { text: cd.text }), hot: false };
   return null;
 }
 
@@ -61,17 +62,17 @@ function DealCard({ deal, onOpen }: { deal: MallDeal; onOpen: () => void }) {
         <GroupMeter joined={deal.joined_units} threshold={deal.threshold_units} max={deal.max_units} showFlag={false} />
         <div className="card-price-row">
           <span className="price">{ils(deal.price_per_unit)}</span>
-          <span className="price-unit">ליחידה</span>
+          <span className="price-unit">{t("pages.mall.98f13081")}</span>
           {Number(deal.list_price_per_unit) > Number(deal.price_per_unit)
-            ? <span className="price-was" dir="ltr" aria-label="מחיר רגיל">{ils(deal.list_price_per_unit)}</span>
+            ? <span className="price-was" dir="ltr" aria-label={t("pages.mall.36bb7801")}>{ils(deal.list_price_per_unit)}</span>
             : null}
           {deal.availability.can_join && toTarget > 0
-            ? <span className="muted small" style={{ marginInlineStart: "auto" }}>עוד {num(toTarget)} ליעד</span>
+            ? <span className="muted small" style={{ marginInlineStart: "auto" }}>{t("pages.mall.895df89e", { toTarget: num(toTarget) })}</span>
             : null}
         </div>
         <div className="card-foot">
-          <Countdown until={deal.deadline} overText="ההצטרפות הסתיימה" />
-          <span>{deal.availability.can_join ? "פתוח להצטרפות" : "ההצטרפות נסגרה"}</span>
+          <Countdown until={deal.deadline} overText={t("pages.mall.7270e065")} />
+          <span>{deal.availability.can_join ? t("pages.mall.f072e651") : t("pages.mall.0318e24b")}</span>
         </div>
       </div>
     </a>
@@ -123,12 +124,10 @@ export function Mall({ navigate }: { navigate: (hash: string) => void }) {
   return (
     <>
       <section className="hero">
-        <div className="hero-kicker">קונים ביחד · משלמים פחות</div>
-        <h1>המחיר יורד כשכולם מצטרפים</h1>
+        <div className="hero-kicker">{t("pages.mall.ccc41545")}</div>
+        <h1>{t("pages.mall.f9f9b02d")}</h1>
         <p>
-          כל עסקה ב-C-ton יוצאת לפועל רק כשהקבוצה מגיעה ליעד — עד אז נתפסת מסגרת
-          אשראי בלבד, בלי חיוב. לא הגעתם ליעד? המסגרת משתחררת אוטומטית.
-        </p>
+          {t("pages.mall.69a53e1d")}</p>
         {liveDeals > 0 ? (
           <div className="hero-live">
             <span className="live-dot" aria-hidden="true" />
@@ -137,7 +136,7 @@ export function Mall({ navigate }: { navigate: (hash: string) => void }) {
         ) : null}
       </section>
 
-      <div className="filters" role="tablist" aria-label="סינון עסקאות">
+      <div className="filters" role="tablist" aria-label={t("pages.mall.963c93c4")}>
         {TYPE_FILTERS.map((f) => (
           <button key={f.key} className={`chip${type === f.key ? " active" : ""}`} onClick={() => setType(f.key)}>
             {f.label}
@@ -151,9 +150,9 @@ export function Mall({ navigate }: { navigate: (hash: string) => void }) {
       {error ? <div className="notice err">{error}</div> : null}
       {!visible ? <SkeletonCards /> : visible.length === 0 ? (
         <EmptyState
-          title="אין עסקאות פתוחות כרגע"
-          body="עסקאות חדשות נפתחות כל הזמן — שווה לחזור בקרוב."
-          action={!onlyOpen ? undefined : <button className="btn btn-ghost" onClick={() => setOnlyOpen(false)}>הצגת כל העסקאות</button>}
+          title={t("pages.mall.557da7e7")}
+          body={t("pages.mall.cd87995a")}
+          action={!onlyOpen ? undefined : <button className="btn btn-ghost" onClick={() => setOnlyOpen(false)}>{t("pages.mall.072cd4ef")}</button>}
         />
       ) : (
         <div className="grid">
@@ -164,8 +163,8 @@ export function Mall({ navigate }: { navigate: (hash: string) => void }) {
       )}
 
       <div className="center" style={{ paddingTop: 34 }}>
-        <p className="muted small">מוכרים? פתחו עסקה קבוצתית משלכם תוך דקות.</p>
-        <a className="btn btn-ghost" href="#/seller">אזור המוכרים ←</a>
+        <p className="muted small">{t("pages.mall.a67f58a2")}</p>
+        <a className="btn btn-ghost" href="#/seller">{t("pages.mall.18359a36")}</a>
       </div>
     </>
   );

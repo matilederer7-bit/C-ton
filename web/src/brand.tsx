@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { BRAND_MARK_URL, BRAND_NAME } from "./config";
+import { t } from "./i18n";
 
 // ── C-ton brand primitives ──────────────────────────────────────────────────
 // The owner-supplied logo asset is the single source of visual identity.
@@ -60,11 +61,10 @@ export function BrandLoader({ label, minHeight = 320 }: { label?: string; minHei
     <div className="brand-loader" role="status" aria-live="polite" style={{ minHeight }} data-testid="brand-loader" data-slow={slow ? "1" : "0"}>
       <img className="brand-loader-mark" src={BRAND_MARK_URL} alt="" aria-hidden="true" width={72} height={72} draggable={false} />
       <div className="brand-loader-bar" aria-hidden="true" />
-      <p className="brand-loader-label">{label || "טוענים…"}</p>
+      <p className="brand-loader-label">{label || t("brand.aa3df4d5")}</p>
       {slow ? (
         <p className="brand-loader-slow" data-testid="brand-loader-slow">
-          עדיין טוענים — השרת מתעורר. בפעם הראשונה זה יכול לקחת עד חצי דקה; אין צורך לרענן.
-        </p>
+          {t("brand.fd2571df")}</p>
       ) : null}
     </div>
   );

@@ -74,3 +74,4 @@ google-services.json
 # Git worktrees (parallel agent checkouts live here; never source) and release reports
 .worktrees/
 .release-artifacts/
+.i18n-work/

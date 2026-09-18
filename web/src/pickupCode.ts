@@ -57,17 +57,17 @@ export type ScanOutcome =
 
 // Every outcome has product Hebrew and a stable test id (mirrors geo.ts).
 export const SCAN_OUTCOME_COPY: Record<ScanOutcome, string> = {
-  idle: "המצלמה כבויה. אפשר לסרוק, להקליד קוד או לחפש לפי שם/טלפון.",
-  starting: "מפעילים את המצלמה…",
-  scanning: "כוונו את המצלמה אל קוד ה-QR של הקונה.",
-  decoded: "הקוד נקרא — מאמתים מול השרת…",
-  not_our_code: "זה לא קוד איסוף של סיטון. בקשו מהקונה להציג את קוד האיסוף ממסך המעקב, או הקלידו את הקוד.",
-  permission_denied: "הדפדפן חסם את המצלמה. אפשר להקליד את הקוד או לחפש לפי שם/טלפון — או לאפשר מצלמה בהגדרות האתר ולנסות שוב.",
-  camera_unavailable: "לא נמצאה מצלמה זמינה במכשיר הזה. הקלידו את הקוד או חפשו לפי שם/טלפון.",
-  insecure_context: "סריקה במצלמה עובדת רק בחיבור מאובטח (https). הקלידו את הקוד.",
-  unsupported: "הדפדפן הזה לא תומך בסריקה. הקלידו את הקוד או חפשו לפי שם/טלפון.",
-  stopped: "המצלמה כבויה.",
-  error: "הסריקה נכשלה. נסו שוב, או הקלידו את הקוד."
+  idle: "pickup_code.scan_outcome_copy.idle",
+  starting: "pickup_code.scan_outcome_copy.starting",
+  scanning: "pickup_code.scan_outcome_copy.scanning",
+  decoded: "pickup_code.scan_outcome_copy.decoded",
+  not_our_code: "pickup_code.scan_outcome_copy.not_our_code",
+  permission_denied: "pickup_code.scan_outcome_copy.permission_denied",
+  camera_unavailable: "pickup_code.scan_outcome_copy.camera_unavailable",
+  insecure_context: "pickup_code.scan_outcome_copy.insecure_context",
+  unsupported: "pickup_code.scan_outcome_copy.unsupported",
+  stopped: "pickup_code.scan_outcome_copy.stopped",
+  error: "pickup_code.scan_outcome_copy.error"
 };
 
 export const SCAN_OUTCOME_TEST_ID: Record<ScanOutcome, string> = Object.fromEntries(

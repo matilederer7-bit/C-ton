@@ -2,9 +2,10 @@ import React, { useState } from "react";
 import { api, supabaseSignIn } from "./api";
 import { adoptCapabilities, leaveGuestModeInPlace, readOwnerCaps } from "./ownerMode";
 import { markAdminUnlocked } from "./adminGate";
-import { hebrewError } from "./he";
+import { localizedError } from "./he";
 import { BrandMark } from "./brand";
 import { beginAuthAttempt, traceAuth } from "./authTrace";
+import { t } from "./i18n";
 
 // ── Admin password step-up (P0.5-1) ─────────────────────────────────────────
 // Shown after the hidden two-tap entry, and for ANY #/admin navigation while
@@ -28,25 +29,25 @@ export function AdminStepUp({ onUnlocked, onCancel }: { onUnlocked: () => void; 
     traceAuth("AUTH_PASSWORD_REQUEST", "admin step-up");
     try {
       const cfg = await api.authConfig();
-      if (!cfg.configured) throw new Error("התחברות אינה זמינה בסביבה זו");
+      if (!cfg.configured) throw new Error(t("admin_step_up.82681f86"));
       const token = await supabaseSignIn(cfg, email.trim(), password, "admin");
       traceAuth("AUTH_PASSWORD_SUCCESS", "admin step-up");
       leaveGuestModeInPlace();
       const adoption = await adoptCapabilities(token);
       if (adoption.status !== "ok") {
-        throw new Error("ההתחברות הצליחה, אך טעינת החשבון נכשלה זמנית. נסו שוב.");
+        throw new Error(t("admin_step_up.e7fc0c4f"));
       }
       if (!adoption.caps.admin) {
         // correct password, but this identity holds no Admin capability —
         // it stays OUTSIDE Admin.
-        throw new Error("לחשבון זה אין הרשאת ניהול");
+        throw new Error(t("admin_step_up.c8f49c3e"));
       }
       markAdminUnlocked();
       traceAuth("AUTH_SURFACE_GRANTED", "admin step-up unlocked");
       onUnlocked();
     } catch (err: any) {
       traceAuth("AUTH_FLOW_ERROR", "admin step-up");
-      setError(hebrewError(err, "הכניסה נכשלה — נסו שוב"));
+      setError(localizedError(err, t("admin_step_up.58344b7d")));
       setPassword("");
       setBusy(false);
     }
@@ -59,29 +60,29 @@ export function AdminStepUp({ onUnlocked, onCancel }: { onUnlocked: () => void; 
           <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}><BrandMark size={48} /></div>
           {/* the page h1: while the step-up is shown it IS the page (the admin
               area replaces it once unlocked). `auth-title` keeps the h2 size. */}
-          <h1 className="auth-title">כניסת מנהל</h1>
+          <h1 className="auth-title">{t("admin_step_up.8307b69f")}</h1>
           <form onSubmit={submit}>
             {/* P0.6-1 — the email is ALWAYS visible so the user sees exactly
                 WHICH account is being authenticated; prefilled from the
                 canonical session and editable (editing = switching account). */}
             <div className="field">
-              <label>אימייל</label>
+              <label>{t("admin_step_up.15dbea0f")}</label>
               <input dir="ltr" type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email" data-testid="stepup-email" />
-              {knownEmail ? <span className="hint">זהו החשבון המחובר — אפשר לערוך כדי להתחבר עם חשבון אחר.</span> : null}
+              {knownEmail ? <span className="hint">{t("admin_step_up.0bf0e2e0")}</span> : null}
             </div>
             <div className="field">
-              <label>סיסמה</label>
+              <label>{t("admin_step_up.0b490b5e")}</label>
               <input dir="ltr" type="password" required autoFocus value={password} onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password" data-testid="stepup-password" />
             </div>
             {error ? <div className="notice err" data-testid="stepup-error">{error}</div> : null}
             <button className="btn btn-primary btn-block" data-testid="stepup-submit" disabled={busy}>
-              {busy ? "רגע…" : "כניסה למערכת הניהול"}
+              {busy ? t("admin_step_up.2129ee06") : t("admin_step_up.7a3be6a8")}
             </button>
           </form>
           <div className="auth-links">
-            <a href="#" onClick={(e) => { e.preventDefault(); onCancel(); }}>חזרה לאתר</a>
+            <a href="#" onClick={(e) => { e.preventDefault(); onCancel(); }}>{t("admin_step_up.065f331f")}</a>
           </div>
         </div>
       </div>

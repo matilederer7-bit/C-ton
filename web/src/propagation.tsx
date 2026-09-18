@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Json } from "./api";
 import { ils, num } from "./util";
+import { t } from "./i18n";
 
 // ── TRUE VIRAL PROPAGATION TREE (P0.5-2) ────────────────────────────────────
 // A visual map of HOW THE DEAL SPREAD FROM PERSON TO PERSON:
@@ -179,7 +180,7 @@ function usePropagationData(dealId: string, fetchers: PropagationFetchers) {
         setState(next);
         setExpanded(open);
       } catch (e: any) {
-        if (alive) setError(e.message || "טעינת העץ נכשלה");
+        if (alive) setError(e.message || t("propagation.060eb0d5"));
       }
     })();
     return () => { alive = false; };
@@ -262,15 +263,15 @@ function PropagationCanvas({ dealId, dealTitle, data }: {
     <>
       <div className="vtree-canvas-wrap" ref={wrapRef}>
         <div className="vtree-canvas-controls">
-          <button onClick={() => zoomAt(1.2)} aria-label="הגדלה">+</button>
-          <button onClick={() => zoomAt(0.83)} aria-label="הקטנה">−</button>
-          <button onClick={fit} aria-label="התאמה למסך">⤢ התאמה</button>
-          {hasSelection ? <button onClick={focusSelected} aria-label="מרכוז לענף הנבחר">◎ לענף הנבחר</button> : null}
+          <button onClick={() => zoomAt(1.2)} aria-label={t("propagation.e6ec4e84")}>+</button>
+          <button onClick={() => zoomAt(0.83)} aria-label={t("propagation.bc71906f")}>−</button>
+          <button onClick={fit} aria-label={t("propagation.4337a9af")}>{t("propagation.e3a4d9fa")}</button>
+          {hasSelection ? <button onClick={focusSelected} aria-label={t("propagation.f96d50bd")}>{t("propagation.88974143")}</button> : null}
         </div>
         <svg
           className="vtree-canvas"
           role="application"
-          aria-label="עץ ההפצה של העסקה"
+          aria-label={t("propagation.aff5e140")}
           onPointerDown={(e) => { (e.target as Element).setPointerCapture?.(e.pointerId); drag.current = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false }; }}
           onPointerMove={(e) => {
             if (!drag.current) return;
@@ -294,8 +295,8 @@ function PropagationCanvas({ dealId, dealTitle, data }: {
                 return (
                   <g key={n.id} transform={`translate(${n.x - n.w / 2},${n.y})`} className={`prop-node-deal${onPath ? " on-path" : ""}`}>
                     <rect width={n.w} height={n.h} rx={14} />
-                    <text x={n.w / 2} y={30} textAnchor="middle" className="t1">{String(n.data.title || "העסקה").slice(0, 20)}</text>
-                    <text x={n.w / 2} y={54} textAnchor="middle" className="t2">שורש ההפצה</text>
+                    <text x={n.w / 2} y={30} textAnchor="middle" className="t1">{String(n.data.title || t("propagation.4832d404")).slice(0, 20)}</text>
+                    <text x={n.w / 2} y={54} textAnchor="middle" className="t2">{t("propagation.2fb752c2")}</text>
                   </g>
                 );
               }
@@ -306,13 +307,13 @@ function PropagationCanvas({ dealId, dealTitle, data }: {
                     className={`prop-node-source${onPath ? " on-path" : ""}${dimmed ? " dimmed" : ""}`}
                     onClick={(e) => { e.stopPropagation(); if (!drag.current?.moved) setSelectedId(n.id); }}>
                     <rect width={n.w} height={n.h} rx={14} />
-                    <text x={n.w - 14} y={24} textAnchor="end" className="t1">{String(s.label || "מקור").slice(0, 24)}</text>
-                    <text x={n.w - 14} y={46} textAnchor="end" className="t2">{num(s.direct_joins)} הצטרפו ישירות</text>
+                    <text x={n.w - 14} y={24} textAnchor="end" className="t1">{String(s.label || t("propagation.b691468d")).slice(0, 24)}</text>
+                    <text x={n.w - 14} y={46} textAnchor="end" className="t2">{t("propagation.da2316a2", { direct_joins: num(s.direct_joins) })}</text>
                     <text x={n.w - 14} y={66} textAnchor="end" className={`t2${Number(s.propagators) > 0 ? " good" : ""}`}>
-                      {Number(s.propagators) > 0 ? `${num(s.propagators)} המשיכו להפיץ` : "אף אחד לא המשיך"}
+                      {Number(s.propagators) > 0 ? t("propagation.05d5c5f5", { propagators: num(s.propagators) }) : t("propagation.7ea0c7f5")}
                     </text>
-                    <text x={n.w - 14} y={86} textAnchor="end" className="t3">{num(s.branch_joins)} הצטרפו בכל הענף</text>
-                    <text x={n.w - 14} y={104} textAnchor="end" className="t3">עומק: {num(s.max_depth)} דורות</text>
+                    <text x={n.w - 14} y={86} textAnchor="end" className="t3">{t("propagation.f2f0ee18", { branch_joins: num(s.branch_joins) })}</text>
+                    <text x={n.w - 14} y={104} textAnchor="end" className="t3">{t("propagation.894ca5cf", { max_depth: num(s.max_depth) })}</text>
                   </g>
                 );
               }
@@ -325,11 +326,11 @@ function PropagationCanvas({ dealId, dealTitle, data }: {
                   className={`prop-node ${cls}${onPath ? " on-path" : ""}${dimmed ? " dimmed" : ""}`}
                   onClick={(e) => { e.stopPropagation(); if (!drag.current?.moved) setSelectedId(n.id); }}>
                   <rect width={n.w} height={n.h} rx={12} />
-                  <text x={n.w - 10} y={20} textAnchor="end" className="t1">{String(p.display || "משתתף").slice(0, 14)}</text>
-                  <text x={10} y={20} textAnchor="start" className="t3">דור {num(p.generation)}</text>
-                  <text x={n.w - 10} y={40} textAnchor="end" className="t2">{num(p.direct_units)} {Number(p.direct_units) === 1 ? "יחידה" : "יחידות"}</text>
+                  <text x={n.w - 10} y={20} textAnchor="end" className="t1">{String(p.display || t("propagation.3cffea29")).slice(0, 14)}</text>
+                  <text x={10} y={20} textAnchor="start" className="t3">{t("propagation.669beca1", { generation: num(p.generation) })}</text>
+                  <text x={n.w - 10} y={40} textAnchor="end" className="t2">{num(p.direct_units)} {Number(p.direct_units) === 1 ? t("propagation.30cd9c3c") : t("propagation.5170f234")}</text>
                   <text x={n.w - 10} y={60} textAnchor="end" className={`t2${kids > 0 ? " good" : " faint"}`}>
-                    {kids > 0 ? `הביא/ה ${num(kids)}` : "לא המשיך הלאה"}
+                    {kids > 0 ? t("propagation.cb85309c", { kids: num(kids) }) : t("propagation.4f05bc81")}
                   </text>
                   {kids > 0 ? (
                     <g className="vtree-expand" onClick={(e) => { e.stopPropagation(); void toggle(p); }}>
@@ -342,29 +343,29 @@ function PropagationCanvas({ dealId, dealTitle, data }: {
             })}
           </g>
         </svg>
-        <p className="vtree-canvas-hint">גרירה להזזה · גלגלת להגדלה · לחיצה על משתתף מאירה את השרשרת · + פותח ענף</p>
+        <p className="vtree-canvas-hint">{t("propagation.71667413")}</p>
       </div>
       {selected && selected.kind === "participant" ? (
         <div className="panel" data-testid="tree-node-detail">
-          <div className="panel-title">פרטי ענף — {selected.data.display}</div>
+          <div className="panel-title">{t("propagation.317bbd8d", { display: selected.data.display })}</div>
           <div className="kv">
-            <span className="k">דור</span><span className="v">{num(selected.data.generation)}</span>
-            <span className="k">יחידות ישירות</span><span className="v">{num(selected.data.direct_units)}</span>
-            <span className="k">הביא/ה ישירות</span><span className="v">{num(selected.data.direct_children)}</span>
-            <span className="k">מצטרפים בכל הענף</span><span className="v">{num(selected.data.subtree_joins)}</span>
-            <span className="k">חויב בענף</span><span className="v">{ils(selected.data.subtree_charged_gmv)}</span>
+            <span className="k">{t("propagation.74b9b182")}</span><span className="v">{num(selected.data.generation)}</span>
+            <span className="k">{t("propagation.6a868b4f")}</span><span className="v">{num(selected.data.direct_units)}</span>
+            <span className="k">{t("propagation.cca9befd")}</span><span className="v">{num(selected.data.direct_children)}</span>
+            <span className="k">{t("propagation.7601e6eb")}</span><span className="v">{num(selected.data.subtree_joins)}</span>
+            <span className="k">{t("propagation.6230e073")}</span><span className="v">{ils(selected.data.subtree_charged_gmv)}</span>
           </div>
         </div>
       ) : selected && selected.kind === "source" ? (
         <div className="panel" data-testid="tree-node-detail">
-          <div className="panel-title">פרטי מקור — {selected.data.label}</div>
+          <div className="panel-title">{t("propagation.34f98e72", { label: selected.data.label })}</div>
           <div className="kv">
-            <span className="k">הצטרפו ישירות</span><span className="v">{num(selected.data.direct_joins)}</span>
-            <span className="k">המשיכו להפיץ</span><span className="v">{num(selected.data.propagators)}</span>
-            <span className="k">בכל הענף</span><span className="v">{num(selected.data.branch_joins)}</span>
-            <span className="k">יחידות בענף</span><span className="v">{num(selected.data.branch_units)}</span>
-            <span className="k">חויב בענף</span><span className="v">{ils(selected.data.charged_gmv)}</span>
-            <span className="k">עומק</span><span className="v">{num(selected.data.max_depth)} דורות</span>
+            <span className="k">{t("propagation.0616f3b3")}</span><span className="v">{num(selected.data.direct_joins)}</span>
+            <span className="k">{t("propagation.91f11cc1")}</span><span className="v">{num(selected.data.propagators)}</span>
+            <span className="k">{t("propagation.3258ebab")}</span><span className="v">{num(selected.data.branch_joins)}</span>
+            <span className="k">{t("propagation.7eef0fd6")}</span><span className="v">{num(selected.data.branch_units)}</span>
+            <span className="k">{t("propagation.6230e073")}</span><span className="v">{ils(selected.data.charged_gmv)}</span>
+            <span className="k">{t("propagation.038da02c")}</span><span className="v">{t("propagation.b4b5cd9a", { max_depth: num(selected.data.max_depth) })}</span>
           </div>
         </div>
       ) : null}
@@ -417,7 +418,7 @@ function PropagationDrilldown({ dealId, dealTitle, data, fetchers }: {
 
   return (
     <div className="prop-drill" data-testid="prop-drilldown">
-      <nav className="prop-crumbs" aria-label="מסלול בעץ">
+      <nav className="prop-crumbs" aria-label={t("propagation.806660ad")}>
         {stack.map((crumb, i) => (
           <button key={i} className={`prop-crumb${i === stack.length - 1 ? " current" : ""}`}
             onClick={() => setStack((s) => s.slice(0, i + 1))}>
@@ -426,9 +427,9 @@ function PropagationDrilldown({ dealId, dealTitle, data, fetchers }: {
         ))}
       </nav>
       {stack.length > 1 ? (
-        <button className="btn btn-sm btn-ghost" style={{ marginBottom: 8 }} onClick={() => setStack((s) => s.slice(0, -1))}>→ חזרה</button>
+        <button className="btn btn-sm btn-ghost" style={{ marginBottom: 8 }} onClick={() => setStack((s) => s.slice(0, -1))}>{t("propagation.b95be293")}</button>
       ) : null}
-      {busy ? <p className="muted small">טוענים ענף…</p> : null}
+      {busy ? <p className="muted small">{t("propagation.ce03a7ae")}</p> : null}
 
       {top.kind === "sources" ? (
         <div className="stack" style={{ gap: 8 }}>
@@ -436,8 +437,8 @@ function PropagationDrilldown({ dealId, dealTitle, data, fetchers }: {
             <button key={String(src.source_key)} className="prop-row source" onClick={() => { void openRoots(src); }}>
               <span className="grow" style={{ textAlign: "start" }}>
                 <b>{src.label}</b>
-                <span className="small block">{num(src.direct_joins)} הצטרפו ישירות · {Number(src.propagators) > 0 ? `${num(src.propagators)} המשיכו` : "אף אחד לא המשיך"}</span>
-                <span className="small block muted">{num(src.branch_joins)} בכל הענף · עומק {num(src.max_depth)} דורות</span>
+                <span className="small block">{num(src.direct_joins)} הצטרפו ישירות · {Number(src.propagators) > 0 ? t("propagation.4d2600ea", { propagators: num(src.propagators) }) : t("propagation.7ea0c7f5")}</span>
+                <span className="small block muted">{t("propagation.92b144b8", { branch_joins: num(src.branch_joins), max_depth: num(src.max_depth) })}</span>
               </span>
               <span aria-hidden="true">←</span>
             </button>
@@ -450,20 +451,20 @@ function PropagationDrilldown({ dealId, dealTitle, data, fetchers }: {
               <b>{top.parent.display}</b> · דור {num(top.parent.generation)} · הביא/ה {num(top.parent.direct_children)}
             </div>
           ) : null}
-          {rows.length === 0 ? <p className="muted small">אין משתתפים בענף הזה.</p> : rows.map((p) => {
+          {rows.length === 0 ? <p className="muted small">{t("propagation.53de946e")}</p> : rows.map((p) => {
             const kids = Number(p.direct_children || 0);
             return (
               <button key={String(p.participant_id)} className={`prop-row${kids > 0 ? "" : " leaf"}`}
                 disabled={kids === 0}
                 onClick={() => { if (kids > 0) void openChildren(p); }}>
                 <span className="grow" style={{ textAlign: "start" }}>
-                  <b>{p.display}</b> <span className="small muted">· דור {num(p.generation)}</span>
+                  <b>{p.display}</b> <span className="small muted">{t("propagation.18fa2646", { generation: num(p.generation) })}</span>
                   <span className="small block">
-                    {num(p.direct_units)} {Number(p.direct_units) === 1 ? "יחידה" : "יחידות"}
-                    {kids > 0 ? ` · הביא/ה ${num(kids)}` : " · לא המשיך הלאה"}
+                    {num(p.direct_units)} {Number(p.direct_units) === 1 ? t("propagation.30cd9c3c") : t("propagation.5170f234")}
+                    {kids > 0 ? t("propagation.25e0fcbb", { kids: num(kids) }) : t("propagation.864d25d5")}
                   </span>
                 </span>
-                {kids > 0 ? <span aria-hidden="true">←</span> : <span className="small muted">עלה סופי</span>}
+                {kids > 0 ? <span aria-hidden="true">←</span> : <span className="small muted">{t("propagation.9c018201")}</span>}
               </button>
             );
           })}
@@ -488,16 +489,16 @@ export function PropagationTree({ dealId, dealTitle, fetchers }: {
   }, []);
 
   if (data.error) return <div className="notice err">{data.error}</div>;
-  if (!data.state) return <p className="muted small">טוענים את עץ ההפצה…</p>;
+  if (!data.state) return <p className="muted small">{t("propagation.dc095659")}</p>;
 
   // The feature always EXISTS — an empty dataset gets an honest empty state
   // with the deal root still visible, never a missing feature.
   if (!data.state.sources.length) {
     return (
       <div className="prop-empty" data-testid="prop-empty">
-        <div className="prop-empty-root">{dealTitle || "העסקה"}</div>
-        <p className="muted" style={{ margin: "10px 0 0" }}>עדיין לא נוצרה שרשרת הפצה לעסקה הזו.</p>
-        <p className="muted small" style={{ margin: "4px 0 0" }}>כל מצטרף מקבל קישור אישי — ההפצה תופיע כאן ברגע שחברים יצטרפו דרכו.</p>
+        <div className="prop-empty-root">{dealTitle || t("propagation.4832d404")}</div>
+        <p className="muted" style={{ margin: "10px 0 0" }}>{t("propagation.2e26ca52")}</p>
+        <p className="muted small" style={{ margin: "4px 0 0" }}>{t("propagation.695192b1")}</p>
       </div>
     );
   }

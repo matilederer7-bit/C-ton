@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../api";
-import { hebrewError } from "../he";
+import { localizedError } from "../he";
 import { getPreviewMeta } from "../previewMeta";
 import { resolveSupportCopy } from "../productCopy";
 import { useSiteContent } from "../siteContent";
+import { t } from "../i18n";
 
 // ── Public Support / Contact center (P0.2-S) ────────────────────────────────
 // The form creates a canonical support case the Admin Support screen sees —
@@ -53,12 +54,12 @@ export function SupportPage({ dealRef = "" }: { dealRef?: string } = {}) {
     e.preventDefault();
     if (busy) return;
     const errs: Record<string, string> = {};
-    if (name.trim().length < 2) errs.name = "יש להזין שם";
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) errs.email = "יש להזין כתובת אימייל תקינה";
-    if (message.trim().length < 10) errs.message = "כתבו לנו כמה מילים על הפנייה (לפחות 10 תווים)";
+    if (name.trim().length < 2) errs.name = t("pages.support.11374f97");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) errs.email = t("pages.support.574b1fc6");
+    if (message.trim().length < 10) errs.message = t("pages.support.6b6aec4c");
     const scope = DEAL_SCOPE.get(category) || "none";
     if (scope === "required" && !UUID_ANYWHERE.test(deal.trim())) {
-      errs.deal = "הדביקו את הקישור לעסקה כדי שנוכל להעביר את הפנייה למוכר הנכון";
+      errs.deal = t("pages.support.3288f056");
     }
     setFieldErrors(errs);
     if (Object.keys(errs).length) return;
@@ -70,9 +71,9 @@ export function SupportPage({ dealRef = "" }: { dealRef?: string } = {}) {
         ...(scope === "none" ? {} : { deal_ref: deal.trim() || undefined })
       });
       setSentToSeller(Boolean(r.thread_id));
-      setSentCase(String(r.case_id || "נקלטה"));
+      setSentCase(String(r.case_id || t("pages.support.e955d14f")));
     } catch (err: any) {
-      setError(hebrewError(err));
+      setError(localizedError(err));
       setBusy(false);
     }
   };
@@ -85,10 +86,9 @@ export function SupportPage({ dealRef = "" }: { dealRef?: string } = {}) {
           <p className="muted">{copy.sent_body}</p>
           {sentToSeller ? (
             <p className="muted small" data-testid="support-sent-to-seller">
-              הפנייה שויכה לעסקה שציינתם והועברה גם למוכר שלה. אפשר להמשיך את השיחה מדף העסקה, תחת ״הפניות שלי״.
-            </p>
+              {t("pages.support.e8c2a09f")}</p>
           ) : null}
-          <a className="btn btn-primary" href="#/">חזרה לדף הבית</a>
+          <a className="btn btn-primary" href="#/">{t("pages.support.9fa52cda")}</a>
         </div>
       </div>
     );
@@ -101,27 +101,27 @@ export function SupportPage({ dealRef = "" }: { dealRef?: string } = {}) {
         <h1>{copy.title}</h1>
         <p className="muted small">
           {copy.intro}
-          {supportEmail ? <> אפשר גם לכתוב לנו ל-<a href={`mailto:${supportEmail}`} dir="ltr">{supportEmail}</a>.</> : null}
+          {supportEmail ? <>  {t("pages.support.af6fe8a8")}<a href={`mailto:${supportEmail}`} dir="ltr">{supportEmail}</a>.</> : null}
         </p>
         <form onSubmit={submit} noValidate>
           <div className="field">
-            <label>שם <span className="req">*</span></label>
+            <label>{t("pages.support.8b1aa6b1")} <span className="req">*</span></label>
             <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" className={fieldErrors.name ? "invalid" : ""} />
             {fieldErrors.name ? <span className="field-error">{fieldErrors.name}</span> : null}
           </div>
           <div className="field-row">
             <div className="field">
-              <label>אימייל <span className="req">*</span></label>
+              <label>{t("pages.support.15dbea0f")} <span className="req">*</span></label>
               <input dir="ltr" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" className={fieldErrors.email ? "invalid" : ""} />
               {fieldErrors.email ? <span className="field-error">{fieldErrors.email}</span> : null}
             </div>
             <div className="field">
-              <label>טלפון <span className="hint">(לא חובה)</span></label>
+              <label>{t("pages.support.737232c2")} <span className="hint">{t("pages.support.9fbd1f49")}</span></label>
               <input dir="ltr" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" />
             </div>
           </div>
           <div className="field">
-            <label>נושא הפנייה</label>
+            <label>{t("pages.support.6f1fefdc")}</label>
             <select value={category} onChange={(e) => setCategory(e.target.value)}>
               {CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
             </select>
@@ -129,18 +129,17 @@ export function SupportPage({ dealRef = "" }: { dealRef?: string } = {}) {
           {(DEAL_SCOPE.get(category) || "none") !== "none" ? (
             <div className="field" data-testid="support-deal-field">
               <label>
-                קישור לעסקה {DEAL_SCOPE.get(category) === "required" ? <span className="req">*</span> : <span className="hint">(לא חובה)</span>}
+                קישור לעסקה {DEAL_SCOPE.get(category) === "required" ? <span className="req">*</span> : <span className="hint">{t("pages.support.9fbd1f49")}</span>}
               </label>
               <input dir="ltr" value={deal} onChange={(e) => setDeal(e.target.value)} data-testid="support-deal-ref"
                 placeholder="https://…/d/…" className={fieldErrors.deal ? "invalid" : ""} />
               <span className="hint">
-                מדביקים את הקישור של העסקה מדף העסקה או מהודעת האישור. כך הפנייה מגיעה גם למוכר של אותה עסקה — ולא לאף מוכר אחר.
-              </span>
+                {t("pages.support.4184e405")}</span>
               {fieldErrors.deal ? <span className="field-error">{fieldErrors.deal}</span> : null}
             </div>
           ) : null}
           <div className="field">
-            <label>תוכן הפנייה <span className="req">*</span></label>
+            <label>{t("pages.support.99707260")} <span className="req">*</span></label>
             <textarea rows={5} maxLength={2000} value={message} onChange={(e) => setMessage(e.target.value)} className={fieldErrors.message ? "invalid" : ""} />
             {fieldErrors.message ? <span className="field-error">{fieldErrors.message}</span> : null}
           </div>
@@ -150,7 +149,7 @@ export function SupportPage({ dealRef = "" }: { dealRef?: string } = {}) {
             aria-hidden="true" name="website"
             style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clipPath: "inset(50%)", border: 0, opacity: 0 }} />
           {error ? <div className="notice err">{error}</div> : null}
-          <button className="btn btn-primary btn-block" disabled={busy}>{busy ? "שולחים…" : "שליחת הפנייה"}</button>
+          <button className="btn btn-primary btn-block" disabled={busy}>{busy ? t("pages.support.ea12faeb") : t("pages.support.18a3d8cf")}</button>
         </form>
       </div>
     </div>

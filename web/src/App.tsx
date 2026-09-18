@@ -1,6 +1,6 @@
 import { PublicSellerPage, ContentPage } from "./receiptContent";
 import { captureCmsPreviewFlag, contentPageHasBody, exitCmsPreview, pageOf, useSiteContentState } from "./siteContent";
-import { blockOf, FOOTER_DEFAULT_LINKS, FOOTER_DEFAULT_TEXT } from "./content/cmsTemplates";
+import { blockOf, localizedItems, localizedValue, FOOTER_DEFAULT_LINKS, FOOTER_DEFAULT_TEXT_KEY } from "./content/cmsTemplates";
 import React, { useEffect, useState } from "react";
 import { Mall } from "./pages/mall";
 import { Landing } from "./pages/landing";
@@ -18,6 +18,7 @@ import { getPreviewMeta } from "./previewMeta";
 // position of the history entry they return to; a NEW entry starts at the top.
 import { installScrollRestoration } from "./scrollRestoration";
 import { captureAuthRedirect } from "./authRedirect";
+import { t } from "./i18n";
 
 // Supabase auth-email redirects (recovery/confirmation) land in the hash —
 // capture them BEFORE any routing or ref-capture touches the URL.
@@ -33,7 +34,18 @@ import { OWNER_CAPS_EVENT, enterGuestMode, exitGuestMode, isGuestMode, readOwner
 import { startSessionHeartbeat } from "./session";
 import { isAdminUnlocked } from "./adminGate";
 import { AdminStepUp } from "./adminStepUp";
+// ── Language ───────────────────────────────────────────────────────────────
+// Hebrew is the default and is NEVER overridden by the operating system: the
+// locale comes from the visitor's own stored choice or from nothing at all.
+import { bootLocale } from "./i18n/locale";
+import { useLocale } from "./i18n/useLocale";
+import { LanguageSwitch } from "./i18n/LanguageSwitch";
+import type { Locale } from "./i18n/locale";
 
+// Read the stored language choice and reflect it on <html lang/dir> BEFORE the
+// first paint, so the document never renders one language inside the other's
+// direction.
+bootLocale();
 // Capture ?ref= share codes once, at boot, before any routing.
 captureRefFromLocation();
 // Keep the Supabase session silently fresh (refresh-token grant) so a login
@@ -101,8 +113,7 @@ function OwnerModeSwitch({ page, navigate }: { page: string; navigate: (h: strin
   if (isGuestMode()) {
     return (
       <button className="owner-exit" data-testid="owner-exit-guest" onClick={exitGuestMode}>
-        חזרה לחשבון שלי
-      </button>
+        {t("app.bac1df6f")}</button>
     );
   }
   const caps = readOwnerCaps();
@@ -112,10 +123,10 @@ function OwnerModeSwitch({ page, navigate }: { page: string; navigate: (h: strin
   // Admin is entered only through the hidden two-tap edge gate + password
   // step-up. The visible modes stay אורח / מוכר.
   return (
-    <div className="owner-switch" role="group" aria-label="מצב תצוגה" data-testid="owner-switch">
-      <span className="owner-switch-label">הצג כ:</span>
-      <button data-testid="owner-mode-guest" onClick={enterGuestMode}>אורח</button>
-      <button data-testid="owner-mode-seller" className={mode === "seller" ? "active" : ""} onClick={() => navigate("#/seller")}>מוכר</button>
+    <div className="owner-switch" role="group" aria-label={t("app.b0679f05")} data-testid="owner-switch">
+      <span className="owner-switch-label">{t("app.7b82d3aa")}</span>
+      <button data-testid="owner-mode-guest" onClick={enterGuestMode}>{t("app.0cd9a48c")}</button>
+      <button data-testid="owner-mode-seller" className={mode === "seller" ? "active" : ""} onClick={() => navigate("#/seller")}>{t("app.abed6512")}</button>
     </div>
   );
 }
@@ -148,14 +159,27 @@ function AdminHotspot({ onActivate }: { onActivate: () => void }) {
 }
 
 export default function App() {
+  const [locale] = useLocale();
+  // The whole tree is keyed on the locale: switching language REMOUNTS every
+  // screen. That is deliberate. `t()` alone would re-render, but a modal built
+  // before the switch, a memoised label, an error string already placed in
+  // state or a formatted date held in a ref would all survive it in the
+  // previous language. Remounting makes a half-translated screen impossible.
+  return <AppTree key={locale} locale={locale} />;
+}
+
+function AppTree({ locale }: { locale: Locale }) {
   const { content, preview, previewDenied } = useSiteContentState();
   const footer = blockOf(pageOf(content, "footer"), "footer");
   // A footer link to an empty document page is a dead end the visitor pays for
   // with a click. Drop it until the page has a body (see contentPageHasBody).
-  const footerLinks = (footer?.items ?? FOOTER_DEFAULT_LINKS).filter((l) => {
-    const match = /^#\/content\/(.+)$/.exec(String(l.link || ""));
-    return match ? contentPageHasBody(content, match[1]!) : true;
-  });
+  // The footer is read in the ACTIVE language: a CMS block with an English
+  // value shows it, and one without falls back to the Hebrew it was written in.
+  const footerLinks = (footer ? localizedItems(footer, locale) : FOOTER_DEFAULT_LINKS.map((l) => ({ label: t(l.labelKey), link: l.link })))
+    .filter((l) => {
+      const match = /^#\/content\/(.+)$/.exec(String(l.link || ""));
+      return match ? contentPageHasBody(content, match[1]!) : true;
+    });
   const [route, navigate] = useRoute();
   const mallEnabled = useMallEnabled();
   const page = route.page;
@@ -175,8 +199,8 @@ export default function App() {
     <div className="app">
       {preview || previewDenied ? (
         <div className="cms-preview-banner" role="status" data-testid="cms-preview-banner" data-preview={preview ? "1" : "0"}>
-          <span>{preview ? "תצוגה מקדימה של טיוטה — רק אתם רואים את הגרסה הזו" : "התצוגה המקדימה דורשת התחברות מנהל — מוצג התוכן המפורסם"}</span>
-          <button type="button" className="btn btn-sm btn-ghost" data-testid="cms-preview-exit" onClick={exitCmsPreview}>יציאה מהתצוגה המקדימה</button>
+          <span>{preview ? t("app.f8126c57") : t("app.2a61049c")}</span>
+          <button type="button" className="btn btn-sm btn-ghost" data-testid="cms-preview-exit" onClick={exitCmsPreview}>{t("app.22a46b4d")}</button>
         </div>
       ) : null}
       <AdminHotspot onActivate={() => { navigate("#/admin"); }} />
@@ -186,18 +210,19 @@ export default function App() {
             <BrandMark />
             <span>
               <BrandWordmark />
-              <div className="brand-sub">קונים ביחד · משלמים פחות</div>
+              <div className="brand-sub">{t("app.ccc41545")}</div>
             </span>
           </a>
           {isLinkViewer ? null : (
-          <nav className="nav-links" aria-label="ניווט ראשי">
+          <nav className="nav-links" aria-label={t("app.6fcedac7")}>
             {mallEnabled ? (
-              <a className={`nav-link${page === "" ? " active" : ""}`} href="#/" onClick={(e) => { e.preventDefault(); navigate("#/"); }}>העסקאות</a>
+              <a className={`nav-link${page === "" ? " active" : ""}`} href="#/" onClick={(e) => { e.preventDefault(); navigate("#/"); }}>{t("app.2e2623e0")}</a>
             ) : null}
-            <a className={`nav-link${page === "seller" ? " active" : ""}`} href="#/seller" onClick={(e) => { e.preventDefault(); navigate("#/seller"); }}>אזור המוכרים</a>
+            <a className={`nav-link${page === "seller" ? " active" : ""}`} href="#/seller" onClick={(e) => { e.preventDefault(); navigate("#/seller"); }}>{t("app.de22b547")}</a>
             <OwnerModeSwitch page={page} navigate={navigate} />
           </nav>
           )}
+          <LanguageSwitch />
         </div>
       </header>
 
@@ -243,7 +268,7 @@ export default function App() {
             ))}
           </div>
           <div style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>
-            {footer?.fields.text ?? FOOTER_DEFAULT_TEXT}
+            {footer ? localizedValue(footer, "text", locale) : t(FOOTER_DEFAULT_TEXT_KEY)}
           </div>
         </footer>
       ) : null}
