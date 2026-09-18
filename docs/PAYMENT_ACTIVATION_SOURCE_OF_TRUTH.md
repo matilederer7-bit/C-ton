@@ -1,8 +1,8 @@
 # Payment Activation Source of Truth
 
-Updated: 2026-09-18  
-Status: **PRE-ACTIVATION / REAL MONEY BLOCKED**  
-Canonical provider candidate: **Grow / Meshulam**  
+Updated: 2026-09-18
+Status: **PRE-ACTIVATION / REAL MONEY BLOCKED**
+Canonical provider candidate: **Grow / Meshulam**
 Repository baseline reviewed: `34b5dc39e9cbceb413984b6639a32cffe3e5febe`
 
 This document is the current activation source of truth for Siton's buyer-payment rail. Older Stripe readiness documents remain useful historical/adapter evidence, but they no longer decide which provider Siton intends to activate first.
