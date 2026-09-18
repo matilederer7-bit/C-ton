@@ -150,6 +150,10 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 .footer a { color: var(--ink-soft); margin: 0 8px; }
 
 /* ── auth panel links ──────────────────────────────────────────────────── */
+/* the login surface's title is the page h1 (it was an h2, leaving the seller
+   and admin routes with no top-level heading) and keeps the size it rendered
+   at before: the heading LEVEL was the defect, not the type scale. */
+.auth-title { text-align: center; font-size: 1.5rem; }
 .auth-links { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-top: 14px; font-size: .88rem; }
 .auth-links a { color: var(--brand-hi); text-decoration: none; font-weight: 600; }
 .auth-links a:hover { text-decoration: underline; }
@@ -1588,7 +1592,7 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 /* ── MATURE UI + TERMINAL ARCHIVE (Issue #39, items 1 and 2) ─────────────── */
 /* Empty states carry themselves with a hairline and typography; the decorative
    2.6rem emoji they used to open with is gone (see components.tsx EmptyState). */
-.empty-state-title { margin-top: 0; padding-top: 14px; border-top: 1px solid var(--line); display: inline-block; }
+.empty-state-title { margin-top: 0; padding-top: 14px; border-top: 1px solid var(--line); display: inline-block; font-size: 1.17rem; }
 
 /* Delivery option type: a restrained colour-keyed bar instead of a truck/shop/pin emoji. */
 .delivery-view-row .ico { width: 4px; align-self: stretch; min-height: 26px; border-radius: 999px; background: var(--line-strong); flex: none; }

@@ -81,7 +81,7 @@ export function SupportPage({ dealRef = "" }: { dealRef?: string } = {}) {
     return (
       <div style={{ maxWidth: 560, margin: "40px auto" }}>
         <div className="panel" style={{ textAlign: "center" }}>
-            <h1>{copy.sent_title}</h1>
+          <h1>{copy.sent_title}</h1>
           <p className="muted">{copy.sent_body}</p>
           {sentToSeller ? (
             <p className="muted small" data-testid="support-sent-to-seller">
