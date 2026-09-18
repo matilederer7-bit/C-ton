@@ -1,0 +1,265 @@
+import React, { useEffect, useRef, useState } from "react";
+import { productRequest as request, type Json } from "./api";
+import { QrCode } from "./qrcode";
+import { PickupCard } from "./pickupCard";
+import { uploadImageAsset } from "./contentAssets";
+import { pageOf, useSiteContentState } from "./siteContent";
+export { useSiteContent, useSiteContentState } from "./siteContent";
+export { ContentAdmin } from "./pages/contentAdmin";
+import { ChoiceCard, StatusPill } from "./components";
+import { cameraSupported, startPickupScanner, type ScannerHandle } from "./pickupScan";
+import { attention as fieldAttention, focusField } from "./fieldAttention";
+
+// UX CLOSEOUT (Issue #39, item 3) — several redemption methods, ONE entitlement.
+// `methods` is the canonical field; `method` is kept as the primary so an older
+// payload still round-trips. Helpers below let every caller treat a legacy
+// single-method value and a v2 set identically.
+export type ReceiptConfig = { method?: string; methods?: string[]; instructions: string; url: string };
+export const RECEIPT_METHOD_ORDER = ["qr", "code", "name_phone", "digital_link", "instructions"] as const;
+const OPTIONS: [string, string, string][] = [
+  ["qr", "QR / ברקוד", "הקונה יקבל קוד סריקה אישי לאחר השלמת העסקה"],
+  ["code", "קוד מימוש", "הקונה יקבל קוד אישי למימוש"],
+  ["name_phone", "שם וטלפון", "המימוש יתבצע לפי שם וטלפון של הקונה"],
+  ["digital_link", "קישור דיגיטלי", "הקונה יקבל קישור לאחר השלמת העסקה"],
+  ["instructions", "הוראות מהמוכר", "הקונה יקבל את הוראות המימוש שתגדירו"]
+];
+
+/** Canonical-ordered, distinct, never empty. Accepts v1 and v2 shapes. */
+export function receiptMethodsOf(value: ReceiptConfig | null | undefined): string[] {
+  const raw = Array.isArray(value?.methods) && value!.methods!.length ? value!.methods! : value?.method ? [value.method] : [];
+  const picked = RECEIPT_METHOD_ORDER.filter(m => raw.includes(m));
+  return picked.length ? [...picked] : ["qr"];
+}
+
+export function withReceiptMethods(value: ReceiptConfig, methods: string[]): ReceiptConfig {
+  const ordered = RECEIPT_METHOD_ORDER.filter(m => methods.includes(m));
+  const next = ordered.length ? [...ordered] : ["qr"];
+  return { ...value, methods: next, method: next[0] };
+}
+
+// ROUND 2 (UX-4) used THE Siton selection card with the ROUND single-select dot
+// because receipt_config could store exactly one method. That contract changed
+// in Issue #39 item 3: the column now stores a versioned SET, so the indicator
+// is the SQUARE multi-select — the shape and the stored truth agree again, and
+// the seller can offer a QR *and* a spoken code *and* name+phone for the same
+// purchase. The last enabled method cannot be switched off.
+export function ReceiptFields({ value, onChange, disabled = false, attention }: { value: ReceiptConfig; onChange: (v: ReceiptConfig) => void; disabled?: boolean; attention?: boolean }) {
+  const methods = receiptMethodsOf(value);
+  const has = (key: string) => methods.includes(key);
+  const invalidUrl = attention && has("digital_link");
+  const invalidInstructions = attention && has("instructions") && !value.instructions.trim();
+  const exactField = has("digital_link") || has("instructions");
+  const fieldErrors: Record<string, string> = invalidUrl || invalidInstructions ? { receipt: "required" } : {};
+  const toggle = (key: string, checked: boolean) => {
+    const next = checked ? [...methods, key] : methods.filter(m => m !== key);
+    if (!next.length) return; // at least one method must remain
+    onChange(withReceiptMethods(value, next));
+  };
+  return <fieldset className={`receipt-fields${attention && !exactField ? " attention-block needs-attention" : ""}`} disabled={disabled} id={exactField ? undefined : "f-receipt"} tabIndex={-1} aria-invalid={attention && !exactField ? "true" : undefined}>
+    <legend>איך הקונה יקבל את מה ששילם עליו?</legend>
+    <p className="muted small" style={{ margin: "0 0 8px" }}>אפשר לבחור כמה דרכים — כולן מציגות את אותה זכאות אחת, והמימוש נרשם פעם אחת בלבד.</p>
+    <div className="choice-group" data-testid="receipt-methods">
+      {OPTIONS.map(([key, title, help]) => <ChoiceCard key={key} mode="many" name="receipt-method" value={key}
+        testId="receipt-method-option" checked={has(key)} title={title} help={help}
+        onSelect={checked => toggle(key, checked)} />)}
+    </div>
+    {has("digital_link") ? <label className="field">קישור מאובטח
+      <input {...fieldAttention(fieldErrors, "receipt")} type="url" dir="ltr" required maxLength={2000} value={value.url} onChange={e => onChange({ ...value, url: e.target.value })} placeholder="https://" />
+      <span className="muted small">לכתובת אישית לכל קונה אפשר להוסיף {'{code}'} לקישור.</span>
+    </label> : null}
+    {has("instructions") || has("code") || has("qr") ? <label className="field">הוראות מימוש {has("instructions") ? "" : "(לא חובה)"}
+      <textarea {...(has("instructions") ? fieldAttention(fieldErrors, "receipt") : {})} rows={3} required={has("instructions")} maxLength={1000} value={value.instructions} onChange={e => onChange({ ...value, instructions: e.target.value })} />
+    </label> : null}
+  </fieldset>;
+}
+export function ReceiptEditor({ dealId, state }: { dealId: string; state: string }) {
+  const [value, setValue] = useState<ReceiptConfig | null>(null), [editable, setEditable] = useState(false), [message, setMessage] = useState("");
+  useEffect(() => { let alive = true; request(`/api/seller/deals/${dealId}/receipt`, {}, "seller").then(r => { if (alive) { setValue(r.receipt); setEditable(r.editable); } }).catch(e => { if (alive) setMessage(e.message); }); return () => { alive = false; }; }, [dealId, state]);
+  return <div className="panel">{value ? <form onSubmit={async e => { e.preventDefault(); try { await request(`/api/seller/deals/${dealId}/receipt`, { method: "PUT", body: JSON.stringify(value) }, "seller"); setMessage("אופן המימוש נשמר"); } catch (err: any) { setMessage(err.message); } }}>
+    <ReceiptFields value={value} onChange={setValue} disabled={!editable} />
+    {editable ? <button className="btn btn-primary">שמירת אופן המימוש</button> : <p className="muted small">אופן המימוש נקבע בפרסום העסקה.</p>}
+  </form> : null}<p role="status">{message}</p></div>;
+}
+// ROUND 2 (UX-5) — the seller's public identity in the product's own visual
+// language: the logo/photo they uploaded, the display name, the About text and
+// the safe public history the backend already computes. Public facts only —
+// no e-mail, no phone, no address, no internal identifiers.
+function SellerIdentity({ seller, compact = false }: { seller: Json; compact?: boolean }) {
+  const about = String(seller.about || "");
+  return <>
+    <div className="seller-identity">
+      {seller.image ? <img className={`seller-avatar${compact ? " sm" : ""}`} src={seller.image} alt="" data-testid="seller-profile-image" /> : null}
+      <div className="seller-identity-name" data-testid="seller-display-name">{seller.name}</div>
+    </div>
+    {about ? <p className="seller-about" data-testid="seller-about">{compact && about.length > 140 ? `${about.slice(0, 140)}…` : about}</p> : null}
+    <p className="seller-stats" data-testid="seller-stats">
+      <span><b>{seller.stats.published}</b> עסקאות שפורסמו</span>
+      <span><b>{seller.stats.completed}</b> הושלמו בהצלחה</span>
+      {seller.stats.success_rate !== null ? <span><b>{seller.stats.success_rate}%</b> הצלחה</span> : null}
+    </p>
+  </>;
+}
+export function DealReceiptInfo({ dealId, onReady }: { dealId: string; onReady: (ready: boolean) => void }) {
+  const [data, setData] = useState<Json | null>(null), [names, setNames] = useState<string[]>([]), [error, setError] = useState("");
+  useEffect(() => { let alive = true; setData(null); onReady(false); request(`/api/deals/${dealId}/receipt-info`).then(r => { if (alive) { setData(r); onReady(true); } }).catch(() => { if (alive) setError("פרטי המימוש אינם זמינים כרגע. נסו לרענן לפני ההצטרפות."); }); request(`/api/deals/${dealId}/public-names`).then(r => { if (alive) setNames(r.names); }).catch(() => undefined); return () => { alive = false; }; }, [dealId]);
+  return <section className="panel" data-testid="receipt-before-join">
+    <div className="panel-title">אם העסקה תושלם, תקבלו…</div>
+    <p>{data?.label || error || "טוענים את פרטי המימוש…"}</p>
+    {data?.seller ? <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
+      <SellerIdentity seller={data.seller} compact />
+      <p style={{ margin: "10px 0 0" }}><a href={`#/public-seller/${data.seller.id}`} data-testid="seller-profile-link">לפרופיל המוכר ולעסקאות נוספות ←</a></p>
+    </div> : null}
+    {names.length ? <p className="muted small" style={{ marginTop: 10 }}>בחרו לשתף שהצטרפו: {names.join(" · ")}</p> : null}
+  </section>;
+}
+export function PublicSellerPage({ id }: { id: string }) {
+  const [page, setPage] = useState(0);
+  const [seller, setSeller] = useState<Json | null>(null), [error, setError] = useState("");
+  useEffect(() => { let alive = true; setSeller(null); setError(""); request(`/api/public-sellers/${id}?page=${page}`).then(r => { if (alive) setSeller(r.seller); }).catch(() => { if (alive) setError("לא ניתן לטעון את פרופיל המוכר כרגע. נסו לרענן את העמוד."); }); return () => { alive = false; }; }, [id, page]);
+  if (!seller) return <section className="panel"><h1>פרופיל המוכר</h1><p role="status">{error || "טוענים פרופיל…"}</p></section>;
+  return <>
+    <section className="panel">
+      <SellerIdentity seller={seller} />
+      <p className="muted small" style={{ margin: "12px 0 0" }}>שיעור ההצלחה: עסקאות שהושלמו מתוך העסקאות שפורסמו והסתיימו, כולל כישלונות וביטולים.</p>
+    </section>
+    <div className="panel">
+      <div className="panel-title">עסקאות המוכר</div>
+      {seller.deals.length ? <div className="grid">{seller.deals.map((d: Json) => (
+        <a className="card" key={d.deal_id} href={`#/deal/${d.deal_id}`} aria-label={String(d.title)}>
+          <div className="card-body">
+            <div className="card-head"><div className="card-title">{d.title}</div><StatusPill state={d.state} /></div>
+            <div className="card-price-row"><span className="price">₪{Number(d.price_per_unit).toLocaleString("he-IL")}</span><span className="price-unit">ליחידה</span></div>
+          </div>
+        </a>
+      ))}</div> : <p className="muted small">למוכר הזה עוד אין עסקאות שפורסמו.</p>}
+      <div className="row" style={{ marginTop: 12, gap: 8 }}>
+        {page > 0 ? <button className="btn btn-ghost btn-sm" onClick={() => setPage(page - 1)}>לעסקאות הקודמות</button> : null}
+        {seller.has_more ? <button className="btn btn-ghost btn-sm" onClick={() => setPage(page + 1)}>לעסקאות נוספות</button> : null}
+      </div>
+    </div>
+  </>;
+}
+/** The methods a served entitlement carries (v2 set, or the legacy primary). */
+function entitlementMethods(receipt: Json): string[] {
+  return Array.isArray(receipt?.methods) && receipt.methods.length ? receipt.methods.map(String) : [String(receipt?.method || "")];
+}
+export function BuyerEntitlement({ participantId, token, pickup }: { participantId: string; token: string; pickup?: Json }) {
+  const [loaded, setLoaded] = useState<{ participantId: string; token: string; value: Json } | null>(null), [error, setError] = useState("");
+  const data = loaded?.participantId === participantId && loaded.token === token ? loaded.value : null;
+  const setData = (value: Json | null) => setLoaded(value ? { participantId, token, value } : null);
+  useEffect(() => { let active = true;
+    setError("");
+    const load = () => request(`/api/participants/${participantId}/entitlement`, { headers: { authorization: `Bearer ${token}` } }).then(r => { if (active) { setData(r); setError(""); } }).catch(e => { if (active) { setData(null); setError(e.message); } });
+    void load(); const timer = window.setInterval(load, 20000); return () => { active = false; clearInterval(timer); };
+  }, [participantId, token]);
+  const receipt = data?.entitlement;
+  // A non-ready pickup is a status, not an entitlement. Render the server's
+  // status even when no receipt exists; PickupCard never renders credentials
+  // in these states. Ready pickup remains behind the existing entitlement gate.
+  const pickupStatus = pickup?.applicable && pickup.state !== "ready" && pickup.state !== "fulfilled";
+  return <section className="panel"><h2>המימוש שלי</h2>
+    {pickupStatus ? <PickupCard pickup={pickup} /> : error ? <p role="alert">{error}</p> : !data ? <p>טוענים…</p> : !receipt ? <p>פרטי המימוש יופיעו כאן אחרי שהעסקה תושלם והתשלום יאושר.</p> : <>
+      {!data.configured && pickup?.applicable ? <PickupCard pickup={pickup} /> : <>
+        <h3>{receipt.title} · {receipt.quantity} יחידות</h3><p>{receipt.status === "redeemed" ? "כבר מומש" : "זכאי למימוש"}</p>
+        {/* Issue #39 item 3 — every method the seller enabled is shown for the
+            SAME entitlement. The QR, the printed code and the personal link all
+            carry one code; redeeming through any of them redeems it once. */}
+        {entitlementMethods(receipt).length > 1 ? <p className="muted small" data-testid="receipt-multi-method">
+          אפשר להשתמש בכל אחת מהדרכים האלה — כולן מציגות את אותה זכאות, והמימוש נרשם פעם אחת.
+        </p> : null}
+        {entitlementMethods(receipt).includes("name_phone") ? <p data-testid="receipt-name-phone">הציגו למוכר את השם והטלפון שמסרתם בהצטרפות.</p> : null}
+        {receipt.status !== "redeemed" && entitlementMethods(receipt).includes("qr") && receipt.code ? <QrCode value={`${location.origin}/preview/#/seller/receipts?code=${encodeURIComponent(receipt.code)}`} size={200} label="קוד QR למימוש" /> : null}
+        {receipt.code ? <p className="receipt-code" dir="ltr">{receipt.code}</p> : null}
+        {receipt.url && receipt.status !== "redeemed" ? <a className="btn btn-primary" href={receipt.url} target="_blank" rel="noopener noreferrer">פתיחת הקישור שלי</a> : null}
+        <p style={{ whiteSpace: "pre-wrap" }}>{receipt.instructions}</p>
+      </>}
+    </>}
+    {/* ROUND 2 (UX-4) — a genuine opt-in: the SQUARE indicator says "this one
+        is independent", and its inside fills with the canonical orange. */}
+    {data ? <ChoiceCard mode="many" testId="public-name-opt-in" checked={!!data.public_name_opt_in}
+      title="הציגו את שמי בין המצטרפים לעסקה (שם פרטי בלבד)"
+      onSelect={async checked => { try { await request(`/api/participants/${participantId}/public-name`, { method: "PUT", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ opt_in: checked }) }); setData({ ...data, public_name_opt_in: checked }); } catch (err: any) { setError(err.message); } }} /> : null}
+  </section>;
+}
+export function SellerReceipts({ initialCode = "" }: { initialCode?: string }) {
+  const [q, setQ] = useState(initialCode), [orders, setOrders] = useState<Json[]>([]), [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false), [scanning, setScanning] = useState(false);
+  const video = useRef<HTMLVideoElement>(null), scanner = useRef<ScannerHandle | null>(null);
+  const search = async (query = q) => { setBusy(true); try { const r = await request(`/api/seller/receipts?q=${encodeURIComponent(query)}`, {}, "seller"); setOrders(r.orders); setMessage(r.orders.length ? "" : "לא נמצאה זכאות תקפה לחיפוש הזה"); } catch (e: any) { setOrders([]); setMessage(e.message); } finally { setBusy(false); } };
+  useEffect(() => { void search(initialCode); return () => { scanner.current?.stop(); }; }, []);
+  return <><h1>מימוש רכישות</h1><p>סרקו QR או חפשו לפי קוד, שם או טלפון. מוצגות רק רכישות ששולמו בעסקאות שלכם.</p>
+    <form className="panel stack" onSubmit={e => { e.preventDefault(); void search(); }}><label>קוד, שם או טלפון<input value={q} onChange={e => setQ(e.target.value)} maxLength={150} /></label><button className="btn btn-primary" disabled={busy}>בדיקה</button></form>
+    {cameraSupported().ok ? <button className="btn btn-ghost" onClick={async () => {
+      if (scanning) { scanner.current?.stop(); setScanning(false); return; }
+      try { scanner.current = await startPickupScanner({ video: video.current!, canvas: document.createElement("canvas"), decodeCode: raw => { const match = raw.match(/[A-F0-9]{4}(?:-[A-F0-9]{4}){7}/i); return match?.[0] || null; }, onCode: raw => { let code = raw; try { code = new URL(raw).hash.split("code=")[1] || raw; code = decodeURIComponent(code); } catch {} setQ(code); void search(code); scanner.current?.stop(); setScanning(false); }, onOutcome: outcome => { if (outcome === "scanning") { setScanning(true); return; } if (outcome === "starting" || outcome === "decoded") return; if (outcome === "stopped") { setScanning(false); return; } if (outcome === "not_our_code") { setMessage("לא זוהה קוד מימוש. אפשר להקליד את הקוד."); return; } setMessage("המצלמה אינה זמינה. אפשר להקליד את הקוד."); setScanning(false); } }); } catch { setMessage("המצלמה אינה זמינה. אפשר להקליד את הקוד."); }
+    }}>{scanning ? "כיבוי מצלמה" : "סריקת QR"}</button> : null}
+    <video ref={video} playsInline muted style={{ display: scanning ? "block" : "none", maxWidth: "100%" }} />
+    <p role="status">{message}</p><div className="stack">{orders.map(o => <section className="panel" key={o.participant_id}>
+      <h3>{o.name} · {o.title}</h3><p>{o.phone} · {o.quantity} יחידות · {o.status === "redeemed" ? "כבר מומש" : "תקף למימוש"}</p>
+      {o.status !== "redeemed" ? <button className="btn btn-primary" disabled={busy} onClick={async () => { setBusy(true); try { await request(`/api/seller/receipts/${o.participant_id}/redeem`, { method: "POST", body: "{}" }, "seller"); await search(); setMessage("המימוש נרשם"); } catch (e: any) { setMessage(e.message); } finally { setBusy(false); } }}>אישור מימוש — {o.remaining_quantity} יחידות</button> : null}
+    </section>)}</div></>;
+}
+const upload = uploadImageAsset;
+export function PublicProfileEditor() {
+  const [value, setValue] = useState<Json | null>(null), [message, setMessage] = useState("");
+  const [nameInvalid, setNameInvalid] = useState(false);
+  useEffect(() => { request("/api/seller/public-profile", {}, "seller").then(r => setValue({ name: r.profile.name, about: r.profile.about, image_id: r.image_id, image: r.profile.image })).catch(e => setMessage(e.message)); }, []);
+  return <section className="panel"><h2>הפרופיל הציבורי שלי</h2>{value ? <form className="stack" noValidate onSubmit={async e => { e.preventDefault(); if (!String(value.name || "").trim()) { setNameInvalid(true); setMessage("יש להזין שם לתצוגה"); focusField("public-name"); return; } try { await request("/api/seller/public-profile", { method: "PUT", body: JSON.stringify(value) }, "seller"); setMessage("הפרופיל נשמר"); } catch (e: any) { setMessage(e.message); } }}>
+    <label>שם לתצוגה<input {...fieldAttention(nameInvalid ? { "public-name": "required" } : {}, "public-name")} required maxLength={120} value={value.name} onChange={e => { setValue({ ...value, name: e.target.value }); if (e.target.value.trim()) { setNameInvalid(false); setMessage(""); } }} /></label>
+    <label>אודות<textarea rows={4} maxLength={1000} value={value.about} onChange={e => setValue({ ...value, about: e.target.value })} /></label>
+    {value.image ? <img className="seller-avatar" src={value.image} alt="תמונת הפרופיל" /> : null}
+    <label>לוגו העסק או תמונה אישית<input type="file" accept="image/png,image/jpeg,image/webp" onChange={async e => { if (!e.target.files?.[0]) return; try { const img = await upload(e.target.files[0], "seller"); setValue({ ...value, image_id: img.asset_id, image: img.url }); } catch (err: any) { setMessage(err.message); } }} /></label>
+    <button className="btn btn-primary">שמירת הפרופיל</button>
+  </form> : null}<p role="status">{message}</p></section>;
+}
+// ROUND 2 (UX-9) — the legal / content documents read as part of C-ton instead
+// of as a bare dump: the Siton document shell (orange section markers, a
+// measured line length, RTL-safe wrapping) plus a chip strip so a reader can
+// move between the legal documents without returning to the footer. The ONE
+// canonical source is unchanged — the CMS-backed /api/site-content projection
+// of src/legal_pages.ts.
+const LEGAL_NAV: [string, string][] = [
+  ["legal_terms", "תקנון"],
+  ["legal_privacy", "מדיניות פרטיות"],
+  ["legal_refunds", "ביטולים והחזרים"],
+  ["legal_payments", "מדיניות תשלומים"]
+];
+export function ContentPage({ section }: { section: string }) {
+  const { content: all, loading, error } = useSiteContentState();
+  const content = all[section];
+  // SITE CMS — the document is the page's single locked block (`about` or
+  // `legal`), normalized through the shared template schema; the body stays
+  // plain text rendered by React (no HTML execution), with the light
+  // "## heading" / "- item" structure the legal documents already use.
+  const doc = content ? pageOf(all, section).blocks[0] : undefined;
+  const title = doc?.fields.title || "";
+  const rawBody = String(doc?.fields.body || "").replace(/^# [^\n]+\r?\n/, "").trim();
+  const blocks = rawBody ? rawBody.split(/\n\s*\n/) : [];
+  // A document page whose body is still empty says so plainly instead of
+  // rendering a lone heading that looks like a broken page. The footer already
+  // stops linking here while this is true (App.tsx / contentPageHasBody).
+  const awaitingCopy = Boolean(content) && !loading && !rawBody;
+  const isLegal = section.startsWith("legal_");
+  return <>
+    {isLegal ? <nav className="legal-nav" aria-label="מסמכים משפטיים">
+      {LEGAL_NAV.filter(([key]) => all[key]).map(([key, label]) => (
+        <a key={key} className={`chip${key === section ? " active" : ""}`} href={`#/content/${key}`} data-testid={`legal-nav-${key}`}>{label}</a>
+      ))}
+    </nav> : null}
+    <article className="panel content-doc" data-testid="content-doc" data-section={section}>
+      <h1>{title || (loading ? "טוענים…" : "תוכן האתר")}</h1>
+      {!content && !loading ? <p role="status">{error ? "לא ניתן לטעון את התוכן כרגע. נסו לרענן את העמוד." : "העמוד המבוקש אינו זמין כרגע."}</p> : null}
+      {awaitingCopy ? (
+        <p role="status" className="muted" data-testid="content-doc-awaiting">
+          התוכן של העמוד הזה עדיין לא פורסם. בינתיים אפשר לקרוא את <a href="#/content/legal_terms">התקנון</a> או לפנות אלינו דרך <a href="#/support">התמיכה</a>.
+        </p>
+      ) : null}
+      {doc?.fields.image ? <img className="content-doc-image" src={doc.fields.image} alt="" loading="lazy" /> : null}
+      {blocks.map((block, i) => {
+        if (/^#{1,3} /.test(block)) return <h2 key={i}>{block.replace(/^#{1,3} /, "")}</h2>;
+        if (block.split("\n").every(line => line.startsWith("- "))) return <ul key={i}>{block.split("\n").map((line, j) => <li key={j}>{line.slice(2)}</li>)}</ul>;
+        return <p key={i} style={{ whiteSpace: "pre-wrap" }}>{block}</p>;
+      })}
+    </article>
+  </>;
+}

@@ -1,3 +1,4 @@
+import { t } from "./i18n/index.js";
 // ── P0.6A — explicit-click pickup geolocation strategy ──────────────────────
 // Pure, deterministic and dependency-injected so the exact browser flow can be
 // proven without a browser (tests/frontend_foundation_geolocation_strategy_validation.ts).
@@ -331,60 +332,60 @@ export interface GeoOutcomeCopy {
 
 export const GEO_OUTCOME_COPY: Record<Exclude<GeoOutcomeKind, "success">, GeoOutcomeCopy> = {
   site_denied: {
-    title: "הגישה למיקום חסומה לאתר הזה בדפדפן.",
-    note: "אתר אינו יכול לעקוף חסימה כזו בעצמו.",
+    title: "geo.geo_outcome_copy.site_denied.title",
+    note: "geo.geo_outcome_copy.site_denied.note",
     steps: [
-      "לחצו על סמל המנעול / ההרשאות ליד כתובת האתר",
-      "מיקום ← אפשר",
-      "לחצו \"בדיקה מחדש\""
+      "geo.geo_outcome_copy.site_denied.steps",
+      "geo.geo_outcome_copy.site_denied.steps_2",
+      "geo.geo_outcome_copy.site_denied.steps_3"
     ],
     denial: true,
     retryable: true
   },
   os_denied: {
-    title: "הדפדפן אישר, אבל המכשיר חוסם גישה למיקום.",
-    note: "אתר אינו יכול לשנות הגדרות מכשיר — זה נפתר רק בהגדרות המערכת.",
+    title: "geo.geo_outcome_copy.os_denied.title",
+    note: "geo.geo_outcome_copy.os_denied.note",
     steps: [
-      "Windows: הגדרות ← פרטיות ואבטחה ← מיקום ← הפעילו \"שירותי מיקום\" ואפשרו לדפדפן (או ל\"אפליקציות שולחן עבודה\") גישה למיקום",
-      "macOS: הגדרות המערכת ← פרטיות ואבטחה ← שירותי מיקום ← סמנו את הדפדפן",
-      "טלפון: הפעילו מיקום במכשיר ואשרו לדפדפן גישה למיקום",
-      "לחצו \"בדיקה מחדש\""
+      "geo.geo_outcome_copy.os_denied.steps",
+      "geo.geo_outcome_copy.os_denied.steps_2",
+      "geo.geo_outcome_copy.os_denied.steps_3",
+      "geo.geo_outcome_copy.os_denied.steps_4"
     ],
     denial: true,
     retryable: true
   },
   unavailable: {
-    title: "לא הצלחנו לקבוע מיקום (ניסינו במצב רגיל ובמצב מדויק).",
+    title: "geo.geo_outcome_copy.unavailable.title",
     note: "",
     steps: [
-      "ייתכן ששירותי המיקום במכשיר כבויים (Windows: הגדרות ← פרטיות ואבטחה ← מיקום)",
-      "למחשב ללא Wi‑Fi או GPS לפעמים אין מקור מיקום בכלל",
-      "אפשר לנסות שוב, או להזין קואורדינטות ידנית — הכתובת בשדה התיאור מספיקה תמיד"
+      "geo.geo_outcome_copy.unavailable.steps",
+      "geo.geo_outcome_copy.unavailable.steps_2",
+      "geo.geo_outcome_copy.unavailable.steps_3"
     ],
     denial: false,
     retryable: true
   },
   timeout: {
-    title: "המיקום לא התקבל בזמן (שני ניסיונות).",
+    title: "geo.geo_outcome_copy.timeout.title",
     note: "",
     steps: [
-      "בדקו שהמכשיר מחובר ל‑Wi‑Fi או שה‑GPS פעיל",
-      "נסו שוב, או הזינו קואורדינטות ידנית — הכתובת בשדה התיאור מספיקה תמיד"
+      "geo.geo_outcome_copy.timeout.steps",
+      "geo.geo_outcome_copy.timeout.steps_2"
     ],
     denial: false,
     retryable: true
   },
   unsupported: {
-    title: "הדפדפן לא תומך באיתור מיקום.",
+    title: "geo.geo_outcome_copy.unsupported.title",
     note: "",
-    steps: ["הזינו כתובת בשדה התיאור, או קואורדינטות ידנית"],
+    steps: ["geo.geo_outcome_copy.unsupported.steps"],
     denial: false,
     retryable: false
   },
   insecure_context: {
-    title: "איתור מיקום זמין רק בחיבור מאובטח (https).",
+    title: "geo.geo_outcome_copy.insecure_context.title",
     note: "",
-    steps: ["פתחו את האתר בכתובת https", "או הזינו כתובת / קואורדינטות ידנית"],
+    steps: ["geo.geo_outcome_copy.insecure_context.steps", "geo.geo_outcome_copy.insecure_context.steps_2"],
     denial: false,
     retryable: false
   }
@@ -404,7 +405,7 @@ export function parseManualCoordinates(latRaw: string, lngRaw: string): { ok: tr
   const lat = Number(String(latRaw).trim());
   const lng = Number(String(lngRaw).trim());
   if (!String(latRaw).trim() || !String(lngRaw).trim() || !validCoordinate(lat, lng)) {
-    return { ok: false, error: "קואורדינטות לא תקינות (קו רוחב עד 90, קו אורך עד 180)" };
+    return { ok: false, error: t("geo.invalid_coordinates_latitude_up_90") };
   }
   return { ok: true, latitude: lat, longitude: lng };
 }

@@ -11,6 +11,7 @@
 //   * copy: empty state, CTA, the permanent measurement-only disclaimer, and the
 //     explicit Join ≠ Final Charge distinction
 import assert from "node:assert/strict";
+import { assertRendersCopy, en, he } from "./helpers/i18n_copy.js";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -55,18 +56,21 @@ await run("the seller deal screen embeds the distribution panel and routes to th
 });
 
 await run("seller copy: empty state, first-link CTA, actions, sortable comparison table", () => {
-  assert.match(distribution, /עדיין לא יצרת לינקי הפצה/);
-  assert.match(distribution, /צור לינק ראשון/);
-  for (const action of ["העתק", "שתף", "שנה שם", "ביצועים", "השבת"]) assert.ok(distribution.includes(`>${action}<`) || distribution.includes(`"${action}"`) || distribution.includes(`${action}</button>`), `action ${action}`);
+  assertRendersCopy(distribution, "עדיין לא יצרת לינקי הפצה");
+  assertRendersCopy(distribution, "צור לינק ראשון");
+  // Each row action is a dictionary entry the screen renders by key, and
+  // each one exists in English too.
+  for (const action of ["העתק", "שתף", "שנה שם", "ביצועים", "השבת"]) assertRendersCopy(distribution, action, `action ${action}`);
   for (const key of ["entries", "joins", "joined_units", "charged_units", "attributed_gross", "conversion_entry_to_join"]) {
     assert.ok(distribution.includes(`toggleSort("${key}")`), `sortable by ${key}`);
   }
 });
 
 await run("Join and Final Charge are never presented as the same thing", () => {
-  assert.match(distribution, /label="הצטרפויות" sub="התחייבות של קונה — עדיין לא מכירה"/);
-  assert.match(distribution, /יחידות שחויבו סופית/);
-  assert.match(distribution, /ברוטו מיוחס \(נגבה בפועל\)/);
+  assertRendersCopy(distribution, "הצטרפויות");
+  assertRendersCopy(distribution, "התחייבות של קונה — עדיין לא מכירה");
+  assertRendersCopy(distribution, "יחידות שחויבו סופית");
+  assertRendersCopy(distribution, "ברוטו מיוחס");
 });
 
 await run("the time chart offers 24h / 7d / 30d / all and a metric switcher", () => {
@@ -75,8 +79,11 @@ await run("the time chart offers 24h / 7d / 30d / all and a metric switcher", ()
 });
 
 await run("the permanent measurement-only disclaimer is rendered on every distribution surface", () => {
-  const disclaimer = "סיטון אינה מחשבת או מנהלת עמלה או התחשבנות בין המוכר לבעל הלינק";
-  assert.ok(distribution.includes(disclaimer));
+  const key = assertRendersCopy(distribution, "סיטון אינה מחשבת או מנהלת עמלה או התחשבנות בין המוכר לבעל הלינק");
+  // The disclaimer must stay a disclaimer in English: measurement only, no
+  // commission and no settlement between the seller and the link's owner.
+  assert.match(en(key), /measurement and attribution data only/);
+  assert.match(en(key), /does not compute or manage any commission or settlement/);
   assert.equal((distribution.match(/<DistributionDisclaimer/g) || []).length >= 4, true, "panel, seller dashboard, external login, external dashboard");
 });
 

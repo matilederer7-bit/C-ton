@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { api } from "./api";
-import { hebrewError } from "./he";
+import { localizedError } from "./he";
+import { t } from "./i18n/index.js";
 
 // ── LAUNCH POLISH 2 (P6) — the smallest useful buyer feedback surface ──────
 // ONE question ("היה משהו שלא היה ברור?"), a fixed category list, an optional
@@ -11,12 +12,12 @@ import { hebrewError } from "./he";
 // operational-cases rail (closed, low priority) and the owner reads the
 // aggregate in מדדי פיילוט.
 export const FEEDBACK_CATEGORIES: { key: string; label: string }[] = [
-  { key: "how_it_works", label: "איך העסקה עובדת" },
-  { key: "price", label: "המחיר / ההנחה" },
-  { key: "target", label: "מה קורה אם לא מגיעים ליעד" },
-  { key: "payment", label: "תשלום" },
-  { key: "delivery", label: "משלוח / איסוף" },
-  { key: "other", label: "משהו אחר" }
+  { key: "how_it_works", label: "feedback.feedback_categories.label" },
+  { key: "price", label: "feedback.feedback_categories.label_2" },
+  { key: "target", label: "feedback.feedback_categories.label_3" },
+  { key: "payment", label: "feedback.feedback_categories.label_4" },
+  { key: "delivery", label: "feedback.feedback_categories.label_5" },
+  { key: "other", label: "feedback.feedback_categories.label_6" }
 ];
 export const FEEDBACK_ALL_CLEAR = "all_clear";
 export const FEEDBACK_TEXT_MAX = 280;
@@ -48,7 +49,7 @@ export function FeedbackPrompt({ dealId, surface, onDone }: {
   const [error, setError] = useState("");
 
   if (done) {
-    return <div className="feedback-thanks" data-testid="feedback-thanks">תודה! המשוב עוזר לנו לשפר את הדף לקונים הבאים.</div>;
+    return <div className="feedback-thanks" data-testid="feedback-thanks">{t("feedback.thank_feedback_helps_us_improve")}</div>;
   }
 
   const send = async (cat: string) => {
@@ -67,37 +68,36 @@ export function FeedbackPrompt({ dealId, surface, onDone }: {
     } catch (err: any) {
       // a repeated/capped feedback is still "received" for the buyer
       if (err?.status === 429) { markDone(dealId, cat); setDone(true); onDone?.(); }
-      else setError(hebrewError(err));
+      else setError(localizedError(err));
     }
     setBusy(false);
   };
 
   return (
     <div className="feedback-box" data-testid="feedback-prompt" data-surface={surface}>
-      <div className="feedback-q">היה משהו שלא היה ברור?</div>
-      <div className="feedback-chips" role="group" aria-label="מה לא היה ברור">
+      <div className="feedback-q">{t("feedback.was_there_anything_wasn_t")}</div>
+      <div className="feedback-chips" role="group" aria-label={t("feedback.what_wasn_t_clear")}>
         {FEEDBACK_CATEGORIES.map((c) => (
           <button type="button" key={c.key} className={`chip${category === c.key ? " active" : ""}`}
             data-testid={`feedback-chip-${c.key}`} aria-pressed={category === c.key}
             onClick={() => setCategory((cur) => (cur === c.key ? "" : c.key))}>
-            {c.label}
+            {t(c.label)}
           </button>
         ))}
       </div>
       {category ? (
         <div className="feedback-more">
           <input data-testid="feedback-text" value={text} maxLength={FEEDBACK_TEXT_MAX}
-            placeholder="אפשר לפרט במשפט (לא חובה, בלי פרטים אישיים)"
+            placeholder={t("feedback.you_add_sentence_optional_personal")}
             onChange={(e) => setText(e.target.value)} />
           <button type="button" className="btn btn-primary btn-sm" data-testid="feedback-send" disabled={busy} onClick={() => send(category)}>
-            {busy ? "שולחים…" : "שליחה"}
+            {busy ? t("feedback.sending") : t("feedback.send")}
           </button>
         </div>
       ) : null}
       <input type="text" className="hp-field" tabIndex={-1} autoComplete="off" aria-hidden="true" name="website" value={website} onChange={(e) => setWebsite(e.target.value)} />
       <button type="button" className="feedback-clear" data-testid="feedback-all-clear" disabled={busy} onClick={() => send(FEEDBACK_ALL_CLEAR)}>
-        הכול היה ברור
-      </button>
+        {t("feedback.everything_clear")}</button>
       {error ? <div className="notice err" style={{ margin: "8px 0 0" }} data-testid="feedback-error">{error}</div> : null}
     </div>
   );

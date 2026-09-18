@@ -4,6 +4,7 @@ import { QrCode } from "./qrcode";
 import { PickupCard } from "./pickupCard";
 import { uploadImageAsset } from "./contentAssets";
 import { pageOf, useSiteContentState } from "./siteContent";
+import { t } from "./i18n/index.js";
 export { useSiteContent, useSiteContentState } from "./siteContent";
 export { ContentAdmin } from "./pages/contentAdmin";
 import { ChoiceCard, StatusPill } from "./components";
@@ -17,11 +18,11 @@ import { attention as fieldAttention, focusField } from "./fieldAttention";
 export type ReceiptConfig = { method?: string; methods?: string[]; instructions: string; url: string };
 export const RECEIPT_METHOD_ORDER = ["qr", "code", "name_phone", "digital_link", "instructions"] as const;
 const OPTIONS: [string, string, string][] = [
-  ["qr", "QR / ברקוד", "הקונה יקבל קוד סריקה אישי לאחר השלמת העסקה"],
-  ["code", "קוד מימוש", "הקונה יקבל קוד אישי למימוש"],
-  ["name_phone", "שם וטלפון", "המימוש יתבצע לפי שם וטלפון של הקונה"],
-  ["digital_link", "קישור דיגיטלי", "הקונה יקבל קישור לאחר השלמת העסקה"],
-  ["instructions", "הוראות מהמוכר", "הקונה יקבל את הוראות המימוש שתגדירו"]
+  ["qr", "receipt_content.options", "receipt_content.options_2"],
+  ["code", "receipt_content.options_3", "receipt_content.options_4"],
+  ["name_phone", "receipt_content.options_5", "receipt_content.options_6"],
+  ["digital_link", "receipt_content.options_7", "receipt_content.options_8"],
+  ["instructions", "receipt_content.options_9", "receipt_content.options_10"]
 ];
 
 /** Canonical-ordered, distinct, never empty. Accepts v1 and v2 shapes. */
@@ -56,18 +57,17 @@ export function ReceiptFields({ value, onChange, disabled = false, attention }: 
     onChange(withReceiptMethods(value, next));
   };
   return <fieldset className={`receipt-fields${attention && !exactField ? " attention-block needs-attention" : ""}`} disabled={disabled} id={exactField ? undefined : "f-receipt"} tabIndex={-1} aria-invalid={attention && !exactField ? "true" : undefined}>
-    <legend>איך הקונה יקבל את מה ששילם עליו?</legend>
-    <p className="muted small" style={{ margin: "0 0 8px" }}>אפשר לבחור כמה דרכים — כולן מציגות את אותה זכאות אחת, והמימוש נרשם פעם אחת בלבד.</p>
+    <legend>{t("receipt_content.how_buyer_get_what_they")}</legend>
+    <p className="muted small" style={{ margin: "0 0 8px" }}>{t("receipt_content.you_choose_several_ways_they")}</p>
     <div className="choice-group" data-testid="receipt-methods">
       {OPTIONS.map(([key, title, help]) => <ChoiceCard key={key} mode="many" name="receipt-method" value={key}
-        testId="receipt-method-option" checked={has(key)} title={title} help={help}
+        testId="receipt-method-option" checked={has(key)} title={t(title)} help={t(help)}
         onSelect={checked => toggle(key, checked)} />)}
     </div>
-    {has("digital_link") ? <label className="field">קישור מאובטח
-      <input {...fieldAttention(fieldErrors, "receipt")} type="url" dir="ltr" required maxLength={2000} value={value.url} onChange={e => onChange({ ...value, url: e.target.value })} placeholder="https://" />
-      <span className="muted small">לכתובת אישית לכל קונה אפשר להוסיף {'{code}'} לקישור.</span>
+    {has("digital_link") ? <label className="field">{t("receipt_content.a_secure_link")}<input {...fieldAttention(fieldErrors, "receipt")} type="url" dir="ltr" required maxLength={2000} value={value.url} onChange={e => onChange({ ...value, url: e.target.value })} placeholder="https://" />
+      <span className="muted small">{t("receipt_content.a_personal_address_each_buyer")}</span>
     </label> : null}
-    {has("instructions") || has("code") || has("qr") ? <label className="field">הוראות מימוש {has("instructions") ? "" : "(לא חובה)"}
+    {has("instructions") || has("code") || has("qr") ? <label className="field">{t("receipt_content.instructions_label")} {has("instructions") ? "" : t("receipt_content.optional")}
       <textarea {...(has("instructions") ? fieldAttention(fieldErrors, "receipt") : {})} rows={3} required={has("instructions")} maxLength={1000} value={value.instructions} onChange={e => onChange({ ...value, instructions: e.target.value })} />
     </label> : null}
   </fieldset>;
@@ -75,9 +75,9 @@ export function ReceiptFields({ value, onChange, disabled = false, attention }: 
 export function ReceiptEditor({ dealId, state }: { dealId: string; state: string }) {
   const [value, setValue] = useState<ReceiptConfig | null>(null), [editable, setEditable] = useState(false), [message, setMessage] = useState("");
   useEffect(() => { let alive = true; request(`/api/seller/deals/${dealId}/receipt`, {}, "seller").then(r => { if (alive) { setValue(r.receipt); setEditable(r.editable); } }).catch(e => { if (alive) setMessage(e.message); }); return () => { alive = false; }; }, [dealId, state]);
-  return <div className="panel">{value ? <form onSubmit={async e => { e.preventDefault(); try { await request(`/api/seller/deals/${dealId}/receipt`, { method: "PUT", body: JSON.stringify(value) }, "seller"); setMessage("אופן המימוש נשמר"); } catch (err: any) { setMessage(err.message); } }}>
+  return <div className="panel">{value ? <form onSubmit={async e => { e.preventDefault(); try { await request(`/api/seller/deals/${dealId}/receipt`, { method: "PUT", body: JSON.stringify(value) }, "seller"); setMessage(t("receipt_content.the_redemption_method_saved")); } catch (err: any) { setMessage(err.message); } }}>
     <ReceiptFields value={value} onChange={setValue} disabled={!editable} />
-    {editable ? <button className="btn btn-primary">שמירת אופן המימוש</button> : <p className="muted small">אופן המימוש נקבע בפרסום העסקה.</p>}
+    {editable ? <button className="btn btn-primary">{t("receipt_content.save_redemption_method")}</button> : <p className="muted small">{t("receipt_content.the_redemption_method_set_when")}</p>}
   </form> : null}<p role="status">{message}</p></div>;
 }
 // ROUND 2 (UX-5) — the seller's public identity in the product's own visual
@@ -93,48 +93,48 @@ function SellerIdentity({ seller, compact = false }: { seller: Json; compact?: b
     </div>
     {about ? <p className="seller-about" data-testid="seller-about">{compact && about.length > 140 ? `${about.slice(0, 140)}…` : about}</p> : null}
     <p className="seller-stats" data-testid="seller-stats">
-      <span><b>{seller.stats.published}</b> עסקאות שפורסמו</span>
-      <span><b>{seller.stats.completed}</b> הושלמו בהצלחה</span>
-      {seller.stats.success_rate !== null ? <span><b>{seller.stats.success_rate}%</b> הצלחה</span> : null}
+      <span><b>{seller.stats.published}</b>  {t("receipt_content.published_deals")}</span>
+      <span><b>{seller.stats.completed}</b>  {t("receipt_content.completed_successfully")}</span>
+      {seller.stats.success_rate !== null ? <span><b>{seller.stats.success_rate}%</b>  {t("receipt_content.success")}</span> : null}
     </p>
   </>;
 }
 export function DealReceiptInfo({ dealId, onReady }: { dealId: string; onReady: (ready: boolean) => void }) {
   const [data, setData] = useState<Json | null>(null), [names, setNames] = useState<string[]>([]), [error, setError] = useState("");
-  useEffect(() => { let alive = true; setData(null); onReady(false); request(`/api/deals/${dealId}/receipt-info`).then(r => { if (alive) { setData(r); onReady(true); } }).catch(() => { if (alive) setError("פרטי המימוש אינם זמינים כרגע. נסו לרענן לפני ההצטרפות."); }); request(`/api/deals/${dealId}/public-names`).then(r => { if (alive) setNames(r.names); }).catch(() => undefined); return () => { alive = false; }; }, [dealId]);
+  useEffect(() => { let alive = true; setData(null); onReady(false); request(`/api/deals/${dealId}/receipt-info`).then(r => { if (alive) { setData(r); onReady(true); } }).catch(() => { if (alive) setError(t("receipt_content.the_redemption_details_available_right")); }); request(`/api/deals/${dealId}/public-names`).then(r => { if (alive) setNames(r.names); }).catch(() => undefined); return () => { alive = false; }; }, [dealId]);
   return <section className="panel" data-testid="receipt-before-join">
-    <div className="panel-title">אם העסקה תושלם, תקבלו…</div>
-    <p>{data?.label || error || "טוענים את פרטי המימוש…"}</p>
+    <div className="panel-title">{t("receipt_content.if_deal_completes_get")}</div>
+    <p>{data?.label || error || t("receipt_content.loading_redemption_details")}</p>
     {data?.seller ? <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
       <SellerIdentity seller={data.seller} compact />
-      <p style={{ margin: "10px 0 0" }}><a href={`#/public-seller/${data.seller.id}`} data-testid="seller-profile-link">לפרופיל המוכר ולעסקאות נוספות ←</a></p>
+      <p style={{ margin: "10px 0 0" }}><a href={`#/public-seller/${data.seller.id}`} data-testid="seller-profile-link">{t("receipt_content.to_seller_profile_more_deals")}</a></p>
     </div> : null}
-    {names.length ? <p className="muted small" style={{ marginTop: 10 }}>בחרו לשתף שהצטרפו: {names.join(" · ")}</p> : null}
+    {names.length ? <p className="muted small" style={{ marginTop: 10 }}>{t("receipt_content.chose_share_they_joined_v0", { v0: names.join(" · ") })}</p> : null}
   </section>;
 }
 export function PublicSellerPage({ id }: { id: string }) {
   const [page, setPage] = useState(0);
   const [seller, setSeller] = useState<Json | null>(null), [error, setError] = useState("");
-  useEffect(() => { let alive = true; setSeller(null); setError(""); request(`/api/public-sellers/${id}?page=${page}`).then(r => { if (alive) setSeller(r.seller); }).catch(() => { if (alive) setError("לא ניתן לטעון את פרופיל המוכר כרגע. נסו לרענן את העמוד."); }); return () => { alive = false; }; }, [id, page]);
-  if (!seller) return <section className="panel"><h1>פרופיל המוכר</h1><p role="status">{error || "טוענים פרופיל…"}</p></section>;
+  useEffect(() => { let alive = true; setSeller(null); setError(""); request(`/api/public-sellers/${id}?page=${page}`).then(r => { if (alive) setSeller(r.seller); }).catch(() => { if (alive) setError(t("receipt_content.the_seller_profile_cannot_loaded")); }); return () => { alive = false; }; }, [id, page]);
+  if (!seller) return <section className="panel"><h1>{t("receipt_content.the_seller_s_profile")}</h1><p role="status">{error || t("receipt_content.loading_profile")}</p></section>;
   return <>
     <section className="panel">
       <SellerIdentity seller={seller} />
-      <p className="muted small" style={{ margin: "12px 0 0" }}>שיעור ההצלחה: עסקאות שהושלמו מתוך העסקאות שפורסמו והסתיימו, כולל כישלונות וביטולים.</p>
+      <p className="muted small" style={{ margin: "12px 0 0" }}>{t("receipt_content.success_rate_deals_completed_out")}</p>
     </section>
     <div className="panel">
-      <div className="panel-title">עסקאות המוכר</div>
+      <div className="panel-title">{t("receipt_content.the_seller_s_deals")}</div>
       {seller.deals.length ? <div className="grid">{seller.deals.map((d: Json) => (
         <a className="card" key={d.deal_id} href={`#/deal/${d.deal_id}`} aria-label={String(d.title)}>
           <div className="card-body">
             <div className="card-head"><div className="card-title">{d.title}</div><StatusPill state={d.state} /></div>
-            <div className="card-price-row"><span className="price">₪{Number(d.price_per_unit).toLocaleString("he-IL")}</span><span className="price-unit">ליחידה</span></div>
+            <div className="card-price-row"><span className="price">₪{Number(d.price_per_unit).toLocaleString("he-IL")}</span><span className="price-unit">{t("receipt_content.per_unit")}</span></div>
           </div>
         </a>
-      ))}</div> : <p className="muted small">למוכר הזה עוד אין עסקאות שפורסמו.</p>}
+      ))}</div> : <p className="muted small">{t("receipt_content.this_seller_published_deals_yet")}</p>}
       <div className="row" style={{ marginTop: 12, gap: 8 }}>
-        {page > 0 ? <button className="btn btn-ghost btn-sm" onClick={() => setPage(page - 1)}>לעסקאות הקודמות</button> : null}
-        {seller.has_more ? <button className="btn btn-ghost btn-sm" onClick={() => setPage(page + 1)}>לעסקאות נוספות</button> : null}
+        {page > 0 ? <button className="btn btn-ghost btn-sm" onClick={() => setPage(page - 1)}>{t("receipt_content.to_previous_deals")}</button> : null}
+        {seller.has_more ? <button className="btn btn-ghost btn-sm" onClick={() => setPage(page + 1)}>{t("receipt_content.to_more_deals")}</button> : null}
       </div>
     </div>
   </>;
@@ -157,27 +157,26 @@ export function BuyerEntitlement({ participantId, token, pickup }: { participant
   // status even when no receipt exists; PickupCard never renders credentials
   // in these states. Ready pickup remains behind the existing entitlement gate.
   const pickupStatus = pickup?.applicable && pickup.state !== "ready" && pickup.state !== "fulfilled";
-  return <section className="panel"><h2>המימוש שלי</h2>
-    {pickupStatus ? <PickupCard pickup={pickup} /> : error ? <p role="alert">{error}</p> : !data ? <p>טוענים…</p> : !receipt ? <p>פרטי המימוש יופיעו כאן אחרי שהעסקה תושלם והתשלום יאושר.</p> : <>
+  return <section className="panel"><h2>{t("receipt_content.my_redemption")}</h2>
+    {pickupStatus ? <PickupCard pickup={pickup} /> : error ? <p role="alert">{error}</p> : !data ? <p>{t("receipt_content.loading")}</p> : !receipt ? <p>{t("receipt_content.the_redemption_details_appear_here")}</p> : <>
       {!data.configured && pickup?.applicable ? <PickupCard pickup={pickup} /> : <>
-        <h3>{receipt.title} · {receipt.quantity} יחידות</h3><p>{receipt.status === "redeemed" ? "כבר מומש" : "זכאי למימוש"}</p>
+        <h3>{t("receipt_content.title_quantity_units", { title: receipt.title, quantity: receipt.quantity })}</h3><p>{receipt.status === "redeemed" ? t("receipt_content.already_redeemed") : t("receipt_content.eligible_redeem")}</p>
         {/* Issue #39 item 3 — every method the seller enabled is shown for the
             SAME entitlement. The QR, the printed code and the personal link all
             carry one code; redeeming through any of them redeems it once. */}
         {entitlementMethods(receipt).length > 1 ? <p className="muted small" data-testid="receipt-multi-method">
-          אפשר להשתמש בכל אחת מהדרכים האלה — כולן מציגות את אותה זכאות, והמימוש נרשם פעם אחת.
-        </p> : null}
-        {entitlementMethods(receipt).includes("name_phone") ? <p data-testid="receipt-name-phone">הציגו למוכר את השם והטלפון שמסרתם בהצטרפות.</p> : null}
-        {receipt.status !== "redeemed" && entitlementMethods(receipt).includes("qr") && receipt.code ? <QrCode value={`${location.origin}/preview/#/seller/receipts?code=${encodeURIComponent(receipt.code)}`} size={200} label="קוד QR למימוש" /> : null}
+          {t("receipt_content.you_use_any_these_ways")}</p> : null}
+        {entitlementMethods(receipt).includes("name_phone") ? <p data-testid="receipt-name-phone">{t("receipt_content.show_seller_name_phone_gave")}</p> : null}
+        {receipt.status !== "redeemed" && entitlementMethods(receipt).includes("qr") && receipt.code ? <QrCode value={`${location.origin}/preview/#/seller/receipts?code=${encodeURIComponent(receipt.code)}`} size={200} label={t("receipt_content.redemption_qr_code")} /> : null}
         {receipt.code ? <p className="receipt-code" dir="ltr">{receipt.code}</p> : null}
-        {receipt.url && receipt.status !== "redeemed" ? <a className="btn btn-primary" href={receipt.url} target="_blank" rel="noopener noreferrer">פתיחת הקישור שלי</a> : null}
+        {receipt.url && receipt.status !== "redeemed" ? <a className="btn btn-primary" href={receipt.url} target="_blank" rel="noopener noreferrer">{t("receipt_content.open_my_link")}</a> : null}
         <p style={{ whiteSpace: "pre-wrap" }}>{receipt.instructions}</p>
       </>}
     </>}
     {/* ROUND 2 (UX-4) — a genuine opt-in: the SQUARE indicator says "this one
         is independent", and its inside fills with the canonical orange. */}
     {data ? <ChoiceCard mode="many" testId="public-name-opt-in" checked={!!data.public_name_opt_in}
-      title="הציגו את שמי בין המצטרפים לעסקה (שם פרטי בלבד)"
+      title={t("receipt_content.show_my_name_among_deal")}
       onSelect={async checked => { try { await request(`/api/participants/${participantId}/public-name`, { method: "PUT", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ opt_in: checked }) }); setData({ ...data, public_name_opt_in: checked }); } catch (err: any) { setError(err.message); } }} /> : null}
   </section>;
 }
@@ -185,18 +184,18 @@ export function SellerReceipts({ initialCode = "" }: { initialCode?: string }) {
   const [q, setQ] = useState(initialCode), [orders, setOrders] = useState<Json[]>([]), [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false), [scanning, setScanning] = useState(false);
   const video = useRef<HTMLVideoElement>(null), scanner = useRef<ScannerHandle | null>(null);
-  const search = async (query = q) => { setBusy(true); try { const r = await request(`/api/seller/receipts?q=${encodeURIComponent(query)}`, {}, "seller"); setOrders(r.orders); setMessage(r.orders.length ? "" : "לא נמצאה זכאות תקפה לחיפוש הזה"); } catch (e: any) { setOrders([]); setMessage(e.message); } finally { setBusy(false); } };
+  const search = async (query = q) => { setBusy(true); try { const r = await request(`/api/seller/receipts?q=${encodeURIComponent(query)}`, {}, "seller"); setOrders(r.orders); setMessage(r.orders.length ? "" : t("receipt_content.no_valid_entitlement_found_search")); } catch (e: any) { setOrders([]); setMessage(e.message); } finally { setBusy(false); } };
   useEffect(() => { void search(initialCode); return () => { scanner.current?.stop(); }; }, []);
-  return <><h1>מימוש רכישות</h1><p>סרקו QR או חפשו לפי קוד, שם או טלפון. מוצגות רק רכישות ששולמו בעסקאות שלכם.</p>
-    <form className="panel stack" onSubmit={e => { e.preventDefault(); void search(); }}><label>קוד, שם או טלפון<input value={q} onChange={e => setQ(e.target.value)} maxLength={150} /></label><button className="btn btn-primary" disabled={busy}>בדיקה</button></form>
+  return <><h1>{t("receipt_content.redeeming_purchases")}</h1><p>{t("receipt_content.scan_qr_search_code_name")}</p>
+    <form className="panel stack" onSubmit={e => { e.preventDefault(); void search(); }}><label>{t("receipt_content.a_code_name_phone_number")}<input value={q} onChange={e => setQ(e.target.value)} maxLength={150} /></label><button className="btn btn-primary" disabled={busy}>{t("receipt_content.check")}</button></form>
     {cameraSupported().ok ? <button className="btn btn-ghost" onClick={async () => {
       if (scanning) { scanner.current?.stop(); setScanning(false); return; }
-      try { scanner.current = await startPickupScanner({ video: video.current!, canvas: document.createElement("canvas"), decodeCode: raw => { const match = raw.match(/[A-F0-9]{4}(?:-[A-F0-9]{4}){7}/i); return match?.[0] || null; }, onCode: raw => { let code = raw; try { code = new URL(raw).hash.split("code=")[1] || raw; code = decodeURIComponent(code); } catch {} setQ(code); void search(code); scanner.current?.stop(); setScanning(false); }, onOutcome: outcome => { if (outcome === "scanning") { setScanning(true); return; } if (outcome === "starting" || outcome === "decoded") return; if (outcome === "stopped") { setScanning(false); return; } if (outcome === "not_our_code") { setMessage("לא זוהה קוד מימוש. אפשר להקליד את הקוד."); return; } setMessage("המצלמה אינה זמינה. אפשר להקליד את הקוד."); setScanning(false); } }); } catch { setMessage("המצלמה אינה זמינה. אפשר להקליד את הקוד."); }
-    }}>{scanning ? "כיבוי מצלמה" : "סריקת QR"}</button> : null}
+      try { scanner.current = await startPickupScanner({ video: video.current!, canvas: document.createElement("canvas"), decodeCode: raw => { const match = raw.match(/[A-F0-9]{4}(?:-[A-F0-9]{4}){7}/i); return match?.[0] || null; }, onCode: raw => { let code = raw; try { code = new URL(raw).hash.split("code=")[1] || raw; code = decodeURIComponent(code); } catch {} setQ(code); void search(code); scanner.current?.stop(); setScanning(false); }, onOutcome: outcome => { if (outcome === "scanning") { setScanning(true); return; } if (outcome === "starting" || outcome === "decoded") return; if (outcome === "stopped") { setScanning(false); return; } if (outcome === "not_our_code") { setMessage(t("receipt_content.no_redemption_code_recognised_type")); return; } setMessage(t("receipt_content.the_camera_available_type_code")); setScanning(false); } }); } catch { setMessage(t("receipt_content.the_camera_available_type_code")); }
+    }}>{scanning ? t("receipt_content.stop_camera") : t("receipt_content.scan_qr")}</button> : null}
     <video ref={video} playsInline muted style={{ display: scanning ? "block" : "none", maxWidth: "100%" }} />
     <p role="status">{message}</p><div className="stack">{orders.map(o => <section className="panel" key={o.participant_id}>
-      <h3>{o.name} · {o.title}</h3><p>{o.phone} · {o.quantity} יחידות · {o.status === "redeemed" ? "כבר מומש" : "תקף למימוש"}</p>
-      {o.status !== "redeemed" ? <button className="btn btn-primary" disabled={busy} onClick={async () => { setBusy(true); try { await request(`/api/seller/receipts/${o.participant_id}/redeem`, { method: "POST", body: "{}" }, "seller"); await search(); setMessage("המימוש נרשם"); } catch (e: any) { setMessage(e.message); } finally { setBusy(false); } }}>אישור מימוש — {o.remaining_quantity} יחידות</button> : null}
+      <h3>{o.name} · {o.title}</h3><p>{t("receipt_content.order_line", { phone: o.phone, quantity: o.quantity, status: o.status === "redeemed" ? t("receipt_content.already_redeemed") : t("receipt_content.valid_redeem") })}</p>
+      {o.status !== "redeemed" ? <button className="btn btn-primary" disabled={busy} onClick={async () => { setBusy(true); try { await request(`/api/seller/receipts/${o.participant_id}/redeem`, { method: "POST", body: "{}" }, "seller"); await search(); setMessage(t("receipt_content.the_redemption_recorded")); } catch (e: any) { setMessage(e.message); } finally { setBusy(false); } }}>{t("receipt_content.confirm_redemption_remaining_quantity_units", { remaining_quantity: o.remaining_quantity })}</button> : null}
     </section>)}</div></>;
 }
 const upload = uploadImageAsset;
@@ -204,12 +203,12 @@ export function PublicProfileEditor() {
   const [value, setValue] = useState<Json | null>(null), [message, setMessage] = useState("");
   const [nameInvalid, setNameInvalid] = useState(false);
   useEffect(() => { request("/api/seller/public-profile", {}, "seller").then(r => setValue({ name: r.profile.name, about: r.profile.about, image_id: r.image_id, image: r.profile.image })).catch(e => setMessage(e.message)); }, []);
-  return <section className="panel"><h2>הפרופיל הציבורי שלי</h2>{value ? <form className="stack" noValidate onSubmit={async e => { e.preventDefault(); if (!String(value.name || "").trim()) { setNameInvalid(true); setMessage("יש להזין שם לתצוגה"); focusField("public-name"); return; } try { await request("/api/seller/public-profile", { method: "PUT", body: JSON.stringify(value) }, "seller"); setMessage("הפרופיל נשמר"); } catch (e: any) { setMessage(e.message); } }}>
-    <label>שם לתצוגה<input {...fieldAttention(nameInvalid ? { "public-name": "required" } : {}, "public-name")} required maxLength={120} value={value.name} onChange={e => { setValue({ ...value, name: e.target.value }); if (e.target.value.trim()) { setNameInvalid(false); setMessage(""); } }} /></label>
-    <label>אודות<textarea rows={4} maxLength={1000} value={value.about} onChange={e => setValue({ ...value, about: e.target.value })} /></label>
-    {value.image ? <img className="seller-avatar" src={value.image} alt="תמונת הפרופיל" /> : null}
-    <label>לוגו העסק או תמונה אישית<input type="file" accept="image/png,image/jpeg,image/webp" onChange={async e => { if (!e.target.files?.[0]) return; try { const img = await upload(e.target.files[0], "seller"); setValue({ ...value, image_id: img.asset_id, image: img.url }); } catch (err: any) { setMessage(err.message); } }} /></label>
-    <button className="btn btn-primary">שמירת הפרופיל</button>
+  return <section className="panel"><h2>{t("receipt_content.my_public_profile")}</h2>{value ? <form className="stack" noValidate onSubmit={async e => { e.preventDefault(); if (!String(value.name || "").trim()) { setNameInvalid(true); setMessage(t("receipt_content.enter_display_name")); focusField("public-name"); return; } try { await request("/api/seller/public-profile", { method: "PUT", body: JSON.stringify(value) }, "seller"); setMessage(t("receipt_content.the_profile_saved")); } catch (e: any) { setMessage(e.message); } }}>
+    <label>{t("receipt_content.display_name")}<input {...fieldAttention(nameInvalid ? { "public-name": "required" } : {}, "public-name")} required maxLength={120} value={value.name} onChange={e => { setValue({ ...value, name: e.target.value }); if (e.target.value.trim()) { setNameInvalid(false); setMessage(""); } }} /></label>
+    <label>{t("receipt_content.about")}<textarea rows={4} maxLength={1000} value={value.about} onChange={e => setValue({ ...value, about: e.target.value })} /></label>
+    {value.image ? <img className="seller-avatar" src={value.image} alt={t("receipt_content.profile_picture")} /> : null}
+    <label>{t("receipt_content.the_business_logo_personal_photo")}<input type="file" accept="image/png,image/jpeg,image/webp" onChange={async e => { if (!e.target.files?.[0]) return; try { const img = await upload(e.target.files[0], "seller"); setValue({ ...value, image_id: img.asset_id, image: img.url }); } catch (err: any) { setMessage(err.message); } }} /></label>
+    <button className="btn btn-primary">{t("receipt_content.save_profile")}</button>
   </form> : null}<p role="status">{message}</p></section>;
 }
 // ROUND 2 (UX-9) — the legal / content documents read as part of C-ton instead
@@ -219,10 +218,10 @@ export function PublicProfileEditor() {
 // canonical source is unchanged — the CMS-backed /api/site-content projection
 // of src/legal_pages.ts.
 const LEGAL_NAV: [string, string][] = [
-  ["legal_terms", "תקנון"],
-  ["legal_privacy", "מדיניות פרטיות"],
-  ["legal_refunds", "ביטולים והחזרים"],
-  ["legal_payments", "מדיניות תשלומים"]
+  ["legal_terms", "receipt_content.legal_nav"],
+  ["legal_privacy", "receipt_content.legal_nav_2"],
+  ["legal_refunds", "receipt_content.legal_nav_3"],
+  ["legal_payments", "receipt_content.legal_nav_4"]
 ];
 export function ContentPage({ section }: { section: string }) {
   const { content: all, loading, error } = useSiteContentState();
@@ -241,17 +240,17 @@ export function ContentPage({ section }: { section: string }) {
   const awaitingCopy = Boolean(content) && !loading && !rawBody;
   const isLegal = section.startsWith("legal_");
   return <>
-    {isLegal ? <nav className="legal-nav" aria-label="מסמכים משפטיים">
+    {isLegal ? <nav className="legal-nav" aria-label={t("receipt_content.legal_documents")}>
       {LEGAL_NAV.filter(([key]) => all[key]).map(([key, label]) => (
-        <a key={key} className={`chip${key === section ? " active" : ""}`} href={`#/content/${key}`} data-testid={`legal-nav-${key}`}>{label}</a>
+        <a key={key} className={`chip${key === section ? " active" : ""}`} href={`#/content/${key}`} data-testid={`legal-nav-${key}`}>{t(label)}</a>
       ))}
     </nav> : null}
     <article className="panel content-doc" data-testid="content-doc" data-section={section}>
-      <h1>{title || (loading ? "טוענים…" : "תוכן האתר")}</h1>
-      {!content && !loading ? <p role="status">{error ? "לא ניתן לטעון את התוכן כרגע. נסו לרענן את העמוד." : "העמוד המבוקש אינו זמין כרגע."}</p> : null}
+      <h1>{title || (loading ? t("receipt_content.loading") : t("receipt_content.site_content"))}</h1>
+      {!content && !loading ? <p role="status">{error ? t("receipt_content.the_content_cannot_loaded_right") : t("receipt_content.the_page_asked_available_right")}</p> : null}
       {awaitingCopy ? (
         <p role="status" className="muted" data-testid="content-doc-awaiting">
-          התוכן של העמוד הזה עדיין לא פורסם. בינתיים אפשר לקרוא את <a href="#/content/legal_terms">התקנון</a> או לפנות אלינו דרך <a href="#/support">התמיכה</a>.
+          {t("receipt_content.this_page_s_content_been")} <a href="#/content/legal_terms">{t("receipt_content.the_terms")}</a>  {t("receipt_content.or_contact_us_through")} <a href="#/support">{t("receipt_content.support")}</a>.
         </p>
       ) : null}
       {doc?.fields.image ? <img className="content-doc-image" src={doc.fields.image} alt="" loading="lazy" /> : null}

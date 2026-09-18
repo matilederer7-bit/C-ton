@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../api";
-import { hebrewError } from "../he";
+import { localizedError } from "../he";
 import { getPreviewMeta } from "../previewMeta";
 import { resolveSupportCopy } from "../productCopy";
 import { useSiteContent } from "../siteContent";
+import { t } from "../i18n/index.js";
 
 // ── Public Support / Contact center (P0.2-S) ────────────────────────────────
 // The form creates a canonical support case the Admin Support screen sees —
@@ -19,11 +20,11 @@ import { useSiteContent } from "../siteContent";
 // admin-only queue. Nothing here names a seller — the browser cannot.
 
 const CATEGORIES: { key: string; label: string; deal: "required" | "optional" | "none" }[] = [
-  { key: "general", label: "שאלה כללית", deal: "none" },
-  { key: "deal", label: "בעיה בעסקה שהצטרפתי אליה", deal: "required" },
-  { key: "payment", label: "תשלומים וחיובים", deal: "optional" },
-  { key: "seller", label: "שאלת מוכר", deal: "none" },
-  { key: "report", label: "דיווח על תוכן", deal: "optional" }
+  { key: "general", label: "support.categories.label", deal: "none" },
+  { key: "deal", label: "support.categories.label_2", deal: "required" },
+  { key: "payment", label: "support.categories.label_3", deal: "optional" },
+  { key: "seller", label: "support.categories.label_4", deal: "none" },
+  { key: "report", label: "support.categories.label_5", deal: "optional" }
 ];
 
 const DEAL_SCOPE = new Map(CATEGORIES.map((c) => [c.key, c.deal]));
@@ -53,12 +54,12 @@ export function SupportPage({ dealRef = "" }: { dealRef?: string } = {}) {
     e.preventDefault();
     if (busy) return;
     const errs: Record<string, string> = {};
-    if (name.trim().length < 2) errs.name = "יש להזין שם";
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) errs.email = "יש להזין כתובת אימייל תקינה";
-    if (message.trim().length < 10) errs.message = "כתבו לנו כמה מילים על הפנייה (לפחות 10 תווים)";
+    if (name.trim().length < 2) errs.name = t("support.enter_name");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) errs.email = t("support.enter_valid_e_mail_address");
+    if (message.trim().length < 10) errs.message = t("support.write_us_few_words_about");
     const scope = DEAL_SCOPE.get(category) || "none";
     if (scope === "required" && !UUID_ANYWHERE.test(deal.trim())) {
-      errs.deal = "הדביקו את הקישור לעסקה כדי שנוכל להעביר את הפנייה למוכר הנכון";
+      errs.deal = t("support.paste_link_deal_so_pass");
     }
     setFieldErrors(errs);
     if (Object.keys(errs).length) return;
@@ -70,9 +71,9 @@ export function SupportPage({ dealRef = "" }: { dealRef?: string } = {}) {
         ...(scope === "none" ? {} : { deal_ref: deal.trim() || undefined })
       });
       setSentToSeller(Boolean(r.thread_id));
-      setSentCase(String(r.case_id || "נקלטה"));
+      setSentCase(String(r.case_id || t("support.received")));
     } catch (err: any) {
-      setError(hebrewError(err));
+      setError(localizedError(err));
       setBusy(false);
     }
   };
@@ -85,10 +86,9 @@ export function SupportPage({ dealRef = "" }: { dealRef?: string } = {}) {
           <p className="muted">{copy.sent_body}</p>
           {sentToSeller ? (
             <p className="muted small" data-testid="support-sent-to-seller">
-              הפנייה שויכה לעסקה שציינתם והועברה גם למוכר שלה. אפשר להמשיך את השיחה מדף העסקה, תחת ״הפניות שלי״.
-            </p>
+              {t("support.the_enquiry_attached_deal_named")}</p>
           ) : null}
-          <a className="btn btn-primary" href="#/">חזרה לדף הבית</a>
+          <a className="btn btn-primary" href="#/">{t("support.back_home_page")}</a>
         </div>
       </div>
     );
@@ -101,47 +101,46 @@ export function SupportPage({ dealRef = "" }: { dealRef?: string } = {}) {
         <h1>{copy.title}</h1>
         <p className="muted small">
           {copy.intro}
-          {supportEmail ? <> אפשר גם לכתוב לנו ל-<a href={`mailto:${supportEmail}`} dir="ltr">{supportEmail}</a>.</> : null}
+          {supportEmail ? <>  {t("support.you_also_write_us")}<a href={`mailto:${supportEmail}`} dir="ltr">{supportEmail}</a>.</> : null}
         </p>
         <form onSubmit={submit} noValidate>
           <div className="field">
-            <label>שם <span className="req">*</span></label>
-            <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" className={fieldErrors.name ? "invalid" : ""} />
+            <label htmlFor="support-name">{t("support.name")} <span className="req">*</span></label>
+            <input id="support-name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" className={fieldErrors.name ? "invalid" : ""} />
             {fieldErrors.name ? <span className="field-error">{fieldErrors.name}</span> : null}
           </div>
           <div className="field-row">
             <div className="field">
-              <label>אימייל <span className="req">*</span></label>
-              <input dir="ltr" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" className={fieldErrors.email ? "invalid" : ""} />
+              <label htmlFor="support-email">{t("support.e_mail")} <span className="req">*</span></label>
+              <input id="support-email" dir="ltr" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" className={fieldErrors.email ? "invalid" : ""} />
               {fieldErrors.email ? <span className="field-error">{fieldErrors.email}</span> : null}
             </div>
             <div className="field">
-              <label>טלפון <span className="hint">(לא חובה)</span></label>
-              <input dir="ltr" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" />
+              <label htmlFor="support-phone">{t("support.phone")} <span className="hint">{t("support.optional")}</span></label>
+              <input id="support-phone" dir="ltr" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" />
             </div>
           </div>
           <div className="field">
-            <label>נושא הפנייה</label>
-            <select value={category} onChange={(e) => setCategory(e.target.value)}>
-              {CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+            <label htmlFor="support-category">{t("support.enquiry_subject")}</label>
+            <select id="support-category" value={category} onChange={(e) => setCategory(e.target.value)}>
+              {CATEGORIES.map((c) => <option key={c.key} value={c.key}>{t(c.label)}</option>)}
             </select>
           </div>
           {(DEAL_SCOPE.get(category) || "none") !== "none" ? (
             <div className="field" data-testid="support-deal-field">
-              <label>
-                קישור לעסקה {DEAL_SCOPE.get(category) === "required" ? <span className="req">*</span> : <span className="hint">(לא חובה)</span>}
+              <label htmlFor="support-deal-ref">
+                {t("support.deal_link_label")} {DEAL_SCOPE.get(category) === "required" ? <span className="req">*</span> : <span className="hint">{t("support.optional")}</span>}
               </label>
-              <input dir="ltr" value={deal} onChange={(e) => setDeal(e.target.value)} data-testid="support-deal-ref"
+              <input id="support-deal-ref" dir="ltr" value={deal} onChange={(e) => setDeal(e.target.value)} data-testid="support-deal-ref"
                 placeholder="https://…/d/…" className={fieldErrors.deal ? "invalid" : ""} />
               <span className="hint">
-                מדביקים את הקישור של העסקה מדף העסקה או מהודעת האישור. כך הפנייה מגיעה גם למוכר של אותה עסקה — ולא לאף מוכר אחר.
-              </span>
+                {t("support.paste_deal_s_link_deal")}</span>
               {fieldErrors.deal ? <span className="field-error">{fieldErrors.deal}</span> : null}
             </div>
           ) : null}
           <div className="field">
-            <label>תוכן הפנייה <span className="req">*</span></label>
-            <textarea rows={5} maxLength={2000} value={message} onChange={(e) => setMessage(e.target.value)} className={fieldErrors.message ? "invalid" : ""} />
+            <label htmlFor="support-message">{t("support.the_enquiry")} <span className="req">*</span></label>
+            <textarea id="support-message" rows={5} maxLength={2000} value={message} onChange={(e) => setMessage(e.target.value)} className={fieldErrors.message ? "invalid" : ""} />
             {fieldErrors.message ? <span className="field-error">{fieldErrors.message}</span> : null}
           </div>
           {/* honeypot — visually hidden WITHOUT offscreen positioning (an
@@ -150,7 +149,7 @@ export function SupportPage({ dealRef = "" }: { dealRef?: string } = {}) {
             aria-hidden="true" name="website"
             style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clipPath: "inset(50%)", border: 0, opacity: 0 }} />
           {error ? <div className="notice err">{error}</div> : null}
-          <button className="btn btn-primary btn-block" disabled={busy}>{busy ? "שולחים…" : "שליחת הפנייה"}</button>
+          <button className="btn btn-primary btn-block" disabled={busy}>{busy ? t("support.sending") : t("support.send_enquiry")}</button>
         </form>
       </div>
     </div>

@@ -158,7 +158,11 @@
     "qa:cleanup-stale-dbs": "node scripts/qa_process_guard.cjs --cleanup-stale-dbs",
     "qa:classified": "node scripts/qa_run_classified.cjs",
     "test:release-tools": "node --test \"tests/release_tools/**/*.test.cjs\"",
-    "gate:seven-day-cap": "node scripts/seven_day_cap_sweep.cjs"
+    "gate:seven-day-cap": "node scripts/seven_day_cap_sweep.cjs",
+    "gate:i18n": "node scripts/i18n/scan.cjs && node scripts/i18n/build_dictionaries.cjs --check",
+    "i18n:build": "node scripts/i18n/build_dictionaries.cjs",
+    "test:i18n": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/i18n_contract_validation.js && node .tmp_test_dist/tests/i18n_server_surface_validation.js",
+    "test:i18n-browser": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/frontend_browser_i18n_validation.js"
   },
   "engines": {
     "node": ">=22.0.0"

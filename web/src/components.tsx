@@ -5,6 +5,7 @@ import { BRAND_MARK_URL } from "./config";
 import { CopyLinkIcon, FacebookIcon, InstagramIcon, NativeShareIcon, TelegramIcon, WhatsAppIcon, XIcon } from "./shareIcons";
 import { QUANTITY_INPUT_ATTRS, parseQuantityInput } from "./quantityInput";
 import { containDialogFocus } from "./dialogFocus";
+import { t } from "./i18n/index.js";
 
 export { BrandLoader } from "./brand";
 
@@ -26,7 +27,7 @@ export function ProductImg({ src, alt, fallbackText }: { src: string; alt: strin
     return (
       <div className="img-fallback">
         <img src={BRAND_MARK_URL} alt="" aria-hidden="true" />
-        <span>{fallbackText || "התמונה אינה זמינה"}</span>
+        <span>{fallbackText || t("components.the_image_available")}</span>
       </div>
     );
   }
@@ -61,24 +62,23 @@ export function GroupMeter(props: {
         aria-valuemin={0}
         aria-valuemax={max}
         aria-valuenow={joined}
-        aria-label={`הצטרפו ${num(joined)} יחידות מתוך יעד ${num(threshold)}`}
+        aria-label={t("components.joined_threshold_unit_target_joined", { joined: num(joined), threshold: num(threshold) })}
         style={{ marginTop: props.showFlag ? 26 : 0 }}
       >
         <div className="gm-fill" style={{ width: `${capacityPct}%`, background: progressColor(targetRatio) }} />
         {props.showFlag !== false && flagPct > 3 && flagPct < 99 ? (
           <>
             <div className="gm-flag" style={{ insetInlineStart: `${flagPct}%` }} />
-            <div className="gm-flag-label" style={{ insetInlineStart: `${flagPct}%` }}>יעד {num(threshold)}</div>
+            <div className="gm-flag-label" style={{ insetInlineStart: `${flagPct}%` }}>{t("components.target_threshold", { threshold: num(threshold) })}</div>
           </>
         ) : null}
       </div>
       <div className="gm-meta">
         <span>
-          <span className="gm-count">{num(joined)}</span> יחידות הצטרפו
-        </span>
+          <span className="gm-count">{num(joined)}</span>  {t("components.units_joined")}</span>
         {reached
-          ? <span className="gm-reached">✓ המינימום הושג</span>
-          : <span>עוד <span className="gm-count">{num(Math.max(0, threshold - joined))}</span> ליעד</span>}
+          ? <span className="gm-reached">{t("components.minimum_reached")}</span>
+          : <span>{t("components.more")} <span className="gm-count">{num(Math.max(0, threshold - joined))}</span>  {t("components.to_target")}</span>}
       </div>
     </div>
   );
@@ -92,7 +92,7 @@ export function Countdown(props: { until: string | null | undefined; label?: str
   }, []);
   const view = countdownView(props.until);
   if (!view) return null;
-  if (view.tone === "over") return <span className="countdown danger">{props.overText || "הסתיים"}</span>;
+  if (view.tone === "over") return <span className="countdown danger">{props.overText || t("components.ended")}</span>;
   return (
     <span className={`countdown ${view.tone}`}>
       {props.label ? <span className="countdown-label">{props.label}</span> : null}
@@ -117,7 +117,7 @@ export function QtyInput(props: { value: number; min?: number; max: number; onCh
   // keep the field in step with an external correction (e.g. stock shrank under the buyer)
   useEffect(() => { setText((prev) => (parseQuantityInput(prev, min, props.max).value === props.value ? prev : String(props.value))); }, [props.value, min, props.max]);
   const testId = props.testId || "qty-input";
-  const problem = touched && text !== "" && parsed.error ? parsed.error : (touched && text === "" ? "יש להזין כמות" : null);
+  const problem = touched && text !== "" && parsed.error ? parsed.error : (touched && text === "" ? t("components.enter_quantity") : null);
   return (
     <div className="qty-input-wrap">
       <input
@@ -125,7 +125,7 @@ export function QtyInput(props: { value: number; min?: number; max: number; onCh
         id={props.id}
         className={problem ? "qty-input invalid needs-attention" : "qty-input"}
         data-testid={testId}
-        aria-label={props.ariaLabel || "כמות יחידות"}
+        aria-label={props.ariaLabel || t("components.number_units")}
         aria-invalid={problem ? "true" : undefined}
         value={text}
         onChange={(e) => {
@@ -169,7 +169,7 @@ export function Modal(props: {
       <div className="modal" role="dialog" aria-modal="true" aria-label={props.title} ref={ref} style={props.wide ? { maxWidth: 760 } : undefined}>
         <div className="modal-head">
           <h3>{props.title}</h3>
-          <button className="x" onClick={props.onClose} aria-label="סגירה">✕</button>
+          <button className="x" onClick={props.onClose} aria-label={t("components.close")}>✕</button>
         </div>
         <div className="modal-body">{props.children}</div>
         {props.footer ? <div className="modal-foot">{props.footer}</div> : null}
@@ -226,31 +226,31 @@ export function ShareActions(props: {
   price?: number | null;
 }) {
   const url = useMemo(() => absoluteShareUrl(props.dealId, props.code || null), [props.dealId, props.code]);
-  const shareTitle = `${props.title} — קנייה קבוצתית ב-C-ton`;
+  const shareTitle = t("components.title_group_buying_c_ton", { title: props.title });
   const messageText = props.price != null && Number(props.price) > 0
-    ? `${props.title} — מחיר קבוצתי ${ils(props.price)} ליחידה. העסקה יוצאת לפועל רק אם מספיק אנשים מצטרפים. הצטרפו דרך הקישור:`
+    ? t("components.title_group_price_price_per", { title: props.title, price: ils(props.price) })
     : shareTitle;
   const canNative = typeof navigator !== "undefined" && Boolean((navigator as any).share);
   const loop = props.layout === "loop";
   const track = (channel: string) => sendFunnelEvent(props.dealId, "share_button_click", { share_channel: channel });
   const copy = async () => {
     track("copy");
-    if (await copyText(url)) props.onNotify?.("הקישור הועתק");
-    else props.onNotify?.("ההעתקה נכשלה — סמנו את הקישור והעתיקו ידנית");
+    if (await copyText(url)) props.onNotify?.(t("components.link_copied"));
+    else props.onNotify?.(t("components.copying_failed_select_link_copy"));
   };
   const whatsappHref = `https://wa.me/?text=${encodeURIComponent(`${messageText}\n${url}`)}`;
 
   const nets: { key: string; label: string; icon: React.ReactNode; href?: string; onClick?: () => void }[] = [
-    ...(loop ? [] : [{ key: "whatsapp", label: "שיתוף בוואטסאפ", icon: <WhatsAppIcon />, href: whatsappHref }]),
-    { key: "facebook", label: "שיתוף בפייסבוק", icon: <FacebookIcon />, href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}` },
-    { key: "x", label: "שיתוף ב-X", icon: <XIcon />, href: `https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}&text=${encodeURIComponent(shareTitle)}` },
-    { key: "telegram", label: "שיתוף בטלגרם", icon: <TelegramIcon />, href: `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(shareTitle)}` },
+    ...(loop ? [] : [{ key: "whatsapp", label: t("components.share_whatsapp"), icon: <WhatsAppIcon />, href: whatsappHref }]),
+    { key: "facebook", label: t("components.share_facebook"), icon: <FacebookIcon />, href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}` },
+    { key: "x", label: t("components.share_x"), icon: <XIcon />, href: `https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}&text=${encodeURIComponent(shareTitle)}` },
+    { key: "telegram", label: t("components.share_telegram"), icon: <TelegramIcon />, href: `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(shareTitle)}` },
     {
-      key: "instagram", label: "שיתוף באינסטגרם", icon: <InstagramIcon />,
+      key: "instagram", label: t("components.share_instagram"), icon: <InstagramIcon />,
       onClick: async () => {
         track("instagram");
-        if (await copyText(url)) props.onNotify?.("הקישור הועתק — אפשר להדביק אותו בסטורי או בהודעה באינסטגרם");
-        else props.onNotify?.("ההעתקה נכשלה — העתיקו את הקישור ידנית ושתפו באינסטגרם");
+        if (await copyText(url)) props.onNotify?.(t("components.link_copied_paste_into_instagram"));
+        else props.onNotify?.(t("components.copying_failed_copy_link_hand"));
       }
     }
   ];
@@ -260,23 +260,22 @@ export function ShareActions(props: {
       {loop ? (
         <a className="btn btn-share-lead btn-block" data-testid="share-whatsapp" href={whatsappHref} target="_blank" rel="noopener noreferrer"
           onClick={() => track("whatsapp")}>
-          <WhatsAppIcon /> שיתוף בוואטסאפ
-        </a>
+          <WhatsAppIcon />  {t("components.share_whatsapp")}</a>
       ) : null}
       <div className={`share-primary-row${canNative ? "" : " single"}`}>
         {canNative ? (
-          <button className={props.compact ? "share-ico-btn" : `btn ${loop ? "btn-ghost" : "btn-primary"}`} aria-label="שיתוף" title="שיתוף" data-testid="share-native" onClick={async () => {
+          <button className={props.compact ? "share-ico-btn" : `btn ${loop ? "btn-ghost" : "btn-primary"}`} aria-label={t("components.share")} title={t("components.share")} data-testid="share-native" onClick={async () => {
             track("native");
             try { await (navigator as any).share({ title: shareTitle, text: messageText, url }); } catch { /* user cancelled */ }
           }}>
-            <NativeShareIcon />{props.compact ? null : " שיתוף"}
+            <NativeShareIcon />{props.compact ? null : t("components.share_2")}
           </button>
         ) : null}
-        <button className={props.compact ? "share-ico-btn" : "btn btn-ghost"} onClick={copy} data-testid="share-copy" aria-label="העתקת קישור" title="העתקת קישור">
-          <CopyLinkIcon />{props.compact ? null : " העתקת קישור"}
+        <button className={props.compact ? "share-ico-btn" : "btn btn-ghost"} onClick={copy} data-testid="share-copy" aria-label={t("components.copy_link")} title={t("components.copy_link")}>
+          <CopyLinkIcon />{props.compact ? null : t("components.copy_link_2")}
         </button>
       </div>
-      <div className="share-networks share-icons" role="group" aria-label="שיתוף ברשתות">
+      <div className="share-networks share-icons" role="group" aria-label={t("components.share_social")}>
         {/* P0.4-3 — key classes are PREFIXED: the bare "x" key collided with
             the global .x utility button (36px) and visibly shrank the X icon */}
         {nets.map((n) => n.href ? (

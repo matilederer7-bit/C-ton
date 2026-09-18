@@ -1,3 +1,4 @@
+import { t } from "./i18n/index.js";
 // Product catalog (072) — pure, DOM-free rules for the seller Product Library
 // so filtering, sorting, empty states and revision history are unit-testable
 // (tests/product_catalog_validation.ts) and never diverge from the screen.
@@ -24,9 +25,9 @@ export type ProductLibraryFilters = {
 };
 
 export const PRODUCT_TYPE_LABELS: Record<string, string> = {
-  physical_product: "מוצר פיזי",
-  voucher: "שובר",
-  ticket: "כרטיס לאירוע"
+  physical_product: "product_library.product_type_labels.physical_product",
+  voucher: "product_library.product_type_labels.voucher",
+  ticket: "product_library.product_type_labels.ticket"
 };
 
 export function applyProductLibraryFilters<T extends ProductRow>(rows: T[], filters: ProductLibraryFilters = {}): T[] {
@@ -85,9 +86,9 @@ export function deliveryEstimateText(option: { estimated_min_business_days?: num
   if (option?.estimate_text) return String(option.estimate_text);
   const min = option?.estimated_min_business_days == null ? null : Number(option.estimated_min_business_days);
   const max = option?.estimated_max_business_days == null ? null : Number(option.estimated_max_business_days);
-  if (min !== null && max !== null) return min === max ? `${min} ימי עסקים מהשלמת העסקה` : `${min}–${max} ימי עסקים מהשלמת העסקה`;
-  if (max !== null) return `עד ${max} ימי עסקים מהשלמת העסקה`;
-  if (min !== null) return `לפחות ${min} ימי עסקים מהשלמת העסקה`;
+  if (min !== null && max !== null) return min === max ? t("product_library.min_business_days_deal_completing", { min: min }) : t("product_library.min_max_business_days_deal", { min: min, max: max });
+  if (max !== null) return t("product_library.up_max_business_days_deal", { max: max });
+  if (min !== null) return t("product_library.at_least_min_business_days", { min: min });
   return null;
 }
 
@@ -103,7 +104,7 @@ export function validateEstimateRange(minText: string, maxText: string): string 
   };
   const min = parse(minText);
   const max = parse(maxText);
-  if (Number.isNaN(min) || Number.isNaN(max)) return "טווח ימי העסקים חייב להיות מספר שלם בין 0 ל-365";
-  if (min !== null && max !== null && max < min) return "המקסימום חייב להיות לפחות כמו המינימום";
+  if (Number.isNaN(min) || Number.isNaN(max)) return t("product_library.the_business_day_range_must");
+  if (min !== null && max !== null && max < min) return t("product_library.the_maximum_must_least_minimum");
   return null;
 }

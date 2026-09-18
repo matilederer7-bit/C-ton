@@ -13,33 +13,34 @@ import { api, Json } from "../api";
 import { BrandLoader, EmptyState, StatTile, Toast, copyText, useToast } from "../components";
 import { fmtDate, ils, num, pct } from "../util";
 import { BarChart } from "./sellerCommand";
+import { t, tKey } from "../i18n/index.js";
 
 type Range = "24h" | "7d" | "30d" | "all";
 const RANGES: Array<{ key: Range; label: string }> = [
-  { key: "24h", label: "24 שעות" },
-  { key: "7d", label: "7 ימים" },
-  { key: "30d", label: "30 ימים" },
-  { key: "all", label: "כל התקופה" }
+  { key: "24h", label: "distribution.ranges.label" },
+  { key: "7d", label: "distribution.ranges.label_2" },
+  { key: "30d", label: "distribution.ranges.label_3" },
+  { key: "all", label: "distribution.ranges.label_4" }
 ];
 
 type MetricKey = "entries" | "unique_visitors" | "joins" | "joined_units" | "charged_units" | "attributed_gross";
 const METRICS: Array<{ key: MetricKey; label: string; money?: boolean }> = [
-  { key: "entries", label: "כניסות" },
-  { key: "unique_visitors", label: "מבקרים ייחודיים" },
-  { key: "joins", label: "הצטרפויות" },
-  { key: "joined_units", label: "יחידות שהצטרפו" },
-  { key: "charged_units", label: "יחידות שחויבו סופית" },
-  { key: "attributed_gross", label: "ברוטו מיוחס", money: true }
+  { key: "entries", label: "distribution.metrics.label" },
+  { key: "unique_visitors", label: "distribution.metrics.label_2" },
+  { key: "joins", label: "distribution.metrics.label_3" },
+  { key: "joined_units", label: "distribution.metrics.label_4" },
+  { key: "charged_units", label: "distribution.metrics.label_5" },
+  { key: "attributed_gross", label: "distribution.metrics.label_6", money: true }
 ];
 
 const CHANNEL_SUGGESTIONS = ["whatsapp", "facebook", "instagram", "telegram", "newsletter", "sms", "influencer", "paid", "other"];
 const CHANNEL_LABELS: Record<string, string> = {
-  whatsapp: "וואטסאפ", facebook: "פייסבוק", instagram: "אינסטגרם", telegram: "טלגרם", newsletter: "ניוזלטר",
-  sms: "SMS", influencer: "משפיען/ית", paid: "קמפיין ממומן", other: "אחר"
+  whatsapp: "distribution.channel_labels.whatsapp", facebook: "distribution.channel_labels.facebook", instagram: "distribution.channel_labels.instagram", telegram: "distribution.channel_labels.telegram", newsletter: "distribution.channel_labels.newsletter",
+  sms: "SMS", influencer: "distribution.channel_labels.influencer", paid: "distribution.channel_labels.paid", other: "distribution.channel_labels.other"
 };
 function channelLabel(channel: unknown): string {
   const raw = String(channel || "").trim();
-  return raw ? (CHANNEL_LABELS[raw.toLowerCase()] || raw) : "—";
+  return raw ? tKey(CHANNEL_LABELS[raw.toLowerCase()], raw) : "—";
 }
 
 export function absoluteLinkUrl(shareUrl: string): string {
@@ -56,14 +57,14 @@ export function LinkMetricTiles({ metrics, compact }: { metrics: Json; compact?:
   const m = metrics || {};
   return (
     <div className="stat-row" style={{ marginBottom: compact ? 0 : 12 }} data-testid="link-metric-tiles">
-      <StatTile num={num(m.entries)} label="כניסות" />
-      <StatTile num={num(m.unique_visitors)} label="מבקרים ייחודיים" />
-      <StatTile num={num(m.joins)} label="הצטרפויות" sub="התחייבות של קונה — עדיין לא מכירה" />
-      <StatTile num={num(m.joined_units)} label="יחידות שהצטרפו" />
-      <StatTile num={num(m.charged_units)} label="יחידות שחויבו סופית" tone="good" />
-      <StatTile num={ils(m.attributed_gross)} label="ברוטו מיוחס (נגבה בפועל)" tone="good" />
-      <StatTile num={pct(m.conversion_entry_to_join)} label="המרה: כניסה → הצטרפות" />
-      <StatTile num={pct(m.conversion_entry_to_final_charge)} label="המרה: כניסה → חיוב סופי" />
+      <StatTile num={num(m.entries)} label={t("distribution.visits")} />
+      <StatTile num={num(m.unique_visitors)} label={t("distribution.unique_visitors")} />
+      <StatTile num={num(m.joins)} label={t("distribution.joins")} sub={t("distribution.a_buyer_s_commitment_sale")} />
+      <StatTile num={num(m.joined_units)} label={t("distribution.units_joined")} />
+      <StatTile num={num(m.charged_units)} label={t("distribution.units_finally_charged")} tone="good" />
+      <StatTile num={ils(m.attributed_gross)} label={t("distribution.attributed_gross_actually_collected")} tone="good" />
+      <StatTile num={pct(m.conversion_entry_to_join)} label={t("distribution.conversion_visit_join")} />
+      <StatTile num={pct(m.conversion_entry_to_final_charge)} label={t("distribution.conversion_visit_final_charge")} />
     </div>
   );
 }
@@ -87,23 +88,23 @@ export function LinkTimeChart({ series, range, onRange, metric, onMetric }: {
   return (
     <div className="panel" data-testid="link-time-chart">
       <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-        <div className="panel-title" style={{ marginBottom: 0 }}>לאורך זמן</div>
-        <div className="row" style={{ gap: 6, flexWrap: "wrap" }} role="group" aria-label="טווח זמן">
+        <div className="panel-title" style={{ marginBottom: 0 }}>{t("distribution.over_time")}</div>
+        <div className="row" style={{ gap: 6, flexWrap: "wrap" }} role="group" aria-label={t("distribution.time_range")}>
           {RANGES.map((r) => (
-            <button key={r.key} type="button" className={`chip${range === r.key ? " active" : ""}`} data-testid={`range-${r.key}`} onClick={() => onRange(r.key)}>{r.label}</button>
+            <button key={r.key} type="button" className={`chip${range === r.key ? " active" : ""}`} data-testid={`range-${r.key}`} onClick={() => onRange(r.key)}>{t(r.label)}</button>
           ))}
         </div>
       </div>
-      <div className="row" style={{ gap: 6, flexWrap: "wrap", margin: "10px 0" }} role="group" aria-label="מדד">
+      <div className="row" style={{ gap: 6, flexWrap: "wrap", margin: "10px 0" }} role="group" aria-label={t("distribution.metric")}>
         {METRICS.map((m) => (
-          <button key={m.key} type="button" className={`chip${metric === m.key ? " active" : ""}`} data-testid={`metric-${m.key}`} onClick={() => onMetric(m.key)}>{m.label}</button>
+          <button key={m.key} type="button" className={`chip${metric === m.key ? " active" : ""}`} data-testid={`metric-${m.key}`} onClick={() => onMetric(m.key)}>{t(m.label)}</button>
         ))}
       </div>
       <div className="chart-box">
-        <div className="chart-title">{def.label} · {series?.bucket === "hour" ? "לפי שעה" : "לפי יום"} · סה״כ בטווח: {def.money ? ils(total) : num(total)}</div>
+        <div className="chart-title">{t("distribution.chart_title", { metric: t(def.label), bucket: series?.bucket === "hour" ? t("distribution.by_hour") : t("distribution.by_day"), total: def.money ? ils(total) : num(total) })}</div>
         {points.length ? (
           <BarChart points={points} color={def.key === "charged_units" || def.key === "attributed_gross" ? "var(--success)" : "var(--brand)"} height={90} formatValue={def.money ? (v) => ils(v) : undefined} />
-        ) : <p className="muted small chart-empty">אין עדיין נתונים בטווח שנבחר.</p>}
+        ) : <p className="muted small chart-empty">{t("distribution.there_data_selected_range_yet")}</p>}
       </div>
     </div>
   );
@@ -112,7 +113,7 @@ export function LinkTimeChart({ series, range, onRange, metric, onMetric }: {
 export function DistributionDisclaimer({ text }: { text?: string }) {
   return (
     <p className="muted small" data-testid="distribution-disclaimer" style={{ marginTop: 10 }}>
-      {text || "הנתונים המוצגים הם נתוני מדידה וייחוס בלבד. סיטון אינה מחשבת או מנהלת עמלה או התחשבנות בין המוכר לבעל הלינק."}
+      {text || t("distribution.the_figures_shown_measurement_attribution")}
     </p>
   );
 }
@@ -127,8 +128,8 @@ async function nativeOrCopy(url: string, title: string, notify: (m: string) => v
   if (nav?.share) {
     try { await nav.share({ title, url }); return; } catch { /* user dismissed — fall back to copy */ }
   }
-  if (await copyText(url)) notify("הקישור הועתק");
-  else notify("ההעתקה נכשלה — סמנו את הקישור והעתיקו ידנית");
+  if (await copyText(url)) notify(t("distribution.link_copied"));
+  else notify(t("distribution.copying_failed_select_link_copy"));
 }
 
 // ── seller: panel inside the deal screen ────────────────────────────────────
@@ -168,19 +169,19 @@ export function DistributionPanel({ dealId, dealTitle, dealOpen, navigate }: { d
     e.preventDefault();
     if (busy) return;
     const internalName = name.trim();
-    if (!internalName) { setFormError("יש לתת ללינק שם פנימי"); return; }
+    if (!internalName) { setFormError(t("distribution.give_link_internal_name")); return; }
     setBusy(true); setFormError("");
     try {
       await api.createDistributionLink(dealId, { internal_name: internalName, channel: channel.trim() || undefined });
       setName(""); setChannel(""); setCreating(false);
-      showToast("הלינק נוצר — אפשר להעתיק ולשתף");
+      showToast(t("distribution.the_link_created_copy_share"));
       await load();
     } catch (err: any) {
       const code = String(err?.body?.code || err?.body?.error || "");
       setFormError(
-        code === "distribution_link_deal_not_open" ? "אפשר ליצור לינקים רק לעסקה שפורסמה ופתוחה להצטרפות"
-          : err?.status === 409 ? "כבר קיים לינק עם השם הזה לעסקה"
-            : String(err?.message || "יצירת הלינק נכשלה")
+        code === "distribution_link_deal_not_open" ? t("distribution.links_only_created_deal_published")
+          : err?.status === 409 ? t("distribution.a_link_name_already_exists")
+            : String(err?.message || t("distribution.creating_link_failed"))
       );
     }
     setBusy(false);
@@ -191,11 +192,11 @@ export function DistributionPanel({ dealId, dealTitle, dealOpen, navigate }: { d
       await api.updateDistributionLink(dealId, String(link.link_id), body);
       showToast(okMsg);
       await load();
-    } catch (err: any) { showToast(err?.status === 409 ? "כבר קיים לינק עם השם הזה" : String(err?.message || "העדכון נכשל")); }
+    } catch (err: any) { showToast(err?.status === 409 ? t("distribution.a_link_name_already_exists_2") : String(err?.message || t("distribution.the_update_failed"))); }
   };
 
-  if (error) return <div className="panel"><div className="panel-title">הפצה ומדידה</div><p className="muted small">{error}</p></div>;
-  if (!payload) return <div className="panel"><div className="panel-title">הפצה ומדידה</div><BrandLoader label="טוענים לינקי הפצה…" minHeight={120} /></div>;
+  if (error) return <div className="panel"><div className="panel-title">{t("distribution.distribution_measurement")}</div><p className="muted small">{error}</p></div>;
+  if (!payload) return <div className="panel"><div className="panel-title">{t("distribution.distribution_measurement")}</div><BrandLoader label={t("distribution.loading_distribution_links")} minHeight={120} /></div>;
 
   const totals = payload.totals || {};
   const hasLinks = links.length > 0;
@@ -203,21 +204,20 @@ export function DistributionPanel({ dealId, dealTitle, dealOpen, navigate }: { d
   return (
     <div className="panel" data-testid="distribution-panel">
       <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-        <div className="panel-title" style={{ marginBottom: 0 }}>הפצה ומדידה — לינקים לעסקה</div>
+        <div className="panel-title" style={{ marginBottom: 0 }}>{t("distribution.distribution_measurement_links_deal")}</div>
         {hasLinks && dealOpen ? (
-          <button type="button" className="btn btn-sm btn-primary" data-testid="distribution-create-open" onClick={() => setCreating((v) => !v)}>+ לינק הפצה חדש</button>
+          <button type="button" className="btn btn-sm btn-primary" data-testid="distribution-create-open" onClick={() => setCreating((v) => !v)}>{t("distribution.new_distribution_link")}</button>
         ) : null}
       </div>
       <p className="muted small" style={{ marginTop: 6 }}>
-        כל לינק מודד בנפרד מה הוא הביא: כניסות, הצטרפויות, יחידות שחויבו סופית וברוטו שנגבה בפועל. הקונה רואה תמיד את אותו דף עסקה — המדידה נעשית מאחורי הקלעים.
-        כלל הייחוס: {String(payload.attribution_rule?.description_he || "הלינק האחרון שהקונה נכנס דרכו לפני ההצטרפות.")}
+        {t("distribution.attribution_rule_v0", { v0: String(payload.attribution_rule?.description_he || t("distribution.the_last_link_buyer_came")) })}
       </p>
 
       {!hasLinks && !creating ? (
         <EmptyState
-          title="עדיין לא יצרת לינקי הפצה"
-          body={dealOpen ? "צרו לינק לכל ערוץ (קבוצת וואטסאפ, קמפיין, משפיען) ותראו בדיוק מה כל אחד הביא." : "לינקים חדשים אפשר ליצור רק בזמן שהעסקה פתוחה להצטרפות."}
-          action={dealOpen ? <button type="button" className="btn btn-primary" data-testid="distribution-create-first" onClick={() => setCreating(true)}>צור לינק ראשון</button> : undefined}
+          title={t("distribution.you_haven_t_created_any")}
+          body={dealOpen ? t("distribution.create_link_every_channel_whatsapp") : t("distribution.new_links_only_created_while")}
+          action={dealOpen ? <button type="button" className="btn btn-primary" data-testid="distribution-create-first" onClick={() => setCreating(true)}>{t("distribution.create_first_link")}</button> : undefined}
         />
       ) : null}
 
@@ -225,19 +225,19 @@ export function DistributionPanel({ dealId, dealTitle, dealOpen, navigate }: { d
         <form onSubmit={create} className="panel" style={{ marginTop: 12 }} data-testid="distribution-create-form">
           <div className="field-row">
             <div className="field">
-              <label htmlFor="dist-link-name">שם פנימי <span className="hint">(רק אתם רואים אותו)</span></label>
-              <input id="dist-link-name" data-testid="distribution-link-name" value={name} maxLength={80} placeholder="למשל: WhatsApp קבוצה א / משפיען יוסי" onChange={(e) => setName(e.target.value)} />
+              <label htmlFor="dist-link-name">{t("distribution.internal_name")} <span className="hint">{t("distribution.only_see")}</span></label>
+              <input id="dist-link-name" data-testid="distribution-link-name" value={name} maxLength={80} placeholder={t("distribution.for_example_whatsapp_group_influencer")} onChange={(e) => setName(e.target.value)} />
             </div>
             <div className="field">
-              <label htmlFor="dist-link-channel">ערוץ / מקור <span className="hint">(אופציונלי)</span></label>
+              <label htmlFor="dist-link-channel">{t("distribution.channel_source")} <span className="hint">{t("distribution.optional")}</span></label>
               <input id="dist-link-channel" data-testid="distribution-link-channel" list="dist-channel-options" value={channel} maxLength={40} placeholder="whatsapp, facebook, newsletter…" onChange={(e) => setChannel(e.target.value)} />
-              <datalist id="dist-channel-options">{CHANNEL_SUGGESTIONS.map((c) => <option key={c} value={c}>{CHANNEL_LABELS[c]}</option>)}</datalist>
+              <datalist id="dist-channel-options">{CHANNEL_SUGGESTIONS.map((c) => <option key={c} value={c}>{tKey(CHANNEL_LABELS[c], c)}</option>)}</datalist>
             </div>
           </div>
           {formError ? <p className="field-error">{formError}</p> : null}
           <div className="row" style={{ gap: 8 }}>
-            <button type="submit" className="btn btn-primary" data-testid="distribution-create-submit" disabled={busy}>{busy ? "יוצרים…" : "צור לינק"}</button>
-            <button type="button" className="btn btn-ghost" onClick={() => { setCreating(false); setFormError(""); }}>ביטול</button>
+            <button type="submit" className="btn btn-primary" data-testid="distribution-create-submit" disabled={busy}>{busy ? t("distribution.creating") : t("distribution.create_link")}</button>
+            <button type="button" className="btn btn-ghost" onClick={() => { setCreating(false); setFormError(""); }}>{t("distribution.cancel")}</button>
           </div>
         </form>
       ) : null}
@@ -245,24 +245,24 @@ export function DistributionPanel({ dealId, dealTitle, dealOpen, navigate }: { d
       {hasLinks ? (
         <>
           <div className="stat-row" style={{ margin: "12px 0 8px" }} data-testid="distribution-totals">
-            <StatTile num={num(totals.entries)} label="כניסות (כל הלינקים)" />
-            <StatTile num={num(totals.joins)} label="הצטרפויות" />
-            <StatTile num={num(totals.charged_units)} label="יחידות שחויבו סופית" tone="good" />
-            <StatTile num={ils(totals.attributed_gross)} label="ברוטו מיוחס" tone="good" />
+            <StatTile num={num(totals.entries)} label={t("distribution.visits_all_links")} />
+            <StatTile num={num(totals.joins)} label={t("distribution.joins")} />
+            <StatTile num={num(totals.charged_units)} label={t("distribution.units_finally_charged")} tone="good" />
+            <StatTile num={ils(totals.attributed_gross)} label={t("distribution.attributed_gross")} tone="good" />
           </div>
           <div className="table-wrap">
             <table className="data" data-testid="distribution-links-table">
               <thead>
                 <tr>
-                  <th>שם</th>
-                  <th>ערוץ</th>
-                  <th>סטטוס</th>
-                  <th className="num clickable" onClick={() => toggleSort("entries")}>כניסות{sortMark("entries")}</th>
-                  <th className="num clickable" onClick={() => toggleSort("joins")}>הצטרפויות{sortMark("joins")}</th>
-                  <th className="num clickable" onClick={() => toggleSort("joined_units")}>יחידות{sortMark("joined_units")}</th>
-                  <th className="num clickable" onClick={() => toggleSort("charged_units")}>חויבו סופית{sortMark("charged_units")}</th>
-                  <th className="num clickable" onClick={() => toggleSort("attributed_gross")}>ברוטו מיוחס{sortMark("attributed_gross")}</th>
-                  <th className="num clickable" onClick={() => toggleSort("conversion_entry_to_join")}>המרה{sortMark("conversion_entry_to_join")}</th>
+                  <th>{t("distribution.name")}</th>
+                  <th>{t("distribution.channel")}</th>
+                  <th>{t("distribution.status")}</th>
+                  <th className="num clickable" onClick={() => toggleSort("entries")}>{t("distribution.visits_v0", { v0: sortMark("entries") })}</th>
+                  <th className="num clickable" onClick={() => toggleSort("joins")}>{t("distribution.joins_v0", { v0: sortMark("joins") })}</th>
+                  <th className="num clickable" onClick={() => toggleSort("joined_units")}>{t("distribution.units_v0", { v0: sortMark("joined_units") })}</th>
+                  <th className="num clickable" onClick={() => toggleSort("charged_units")}>{t("distribution.finally_charged_v0", { v0: sortMark("charged_units") })}</th>
+                  <th className="num clickable" onClick={() => toggleSort("attributed_gross")}>{t("distribution.attributed_gross_v0", { v0: sortMark("attributed_gross") })}</th>
+                  <th className="num clickable" onClick={() => toggleSort("conversion_entry_to_join")}>{t("distribution.conversion_v0", { v0: sortMark("conversion_entry_to_join") })}</th>
                   <th />
                 </tr>
               </thead>
@@ -275,21 +275,21 @@ export function DistributionPanel({ dealId, dealTitle, dealOpen, navigate }: { d
                     <tr key={String(link.link_id)} data-testid="distribution-link-row">
                       <td>
                         {renaming && renaming.id === link.link_id ? (
-                          <form onSubmit={async (e) => { e.preventDefault(); const value = String(renaming?.value || "").trim(); setRenaming(null); if (value && value !== link.internal_name) await patch(link, { internal_name: value }, "השם עודכן"); }} className="row" style={{ gap: 6 }}>
+                          <form onSubmit={async (e) => { e.preventDefault(); const value = String(renaming?.value || "").trim(); setRenaming(null); if (value && value !== link.internal_name) await patch(link, { internal_name: value }, t("distribution.the_name_updated")); }} className="row" style={{ gap: 6 }}>
                             <input autoFocus value={renaming.value} maxLength={80} onChange={(e) => setRenaming({ id: String(link.link_id), value: e.target.value })} data-testid="distribution-rename-input" />
-                            <button type="submit" className="btn btn-sm btn-primary">שמירה</button>
-                            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setRenaming(null)}>ביטול</button>
+                            <button type="submit" className="btn btn-sm btn-primary">{t("distribution.save")}</button>
+                            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setRenaming(null)}>{t("distribution.cancel")}</button>
                           </form>
                         ) : (
                           <>
                             <b>{link.internal_name}</b>
                             <div className="muted small" dir="ltr" style={{ textAlign: "end" }}>{url}</div>
-                            {link.external_access?.enabled ? <span className="channel-chip">גישה חיצונית פעילה</span> : null}
+                            {link.external_access?.enabled ? <span className="channel-chip">{t("distribution.external_access")}</span> : null}
                           </>
                         )}
                       </td>
                       <td>{channelLabel(link.channel)}</td>
-                      <td><span className={`status ${disabled ? "Cancelled" : "TargetReached"}`}>{disabled ? "מושבת" : "פעיל"}</span></td>
+                      <td><span className={`status ${disabled ? "Cancelled" : "TargetReached"}`}>{disabled ? t("distribution.disabled") : t("distribution.active")}</span></td>
                       <td className="num">{num(m.entries)}</td>
                       <td className="num">{num(m.joins)}</td>
                       <td className="num">{num(m.joined_units)}</td>
@@ -298,12 +298,12 @@ export function DistributionPanel({ dealId, dealTitle, dealOpen, navigate }: { d
                       <td className="num">{pct(m.conversion_entry_to_join)}</td>
                       <td>
                         <div className="row" style={{ gap: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                          <button type="button" className="btn btn-sm btn-ghost" data-testid="distribution-copy" onClick={async () => { if (await copyText(url)) showToast("הקישור הועתק"); else showToast("ההעתקה נכשלה"); }}>העתק</button>
-                          <button type="button" className="btn btn-sm btn-ghost" data-testid="distribution-share" onClick={() => nativeOrCopy(url, dealTitle, showToast)}>שתף</button>
-                          <button type="button" className="btn btn-sm btn-ghost" onClick={() => shareViaWhatsApp(url, dealTitle)}>וואטסאפ</button>
-                          <button type="button" className="btn btn-sm btn-ghost" data-testid="distribution-rename" onClick={() => setRenaming({ id: String(link.link_id), value: String(link.internal_name) })}>שנה שם</button>
-                          <button type="button" className="btn btn-sm btn-primary" data-testid="distribution-open-dashboard" onClick={() => navigate(`#/seller/deal/${dealId}/distribution/${link.link_id}`)}>ביצועים</button>
-                          <button type="button" className={`btn btn-sm ${disabled ? "btn-ghost" : "btn-danger-ghost"}`} data-testid="distribution-toggle" onClick={() => patch(link, { status: disabled ? "active" : "disabled" }, disabled ? "הלינק הופעל מחדש" : "הלינק הושבת — ההיסטוריה נשמרת")}>{disabled ? "הפעל" : "השבת"}</button>
+                          <button type="button" className="btn btn-sm btn-ghost" data-testid="distribution-copy" onClick={async () => { if (await copyText(url)) showToast(t("distribution.link_copied")); else showToast(t("distribution.copying_failed")); }}>{t("distribution.copy")}</button>
+                          <button type="button" className="btn btn-sm btn-ghost" data-testid="distribution-share" onClick={() => nativeOrCopy(url, dealTitle, showToast)}>{t("distribution.share")}</button>
+                          <button type="button" className="btn btn-sm btn-ghost" onClick={() => shareViaWhatsApp(url, dealTitle)}>{t("distribution.whatsapp")}</button>
+                          <button type="button" className="btn btn-sm btn-ghost" data-testid="distribution-rename" onClick={() => setRenaming({ id: String(link.link_id), value: String(link.internal_name) })}>{t("distribution.rename")}</button>
+                          <button type="button" className="btn btn-sm btn-primary" data-testid="distribution-open-dashboard" onClick={() => navigate(`#/seller/deal/${dealId}/distribution/${link.link_id}`)}>{t("distribution.performance")}</button>
+                          <button type="button" className={`btn btn-sm ${disabled ? "btn-ghost" : "btn-danger-ghost"}`} data-testid="distribution-toggle" onClick={() => patch(link, { status: disabled ? "active" : "disabled" }, disabled ? t("distribution.the_link_re_enabled") : t("distribution.the_link_disabled_history_kept"))}>{disabled ? t("distribution.enable") : t("distribution.disable")}</button>
                         </div>
                       </td>
                     </tr>
@@ -330,58 +330,57 @@ function ExternalAccessPanel({ dealId, link, loginPath, onChanged, notify }: { d
 
   const act = async (action: "enable" | "disable" | "reset_password") => {
     if (busy) return;
-    if (action === "disable" && !window.confirm("לבטל את הגישה החיצונית? הלינק והמדידה נשארים; רק זכות הצפייה מתבטלת.")) return;
-    if (action === "reset_password" && !window.confirm("לאפס את הסיסמה? הסיסמה הנוכחית תפסיק לעבוד וכל ההתחברויות הפעילות ינותקו.")) return;
+    if (action === "disable" && !window.confirm(t("distribution.revoke_external_access_link_measurement"))) return;
+    if (action === "reset_password" && !window.confirm(t("distribution.reset_password_current_password_stop"))) return;
     setBusy(true);
     try {
       const res = await api.distributionExternalAccess(dealId, String(link.link_id), action);
       setCredentials(res.credentials || null);
-      notify(action === "enable" ? "הגישה החיצונית הופעלה" : action === "disable" ? "הגישה החיצונית בוטלה" : "הסיסמה אופסה");
+      notify(action === "enable" ? t("distribution.external_access_enabled") : action === "disable" ? t("distribution.external_access_revoked") : t("distribution.the_password_reset"));
       await onChanged();
-    } catch (err: any) { notify(String(err?.message || "הפעולה נכשלה")); }
+    } catch (err: any) { notify(String(err?.message || t("distribution.the_action_failed"))); }
     setBusy(false);
   };
 
   return (
     <div className="panel" data-testid="external-access-panel">
       <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-        <div className="panel-title" style={{ marginBottom: 0 }}>גישה חיצונית לדשבורד הלינק</div>
-        <span className={`status ${access.enabled ? "TargetReached" : "ClosedForJoining"}`} data-testid="external-access-status">{access.enabled ? "פעילה" : "כבויה"}</span>
+        <div className="panel-title" style={{ marginBottom: 0 }}>{t("distribution.external_access_link_dashboard")}</div>
+        <span className={`status ${access.enabled ? "TargetReached" : "ClosedForJoining"}`} data-testid="external-access-status">{access.enabled ? t("distribution.on") : t("distribution.off")}</span>
       </div>
       <p className="muted small" style={{ marginTop: 6 }}>
-        אפשר לתת לאדם חיצוני (למשל מי שמפיץ עבורכם) להיכנס בשם משתמש וסיסמה ולראות רק את המדדים המצרפיים של הלינק הזה: בלי שמות, טלפונים, פרטי קונים או עסקאות אחרות. צפייה בלבד.
-      </p>
+        {t("distribution.you_let_outside_person_someone")}</p>
       {access.enabled ? (
         <div className="kv" style={{ margin: "10px 0" }}>
-          <span className="k">שם משתמש</span><span className="v" dir="ltr" data-testid="external-access-username">{access.username}</span>
-          <span className="k">כתובת כניסה</span><span className="v" dir="ltr">{loginUrl}</span>
-          <span className="k">נוצר בתאריך</span><span className="v">{fmtDate(access.created_at)}</span>
-          <span className="k">כניסה אחרונה</span><span className="v">{access.last_login_at ? fmtDate(access.last_login_at) : "עדיין לא נכנס/ה"}</span>
+          <span className="k">{t("distribution.username")}</span><span className="v" dir="ltr" data-testid="external-access-username">{access.username}</span>
+          <span className="k">{t("distribution.sign_address")}</span><span className="v" dir="ltr">{loginUrl}</span>
+          <span className="k">{t("distribution.created")}</span><span className="v">{fmtDate(access.created_at)}</span>
+          <span className="k">{t("distribution.last_sign")}</span><span className="v">{access.last_login_at ? fmtDate(access.last_login_at) : t("distribution.has_signed_yet")}</span>
         </div>
       ) : null}
       {credentials ? (
         <div className="panel" style={{ margin: "10px 0", borderColor: "var(--brand)" }} data-testid="external-access-credentials">
-          <b>פרטי הכניסה — מוצגים פעם אחת בלבד</b>
+          <b>{t("distribution.the_credentials_shown_once_only")}</b>
           <div className="kv" style={{ marginTop: 8 }}>
-            <span className="k">כתובת</span><span className="v" dir="ltr">{absoluteLoginUrl(String(credentials.login_path || loginPath))}</span>
-            <span className="k">שם משתמש</span><span className="v" dir="ltr">{credentials.username}</span>
-            <span className="k">סיסמה</span><span className="v" dir="ltr" data-testid="external-access-password">{credentials.password}</span>
+            <span className="k">{t("distribution.address")}</span><span className="v" dir="ltr">{absoluteLoginUrl(String(credentials.login_path || loginPath))}</span>
+            <span className="k">{t("distribution.username")}</span><span className="v" dir="ltr">{credentials.username}</span>
+            <span className="k">{t("distribution.password")}</span><span className="v" dir="ltr" data-testid="external-access-password">{credentials.password}</span>
           </div>
           <div className="row" style={{ gap: 8, marginTop: 10 }}>
-            <button type="button" className="btn btn-sm btn-primary" onClick={async () => { const text = `כניסה לדשבורד הלינק:\n${absoluteLoginUrl(String(credentials.login_path || loginPath))}\nשם משתמש: ${credentials.username}\nסיסמה: ${credentials.password}`; if (await copyText(text)) notify("פרטי הכניסה הועתקו"); }}>העתק פרטי כניסה</button>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setCredentials(null)}>הסתר</button>
+            <button type="button" className="btn btn-sm btn-primary" onClick={async () => { const text = t("distribution.sign_link_dashboard_loginpath_username", { loginPath: absoluteLoginUrl(String(credentials.login_path || loginPath)), username: credentials.username, password: credentials.password }); if (await copyText(text)) notify(t("distribution.the_credentials_copied")); }}>{t("distribution.copy_credentials")}</button>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setCredentials(null)}>{t("distribution.hide")}</button>
           </div>
         </div>
       ) : null}
       <div className="row" style={{ gap: 8, flexWrap: "wrap", marginTop: 8 }}>
         {access.enabled ? (
           <>
-            <button type="button" className="btn btn-sm btn-ghost" data-testid="external-access-copy-url" onClick={async () => { if (await copyText(loginUrl)) notify("כתובת הכניסה הועתקה"); }}>העתק כתובת כניסה</button>
-            <button type="button" className="btn btn-sm btn-ghost" data-testid="external-access-reset" disabled={busy} onClick={() => act("reset_password")}>אפס סיסמה</button>
-            <button type="button" className="btn btn-sm btn-danger-ghost" data-testid="external-access-disable" disabled={busy} onClick={() => act("disable")}>בטל גישה</button>
+            <button type="button" className="btn btn-sm btn-ghost" data-testid="external-access-copy-url" onClick={async () => { if (await copyText(loginUrl)) notify(t("distribution.the_sign_address_copied")); }}>{t("distribution.copy_sign_address")}</button>
+            <button type="button" className="btn btn-sm btn-ghost" data-testid="external-access-reset" disabled={busy} onClick={() => act("reset_password")}>{t("distribution.reset_password")}</button>
+            <button type="button" className="btn btn-sm btn-danger-ghost" data-testid="external-access-disable" disabled={busy} onClick={() => act("disable")}>{t("distribution.revoke_access")}</button>
           </>
         ) : (
-          <button type="button" className="btn btn-sm btn-primary" data-testid="external-access-enable" disabled={busy} onClick={() => act("enable")}>הפעל גישה וצור פרטי כניסה</button>
+          <button type="button" className="btn btn-sm btn-primary" data-testid="external-access-enable" disabled={busy} onClick={() => act("enable")}>{t("distribution.enable_access_create_credentials")}</button>
         )}
       </div>
     </div>
@@ -398,9 +397,9 @@ export function SellerLinkDashboardPage({ dealId, linkId, navigate }: { dealId: 
   const load = () => api.sellerDistributionLink(dealId, linkId, range).then((p) => { setPayload(p); setError(""); }).catch((e) => setError(e.message));
   useEffect(() => { load(); const id = setInterval(load, 30_000); return () => clearInterval(id); }, [dealId, linkId, range]);
 
-  const back = <a className="back" href={`#/seller/deal/${dealId}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/deal/${dealId}`); }}>→ לעסקה</a>;
-  if (error) return <>{back}<EmptyState title="לא ניתן לטעון את דשבורד הלינק" body={error} /></>;
-  if (!payload) return <>{back}<BrandLoader label="טוענים את דשבורד הלינק…" minHeight={320} /></>;
+  const back = <a className="back" href={`#/seller/deal/${dealId}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/deal/${dealId}`); }}>{t("distribution.to_deal")}</a>;
+  if (error) return <>{back}<EmptyState title={t("distribution.the_link_dashboard_cannot_loaded")} body={error} /></>;
+  if (!payload) return <>{back}<BrandLoader label={t("distribution.loading_link_dashboard")} minHeight={320} /></>;
 
   const link = payload.link || {};
   const url = absoluteLinkUrl(String(link.share_url || ""));
@@ -413,18 +412,18 @@ export function SellerLinkDashboardPage({ dealId, linkId, navigate }: { dealId: 
           <div>
             <div className="muted small">{payload.deal?.title}</div>
             <h2 style={{ margin: "2px 0 0" }} data-testid="seller-link-dashboard-name">{link.internal_name}</h2>
-            <div className="muted small">ערוץ: {channelLabel(link.channel)} · נוצר {fmtDate(link.created_at)}</div>
+            <div className="muted small">{t("distribution.channel_channel_created_created", { channel: channelLabel(link.channel), created_at: fmtDate(link.created_at) })}</div>
           </div>
-          <span className={`status ${disabled ? "Cancelled" : "TargetReached"}`}>{disabled ? "מושבת" : "פעיל"}</span>
+          <span className={`status ${disabled ? "Cancelled" : "TargetReached"}`}>{disabled ? t("distribution.disabled") : t("distribution.active")}</span>
         </div>
         <div className="row" style={{ gap: 8, flexWrap: "wrap", margin: "10px 0" }}>
           <span className="muted small" dir="ltr">{url}</span>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={async () => { if (await copyText(url)) showToast("הקישור הועתק"); }}>העתק</button>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={() => nativeOrCopy(url, String(payload.deal?.title || ""), showToast)}>שתף</button>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={async () => { if (await copyText(url)) showToast(t("distribution.link_copied")); }}>{t("distribution.copy")}</button>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => nativeOrCopy(url, String(payload.deal?.title || ""), showToast)}>{t("distribution.share")}</button>
         </div>
-        <div className="section-title" style={{ margin: "6px 0 8px" }}>סה״כ מאז יצירת הלינק</div>
+        <div className="section-title" style={{ margin: "6px 0 8px" }}>{t("distribution.total_since_link_created")}</div>
         <LinkMetricTiles metrics={link.metrics} />
-        <div className="section-title" style={{ margin: "6px 0 8px" }}>בטווח שנבחר ({RANGES.find((r) => r.key === range)?.label})</div>
+        <div className="section-title" style={{ margin: "6px 0 8px" }}>{t("distribution.in_selected_range_label", { label: tKey(RANGES.find((r) => r.key === range)?.label) })}</div>
         <LinkMetricTiles metrics={payload.window} compact />
         <DistributionDisclaimer text={payload.disclaimer_he} />
       </div>
@@ -457,7 +456,7 @@ export function LinkViewerPage() {
     if (!session) return;
     api.linkViewerDashboard(range, selected).then((d) => { setDashboard(d); setError(""); }).catch((e) => {
       if (e?.status === 401) { setSession(null); setDashboard(null); return; }
-      setError(String(e?.message || "לא ניתן לטעון את הנתונים"));
+      setError(String(e?.message || t("distribution.the_data_cannot_loaded")));
     });
   };
   useEffect(() => { loadDashboard(); const id = setInterval(loadDashboard, 60_000); return () => clearInterval(id); }, [session, range, selected]);
@@ -472,7 +471,7 @@ export function LinkViewerPage() {
       setPassword("");
     } catch (err: any) {
       const status = Number(err?.status || 0);
-      setLoginError(status === 429 ? "יותר מדי ניסיונות — נסו שוב בעוד כמה דקות" : status === 403 ? "הגישה לדשבורד הזה בוטלה" : status === 503 ? "הכניסה אינה זמינה כרגע" : "שם המשתמש או הסיסמה שגויים");
+      setLoginError(status === 429 ? t("distribution.too_many_attempts_try_again") : status === 403 ? t("distribution.access_dashboard_revoked") : status === 503 ? t("distribution.signing_available_right_now") : t("distribution.wrong_username_password"));
     }
     setBusy(false);
   };
@@ -482,24 +481,24 @@ export function LinkViewerPage() {
     setSession(null); setDashboard(null);
   };
 
-  if (session === undefined) return <BrandLoader label="בודקים התחברות…" minHeight={240} />;
+  if (session === undefined) return <BrandLoader label={t("distribution.checking_sign")} minHeight={240} />;
 
   if (!session) {
     return (
       <div className="panel" style={{ maxWidth: 440, margin: "24px auto" }} data-testid="link-viewer-login">
-        <div className="panel-title">כניסה לדשבורד לינק</div>
-        <p className="muted small">קיבלתם מבעל העסקה שם משתמש וסיסמה לצפייה במדדי הלינק שלכם.</p>
+        <div className="panel-title">{t("distribution.sign_link_dashboard")}</div>
+        <p className="muted small">{t("distribution.the_deal_s_owner_gave")}</p>
         <form onSubmit={login}>
           <div className="field">
-            <label htmlFor="lv-user">שם משתמש</label>
+            <label htmlFor="lv-user">{t("distribution.username")}</label>
             <input id="lv-user" data-testid="link-viewer-username" dir="ltr" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} />
           </div>
           <div className="field">
-            <label htmlFor="lv-pass">סיסמה</label>
+            <label htmlFor="lv-pass">{t("distribution.password")}</label>
             <input id="lv-pass" data-testid="link-viewer-password" dir="ltr" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
           </div>
           {loginError ? <p className="field-error" data-testid="link-viewer-login-error">{loginError}</p> : null}
-          <button type="submit" className="btn btn-primary btn-block" data-testid="link-viewer-login-submit" disabled={busy || !username.trim() || !password}>{busy ? "מתחברים…" : "כניסה"}</button>
+          <button type="submit" className="btn btn-primary btn-block" data-testid="link-viewer-login-submit" disabled={busy || !username.trim() || !password}>{busy ? t("distribution.signing") : t("distribution.sign")}</button>
         </form>
         <DistributionDisclaimer />
       </div>
@@ -515,11 +514,11 @@ export function LinkViewerPage() {
         <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
           <div>
             <div className="muted small">{dashboard?.deal?.title || links[0]?.deal_title || ""}</div>
-            <h2 style={{ margin: "2px 0 0" }} data-testid="link-viewer-link-name">{link.link_name || links[0]?.link_name || "הלינק שלכם"}</h2>
+            <h2 style={{ margin: "2px 0 0" }} data-testid="link-viewer-link-name">{link.link_name || links[0]?.link_name || t("distribution.your_link")}</h2>
           </div>
           <div className="row" style={{ gap: 8, alignItems: "center" }}>
-            {dashboard ? <span className={`status ${disabled ? "Cancelled" : "TargetReached"}`} data-testid="link-viewer-status">{disabled ? "מושבת" : "פעיל"}</span> : null}
-            <button type="button" className="btn btn-sm btn-ghost" data-testid="link-viewer-logout" onClick={logout}>יציאה</button>
+            {dashboard ? <span className={`status ${disabled ? "Cancelled" : "TargetReached"}`} data-testid="link-viewer-status">{disabled ? t("distribution.disabled") : t("distribution.active")}</span> : null}
+            <button type="button" className="btn btn-sm btn-ghost" data-testid="link-viewer-logout" onClick={logout}>{t("distribution.sign_out")}</button>
           </div>
         </div>
         {links.length > 1 ? (
@@ -532,13 +531,13 @@ export function LinkViewerPage() {
         {error ? <p className="field-error">{error}</p> : null}
         {dashboard ? (
           <>
-            <div className="section-title" style={{ margin: "10px 0 8px" }}>סה״כ מאז יצירת הלינק</div>
+            <div className="section-title" style={{ margin: "10px 0 8px" }}>{t("distribution.total_since_link_created")}</div>
             <LinkMetricTiles metrics={dashboard.totals} />
-            <div className="section-title" style={{ margin: "6px 0 8px" }}>בטווח שנבחר ({RANGES.find((r) => r.key === range)?.label})</div>
+            <div className="section-title" style={{ margin: "6px 0 8px" }}>{t("distribution.in_selected_range_label", { label: tKey(RANGES.find((r) => r.key === range)?.label) })}</div>
             <LinkMetricTiles metrics={dashboard.window} compact />
             <DistributionDisclaimer text={dashboard.disclaimer_he} />
           </>
-        ) : <BrandLoader label="טוענים מדדים…" minHeight={160} />}
+        ) : <BrandLoader label={t("distribution.loading_metrics")} minHeight={160} />}
       </div>
       {dashboard ? <LinkTimeChart series={dashboard.series} range={range} onRange={setRange} metric={metric} onMetric={setMetric} /> : null}
     </div>

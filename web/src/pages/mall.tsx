@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { GroupMeter, SkeletonCards, EmptyState, StatusPill, Countdown } from "../components";
 import { countdownView, dealTypeLabel, ils, num } from "../util";
+import { t } from "../i18n/index.js";
 
 type MallDeal = {
   deal_id: string;
@@ -25,10 +26,10 @@ function urgencyBadge(deal: MallDeal): { text: string; hot: boolean } | null {
   if (!deal.availability.can_join) return null;
   const cd = countdownView(deal.deadline);
   if (deal.remaining_units > 0 && deal.remaining_units <= Math.max(3, deal.max_units * 0.1)) {
-    return { text: `נותרו ${num(deal.remaining_units)} יחידות בלבד`, hot: true };
+    return { text: t("mall.only_remaining_units_units_left", { remaining_units: num(deal.remaining_units) }), hot: true };
   }
-  if (cd && cd.tone === "danger") return { text: "נסגרת בקרוב!", hot: true };
-  if (cd && cd.tone === "warn") return { text: `נסגרת בעוד ${cd.text}`, hot: false };
+  if (cd && cd.tone === "danger") return { text: t("mall.closing_soon"), hot: true };
+  if (cd && cd.tone === "warn") return { text: t("mall.closing_text", { text: cd.text }), hot: false };
   return null;
 }
 
@@ -61,17 +62,17 @@ function DealCard({ deal, onOpen }: { deal: MallDeal; onOpen: () => void }) {
         <GroupMeter joined={deal.joined_units} threshold={deal.threshold_units} max={deal.max_units} showFlag={false} />
         <div className="card-price-row">
           <span className="price">{ils(deal.price_per_unit)}</span>
-          <span className="price-unit">ליחידה</span>
+          <span className="price-unit">{t("mall.per_unit")}</span>
           {Number(deal.list_price_per_unit) > Number(deal.price_per_unit)
-            ? <span className="price-was" dir="ltr" aria-label="מחיר רגיל">{ils(deal.list_price_per_unit)}</span>
+            ? <span className="price-was" dir="ltr" aria-label={t("mall.list_price")}>{ils(deal.list_price_per_unit)}</span>
             : null}
           {deal.availability.can_join && toTarget > 0
-            ? <span className="muted small" style={{ marginInlineStart: "auto" }}>עוד {num(toTarget)} ליעד</span>
+            ? <span className="muted small" style={{ marginInlineStart: "auto" }}>{t("mall.totarget_target", { toTarget: num(toTarget) })}</span>
             : null}
         </div>
         <div className="card-foot">
-          <Countdown until={deal.deadline} overText="ההצטרפות הסתיימה" />
-          <span>{deal.availability.can_join ? "פתוח להצטרפות" : "ההצטרפות נסגרה"}</span>
+          <Countdown until={deal.deadline} overText={t("mall.joining_ended")} />
+          <span>{deal.availability.can_join ? t("mall.open_joining") : t("mall.joining_closed")}</span>
         </div>
       </div>
     </a>
@@ -79,10 +80,10 @@ function DealCard({ deal, onOpen }: { deal: MallDeal; onOpen: () => void }) {
 }
 
 const TYPE_FILTERS = [
-  { key: "", label: "הכל" },
-  { key: "physical_product", label: "מוצרים" },
-  { key: "voucher", label: "שוברים" },
-  { key: "ticket", label: "כרטיסים" }
+  { key: "", label: "mall.type_filters.label" },
+  { key: "physical_product", label: "mall.type_filters.label_2" },
+  { key: "voucher", label: "mall.type_filters.label_3" },
+  { key: "ticket", label: "mall.type_filters.label_4" }
 ];
 
 export function Mall({ navigate }: { navigate: (hash: string) => void }) {
@@ -123,37 +124,35 @@ export function Mall({ navigate }: { navigate: (hash: string) => void }) {
   return (
     <>
       <section className="hero">
-        <div className="hero-kicker">קונים ביחד · משלמים פחות</div>
-        <h1>המחיר יורד כשכולם מצטרפים</h1>
+        <div className="hero-kicker">{t("mall.buying_together_paying_less")}</div>
+        <h1>{t("mall.the_price_drops_everyone_joins")}</h1>
         <p>
-          כל עסקה ב-C-ton יוצאת לפועל רק כשהקבוצה מגיעה ליעד — עד אז נתפסת מסגרת
-          אשראי בלבד, בלי חיוב. לא הגעתם ליעד? המסגרת משתחררת אוטומטית.
-        </p>
+          {t("mall.every_c_ton_deal_goes")}</p>
         {liveDeals > 0 ? (
           <div className="hero-live">
             <span className="live-dot" aria-hidden="true" />
-            {num(liveDeals)} עסקאות פתוחות עכשיו · {num(liveUnits)} יחידות כבר הצטרפו
+            {t("mall.live_summary", { deals: num(liveDeals), units: num(liveUnits) })}
           </div>
         ) : null}
       </section>
 
-      <div className="filters" role="tablist" aria-label="סינון עסקאות">
+      <div className="filters" role="tablist" aria-label={t("mall.filter_deals")}>
         {TYPE_FILTERS.map((f) => (
           <button key={f.key} className={`chip${type === f.key ? " active" : ""}`} onClick={() => setType(f.key)}>
-            {f.label}
+            {t(f.label)}
           </button>
         ))}
         <button className={`chip${onlyOpen ? " active" : ""}`} onClick={() => setOnlyOpen((v) => !v)} style={{ marginInlineStart: "auto" }}>
-          {onlyOpen ? "✓ " : ""}פתוחות להצטרפות
+          {onlyOpen ? "✓ " : ""}{t("mall.only_open_filter")}
         </button>
       </div>
 
       {error ? <div className="notice err">{error}</div> : null}
       {!visible ? <SkeletonCards /> : visible.length === 0 ? (
         <EmptyState
-          title="אין עסקאות פתוחות כרגע"
-          body="עסקאות חדשות נפתחות כל הזמן — שווה לחזור בקרוב."
-          action={!onlyOpen ? undefined : <button className="btn btn-ghost" onClick={() => setOnlyOpen(false)}>הצגת כל העסקאות</button>}
+          title={t("mall.there_open_deals_right_now")}
+          body={t("mall.new_deals_open_all_time")}
+          action={!onlyOpen ? undefined : <button className="btn btn-ghost" onClick={() => setOnlyOpen(false)}>{t("mall.show_all_deals")}</button>}
         />
       ) : (
         <div className="grid">
@@ -164,8 +163,8 @@ export function Mall({ navigate }: { navigate: (hash: string) => void }) {
       )}
 
       <div className="center" style={{ paddingTop: 34 }}>
-        <p className="muted small">מוכרים? פתחו עסקה קבוצתית משלכם תוך דקות.</p>
-        <a className="btn btn-ghost" href="#/seller">אזור המוכרים ←</a>
+        <p className="muted small">{t("mall.selling_open_group_deal_own")}</p>
+        <a className="btn btn-ghost" href="#/seller">{t("mall.sellers_area")}</a>
       </div>
     </>
   );

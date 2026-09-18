@@ -17,6 +17,7 @@
 //     Draft fields, public estimate rendering — mobile-safe (cards, not a table)
 //   • enrichment stays a provider seam (no provider, no browser key)
 import assert from "node:assert/strict";
+import { assertRendersCopy, en, he } from "./helpers/i18n_copy.js";
 import { readdir, readFile } from "node:fs/promises";
 import {
   buildProductSnapshot, describeDeliveryEstimate, normalizeDeliveryEstimate, normalizeFulfillmentDefaults,
@@ -204,10 +205,10 @@ await runTest("react_seller_surface_carries_the_library_and_the_locked_wizard", 
   assert.match(sellerPage, /\.\.\.deliveryEstimatePayload\(r\)/);
   assert.match(productsPage, /data-testid="product-library"/);
   assert.match(productsPage, /data-testid="product-create-deal"/);
-  assert.match(productsPage, /שחזור ויצירת עסקה/, "archived Product creation requires an explicit restore-and-continue action");
-  assert.match(productsPage, /עדיין לא נוצרו עסקאות מהמוצר הזה/, "Product with zero Deals has a useful action");
-  assert.match(productsPage, /עסקאות קיימות שפורסמו לא השתנו/, "Product edit success explains immutable published Deals");
-  assert.match(productsPage, /העסקה פורסמה על בסיס גרסה/, "revision drift is explained as informational history");
+  assertRendersCopy(productsPage, "שחזור ויצירת עסקה", "archived Product creation requires an explicit restore-and-continue action");
+  assertRendersCopy(productsPage, "עדיין לא נוצרו עסקאות מהמוצר הזה", "Product with zero Deals has a useful action");
+  assertRendersCopy(productsPage, "עסקאות קיימות שפורסמו לא השתנו", "Product edit success explains immutable published Deals");
+  assertRendersCopy(productsPage, "העסקה פורסמה על בסיס גרסה", "revision drift is explained as informational history");
   assert.match(productsPage, /lockType/, "product type is locked after creation");
   assert.doesNotMatch(productsPage, /<table/i, "Product Library does not depend on a desktop-only table");
   assert.match(styles, /\.product-library-controls \.row, \.product-library-card \.row, \.product-detail-header, \.product-history-row \{ flex-direction: column/, "mobile Product Library is a one-column contract");

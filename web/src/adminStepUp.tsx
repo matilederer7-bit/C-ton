@@ -2,9 +2,10 @@ import React, { useState } from "react";
 import { api, supabaseSignIn } from "./api";
 import { adoptCapabilities, leaveGuestModeInPlace, readOwnerCaps } from "./ownerMode";
 import { markAdminUnlocked } from "./adminGate";
-import { hebrewError } from "./he";
+import { localizedError } from "./he";
 import { BrandMark } from "./brand";
 import { beginAuthAttempt, traceAuth } from "./authTrace";
+import { t } from "./i18n/index.js";
 
 // ── Admin password step-up (P0.5-1) ─────────────────────────────────────────
 // Shown after the hidden two-tap entry, and for ANY #/admin navigation while
@@ -28,25 +29,25 @@ export function AdminStepUp({ onUnlocked, onCancel }: { onUnlocked: () => void; 
     traceAuth("AUTH_PASSWORD_REQUEST", "admin step-up");
     try {
       const cfg = await api.authConfig();
-      if (!cfg.configured) throw new Error("התחברות אינה זמינה בסביבה זו");
+      if (!cfg.configured) throw new Error(t("admin_step_up.signing_available_environment"));
       const token = await supabaseSignIn(cfg, email.trim(), password, "admin");
       traceAuth("AUTH_PASSWORD_SUCCESS", "admin step-up");
       leaveGuestModeInPlace();
       const adoption = await adoptCapabilities(token);
       if (adoption.status !== "ok") {
-        throw new Error("ההתחברות הצליחה, אך טעינת החשבון נכשלה זמנית. נסו שוב.");
+        throw new Error(t("admin_step_up.sign_succeeded_but_loading_account"));
       }
       if (!adoption.caps.admin) {
         // correct password, but this identity holds no Admin capability —
         // it stays OUTSIDE Admin.
-        throw new Error("לחשבון זה אין הרשאת ניהול");
+        throw new Error(t("admin_step_up.this_account_administrator_permission"));
       }
       markAdminUnlocked();
       traceAuth("AUTH_SURFACE_GRANTED", "admin step-up unlocked");
       onUnlocked();
     } catch (err: any) {
       traceAuth("AUTH_FLOW_ERROR", "admin step-up");
-      setError(hebrewError(err, "הכניסה נכשלה — נסו שוב"));
+      setError(localizedError(err, t("admin_step_up.sign_failed_try_again")));
       setPassword("");
       setBusy(false);
     }
@@ -59,29 +60,29 @@ export function AdminStepUp({ onUnlocked, onCancel }: { onUnlocked: () => void; 
           <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}><BrandMark size={48} /></div>
           {/* the page h1: while the step-up is shown it IS the page (the admin
               area replaces it once unlocked). `auth-title` keeps the h2 size. */}
-          <h1 className="auth-title">כניסת מנהל</h1>
+          <h1 className="auth-title">{t("admin_step_up.administrator_sign")}</h1>
           <form onSubmit={submit}>
             {/* P0.6-1 — the email is ALWAYS visible so the user sees exactly
                 WHICH account is being authenticated; prefilled from the
                 canonical session and editable (editing = switching account). */}
             <div className="field">
-              <label>אימייל</label>
-              <input dir="ltr" type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
+              <label htmlFor="stepup-email">{t("admin_step_up.e_mail")}</label>
+              <input id="stepup-email" dir="ltr" type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email" data-testid="stepup-email" />
-              {knownEmail ? <span className="hint">זהו החשבון המחובר — אפשר לערוך כדי להתחבר עם חשבון אחר.</span> : null}
+              {knownEmail ? <span className="hint">{t("admin_step_up.this_signed_account_edit_sign")}</span> : null}
             </div>
             <div className="field">
-              <label>סיסמה</label>
-              <input dir="ltr" type="password" required autoFocus value={password} onChange={(e) => setPassword(e.target.value)}
+              <label htmlFor="stepup-password">{t("admin_step_up.password")}</label>
+              <input id="stepup-password" dir="ltr" type="password" required autoFocus value={password} onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password" data-testid="stepup-password" />
             </div>
             {error ? <div className="notice err" data-testid="stepup-error">{error}</div> : null}
             <button className="btn btn-primary btn-block" data-testid="stepup-submit" disabled={busy}>
-              {busy ? "רגע…" : "כניסה למערכת הניהול"}
+              {busy ? t("admin_step_up.one_moment") : t("admin_step_up.sign_admin_console")}
             </button>
           </form>
           <div className="auth-links">
-            <a href="#" onClick={(e) => { e.preventDefault(); onCancel(); }}>חזרה לאתר</a>
+            <a href="#" onClick={(e) => { e.preventDefault(); onCancel(); }}>{t("admin_step_up.back_site")}</a>
           </div>
         </div>
       </div>

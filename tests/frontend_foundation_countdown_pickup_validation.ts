@@ -1,3 +1,4 @@
+import { assertRendersCopy } from "./helpers/i18n_copy.js";
 // P0.7 — deterministic proof of the public deal presentation contracts:
 //  • countdown parts: NO zero padding (1 not 01, 0 not 00, 9 not 09), four
 //    units, deadline crossing settles at all-zero and never negative
@@ -8,6 +9,7 @@
 //    returns support_email
 //  • ONE pickup-location rule shared by server and web (the same module)
 import assert from "node:assert/strict";
+import { en, he } from "./helpers/i18n_copy.js";
 import { readFile } from "node:fs/promises";
 import {
   COUNTDOWN_UNITS, countdownAccessibleLabel, countdownParts, formatCountdownNumber, sameCountdownParts
@@ -45,7 +47,10 @@ await run("countdown buckets: >1 day, exactly 1 day, <1 day, <1 hour (urgent), <
   assert.equal(countdownParts(2 * HOUR).urgent, false);
   assert.deepEqual(pick(countdownParts(45 * SEC + 999)), [0, 0, 0, 45]);
   assert.deepEqual(pick(countdownParts(100 * DAY)), [100, 0, 0, 0]);
-  assert.equal(COUNTDOWN_UNITS.map((u) => u.label).join(" "), "ימים שעות דקות שניות");
+    // The cells hold translation KEYS; the labels themselves live in the
+  // dictionary and exist in both languages.
+  assert.equal(COUNTDOWN_UNITS.map((u) => he(u.label)).join(" "), "ימים שעות דקות שניות");
+  assert.equal(COUNTDOWN_UNITS.map((u) => en(u.label)).join(" "), "Days Hours Minutes Seconds");
 });
 
 await run("18: a crossed deadline settles at all-zero — never negative, never NaN", () => {
@@ -101,9 +106,9 @@ await run("2: the public deal page renders NO seller e-mail and offers the inter
   assert.doesNotMatch(dealPage, /mailto:/);
   assert.doesNotMatch(dealPage, /support_email/);
   assert.match(dealPage, /data-testid="inquiry-open"/);
-  assert.match(dealPage, /פנייה למוכר/);
-  assert.match(dealPage, /הפנייה נשלחה למוכר דרך \{PRODUCT_NAME_HE\}\./);
-  assert.match(dealPage, /const PRODUCT_NAME_HE = "סיטון";/);
+  assertRendersCopy(dealPage, "פנייה למוכר");
+  assertRendersCopy(dealPage, "הפנייה נשלחה למוכר דרך");
+  assertRendersCopy(dealPage, "סיטון");
   assert.doesNotMatch(dealPage, /הפנייה נשלחה למוכר דרך C-ton/, "the inquiry success sentence says סיטון");
   assert.match(dealPage, /api\.dealInquiry\(/);
   assert.match(dealPage, /className="hp-field"/, "honeypot field present");
@@ -170,7 +175,7 @@ await run("13: publish readiness — server gate + checklist + wizard all use th
   assert.match(appTs, /pickup_location_required/);
   assert.match(appTs, /import \{ pickupOptionsMissingLocation \} from "\.\/pickup_location\.js";/);
   assert.match(sellerPage, /from "\.\.\/\.\.\/\.\.\/src\/pickup_location"/);
-  assert.match(sellerPage, /label: "מיקום לאיסוף עצמי"/);
+  assertRendersCopy(sellerPage, "מיקום לאיסוף עצמי");
   assert.match(sellerPage, /deliveryOptions\.every\(\(o\) => hasUsablePickupLocation\(o\)\)/);
   assert.match(sellerPage, /configured\.some\(\(d\) => !hasUsablePickupLocation\(d\)\)/);
   assert.match(sellerPage, /data-testid="pickup-location-missing"/);

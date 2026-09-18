@@ -1,3 +1,4 @@
+import { t } from "./i18n/index.js";
 // SPRINT 4 (A8) — the admin virality time range, as the UI expresses it.
 //
 // Presets are day counts; the custom range is entered as ISRAEL-LOCAL calendar
@@ -12,9 +13,9 @@ export type GrowthRange =
   | { kind: "all" };
 
 export const GROWTH_RANGE_PRESETS: { days: number; label: string }[] = [
-  { days: 7, label: "7 ימים" },
-  { days: 30, label: "30 ימים" },
-  { days: 90, label: "90 ימים" }
+  { days: 7, label: "growth_range.growth_range_presets.label" },
+  { days: 30, label: "growth_range.growth_range_presets.label_2" },
+  { days: 90, label: "growth_range.growth_range_presets.label_3" }
 ];
 
 export const DEFAULT_GROWTH_RANGE: GrowthRange = { kind: "days", days: 7 };
@@ -31,8 +32,8 @@ export type IsraelToUtc = (dateStr: string, timeStr: string) => string | null;
 /** Validate a custom range the way the operator typed it (both days required, from <= to). */
 export function validateCustomRange(from: string, to: string): string | null {
   const ok = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
-  if (!ok(from) || !ok(to)) return "יש לבחור תאריך התחלה ותאריך סיום";
-  if (from > to) return "תאריך ההתחלה חייב להיות לפני תאריך הסיום";
+  if (!ok(from) || !ok(to)) return t("growth_range.choose_start_date_end_date");
+  if (from > to) return t("growth_range.the_start_date_must_before");
   return null;
 }
 
@@ -50,7 +51,7 @@ export function growthRangeParams(range: GrowthRange, israelToUtc: IsraelToUtc):
 
 /** Human label shown next to the numbers (Israel time). */
 export function growthRangeLabel(range: GrowthRange): string {
-  if (range.kind === "all") return "כל הזמן";
-  if (range.kind === "custom") return `${range.from} עד ${range.to} (שעון ישראל)`;
-  return `${range.days} הימים האחרונים`;
+  if (range.kind === "all") return t("growth_range.all_time");
+  if (range.kind === "custom") return t("growth_range.from_israel_time", { from: range.from, to: range.to });
+  return t("growth_range.the_last_days_days", { days: range.days });
 }

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { t } from "./i18n/index.js";
 import {
   COUNTDOWN_TICK_MS, COUNTDOWN_UNITS, countdownAccessibleLabel, countdownParts, formatCountdownNumber,
   sameCountdownParts, type CountdownParts
@@ -99,7 +100,7 @@ export function LiveCountdown({ deadline, onZero, className, compact }: {
     >
       {COUNTDOWN_UNITS.map((unit) => (
         <div className="cd-unit" key={unit.key} data-unit={unit.key}>
-          <span className="cd-label" aria-hidden="true">{unit.label}</span>
+          <span className="cd-label" aria-hidden="true">{t(unit.label)}</span>
           <span className="cd-num" data-testid={`cd-${unit.key}`}>{formatCountdownNumber(parts[unit.key])}</span>
         </div>
       ))}

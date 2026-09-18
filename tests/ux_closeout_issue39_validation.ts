@@ -15,6 +15,7 @@
 // IS where the defect lived (a card grid, an emoji, a journey array). Items 3
 // and 5 are driven through the real HTTP API against a real database.
 import assert from "node:assert/strict";
+import { assertRendersCopy, en, he } from "./helpers/i18n_copy.js";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -123,9 +124,13 @@ try {
   // ── ITEM 4 — preview is an action, never a mandatory stage ────────────────
   await run("item 4: the seller journey is four steps and none of them is a preview stage", () => {
     const block = sellerPage.slice(sellerPage.indexOf("const JOURNEY_STEPS"), sellerPage.indexOf("const JOURNEY_TERMINAL_STEP"));
-    const titles = [...block.matchAll(/\{ t: "([^"]+)"/g)].map((m) => m[1]);
-    assert.deepEqual(titles, ["יצירת עסקה", "פרסום", "איסוף משתתפים", "הצלחה / כישלון"]);
-    assert.ok(!titles.includes("תצוגה מקדימה"), "preview must not be a journey stage");
+    // The strip holds translation keys; the step names live in the dictionary
+    // and must read the same way in both languages.
+    const keys = [...block.matchAll(/\{ t: "([^"]+)"/g)].map((m) => m[1]!);
+    assert.deepEqual(keys.map(he), ["יצירת עסקה", "פרסום", "איסוף משתתפים", "הצלחה / כישלון"]);
+    assert.deepEqual(keys.map(en), ["Create the deal", "Publish", "Gathering participants", "Success / failure"]);
+    assert.ok(!keys.map(he).includes("תצוגה מקדימה"), "preview must not be a journey stage");
+    assert.ok(!keys.map(en).some((title) => /preview/i.test(title)), "preview must not be a journey stage (en)");
     assert.match(sellerPage, /type JourneyStage = 0 \| 1 \| 2 \| 3;/, "the stage type must follow the four steps");
     // the CSS grid must follow the array, or the strip renders a phantom column
     const css = readFileSync("web/src/styles.css", "utf8");
@@ -136,7 +141,7 @@ try {
 
   await run("item 4: the preview CAPABILITY is untouched", () => {
     assert.ok(sellerPage.includes('data-testid="draft-preview-open"'), "the seller must still be able to preview a draft");
-    assert.match(sellerPage, /תצוגה מקדימה כקונה/, "the preview action keeps its label");
+    assertRendersCopy(sellerPage, "תצוגה מקדימה כקונה", "the preview action keeps its label");
   });
 
   // ── HOSTED FINDING (night closeout) — no footer link to an empty page ────
@@ -430,7 +435,8 @@ try {
     // the admin entry screen is its OWN component, not the shared panel, and
     // kept its h2 after the shared one was fixed — both are pinned here now
     const stepUp = await readFile("web/src/adminStepUp.tsx", "utf8");
-    assert.match(stepUp, /<h1 className="auth-title">כניסת מנהל<\/h1>/,
+    const stepUpKey = assertRendersCopy(stepUp, "כניסת מנהל", "the admin step-up title");
+    assert.match(stepUp, new RegExp(`<h1 className="auth-title">\\{t\\("${stepUpKey.replace(/\./g, "\\.")}"\\)\\}</h1>`),
       "the admin step-up title must be the page h1");
     assert.doesNotMatch(stepUp, /<h2[^>]*>כניסת מנהל/, "and must not also be an h2");
     // and where an empty state IS the whole page, its title is that page's h1

@@ -1,12 +1,15 @@
-// Hebrew formatting + canonical state views for the Siton product surfaces.
+// Locale-aware formatting + canonical state views for the Siton product
+// surfaces. Money, counts and dates follow the ACTIVE locale; the currency
+// itself is always ILS, in both languages, because the money is the same money.
+import { getLocale, intlTagOf, t } from "./i18n/index.js";
 
 export function ils(value: unknown): string {
   const n = Number(value || 0);
-  return new Intl.NumberFormat("he-IL", { style: "currency", currency: "ILS", maximumFractionDigits: n % 1 === 0 ? 0 : 2 }).format(n);
+  return new Intl.NumberFormat(intlTagOf(getLocale()), { style: "currency", currency: "ILS", maximumFractionDigits: n % 1 === 0 ? 0 : 2 }).format(n);
 }
 
 export function num(value: unknown): string {
-  return new Intl.NumberFormat("he-IL").format(Number(value || 0));
+  return new Intl.NumberFormat(intlTagOf(getLocale())).format(Number(value || 0));
 }
 
 export function pct(ratio: unknown): string {
@@ -15,9 +18,9 @@ export function pct(ratio: unknown): string {
 
 export function dealTypeLabel(type: string): string {
   switch (type) {
-    case "voucher": return "שובר";
-    case "ticket": return "כרטיס";
-    default: return "מוצר";
+    case "voucher": return t("util.voucher");
+    case "ticket": return t("util.ticket");
+    default: return t("util.product");
   }
 }
 
@@ -25,82 +28,92 @@ export function dealTypeLabel(type: string): string {
 // out, styled by `.sd-thumb`/`.placeholder`, not a gift/ticket/parcel emoji.
 // `dealTypeIcon` is gone; call sites use `dealTypeLabel` directly.
 
-// Canonical deal-state Hebrew labels (all nine states).
-export const DEAL_STATE_LABELS: Record<string, string> = {
-  Draft: "טיוטה",
-  PendingTarget: "ממתינים למינימום",
-  TargetReached: "המינימום הושג",
-  ClosedForJoining: "סגורה להצטרפות",
-  ReadyForCharging: "נעולה לחיוב",
-  Charging: "מתבצעים חיובים",
-  CompletionWindow: "חלון השלמה",
-  Completed: "הושלמה בהצלחה",
-  Failed: "לא הושלמה",
-  Cancelled: "בוטלה"
+// Canonical deal-state labels (all nine states). The map holds translation
+// KEYS, never resolved copy: a module-level constant is evaluated once at
+// import and would otherwise freeze the language chosen at boot.
+export const DEAL_STATE_LABEL_KEYS: Record<string, string> = {
+  Draft: "util.state.draft",
+  PendingTarget: "util.state.pending_target",
+  TargetReached: "util.state.target_reached",
+  ClosedForJoining: "util.state.closed_for_joining",
+  ReadyForCharging: "util.state.ready_for_charging",
+  Charging: "util.state.charging",
+  CompletionWindow: "util.state.completion_window",
+  Completed: "util.state.completed",
+  Failed: "util.state.failed",
+  Cancelled: "util.state.cancelled"
 };
 
 export function stateLabel(state: string): string {
-  return DEAL_STATE_LABELS[state] || state;
+  const key = DEAL_STATE_LABEL_KEYS[state];
+  return key ? t(key) : state;
 }
 
 // Buyer money-state → product Hebrew (presentation only; canonical backend
 // state names stay untouched underneath).
-export const MONEY_STATE_LABELS: Record<string, string> = {
-  AuthCaptured: "מסגרת נתפסה",
-  ChargedSuccess: "חויב בהצלחה",
-  RecoveredCharge: "חויב בהצלחה (אחרי השלמה)",
-  ChargeFailedRecovery: "ממתין לעדכון אשראי",
-  ChargeFailedFinal: "חיוב נכשל סופית",
-  AuthReleased: "המסגרת שוחררה",
-  Refunded: "הוחזר"
+export const MONEY_STATE_LABEL_KEYS: Record<string, string> = {
+  AuthCaptured: "util.money.auth_captured",
+  ChargedSuccess: "util.money.charged_success",
+  RecoveredCharge: "util.money.recovered_charge",
+  ChargeFailedRecovery: "util.money.charge_failed_recovery",
+  ChargeFailedFinal: "util.money.charge_failed_final",
+  AuthReleased: "util.money.auth_released",
+  Refunded: "util.money.refunded"
 };
 
 export function moneyStateLabel(state: string): string {
-  return MONEY_STATE_LABELS[state] || state;
+  const key = MONEY_STATE_LABEL_KEYS[state];
+  return key ? t(key) : state;
 }
 
 // Buyer participation state → product Hebrew (presentation only).
-export const BUYER_STATE_LABELS: Record<string, string> = {
-  Joined: "הצטרף/ה",
-  Active: "פעיל/ה",
-  Locked: "נעול לחיוב",
-  Charged: "חויב/ה",
-  ChargeFailedCompletion: "בהשלמת תשלום",
-  Completed: "הושלם",
-  Dropped: "נשר/ה",
-  DealFailed: "העסקה לא הושלמה"
+export const BUYER_STATE_LABEL_KEYS: Record<string, string> = {
+  Joined: "util.buyer.joined",
+  Active: "util.buyer.active",
+  Locked: "util.buyer.locked",
+  Charged: "util.buyer.charged",
+  ChargeFailedCompletion: "util.buyer.charge_failed_completion",
+  Completed: "util.buyer.completed",
+  Dropped: "util.buyer.dropped",
+  DealFailed: "util.buyer.deal_failed"
 };
 
 export function buyerStateLabel(state: string): string {
-  return BUYER_STATE_LABELS[state] || state;
+  const key = BUYER_STATE_LABEL_KEYS[state];
+  return key ? t(key) : state;
 }
 
-// Notification delivery status → Hebrew (admin surface).
-export const NOTIFICATION_STATUS_LABELS: Record<string, string> = {
-  sent: "נשלחה",
-  pending: "ממתינה",
-  processing: "בשליחה",
-  failed: "נכשלה",
-  skipped: "דולגה",
-  cancelled: "בוטלה",
-  blocked: "נחסמה (בטיחות)"
+// Notification delivery status (admin surface).
+export const NOTIFICATION_STATUS_LABEL_KEYS: Record<string, string> = {
+  sent: "util.notify.sent",
+  pending: "util.notify.pending",
+  processing: "util.notify.processing",
+  failed: "util.notify.failed",
+  skipped: "util.notify.skipped",
+  cancelled: "util.notify.cancelled",
+  blocked: "util.notify.blocked"
 };
+
+export function notificationStatusLabel(status: string): string {
+  const key = NOTIFICATION_STATUS_LABEL_KEYS[status];
+  return key ? t(key) : status;
+}
 
 // Buyer-facing status story for the public deal page.
 export function buyerStateStory(state: string, unitsToTarget: number): string {
   switch (state) {
     case "PendingTarget":
       return unitsToTarget > 0
-        ? `עוד ${num(unitsToTarget)} יחידות כדי שהעסקה תצא לפועל`
-        : "רגע לפני היעד…";
-    case "TargetReached": return "המינימום הושג — העסקה יוצאת לפועל!";
-    case "ClosedForJoining": return "הרשימה נסגרה — מתכוננים לסגירה";
-    case "ReadyForCharging": return "העסקה ננעלה — מתחילים חיובים";
-    case "Charging": return "החיובים מתבצעים כעת";
-    case "CompletionWindow": return "חלון השלמה פתוח";
-    case "Completed": return "העסקה הושלמה בהצלחה";
-    case "Failed": return "העסקה לא הושלמה — המסגרות שוחררו";
-    case "Cancelled": return "העסקה בוטלה על ידי המוכר";
+        ? t("util.unitstotarget_more_units_deal_go", { unitsToTarget: num(unitsToTarget) })
+        : t("util.just_short_target");
+    case "TargetReached": return t("util.the_minimum_reached_deal_going");
+    case "ClosedForJoining": return t("util.the_list_closed_preparing_close");
+    case "ReadyForCharging": return t("util.the_deal_locked_charges_starting");
+    case "Charging": return t("util.the_charges_being_made_now");
+    case "CompletionWindow": return t("util.the_completion_window_open");
+    case "Completed": return t("util.the_deal_completed_successfully");
+    case "Failed": return t("util.the_deal_did_complete_authorizations");
+    case "Cancelled": return t("util.the_deal_cancelled_seller");
     default: return stateLabel(state);
   }
 }
@@ -122,50 +135,50 @@ export function countdownView(deadline: string | null | undefined, now = Date.no
   const target = Date.parse(String(deadline));
   if (!Number.isFinite(target)) return null;
   const ms = target - now;
-  if (ms <= 0) return { text: "הסתיים", tone: "over", ms };
+  if (ms <= 0) return { text: t("util.ended"), tone: "over", ms };
   const totalMinutes = Math.floor(ms / 60000);
   const days = Math.floor(totalMinutes / (60 * 24));
   const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
   const minutes = totalMinutes % 60;
   let text: string;
-  if (days >= 1) text = `${days} ימים ${hours} שע׳`;
-  else if (hours >= 1) text = `${hours}:${String(minutes).padStart(2, "0")} שעות`;
-  else text = `${minutes} דק׳`;
+  if (days >= 1) text = t("util.days_d_hours_h", { days: days, hours: hours });
+  else if (hours >= 1) text = t("util.hours_v1_hours", { hours: hours, v1: String(minutes).padStart(2, "0") });
+  else text = t("util.minutes_min", { minutes: minutes });
   const tone: CountdownView["tone"] = ms < 3600_000 ? "danger" : ms < 12 * 3600_000 ? "warn" : "ok";
   return { text, tone, ms };
 }
 
 export function timeAgo(iso: string, now = Date.now()): string {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return "";
-  const s = Math.max(0, Math.floor((now - t) / 1000));
-  if (s < 60) return "עכשיו";
+  const dt = Date.parse(iso);
+  if (!Number.isFinite(dt)) return "";
+  const s = Math.max(0, Math.floor((now - dt) / 1000));
+  if (s < 60) return t("util.just_now");
   const m = Math.floor(s / 60);
-  if (m < 60) return `לפני ${m} דק׳`;
+  if (m < 60) return t("util.m_min_ago", { m: m });
   const h = Math.floor(m / 60);
-  if (h < 24) return `לפני ${h} שע׳`;
+  if (h < 24) return t("util.h_h_ago", { h: h });
   const d = Math.floor(h / 24);
-  return `לפני ${d} ימים`;
+  return t("util.d_days_ago", { d: d });
 }
 
 export function fmtDate(iso: string | null | undefined): string {
   if (!iso) return "—";
-  const t = Date.parse(String(iso));
-  if (!Number.isFinite(t)) return "—";
-  return new Intl.DateTimeFormat("he-IL", { dateStyle: "short", timeStyle: "short" }).format(t);
+  const dt = Date.parse(String(iso));
+  if (!Number.isFinite(dt)) return "—";
+  return new Intl.DateTimeFormat(intlTagOf(getLocale()), { dateStyle: "short", timeStyle: "short" }).format(dt);
 }
 
 export function failReason(deal: { state: string; joined_units?: number; threshold_units?: number }): string {
   if (deal.state !== "Failed") return "";
   const joined = Number(deal.joined_units || 0);
   const threshold = Number(deal.threshold_units || 0);
-  if (joined < threshold) return "לא הגיעה למינימום";
-  return "חיובים לא הושלמו";
+  if (joined < threshold) return t("util.the_minimum_reached");
+  return t("util.the_charges_did_complete");
 }
 
 export function initialOf(name: string): string {
   const s = String(name || "").trim();
-  return s ? s[0]! : "מ";
+  return s ? s[0]! : t("util.seller_initial_fallback");
 }
 
 export function clamp(n: number, lo: number, hi: number): number {
@@ -208,25 +221,25 @@ export function israelPartsToUtcIso(dateStr: string, timeStr: string): string | 
 // Human confirmation: "יום חמישי, 3 בספטמבר, 20:30 (שעון ישראל)"
 export function formatIsraelDateTime(iso: string | null | undefined): string {
   if (!iso) return "";
-  const t = Date.parse(String(iso));
-  if (!Number.isFinite(t)) return "";
-  const text = new Intl.DateTimeFormat("he-IL", {
+  const dt = Date.parse(String(iso));
+  if (!Number.isFinite(dt)) return "";
+  const text = new Intl.DateTimeFormat(intlTagOf(getLocale()), {
     timeZone: ISRAEL_TZ, weekday: "long", day: "numeric", month: "long",
     hour: "2-digit", minute: "2-digit"
-  }).format(t);
-  return `${text} (שעון ישראל)`;
+  }).format(dt);
+  return t("util.israel_time_suffix", { text });
 }
 
 // Split a UTC ISO back into Israel-local date/time input values.
 export function utcIsoToIsraelParts(iso: string | null | undefined): { date: string; time: string } {
-  const t = Date.parse(String(iso || ""));
-  if (!Number.isFinite(t)) return { date: "", time: "" };
+  const dt = Date.parse(String(iso || ""));
+  if (!Number.isFinite(dt)) return { date: "", time: "" };
   const dtf = new Intl.DateTimeFormat("en-CA", {
     timeZone: ISRAEL_TZ, year: "numeric", month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit", hour12: false
   });
   const parts: Record<string, string> = {};
-  for (const p of dtf.formatToParts(new Date(t))) parts[p.type] = p.value;
+  for (const p of dtf.formatToParts(new Date(dt))) parts[p.type] = p.value;
   return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${String(Number(parts.hour) % 24).padStart(2, "0")}:${parts.minute}` };
 }
 

@@ -18,7 +18,13 @@ import { randomUUID } from "node:crypto";
 import { validateContent, CONTENT_SECTIONS } from "../src/site_content.js";
 import { normalizePage, contractFor, PAGE_CONTRACTS } from "../web/src/content/cmsTemplates.js";
 import { resolveDealCopy, resolveTrackCopy, resolveSellerCopy, resolveSupportCopy } from "../web/src/productCopy.js";
-import { DEAL_EXPLAINER, WHY_GROUP_PRICE, AFTER_TAP_LINE, SHARE_LOOP_TITLE, HOW_IT_WORKS } from "../web/src/buyerCopy.js";
+import {
+  DEAL_EXPLAINER_KEY, WHY_GROUP_PRICE_KEY, AFTER_TAP_LINE_KEY, SHARE_LOOP_TITLE_KEY, HOW_IT_WORKS_KEYS
+} from "../web/src/buyerCopy.js";
+// The buyer copy lives in the dictionary now; the canonical default is the
+// HEBREW resolution of each key, which is what this suite asserts against.
+import { translateIn } from "../web/src/i18n/translate.js";
+const he = (key: string) => translateIn("he", key);
 import { SELLER_AREA_HE } from "../web/src/content/seller.he.js";
 import { ensureSellerReady, sellerHeaders } from "./helpers/physical_fulfillment_fixture.js";
 process.env.APP_DEPLOYMENT_MODE = "demo-preview";
@@ -82,11 +88,11 @@ try {
   await run("the canonical copy is the default: an untouched CMS serves exactly the shipped Hebrew sentences", async () => {
     const content = await publicContent();
     const deal = resolveDealCopy(content), track = resolveTrackCopy(content);
-    assert.equal(deal.explainer, DEAL_EXPLAINER);
-    assert.equal(deal.whyGroupPrice, WHY_GROUP_PRICE);
-    assert.equal(deal.afterTap, AFTER_TAP_LINE);
-    assert.equal(deal.shareTitle, SHARE_LOOP_TITLE);
-    assert.deepEqual(deal.howSteps.map(s => s.title), HOW_IT_WORKS.map(s => s.title));
+    assert.equal(deal.explainer, he(DEAL_EXPLAINER_KEY));
+    assert.equal(deal.whyGroupPrice, he(WHY_GROUP_PRICE_KEY));
+    assert.equal(deal.afterTap, he(AFTER_TAP_LINE_KEY));
+    assert.equal(deal.shareTitle, he(SHARE_LOOP_TITLE_KEY));
+    assert.deepEqual(deal.howSteps.map((step) => step.title), HOW_IT_WORKS_KEYS.map((step) => he(step.title)));
     assert.ok(track.holdNote.includes("לא בוצע חיוב"), "the tracking hold note must stay truthful by default");
     assert.deepEqual(resolveSellerCopy(content), { ...SELLER_AREA_HE });
     assert.equal(resolveSupportCopy(content).title, "תמיכה ויצירת קשר");
@@ -98,7 +104,7 @@ try {
       { seller_area: { blocks: [{ id: "seller", type: "seller_copy", enabled: true, fields: { empty_title: "   " } }] } },
       { support_page: 42 }]) {
       const deal = resolveDealCopy(hostile as any);
-      assert.equal(deal.explainer, DEAL_EXPLAINER);
+      assert.equal(deal.explainer, he(DEAL_EXPLAINER_KEY));
       assert.ok(deal.howSteps.length >= 1 && deal.howSteps.every(s => s.title));
       assert.equal(resolveSellerCopy(hostile as any).empty_title, SELLER_AREA_HE.empty_title);
       assert.ok(resolveSupportCopy(hostile as any).title);
@@ -111,13 +117,13 @@ try {
     const draft = await request("PUT", "/api/admin/site-content/deal_page/draft", headers, { value: pageWith("deal_page", "deal", "explainer", edited), revision: 0 });
     assert.equal(draft.status, 200, draft.body);
     // public site unchanged while the change is only a draft
-    assert.equal(resolveDealCopy(await publicContent()).explainer, DEAL_EXPLAINER);
+    assert.equal(resolveDealCopy(await publicContent()).explainer, he(DEAL_EXPLAINER_KEY));
     const published = await request("POST", "/api/admin/site-content/deal_page/publish", headers, { revision: draft.json().sections.deal_page.revision });
     assert.equal(published.status, 200, published.body);
     const content = await publicContent();
     assert.equal(resolveDealCopy(content).explainer, edited);
     // untouched fields of the same page keep the canonical text
-    assert.equal(resolveDealCopy(content).whyGroupPrice, WHY_GROUP_PRICE);
+    assert.equal(resolveDealCopy(content).whyGroupPrice, he(WHY_GROUP_PRICE_KEY));
     assert.equal(resolveTrackCopy(content).returnTitle, "לחזור לכאן ולשאול את המוכר");
   });
 

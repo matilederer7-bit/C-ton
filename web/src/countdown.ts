@@ -1,3 +1,4 @@
+import { t } from "./i18n/index.js";
 // P0.7 — canonical countdown arithmetic for the public deal page. Pure and
 // dependency-free so it is provable without a browser:
 //   • four units (days / hours / minutes / seconds), label ABOVE, number BELOW
@@ -9,11 +10,12 @@
 
 export type CountdownUnitKey = "days" | "hours" | "minutes" | "seconds";
 
+/** Unit cells for the countdown. `label` is a TRANSLATION KEY (module-level constant). */
 export const COUNTDOWN_UNITS: ReadonlyArray<{ key: CountdownUnitKey; label: string }> = [
-  { key: "days", label: "ימים" },
-  { key: "hours", label: "שעות" },
-  { key: "minutes", label: "דקות" },
-  { key: "seconds", label: "שניות" }
+  { key: "days", label: "countdown.countdown_units.label" },
+  { key: "hours", label: "countdown.countdown_units.label_2" },
+  { key: "minutes", label: "countdown.countdown_units.label_3" },
+  { key: "seconds", label: "countdown.countdown_units.label_4" }
 ];
 
 export type CountdownParts = {
@@ -50,8 +52,8 @@ export function formatCountdownNumber(value: number): string {
 }
 
 export function countdownAccessibleLabel(parts: CountdownParts): string {
-  if (parts.reached) return "ההצטרפות הסתיימה";
-  return `נותרו ${parts.days} ימים, ${parts.hours} שעות, ${parts.minutes} דקות ו-${parts.seconds} שניות`;
+  if (parts.reached) return t("countdown.joining_ended");
+  return t("countdown.days_days_hours_hours_minutes", { days: parts.days, hours: parts.hours, minutes: parts.minutes, seconds: parts.seconds });
 }
 
 export function sameCountdownParts(a: CountdownParts | null, b: CountdownParts): boolean {
