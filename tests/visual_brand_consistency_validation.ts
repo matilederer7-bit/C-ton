@@ -35,6 +35,25 @@ function alpha(value: string): number {
   assert.ok(m, `no alpha in ${value}`);
   return Number(m![1] ?? "1");
 }
+// ── WCAG contrast, computed from the tokens themselves ────────────────────
+function rgbOf(hex: string): [number, number, number] {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex.trim());
+  assert.ok(m, `expected a 6-digit hex colour, saw ${hex}`);
+  const n = parseInt(m![1]!, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function relativeLuminance(hex: string): number {
+  const [r, g, b] = rgbOf(hex).map((v) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  }) as [number, number, number];
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+function contrast(fg: string, bg: string): number {
+  const a = relativeLuminance(fg) + 0.05;
+  const b = relativeLuminance(bg) + 0.05;
+  return Math.round((Math.max(a, b) / Math.min(a, b)) * 100) / 100;
+}
 
 // ── Web: graphite ground, orange accent, restrained effects ─────────────────
 assert.equal(token("bg"), "#17181b", "deep graphite ground");
@@ -45,6 +64,24 @@ assert.ok(alpha(token("brand-glow")) <= 0.32, `brand glow must stay restrained (
 assert.ok(alpha(token("accent-cyan-glow")) <= 0.19, "cyan glow stays a whisper");
 assert.ok(alpha(token("shadow")) <= 0.47 && alpha(token("shadow-soft")) <= 0.38 && alpha(token("shadow-pop")) <= 0.55, "shadows ~15% lighter than the shelf rebrand");
 assert.doesNotMatch(webCss, /#0f766e|#faf7f2|#C65A1E/i, "no retired teal/cream/brick tokens in the canonical web app");
+
+// Every ink token must be READABLE on every surface it can land on. --ink-faint
+// is not decorative: it carries the brand sub-line, the footer links and the
+// footer text at 11–14px, so it needs the 4.5:1 WCAG AA floor for normal text.
+// It shipped at #767d89, which measured 3.65:1 on --surface-warm in the browser.
+for (const ink of ["ink", "ink-soft", "ink-faint"]) {
+  for (const surface of ["bg", "bg-deep", "surface", "surface-warm"]) {
+    const ratio = contrast(token(ink), token(surface));
+    assert.ok(ratio >= 4.5, `--${ink} on --${surface} is ${ratio}:1 — below the 4.5:1 AA floor for normal text`);
+  }
+}
+// and the three inks must stay distinguishable from each other, brightest first
+assert.ok(
+  relativeLuminance(token("ink")) > relativeLuminance(token("ink-soft"))
+  && relativeLuminance(token("ink-soft")) > relativeLuminance(token("ink-faint")),
+  "the ink ramp must stay ordered: ink brighter than ink-soft brighter than ink-faint"
+);
+console.log("PASS ink tokens clear WCAG AA on every canonical surface and keep their ramp");
 assert.match(webCss, /@media \(prefers-reduced-motion: reduce\)/, "motion stays optional");
 assert.match(webIndex, /<meta name="theme-color" content="#17181b" \/>/, "web PWA/browser chrome is graphite");
 console.log("PASS web: graphite + orange tokens, glow/shadow restrained, no retired teal");

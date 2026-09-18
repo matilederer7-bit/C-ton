@@ -139,6 +139,42 @@ try {
     assert.match(sellerPage, /תצוגה מקדימה כקונה/, "the preview action keeps its label");
   });
 
+  // ── HOSTED FINDING (night closeout) — no footer link to an empty page ────
+  // Browsing the deployed build found "אודות" in the footer of every page
+  // leading to a document with a heading and nothing under it. The landing page
+  // already hides its About section while the body is empty ("a section renders
+  // ONLY when its content is present"), because the final copy is the owner's
+  // to write; the standalone page and the footer did not follow that rule.
+  await run("hosted finding: one emptiness test, read by both the footer and the document page", async () => {
+    const siteContent = await readFile("web/src/siteContent.ts", "utf8");
+    assert.match(siteContent, /export function contentPageHasBody\(/,
+      "the emptiness test must live in one place");
+    const app = await readFile("web/src/App.tsx", "utf8");
+    assert.match(app, /\.filter\(\(l\) => \{[\s\S]*?contentPageHasBody\(content, match\[1\]!\)/,
+      "the footer must drop a #/content link whose page has no body");
+    const receipt = await readFile("web/src/receiptContent.tsx", "utf8");
+    assert.match(receipt, /data-testid="content-doc-awaiting"/,
+      "a body-less document page must say so instead of rendering a lone heading");
+    assert.match(receipt, /const awaitingCopy = Boolean\(content\) && !loading && !rawBody;/,
+      "the notice must wait for the content to load before deciding it is empty");
+  });
+
+  await run("hosted finding: the About page is governed by the rule, not by invented copy", async () => {
+    // The fix was the emptiness RULE, never writing marketing copy on the
+    // owner's behalf. This deliberately does NOT freeze the body as empty — the
+    // owner may supply it at any time and the footer link simply returns. What
+    // must hold is that the About page's default is still declared in the one
+    // canonical place, with the marker that says whose job the copy is.
+    const landing = await readFile("web/src/content/landing.he.ts", "utf8");
+    assert.match(landing, /ABOUT_CONTENT_PENDING_OWNER/,
+      "the marker naming the owner as the source of About copy must stay discoverable");
+    assert.match(landing, /about: \{ title: "[^"]+", body: /,
+      "the About default must still live in the canonical landing content");
+    const templates = await readFile("web/src/content/cmsTemplates.ts", "utf8");
+    assert.match(templates, /body: LANDING_HE\.about\.body/,
+      "and the #/content/about page must keep reading that one source");
+  });
+
   // ── ITEM 5 — support ↔ deal/seller, resolved server-side ──────────────────
   await run("item 5: a deal reference is extracted from any real link shape, and never guessed", () => {
     const id = "6e35c4f3-3701-5874-9f6c-13a2693f87cc";

@@ -49,6 +49,24 @@ const grants = await adminPool.query(`
     has_table_privilege('siton_web_runtime','siton.seller_security_events','SELECT') AS web_seller_security_read,
     has_table_privilege('siton_web_runtime','siton.seller_security_events','UPDATE') AS web_seller_security_update,
     has_table_privilege('siton_web_runtime','siton.seller_security_events','DELETE') AS web_seller_security_delete,
+    has_table_privilege('siton_web_runtime','siton.distribution_link_viewer_grants','SELECT') AS web_link_viewer_grant_read,
+    has_table_privilege('siton_web_runtime','siton.distribution_link_viewers','SELECT') AS web_link_viewer_read,
+    has_table_privilege('siton_web_runtime','siton.distribution_link_viewer_sessions','SELECT') AS web_link_viewer_session_read,
+    has_table_privilege('siton_web_runtime','siton.distribution_link_viewer_login_attempts','SELECT') AS web_link_viewer_attempt_read,
+    has_table_privilege('siton_web_runtime','siton.distribution_link_viewers','INSERT,UPDATE') AS web_link_viewer_write,
+    has_table_privilege('siton_web_runtime','siton.distribution_link_viewer_grants','INSERT,UPDATE') AS web_link_viewer_grant_write,
+    has_table_privilege('siton_web_runtime','siton.distribution_link_viewer_sessions','INSERT,UPDATE') AS web_link_viewer_session_write,
+    has_table_privilege('siton_web_runtime','siton.distribution_link_viewer_login_attempts','INSERT') AS web_link_viewer_attempt_append,
+    has_table_privilege('siton_web_runtime','siton.distribution_link_viewer_login_attempts','UPDATE') AS web_link_viewer_attempt_update,
+    has_table_privilege('siton_web_runtime','siton.distribution_link_viewer_grants','DELETE') AS web_link_viewer_grant_delete,
+    has_table_privilege('siton_web_runtime','siton.distribution_link_viewer_sessions','DELETE') AS web_link_viewer_session_delete,
+    has_table_privilege('anon','siton.distribution_link_viewers','SELECT') AS anon_link_viewer_direct,
+    has_table_privilege('siton_worker_runtime','siton.distribution_link_viewer_grants','SELECT') AS worker_link_viewer_direct,
+    has_table_privilege('siton_web_runtime','siton.affiliate_links','UPDATE') AS web_affiliate_link_update,
+    has_table_privilege('siton_web_runtime','siton.affiliate_links','DELETE') AS web_affiliate_link_delete,
+    has_table_privilege('siton_web_runtime','siton.seller_settlements','INSERT') AS web_settlement_insert,
+    has_table_privilege('siton_web_runtime','siton.seller_payout_batches','UPDATE') AS web_payout_batch_update,
+    has_table_privilege('siton_web_runtime','siton.notification_attempts','INSERT') AS web_notification_attempt_insert,
     has_table_privilege('siton_worker_runtime','siton.outbox_events','UPDATE') AS worker_outbox_update,
     has_table_privilege('siton_worker_runtime','siton.fulfillment_units','SELECT,INSERT') AS worker_fulfillment_issue,
     has_table_privilege('siton_worker_runtime','siton.invoice_document_attempts','UPDATE') AS worker_invoice_attempt_upsert,
@@ -83,6 +101,36 @@ assert.equal(grants.rows[0].web_seller_security_append, true);
 assert.equal(grants.rows[0].web_seller_security_read, true);
 assert.equal(grants.rows[0].web_seller_security_update, false);
 assert.equal(grants.rows[0].web_seller_security_delete, false);
+// The Seller Distribution Hub (canonical migration 070) shipped with its four
+// tables created and NOTHING granted on them, so every seller opening the
+// distribution panel on any deal got a 500 — `GET /api/seller/deals/:id/
+// distribution` joins distribution_link_viewer_grants and raised "permission
+// denied for table". The rails are non-destructive for the web runtime: a
+// viewer, a grant and a session are revoked (revoked_at) rather than deleted,
+// and login attempts are append-only.
+assert.equal(grants.rows[0].web_link_viewer_grant_read, true);
+assert.equal(grants.rows[0].web_link_viewer_read, true);
+assert.equal(grants.rows[0].web_link_viewer_session_read, true);
+assert.equal(grants.rows[0].web_link_viewer_attempt_read, true);
+assert.equal(grants.rows[0].web_link_viewer_write, true);
+assert.equal(grants.rows[0].web_link_viewer_grant_write, true);
+assert.equal(grants.rows[0].web_link_viewer_session_write, true);
+assert.equal(grants.rows[0].web_link_viewer_attempt_append, true);
+assert.equal(grants.rows[0].web_link_viewer_attempt_update, false);
+assert.equal(grants.rows[0].web_link_viewer_grant_delete, false);
+assert.equal(grants.rows[0].web_link_viewer_session_delete, false);
+assert.equal(grants.rows[0].anon_link_viewer_direct, false);
+assert.equal(grants.rows[0].worker_link_viewer_direct, false);
+// One more gap of the same shape: affiliate_links could be created but never
+// changed, so renaming a distribution link, changing its channel, or disabling
+// and re-enabling it answered 500.
+assert.equal(grants.rows[0].web_affiliate_link_update, true);
+assert.equal(grants.rows[0].web_affiliate_link_delete, false);
+// and the boundary is NOT widened where the worker owns the write: every
+// payout/settlement/notification-attempt write is an outbox handler.
+assert.equal(grants.rows[0].web_settlement_insert, false);
+assert.equal(grants.rows[0].web_payout_batch_update, false);
+assert.equal(grants.rows[0].web_notification_attempt_insert, false);
 assert.equal(grants.rows[0].worker_outbox_update, true);
 assert.equal(grants.rows[0].worker_fulfillment_issue, true);
 assert.equal(grants.rows[0].worker_invoice_attempt_upsert, true);
@@ -125,6 +173,57 @@ assert.deepEqual(readiness.json(), {
   inventory: "siton_inventory_rpc_v1",
   runtime_role: "siton_web_runtime"
 });
+
+// ── the Seller Distribution Hub, driven AS the web runtime ────────────────
+// This is the behavioural half of the grant assertions above, and the check
+// that would have caught the defect: every other suite drives this route as the
+// owning superuser, where table privileges never apply, so a missing GRANT is
+// invisible until a real seller opens the panel on the deployed site.
+{
+  // Only the canonical boundary files are applied here (001/006/007/008/009),
+  // so the later per-feature grant files are deliberately out of scope: this
+  // block exercises what THIS boundary must carry, and nothing that 019's
+  // column-level bank restriction owns.
+  const sellerHeaders = { "x-seller-id": "boundary-distribution-seller", "content-type": "application/json" };
+  const created = await app.inject({
+    method: "POST", url: "/deals",
+    headers: { ...sellerHeaders, "idempotency-key": "boundary-distribution-deal" },
+    payload: {
+      title: "עסקת גבולות הרצה", description_short: "בדיקת גבולות ריצה", description: "תיאור מלא",
+      price_per_unit: 60, min_units: 3, max_units: 30,
+      deadline: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+      deal_type: "physical_product",
+      delivery_options: [{ option_type: "pickup", label: "איסוף — הרצל 12, תל אביב", cost: 0, sort_order: 0, latitude: 32.0668, longitude: 34.7647 }]
+    }
+  });
+  assert.ok([200, 201].includes(created.statusCode), created.body);
+  const dealId = created.json().deal?.deal_id || created.json().deal_id;
+  assert.ok(dealId, created.body);
+
+  const distribution = await app.inject({
+    method: "GET", url: `/api/seller/deals/${dealId}/distribution`, headers: sellerHeaders
+  });
+  assert.equal(distribution.statusCode, 200,
+    `the distribution panel must not 500 under the runtime role — this is the missing GRANT: ${distribution.body}`);
+  const body = distribution.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.deal.deal_id, dealId);
+  assert.deepEqual(body.links, [], "a fresh deal has no seller links yet");
+
+  // Creating a link needs a PUBLISHED, open deal, and publishing needs the
+  // seller business profile — whose grants live in staging file 019, outside
+  // this file's scope. The business rule, not a privilege, refuses it here, and
+  // that refusal is itself proof the route reached its own logic instead of
+  // dying on a permission:
+  const link = await app.inject({
+    method: "POST", url: `/api/seller/deals/${dealId}/distribution/links`,
+    headers: { ...sellerHeaders, "idempotency-key": "boundary-distribution-link" },
+    payload: { internal_name: "ערוץ בדיקה", channel: "whatsapp" }
+  });
+  assert.equal(link.statusCode, 409, link.body);
+  assert.equal(link.json().code, "distribution_link_deal_not_open");
+  console.log("PASS seller distribution hub answers under the canonical runtime role");
+}
 
 const repositorySource = await readFile("src/inventory_repository.ts", "utf8");
 assert.match(repositorySource, /public\.siton_inventory_rpc/);

@@ -81,7 +81,7 @@ export function SupportPage({ dealRef = "" }: { dealRef?: string } = {}) {
     return (
       <div style={{ maxWidth: 560, margin: "40px auto" }}>
         <div className="panel" style={{ textAlign: "center" }}>
-            <h2>{copy.sent_title}</h2>
+            <h1>{copy.sent_title}</h1>
           <p className="muted">{copy.sent_body}</p>
           {sentToSeller ? (
             <p className="muted small" data-testid="support-sent-to-seller">
@@ -97,7 +97,8 @@ export function SupportPage({ dealRef = "" }: { dealRef?: string } = {}) {
   return (
     <div style={{ maxWidth: 560, margin: "24px auto" }}>
       <div className="panel">
-        <h2>{copy.title}</h2>
+        {/* the page's own main heading — the support route had no h1 at all */}
+        <h1>{copy.title}</h1>
         <p className="muted small">
           {copy.intro}
           {supportEmail ? <> אפשר גם לכתוב לנו ל-<a href={`mailto:${supportEmail}`} dir="ltr">{supportEmail}</a>.</> : null}

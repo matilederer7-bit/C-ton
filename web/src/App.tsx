@@ -1,5 +1,5 @@
 import { PublicSellerPage, ContentPage } from "./receiptContent";
-import { captureCmsPreviewFlag, exitCmsPreview, pageOf, useSiteContentState } from "./siteContent";
+import { captureCmsPreviewFlag, contentPageHasBody, exitCmsPreview, pageOf, useSiteContentState } from "./siteContent";
 import { blockOf, FOOTER_DEFAULT_LINKS, FOOTER_DEFAULT_TEXT } from "./content/cmsTemplates";
 import React, { useEffect, useState } from "react";
 import { Mall } from "./pages/mall";
@@ -150,7 +150,12 @@ function AdminHotspot({ onActivate }: { onActivate: () => void }) {
 export default function App() {
   const { content, preview, previewDenied } = useSiteContentState();
   const footer = blockOf(pageOf(content, "footer"), "footer");
-  const footerLinks = footer?.items ?? FOOTER_DEFAULT_LINKS;
+  // A footer link to an empty document page is a dead end the visitor pays for
+  // with a click. Drop it until the page has a body (see contentPageHasBody).
+  const footerLinks = (footer?.items ?? FOOTER_DEFAULT_LINKS).filter((l) => {
+    const match = /^#\/content\/(.+)$/.exec(String(l.link || ""));
+    return match ? contentPageHasBody(content, match[1]!) : true;
+  });
   const [route, navigate] = useRoute();
   const mallEnabled = useMallEnabled();
   const page = route.page;

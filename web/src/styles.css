@@ -19,10 +19,17 @@
   --line: #2c2f36;
   --line-strong: #3a3e47;
 
-  /* ink on dark */
+  /* ink on dark.
+     2026-09-17 accessibility pass: --ink-faint was #767d89, which measured
+     3.65:1 on --surface-warm, 3.89:1 on --surface and 4.28:1 on --bg — below
+     the 4.5:1 WCAG AA floor for normal text, and it is not decorative: it
+     carries the brand sub-line, the footer links and the footer text at
+     11–14px. Lifted to #8b929d, which clears 4.5:1 on ALL four surfaces
+     (4.82 warm, 5.14 surface, 5.66 bg, 6.02 deep) while staying clearly
+     fainter than --ink-soft. Pinned by tests/visual_brand_consistency. */
   --ink: #eef0f4;
   --ink-soft: #a8aeb9;
-  --ink-faint: #767d89;
+  --ink-faint: #8b929d;
 
   /* brand — the C-ton commercial orange (from the logo bar).
      2026-09-17 brand reconciliation: glow/shadow intensities are ~15% below the
