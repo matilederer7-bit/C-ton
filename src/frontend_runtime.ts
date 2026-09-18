@@ -10541,13 +10541,116 @@ export function registerFrontendExperience(
       };
     }
 
+    // Grow hosted authorization CREATE is an external side effect without a
+    // proven provider idempotency key. Reserve one durable Siton intent BEFORE
+    // I/O, keyed by a client-stable idempotency key. This closes the window
+    // where a double-click/concurrent retry could create two provider J5
+    // processes before payment_authorization_bindings deduplicated the result.
+    let growAuthorizationIntent: { correlation_id: string } | null = null;
+    if (deps.paymentProvider.providerCode === "grow") {
+      if (!dealAuthorizationContext || !dealAuthorizationContext.buyer_id) {
+        return reply.code(400).send({
+          ok: false,
+          error: "grow_deal_authorization_required",
+          message: "Grow authorization must be bound to a server-priced deal and buyer."
+        });
+      }
+      const rawIntentKey = String(
+        req.headers?.["idempotency-key"] || body.idempotency_key || body.correlation_id || ""
+      ).trim();
+      if (!/^[A-Za-z0-9:_-]{8,160}$/.test(rawIntentKey)) {
+        return reply.code(400).send({
+          ok: false,
+          error: "payment_authorization_idempotency_key_required",
+          message: "A stable idempotency key (8-160 safe characters) is required for Grow authorization."
+        });
+      }
+      const correlationId = `growauth${createHash("sha256")
+        .update(dealAuthorizationContext.deal_id)
+        .update("\0")
+        .update(dealAuthorizationContext.buyer_id)
+        .update("\0")
+        .update(rawIntentKey)
+        .digest("hex")}`;
+      authorizeInput.correlation_id = correlationId;
+      const reservation = await paymentBindings.reserveAuthorizationCreation({
+        provider_code: deps.paymentProvider.providerCode,
+        provider_mode: deps.paymentProvider.mode,
+        provider_environment: String(process.env.PAYMENT_ENVIRONMENT || "demo"),
+        correlation_id: correlationId,
+        deal_id: dealAuthorizationContext.deal_id,
+        buyer_id: dealAuthorizationContext.buyer_id,
+        qty: dealAuthorizationContext.qty,
+        amount_minor: dealAuthorizationContext.amount_minor,
+        currency: "ILS",
+        delivery_option_id: dealAuthorizationContext.delivery_option_id,
+        delivery_cost: dealAuthorizationContext.delivery_cost
+      });
+      if (!reservation.created) {
+        const prior = reservation.binding;
+        if (
+          prior.provider_payment_url &&
+          !prior.authorization_id.startsWith("siton_create_pending:") &&
+          ["pending_provider_confirmation", "authorized"].includes(prior.status)
+        ) {
+          return reply.send({
+            ok: true,
+            provider: deps.paymentProvider.providerCode,
+            authorization_id: prior.authorization_id,
+            provider_reference: prior.provider_reference,
+            correlation_id: prior.correlation_id,
+            authorization: prior.status === "authorized" ? "authorized" : "pending_provider_confirmation",
+            payment_url: prior.provider_payment_url,
+            hold_message: "Grow-hosted J4/J5 authorization is pending authoritative provider confirmation.",
+            mock: false,
+            expires_at: prior.expires_at,
+            idempotent_replay: true
+          });
+        }
+        const failed = prior.status === "failed";
+        return reply.code(failed ? 409 : 503).send({
+          ok: false,
+          provider: deps.paymentProvider.providerCode,
+          error: failed ? "payment_authorization_intent_failed" : "payment_authorization_intent_unresolved",
+          message: failed
+            ? "This authorization intent already received a provider rejection; start a new intent with a new idempotency key."
+            : "This authorization intent may already have reached Grow. Automatic replay is blocked until the outcome is resolved.",
+          statusCode: failed ? 409 : 503,
+          retryable: false,
+          mock: false,
+          correlation_id: prior.correlation_id
+        });
+      }
+      growAuthorizationIntent = { correlation_id: correlationId };
+    }
+
     const result = await deps.paymentProvider.authorize(authorizeInput);
+
+    if (growAuthorizationIntent) {
+      if (result.ok) {
+        await paymentBindings.completeAuthorizationCreation({
+          correlation_id: growAuthorizationIntent.correlation_id,
+          authorization_id: result.authorization_id,
+          provider_reference: result.provider_reference || result.authorization_id,
+          provider_payment_url: String(result.payment_url || ""),
+          status: result.authorization === "authorized" ? "authorized" : "pending_provider_confirmation",
+          expires_at: result.expires_at ?? null,
+          payment_method_ref: body.payment_method_id ? String(body.payment_method_id) : null
+        });
+      } else {
+        await paymentBindings.markAuthorizationCreationOutcome(
+          growAuthorizationIntent.correlation_id,
+          result.statusCode === 422 ? "failed" : "unknown",
+          String(result.error || "grow_authorization_unavailable")
+        );
+      }
+    }
 
     // Durable server-authoritative binding: the browser only ever gets an
     // opaque handle back; Join consumes THIS record, never the browser's
     // claim. Hosted flows persist as pending until an authoritative provider
     // status lookup confirms the authorization.
-    if (result.ok && dealAuthorizationContext && dealAuthorizationContext.buyer_id) {
+    if (!growAuthorizationIntent && result.ok && dealAuthorizationContext && dealAuthorizationContext.buyer_id) {
       await paymentBindings.createBinding({
         provider_code: deps.paymentProvider.providerCode,
         provider_mode: deps.paymentProvider.mode,
