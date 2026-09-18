@@ -1,7 +1,7 @@
 # Payment Rail Red-Team — 2026-09-18
 
-Baseline reviewed: `34b5dc39e9cbceb413984b6639a32cffe3e5febe`  
-Scope: Grow / Meshulam activation path, authorization creation, capture/refund ambiguity, long-horizon authorization renewal, runtime endpoint safety, Siton fee invariants.  
+Baseline reviewed: `34b5dc39e9cbceb413984b6639a32cffe3e5febe`
+Scope: Grow / Meshulam activation path, authorization creation, capture/refund ambiguity, long-horizon authorization renewal, runtime endpoint safety, Siton fee invariants.
 Real money executed: **0**. Provider credentials used: **0**.
 
 ## Verdict
