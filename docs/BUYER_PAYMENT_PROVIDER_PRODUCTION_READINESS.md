@@ -1,5 +1,7 @@
 # Buyer Payment Provider Production Readiness
 
+> **Historical Stripe-era readiness document.** The current provider-selection and activation source of truth is `docs/PAYMENT_ACTIVATION_SOURCE_OF_TRUTH.md`. Stripe remains an isolated adapter/proof surface; Grow / Meshulam is the intended next provider candidate. Real money remains blocked.
+
 ## Current Decision
 
 Siton supports a first real buyer-payment adapter for Stripe behind the canonical payment provider abstraction. Stripe-specific behavior stays inside `src/payment_provider.ts`; the domain continues to consume normalized authorization, capture, recovery, refund, and webhook reconciliation results.
