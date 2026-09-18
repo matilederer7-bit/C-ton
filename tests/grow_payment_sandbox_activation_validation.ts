@@ -76,6 +76,7 @@ function fakeAuthorize(processId: string, sumOverride?: string) {
     assert.equal(fields.chargeType, "2", "J5 must use the official Suspended Charge chargeType");
     assert.equal(fields.pageCode, "grow-sandbox-page");
     assert.equal(fields.userId, "grow-sandbox-user");
+    assert.match(String(fields.cField1 || ""), /^[A-Za-z0-9]+$/, "Grow callback correlation must use only provider-safe characters");
     assert.equal("apiKey" in fields, false, "undocumented apiKey must not be transmitted");
     fakeGrow.seq += 1;
     const processId = `gp-${fakeGrow.seq}`;
