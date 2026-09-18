@@ -13,7 +13,9 @@ import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Pool } from "pg";
 import { chromiumPath, launchPage, type BrowserPage } from "./helpers/browser_cdp.js";
+import { CONTENT_SECTIONS } from "../src/site_content.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, "..", "..");
@@ -87,10 +89,17 @@ const SNAPSHOT = `(() => {
     .filter((node) => !String(node.getAttribute("aria-labelledby")).split(/\\s+/).every((id) => document.getElementById(id)))
     .map((node) => node.tagName);
   // The language switch names each language in ITS OWN language, so "עברית"
-  // on an English page is correct. Read the page without it.
-  const body = document.body.cloneNode(true);
-  for (const node of Array.from(body.querySelectorAll('[data-testid="language-switch"]'))) node.remove();
-  const text = (body.innerText || body.textContent || "").trim();
+  // on an English page is correct — read the page without it.
+  //
+  // It is HIDDEN rather than cloned away: innerText on a DETACHED node falls
+  // back to textContent, which includes the source of every inline <script>.
+  // That would have read the shell's own boot script as page copy.
+  const hidden = Array.from(document.querySelectorAll('[data-testid="language-switch"]'));
+  const previous = hidden.map((node) => node.style.display);
+  for (const node of hidden) node.style.display = "none";
+  void document.body.offsetHeight;
+  const text = (document.body.innerText || "").trim();
+  hidden.forEach((node, i) => { node.style.display = previous[i] || ""; });
   return {
     lang: el.getAttribute("lang"),
     dir: el.getAttribute("dir"),
@@ -118,6 +127,43 @@ type Snapshot = {
   hasHebrew: boolean; rawJson: boolean; keyLeak: boolean; unlabelled: string[];
   brokenAria: string[]; storedLocale: string | null; cookieLocale: string | null;
 };
+
+/**
+ * Publish the shipped Hebrew defaults as CMS content, the way the deployed
+ * staging site actually holds them.
+ *
+ * This suite used to run against an EMPTY cms, where every screen fell through
+ * to the built-in defaults — and those carry their English sibling, so English
+ * always resolved. The deployed site does not look like that: its `deal_page`
+ * row holds the shipped Hebrew with no English sibling at all, and that is how
+ * "אין גישה למסך המעקב" reached an English tracking screen in production.
+ * Seeding the same shape makes the suite test the real condition.
+ */
+async function publishHebrewOnlyContent() {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    for (const key of ["deal_page", "seller_area", "support_page", "home", "footer"]) {
+      const contract = CONTENT_SECTIONS[key];
+      if (!contract) continue;
+      // Hebrew only: `fields`/`items` exactly as shipped, `fields_en` dropped.
+      const blocks = contract.defaults().map((block) => ({
+        id: block.id, type: block.type, enabled: block.enabled,
+        fields: { ...block.fields },
+        ...(block.items ? { items: block.items.map((item) => ({ ...item })) } : {})
+      }));
+      await pool.query(
+        `INSERT INTO siton.site_content(content_key, value_jsonb, revision, updated_by, published_at)
+         VALUES ($1, $2::jsonb, 1, 'i18n-browser-suite', now())
+         ON CONFLICT (content_key) DO UPDATE
+           SET value_jsonb = EXCLUDED.value_jsonb, revision = siton.site_content.revision + 1,
+               updated_by = EXCLUDED.updated_by, published_at = now()`,
+        [key, JSON.stringify({ blocks })]
+      );
+    }
+  } finally {
+    await pool.end();
+  }
+}
 
 async function waitForHealth() {
   for (let attempt = 0; attempt < 90; attempt += 1) {
@@ -149,6 +195,7 @@ async function main() {
     throw new Error("web/dist is missing — run `npm run --prefix web build` before this suite");
   }
   await mkdir(shotsDir, { recursive: true });
+  await publishHebrewOnlyContent();
   const server = spawn(process.execPath, [compiledAppPath], {
     cwd: repoRoot,
     env: {
