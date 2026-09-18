@@ -379,10 +379,13 @@ function renderLegalMarkdown(markdown: string) {
     .map((block) => {
       const trimmed = block.trim();
       if (!trimmed) return "";
-      if (trimmed.startsWith("# ")) return `<h1>${escapeHtml(trimmed.slice(2))}</h1>`;
-      if (/^#{2,3} /.test(trimmed)) return `<h2>${escapeHtml(trimmed.replace(/^#{2,3} /, ""))}</h2>`;
-      // Same block grammar as the in-app ContentPage renderer: a block made only
-      // of "- " lines is a list, never a paragraph of <br>-joined dashes.
+      // Same block grammar as the in-app ContentPage renderer, which maps EVERY
+      // heading level in the body to <h2>: the document title above is the page's
+      // only <h1>, so a "# " inside the CMS body must not mint a second one.
+      // /legal/refunds and /legal/payments were rendering two and three h1s.
+      if (/^#{1,3} /.test(trimmed)) return `<h2>${escapeHtml(trimmed.replace(/^#{1,3} /, ""))}</h2>`;
+      // A block made only of "- " lines is a list, never a paragraph of
+      // <br>-joined dashes.
       const lines = trimmed.split("\n");
       if (lines.every((line) => line.startsWith("- "))) {
         return `<ul>${lines.map((line) => `<li>${escapeHtml(line.slice(2))}</li>`).join("")}</ul>`;

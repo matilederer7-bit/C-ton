@@ -427,6 +427,12 @@ try {
     const css = await readFile("web/src/styles.css", "utf8");
     assert.match(css, /\.auth-title \{[^}]*font-size: 1\.5rem/,
       "the h1 must keep the 1.5rem size the h2 rendered at — an accessibility fix, not a redesign");
+    // the admin entry screen is its OWN component, not the shared panel, and
+    // kept its h2 after the shared one was fixed — both are pinned here now
+    const stepUp = await readFile("web/src/adminStepUp.tsx", "utf8");
+    assert.match(stepUp, /<h1 className="auth-title">כניסת מנהל<\/h1>/,
+      "the admin step-up title must be the page h1");
+    assert.doesNotMatch(stepUp, /<h2[^>]*>כניסת מנהל/, "and must not also be an h2");
     // and where an empty state IS the whole page, its title is that page's h1
     const components = await readFile("web/src/components.tsx", "utf8");
     assert.match(components, /const Title = props\.level === 1 \? "h1" : "h3";/,
