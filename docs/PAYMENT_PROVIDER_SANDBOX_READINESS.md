@@ -1,5 +1,7 @@
 # Payment Provider Sandbox Readiness
 
+> **Historical Stripe-era readiness document.** The current provider-selection and activation source of truth is `docs/PAYMENT_ACTIVATION_SOURCE_OF_TRUTH.md`. Stripe remains an isolated adapter/proof surface; Grow / Meshulam is the intended next provider candidate. Real money remains blocked.
+
 ## Canonical decision
 
 **Canonical provider: Stripe.** This is an existing repository decision, not a new provider choice. The evidence is `src/payment_provider.ts`, `docs/BUYER_PAYMENT_PROVIDER_PRODUCTION_READINESS.md`, `docs/ENVIRONMENT_CONTRACT.md`, and the historical project status that names Stripe as the first real buyer-payment adapter. The generic `provider-ready` transport remains compatibility infrastructure; it is not a second selected provider.
