@@ -504,6 +504,52 @@ function mapSellerProfile(profile: any, contextSource: string) {
   };
 }
 
+// SELLER LOGIN BRUTE-FORCE THROTTLE (red-team §9) — the generic HTTP rate
+// limiter keys purely on req.ip, which is client-controlled through
+// X-Forwarded-For under `trustProxy: true`, and the seller login path is not
+// even in the sensitive bucket. Neither seller nor distributor password login
+// had any per-account failed-attempt lockout, so an attacker rotating the
+// X-Forwarded-For header could guess a named seller's access code without
+// bound. This adds a per-ACCOUNT throttle on the append-only
+// siton.seller_security_events rail (no migration, no new schema): a real
+// account that accumulates too many recent failures is locked for the window
+// regardless of source IP, mirroring the OTP per-destination and link-viewer
+// per-user throttles. The unrelated seven-day / distributor invariants are
+// untouched.
+const SELLER_LOGIN_FAILED_EVENT = "seller.login.failed";
+const SELLER_LOGIN_FAIL_WINDOW_MINUTES = (() => {
+  const n = Number(process.env.SELLER_LOGIN_FAIL_WINDOW_MINUTES);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 15;
+})();
+const SELLER_LOGIN_MAX_FAILURES = (() => {
+  const n = Number(process.env.SELLER_LOGIN_MAX_FAILURES);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 8;
+})();
+
+async function recentSellerLoginFailures(c: any, sellerId: string): Promise<number> {
+  const res = await c.query(
+    `SELECT COUNT(*)::int AS n
+       FROM siton.seller_security_events
+      WHERE seller_id = $1
+        AND event_type = $2
+        AND created_at > now() - ($3::int * interval '1 minute')`,
+    [sellerId, SELLER_LOGIN_FAILED_EVENT, SELLER_LOGIN_FAIL_WINDOW_MINUTES]
+  );
+  return Number(res.rows[0]?.n || 0);
+}
+
+async function recordSellerLoginFailure(c: any, sellerId: string, req: any): Promise<void> {
+  // Append-only audit row. Never stores the presented secret or raw PII; the
+  // request id is a correlation hint only. Distinct rows are intended (they are
+  // counted), so no idempotency key is used.
+  await c.query(
+    `INSERT INTO siton.seller_security_events
+       (seller_id, event_type, from_status, to_status, actor_ref, reason, request_id, idempotency_key, payload)
+     VALUES ($1, $2, NULL, NULL, 'anonymous', 'login_failed', $3, '', '{}'::jsonb)`,
+    [sellerId, SELLER_LOGIN_FAILED_EVENT, String(req?.headers?.["x-request-id"] || "").slice(0, 200)]
+  );
+}
+
 async function findSellerLoginAccount(c: any, identifier: string) {
   const normalizedIdentifier = String(identifier || "").trim();
   if (!normalizedIdentifier) return null;
@@ -2356,7 +2402,32 @@ export function registerFrontendExperience(
       const identifier = String(req.body?.identifier || req.body?.seller_id || req.body?.login_email || "").trim();
       const accessCode = String(req.body?.access_code || req.body?.password || "").trim();
       const sellerAccount = await findSellerLoginAccount(c, identifier);
+
+      // Per-account brute-force lockout, independent of the (spoofable) source
+      // IP. Checked BEFORE the password so a locked account cannot be probed
+      // further within the window. Only ever engages for a real, auth-enabled
+      // account — the same 401 below still answers a missing account, so this
+      // adds no account-existence oracle the credential check did not already
+      // carry.
+      if (sellerAccount && sellerAccount.auth_enabled) {
+        const failures = await recentSellerLoginFailures(c, String(sellerAccount.seller_id));
+        if (failures >= SELLER_LOGIN_MAX_FAILURES) {
+          return reply.code(429).send({
+            ok: false,
+            error: "seller_auth_rate_limited",
+            code: "SELLER_AUTH_RATE_LIMITED",
+            message: "too many failed login attempts for this account; try again later"
+          });
+        }
+      }
+
       if (!sellerAccount || !sellerAccount.auth_enabled || !verifySellerAccessSecret(accessCode, sellerAccount.auth_secret_hash)) {
+        // Record the failure against a real account so repeated guessing trips
+        // the lockout above. A missing or auth-disabled account has no row to
+        // write to (and needs none — there is nothing to brute-force).
+        if (sellerAccount && sellerAccount.auth_enabled) {
+          await recordSellerLoginFailure(c, String(sellerAccount.seller_id), req);
+        }
         return reply.code(401).send({
           ok: false,
           error: "seller_auth_invalid_credentials",
