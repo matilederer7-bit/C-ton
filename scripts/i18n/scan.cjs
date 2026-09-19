@@ -96,6 +96,45 @@ function scan() {
     ts.forEachChild(sf, (n) => { visit(n); });
   }
 
+  // SERVER-RENDERED STRINGS (red-team §14 mutation finding) — the resolve pass
+  // above walks web/src ONLY, so `ts(locale, "…")` in the server-rendered
+  // shells (the legal documents, the /d/:dealId share page, the footer) was
+  // never validated. A missing key there does not crash and does not fail any
+  // gate: translateIn() returns the KEY itself, so the literal
+  // "app.buying_together_paying_less" renders on a live page. Proven by
+  // mutation: pointing a server call at a non-existent key kept `gate:i18n`
+  // green.
+  //
+  // Resolve-only on purpose. The "Hebrew left in the shipped UI" rule is NOT
+  // applied to server code, which legitimately holds Hebrew constants
+  // (disclaimers, canonical error copy, CMS defaults); applying it there would
+  // be a different policy, not this fix.
+  const SERVER_SRC = path.join(ROOT, "src");
+  if (fs.existsSync(SERVER_SRC)) {
+    for (const file of walk(SERVER_SRC)) {
+      const rel = `src/${path.relative(SERVER_SRC, file).split(path.sep).join("/")}`;
+      const src = fs.readFileSync(file, "utf8");
+      const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+      const at = (node) => `${rel}:${sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1}`;
+      const visitServer = (node) => {
+        // ts(locale, "key") / translateIn(locale, "key")
+        if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) &&
+            (node.expression.text === "ts" || node.expression.text === "translateIn") &&
+            node.arguments.length >= 2 && ts.isStringLiteral(node.arguments[1])) {
+          const key = node.arguments[1].text;
+          usedKeys.add(key);
+          if (!(key in he)) unresolved.push({ where: at(node), key });
+        }
+        // Keys held in *_KEY / *_KEYS constants and maps on the server too.
+        if (ts.isStringLiteral(node) && /^[a-z][a-z0-9_]*(\.[a-z0-9_[\]]+)+$/i.test(node.text) && node.text in he) {
+          usedKeys.add(node.text);
+        }
+        ts.forEachChild(node, (c) => { visitServer(c); });
+      };
+      ts.forEachChild(sf, (n) => { visitServer(n); });
+    }
+  }
+
   // A `<key>#one` singular is never written at a call site: the translator
   // selects it from the base key when the count is 1. It is referenced exactly
   // when its base is, and reporting 13 of them as dead copy would be wrong.
