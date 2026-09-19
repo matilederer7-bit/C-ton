@@ -17,6 +17,7 @@ export type PaymentAuthorizationBinding = {
   provider_environment: string;
   authorization_id: string;
   provider_reference: string;
+  provider_payment_url: string | null;
   deal_id: string;
   buyer_id: string;
   qty: number;
@@ -48,7 +49,7 @@ export class PaymentBindingError extends Error {
 
 const BINDING_COLUMNS = `
   binding_id, provider_code, provider_mode, provider_environment,
-  authorization_id, provider_reference, deal_id, buyer_id,
+  authorization_id, provider_reference, provider_payment_url, deal_id, buyer_id,
   qty, amount_minor, currency, delivery_option_id, delivery_cost,
   status, status_reason, correlation_id,
   consumed_by_participant_id, consumed_at, expires_at,
@@ -67,6 +68,191 @@ function toBinding(row: any): PaymentAuthorizationBinding {
 export function buildPaymentAuthorizationBindings(deps: { withTx: WithTx }) {
   async function ensureStorage() {
     await deps.withTx(async (c) => assertRequiredTables(c, ["payment_authorization_bindings"]));
+  }
+
+  /**
+   * Reserve one external authorization CREATE intent before provider I/O.
+   *
+   * Grow's hosted J4/J5 create contract exposes no provider idempotency key, so
+   * correlation_id is the durable Siton identity. The reservation prevents two
+   * Web instances (double click / network retry / concurrent replay) from both
+   * dispatching createPaymentProcess. A replay with the same identity returns
+   * the existing row; the caller must never perform provider I/O again.
+   */
+  async function reserveAuthorizationCreation(input: {
+    provider_code: string;
+    provider_mode: string;
+    provider_environment: string;
+    correlation_id: string;
+    deal_id: string;
+    buyer_id: string;
+    qty: number;
+    amount_minor: number;
+    currency: string;
+    delivery_option_id?: string | null;
+    delivery_cost?: number;
+  }): Promise<{ created: boolean; binding: PaymentAuthorizationBinding }> {
+    return deps.withTx(async (c) => {
+      const placeholder = `siton_create_pending:${input.correlation_id}`;
+      const inserted = await c.query(
+        `INSERT INTO siton.payment_authorization_bindings (
+           provider_code, provider_mode, provider_environment,
+           authorization_id, provider_reference, provider_payment_url,
+           deal_id, buyer_id, qty, amount_minor, currency,
+           delivery_option_id, delivery_cost, status, status_reason, correlation_id
+         )
+         VALUES ($1,$2,$3,$4,$4,NULL,$5,$6,$7,$8,$9,$10,$11,
+                 'pending_provider_confirmation','provider_create_reserved',$12)
+         ON CONFLICT (correlation_id) DO NOTHING
+         RETURNING ${BINDING_COLUMNS}`,
+        [
+          input.provider_code,
+          input.provider_mode,
+          input.provider_environment,
+          placeholder,
+          input.deal_id,
+          input.buyer_id,
+          input.qty,
+          input.amount_minor,
+          input.currency,
+          input.delivery_option_id ?? null,
+          Number(input.delivery_cost || 0),
+          input.correlation_id
+        ]
+      );
+      if (inserted.rowCount) return { created: true, binding: toBinding(inserted.rows[0]) };
+
+      const existing = await c.query(
+        `SELECT ${BINDING_COLUMNS}
+         FROM siton.payment_authorization_bindings
+         WHERE correlation_id=$1
+         FOR UPDATE`,
+        [input.correlation_id]
+      );
+      if (!existing.rowCount) {
+        throw new PaymentBindingError(
+          "payment_authorization_intent_missing",
+          "authorization intent disappeared after correlation conflict",
+          409
+        );
+      }
+      const binding = toBinding(existing.rows[0]);
+      const sameIntent =
+        binding.provider_code === input.provider_code &&
+        binding.provider_mode === input.provider_mode &&
+        binding.provider_environment === input.provider_environment &&
+        binding.deal_id === input.deal_id &&
+        binding.buyer_id === input.buyer_id &&
+        binding.qty === Number(input.qty) &&
+        binding.amount_minor === Number(input.amount_minor) &&
+        binding.currency === input.currency &&
+        (binding.delivery_option_id || null) === (input.delivery_option_id || null) &&
+        Number(binding.delivery_cost || 0) === Number(input.delivery_cost || 0);
+      if (!sameIntent) {
+        throw new PaymentBindingError(
+          "payment_authorization_idempotency_payload_mismatch",
+          "the idempotency key was already used for a different authorization intent",
+          409
+        );
+      }
+      return { created: false, binding };
+    });
+  }
+
+  /**
+   * Finalize the pre-dispatch reservation after a successful provider CREATE.
+   * The hosted payment URL is customer-facing provider output and is persisted
+   * only so an exact HTTP replay can return the first response without another
+   * provider side effect.
+   */
+  async function completeAuthorizationCreation(input: {
+    correlation_id: string;
+    authorization_id: string;
+    provider_reference: string;
+    provider_payment_url: string;
+    status: "pending_provider_confirmation" | "authorized";
+    expires_at?: Date | string | null;
+    payment_method_ref?: string | null;
+  }): Promise<PaymentAuthorizationBinding> {
+    return deps.withTx(async (c) => {
+      const updated = await c.query(
+        `UPDATE siton.payment_authorization_bindings
+         SET authorization_id=$2,
+             provider_reference=$3,
+             provider_payment_url=$4,
+             status=$5,
+             status_reason='provider_create_succeeded',
+             expires_at=$6,
+             payment_method_ref=NULLIF($7,'')
+         WHERE correlation_id=$1
+           AND status='pending_provider_confirmation'
+           AND status_reason IN ('provider_create_reserved','provider_create_outcome_unknown')
+         RETURNING ${BINDING_COLUMNS}`,
+        [
+          input.correlation_id,
+          input.authorization_id,
+          input.provider_reference,
+          input.provider_payment_url,
+          input.status,
+          input.expires_at ? new Date(input.expires_at).toISOString() : null,
+          String(input.payment_method_ref || "").trim().slice(0, 200)
+        ]
+      );
+      if (updated.rowCount) return toBinding(updated.rows[0]);
+
+      const existing = await c.query(
+        `SELECT ${BINDING_COLUMNS}
+         FROM siton.payment_authorization_bindings
+         WHERE correlation_id=$1`,
+        [input.correlation_id]
+      );
+      if (!existing.rowCount) {
+        throw new PaymentBindingError(
+          "payment_authorization_intent_missing",
+          "authorization reservation was not found during provider completion",
+          409
+        );
+      }
+      const binding = toBinding(existing.rows[0]);
+      if (
+        binding.authorization_id === input.authorization_id &&
+        binding.provider_reference === input.provider_reference &&
+        binding.provider_payment_url === input.provider_payment_url
+      ) return binding;
+      throw new PaymentBindingError(
+        "payment_authorization_intent_not_completable",
+        `authorization intent is ${binding.status} / ${binding.status_reason || "unknown"}`,
+        409
+      );
+    });
+  }
+
+  /**
+   * Record the provider CREATE outcome without losing the reservation.
+   * UNKNOWN stays pending and permanently blocks blind automatic replay.
+   * An explicit provider rejection becomes failed; a fresh buyer intent must
+   * use a fresh idempotency key.
+   */
+  async function markAuthorizationCreationOutcome(
+    correlationId: string,
+    outcome: "unknown" | "failed",
+    reason: string
+  ): Promise<PaymentAuthorizationBinding | null> {
+    return deps.withTx(async (c) => {
+      const r = await c.query(
+        `UPDATE siton.payment_authorization_bindings
+         SET status=CASE WHEN $2='failed' THEN 'failed' ELSE status END,
+             status_reason=CASE WHEN $2='failed'
+               THEN 'provider_create_rejected:' || left($3,160)
+               ELSE 'provider_create_outcome_unknown:' || left($3,160)
+             END
+         WHERE correlation_id=$1
+           AND status='pending_provider_confirmation'
+         RETURNING ${BINDING_COLUMNS}`,
+        [correlationId, outcome, String(reason || "provider_create_outcome").slice(0, 160)]
+      );
+      return r.rowCount ? toBinding(r.rows[0]) : null;
+    });
   }
 
   /**
@@ -509,6 +695,9 @@ export function buildPaymentAuthorizationBindings(deps: { withTx: WithTx }) {
 
   return {
     ensureStorage,
+    reserveAuthorizationCreation,
+    completeAuthorizationCreation,
+    markAuthorizationCreationOutcome,
     createBinding,
     confirmBindingAuthorized,
     consumeBindingForJoinTx,

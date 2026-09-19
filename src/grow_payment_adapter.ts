@@ -119,6 +119,7 @@ function productionLike() {
 }
 
 const GROW_SANDBOX_HOST = "sandbox.meshulam.co.il";
+const GROW_LIVE_HOST = "secure.meshulam.co.il";
 
 function baseUrlHost(baseUrl: string): string {
   try {
@@ -304,8 +305,8 @@ export function assertGrowConfig(config: GrowConfig, requireUrls = true) {
     if (environment === "sandbox" && host !== GROW_SANDBOX_HOST) {
       throw new Error("grow_sandbox_environment_requires_sandbox_meshulam_base_url");
     }
-    if (environment === "live" && host === GROW_SANDBOX_HOST) {
-      throw new Error("grow_live_environment_cannot_use_sandbox_base_url");
+    if (environment === "live" && host !== GROW_LIVE_HOST) {
+      throw new Error("grow_live_environment_requires_secure_meshulam_base_url");
     }
   }
   if (missing.length) throw new Error(`grow_configuration_missing:${missing.join(",")}`);
@@ -414,13 +415,26 @@ export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transpor
         "pageField[email]": safeText(input.payer_email, 200) || undefined,
         cField1: safeText(input.correlation_id, 120)
       });
-      if (response.status === 0) return { result_class: "unknown" as const, retryable: true, error_code: "grow_start_transport_unknown" };
+      // createPaymentProcess has no provider-side idempotency key in the
+      // reviewed J4/J5 contract. Once the request is dispatched, transport
+      // loss, gateway ambiguity, or an incomplete success response may mean a
+      // provider process was created even though Siton received no durable
+      // processId/processToken. A retry could therefore establish a second J5
+      // authorization. Fail closed: ambiguous CREATE outcomes are UNKNOWN and
+      // never automatically retryable. Only an explicit provider rejection is
+      // a declared failure.
+      if (response.status === 0) return { result_class: "unknown" as const, retryable: false, dispatched: true as const, error_code: "grow_start_transport_unknown" };
       const payload: any = response.body;
-      if (response.status < 200 || response.status >= 300) return { result_class: classifyHttp(response.status), retryable: classifyHttp(response.status) === "temporary_fail", error_code: growError(payload) };
-      if (!growSucceeded(payload)) return { result_class: "permanent_fail" as const, retryable: false, error_code: growError(payload) };
+      if (response.status < 200 || response.status >= 300) {
+        const ambiguous = [408, 409, 425, 429].includes(response.status) || response.status >= 500;
+        return ambiguous
+          ? { result_class: "unknown" as const, retryable: false, dispatched: true as const, error_code: `grow_start_http_${response.status}_ambiguous` }
+          : { result_class: "permanent_fail" as const, retryable: false, dispatched: true as const, error_code: growError(payload) };
+      }
+      if (!growSucceeded(payload)) return { result_class: "permanent_fail" as const, retryable: false, dispatched: true as const, error_code: growError(payload) };
       const data = responseData(payload);
       if (!safeText(data.processId) || !safeText(data.processToken) || !safeText(data.url)) {
-        return { result_class: "unknown" as const, retryable: true, error_code: "grow_start_response_incomplete" };
+        return { result_class: "unknown" as const, retryable: false, dispatched: true as const, error_code: "grow_start_response_incomplete" };
       }
       const reference = { process_id: safeText(data.processId, 100), process_token: safeText(data.processToken, 300) };
       return {
