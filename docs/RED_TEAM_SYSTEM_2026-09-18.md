@@ -177,7 +177,7 @@ file's admin-escalation probe uses **4 hand-listed paths** while its seller side
 from the live router, so a new admin route is covered against anonymous callers but not
 against a valid seller session. Worth closing; no defect behind it.
 
-## §2.6 — PII in public responses: one real consent defect
+## §2.6 — PII in public responses: no leak, and one finding I got wrong
 
 A deal was published with a real participant carrying distinctive canary values (name,
 phone, e-mail, address, notes), and every registered public GET route was then swept
@@ -188,38 +188,50 @@ canaries and for secret-shaped fields (`*_token_hash`, `*_secret_hash`, `passwor
 **No secret-shaped field was returned anywhere, and no phone, e-mail, address or note
 leaked to an unauthenticated caller.**
 
-Two classes of hit needed separating before any of it could be called a finding:
+Two classes of hit were *not* findings, and separating them mattered. The `/api/admin/*`
+hits were an artifact of the probe's own configuration: it never set `ADMIN_API_KEY`, so the
+admin surface was unguarded by construction, and `admin_route_auth_coverage_validation`
+already proves every admin route refuses an anonymous caller when that key is configured.
+`/api/seller/analytics` returned the caller's *own* workspace under demo-preview's
+auto-provisioning, and `/api/participants/:id/tracking` showed a buyer their own record.
+An earlier run of this sweep was also thrown away: its participant seed had failed silently,
+which made the buyer-canary half vacuous, so it was re-run with a vacuity guard rather than
+reported as a clean zero.
 
-*Not findings.* The `/api/admin/*` hits were an artifact of the probe's own configuration:
-it never set `ADMIN_API_KEY`, so the admin surface was unguarded by construction.
-`admin_route_auth_coverage_validation` already proves every registered admin route refuses
-an anonymous caller when that key is configured. Likewise `/api/seller/analytics` returned
-the caller's *own* workspace under demo-preview's auto-provisioning, and
-`/api/participants/:id/tracking` showed a buyer their own record.
+### The finding that was wrong
 
-*A real finding.* `siton.participants.public_name_opt_in` is an explicit consent flag — the
-buyer decides whether their name may be shown publicly. Two unauthenticated endpoints
-publish buyer names for the same deal, and only one honoured it:
+This review initially reported a consent defect, implemented a fix, and reverted it. The
+claim was that `public_name_opt_in` was honoured by one public endpoint and ignored by a
+sibling:
 
 ```
-GET /api/deals/:id/public-names -> {"names":["דנה"]}      gated on the flag, correct
-GET /api/deals/:id/activity     -> ["רותי","דנה"]         ignored it
+GET /api/deals/:id/public-names -> {"names":["דנה"]}      gated on the flag
+GET /api/deals/:id/activity     -> ["רותי","דנה"]         not gated
 ```
 
-רותי had set `public_name_opt_in = false` and her first name was still broadcast on the
-public deal page. First-name-only (`split_part(buyer_name, ' ', 1)`, with a `משתתף`
-fallback) is real minimisation and someone clearly thought about it — but a recorded consent
-choice is not a formatting preference, and the codebase already has the flag and already
-enforces it one endpoint over.
+The observation is accurate; the conclusion was not. `public_name_opt_in` **defaults to
+FALSE** (migration 066), so almost no real buyer has set it. Gating the activity feed on it
+would have anonymised that feed for essentially every buyer — a significant product change
+dressed up as a privacy fix.
 
-**Fix.** The activity feed resolves the first name only when the buyer consented. The join
-itself is **not** hidden — it still appears as `משתתף` with its real quantity — so the feed,
-the participant count and the unit count all stay truthful. Consent hides a name, not an
-event.
+They are two features with two different privacy models, not one flag applied
+inconsistently:
 
-`tests/buyer_public_name_consent_validation.ts`, 3 checks, **all three failing before the fix
-and passing after**, including one that asserts the two public surfaces agree with each other
-in both directions so they cannot drift apart again.
+* `/public-names` is a **curated list of full names** for the receipt/trust surface, and
+  therefore requires explicit opt-in.
+* `/activity` is a **live social-proof feed**, and its privacy control is minimisation:
+  `split_part(buyer_name, ' ', 1)` to a first name, with a `משתתף` fallback. That control is
+  deliberate, and `r6_viral_graph_validation` states the contract in its own title —
+  *"public activity feed exposes masked first names only — no phones, emails or ids"*.
+
+Two existing tests caught the regression (`r6_viral_graph_validation`,
+`rate_limit_read_budget_validation`). **Neither was weakened to accommodate the change; the
+change was reverted instead.** That is the tests doing exactly their job.
+
+**What remains, as an owner question rather than a defect:** whether publishing a buyer's
+masked first name on an unauthenticated endpoint without explicit consent is the posture
+Siton wants. That is a product and legal decision about the consent model, not something a
+red team should change unilaterally, and it is recorded in the open list below.
 
 ## §2.8 — Concurrency: attacked, found sound
 
@@ -354,9 +366,9 @@ not a code change.
    above, with the exact remediation recorded. Held back only to avoid a migration-number
    and manifest conflict with the open payments branch.
 5. **Sections not attacked in this pass**, and therefore claiming nothing: §2.3 integration
-   depth beyond the existing suite, §2.7 payments (deliberately untouched — the open
-   payments red-team branch owns that ground), and §2.11 browser UX beyond the bilingual
-   surfaces.
+   depth beyond the existing suite, §2.6 PII in API response bodies, §2.7 payments
+   (deliberately untouched — the open payments red-team branch owns that ground), and
+   §2.11 browser UX beyond the bilingual surfaces.
 
 ## Activation consequence
 
