@@ -177,6 +177,62 @@ file's admin-escalation probe uses **4 hand-listed paths** while its seller side
 from the live router, so a new admin route is covered against anonymous callers but not
 against a valid seller session. Worth closing; no defect behind it.
 
+## §2.6 — PII in public responses: no leak, and one finding I got wrong
+
+A deal was published with a real participant carrying distinctive canary values (name,
+phone, e-mail, address, notes), and every registered public GET route was then swept
+unauthenticated — 284 requests, 126 of which returned 2xx — grepping each body for those
+canaries and for secret-shaped fields (`*_token_hash`, `*_secret_hash`, `password_hash`,
+`bank_account_number`, `access_code`, …).
+
+**No secret-shaped field was returned anywhere, and no phone, e-mail, address or note
+leaked to an unauthenticated caller.**
+
+Two classes of hit were *not* findings, and separating them mattered. The `/api/admin/*`
+hits were an artifact of the probe's own configuration: it never set `ADMIN_API_KEY`, so the
+admin surface was unguarded by construction, and `admin_route_auth_coverage_validation`
+already proves every admin route refuses an anonymous caller when that key is configured.
+`/api/seller/analytics` returned the caller's *own* workspace under demo-preview's
+auto-provisioning, and `/api/participants/:id/tracking` showed a buyer their own record.
+An earlier run of this sweep was also thrown away: its participant seed had failed silently,
+which made the buyer-canary half vacuous, so it was re-run with a vacuity guard rather than
+reported as a clean zero.
+
+### The finding that was wrong
+
+This review initially reported a consent defect, implemented a fix, and reverted it. The
+claim was that `public_name_opt_in` was honoured by one public endpoint and ignored by a
+sibling:
+
+```
+GET /api/deals/:id/public-names -> {"names":["דנה"]}      gated on the flag
+GET /api/deals/:id/activity     -> ["רותי","דנה"]         not gated
+```
+
+The observation is accurate; the conclusion was not. `public_name_opt_in` **defaults to
+FALSE** (migration 066), so almost no real buyer has set it. Gating the activity feed on it
+would have anonymised that feed for essentially every buyer — a significant product change
+dressed up as a privacy fix.
+
+They are two features with two different privacy models, not one flag applied
+inconsistently:
+
+* `/public-names` is a **curated list of full names** for the receipt/trust surface, and
+  therefore requires explicit opt-in.
+* `/activity` is a **live social-proof feed**, and its privacy control is minimisation:
+  `split_part(buyer_name, ' ', 1)` to a first name, with a `משתתף` fallback. That control is
+  deliberate, and `r6_viral_graph_validation` states the contract in its own title —
+  *"public activity feed exposes masked first names only — no phones, emails or ids"*.
+
+Two existing tests caught the regression (`r6_viral_graph_validation`,
+`rate_limit_read_budget_validation`). **Neither was weakened to accommodate the change; the
+change was reverted instead.** That is the tests doing exactly their job.
+
+**What remains, as an owner question rather than a defect:** whether publishing a buyer's
+masked first name on an unauthenticated endpoint without explicit consent is the posture
+Siton wants. That is a product and legal decision about the consent model, not something a
+red team should change unilaterally, and it is recorded in the open list below.
+
 ## §2.8 — Concurrency: attacked, found sound
 
 `tests/concurrency_proof.ts` was examined for the usual cheat (simulating concurrency in one
@@ -215,6 +271,84 @@ The consequence is stated plainly in the open list below: the money-input findin
 verified against a running server locally, in CI, and by the deployed SHA matching master —
 but **not** by a hosted HTTP request.
 
+## §2.9 — The worker runtime role: attacked, found sound
+
+The merged gate covers the Web role. The worker was attacked the same way: a scratch clone
+with the full canonical boundary, a LOGIN role that becomes `siton_worker_runtime`, and then
+the **real** worker entry points from `src/app.ts` (`assertWorkerDatabaseReady`,
+`reclaimWorkerJobs`, `claimPendingOutboxBatch`, `processClaimedOutboxEvent`,
+`runWorkerMaintenance`) driven over that connection.
+
+Result: jobs claimed and processed — real notification dispatch — with **zero 42501**.
+
+One detour worth recording, because the first run looked like a finding and was not.
+`assertWorkerDatabaseReady` reported *"schema drift: missing tables seller_sessions,
+distributor_sessions, support_tickets, deal_delivery_options, deal_images,
+deal_chat_messages"*. Those tables exist; the worker role simply holds no grants on them,
+and `information_schema.tables` is **privilege-filtered**, so it conflates "absent" with
+"not granted". Live staging confirms the worker cannot SELECT any of them — correctly, they
+are web-owned.
+
+That distinction is already handled deliberately: `queryRequiredTables` switches to
+`to_regclass('siton.%I')`, which reports existence regardless of privilege, when
+`CANONICAL_POSTGRES_RUNTIME=1` — and `render.yaml` sets that for **both** the web and worker
+services. The probe simply had not set it. With the production flag set, the readiness check
+passes and the whole cycle runs clean. No defect; a good design someone already got right.
+
+## §2.10 — Migrations: attacked, found sound (and the first reading was wrong)
+
+Ledger on live staging: **65 rows, max position 65, high-water `072`, zero not-succeeded** —
+matching the 65 files on disk exactly. No drift. The red-team chain added no migration.
+
+24 of the 65 files carry no explicit `BEGIN`, and `scripts/run_migrations.cjs` wraps nothing
+itself: it inserts a `running` ledger row, runs `client.query(sql)`, and on error issues a
+`ROLLBACK` that looks like a no-op. That reads like partial application — earlier statements
+committed while the ledger says `failed`.
+
+It was tested rather than assumed, and the reading was wrong. PostgreSQL's **simple query
+protocol wraps a multi-statement string in one implicit transaction**, so a failure mid-file
+rolls the whole file back:
+
+```
+CREATE TABLE probe_first  (id int);
+CREATE TABLE probe_second (id int);
+SELECT 1/0;                      -- 22012
+-> tables surviving: []
+```
+
+No defect. Worth noting only that the safety is **implicit**: it depends on the whole file
+going through one `query()` call on the simple protocol. Splitting migrations into
+per-statement execution, or moving to the extended protocol, would silently remove it and no
+test would notice.
+
+## §2.13 / §2.14 — Supabase advisors: one hygiene item, no exploitable finding
+
+Three advisor classes on the live staging project, each checked rather than relayed:
+
+**`rls_enabled_no_policy` (INFO, 5 tables in `siton_inventory`).** RLS on with no policies is
+**fail-closed**, not open: nobody but the owner reads those tables. `anon` and `authenticated`
+hold zero grants on any `siton` table and zero tables lack RLS. Not a defect.
+
+**`function_search_path_mutable` (WARN, 5 functions).** Real as hygiene, and notable because
+`005_fix_siton_function_search_paths.sql` exists precisely to pin these — so these five
+drifted or arrived later. It is **not exploitable**: all five are `SECURITY INVOKER`
+(`prosecdef = false`), so there is no owner privilege to escalate to, and their bodies
+reference **no database objects at all** — they are pure logic over their arguments and
+`OLD`/`NEW`, so a hostile `search_path` has no unqualified name to capture.
+
+Remediation, deliberately **not** applied in this pass: `ALTER FUNCTION siton.<name>(...) SET
+search_path = pg_catalog, siton` for `is_valid_action_name`, `is_valid_deal_transition`,
+`is_valid_money_transition`, `deal_field_change_audit_append_only` and
+`prevent_published_deal_product_snapshot_change`, shipped as a migration. The next migration
+number is claimed by the open payments branch (`073_payment_authorization_create_idempotency`),
+which also edits `scripts/migration_manifest.cjs`; taking `074` now would put a textual
+conflict into that file for a non-exploitable hygiene item. It should land once that PR merges.
+
+**`auth_leaked_password_protection` (WARN).** Supabase Auth's HaveIBeenPwned check is off.
+Siton runs its own seller/admin/buyer session rails, so this governs a surface the product
+does not authenticate through; enabling it is free and harmless, and it is an owner setting,
+not a code change.
+
 ## Still open
 
 1. **Hosted verification of the money-input guards.** Verified against a running server
@@ -228,9 +362,13 @@ but **not** by a hosted HTTP request.
 3. **Silent clamping of integral out-of-range unit counts** — `min_units: -5` still becomes
    `1` without an error. Deliberately preserved: it is long-standing behaviour the create
    defaults rely on, and changing it is a product decision, not a bug fix.
-4. **Sections not attacked in this pass**, and therefore claiming nothing: §2.9 workers and
-   outbox beyond what the suite already covers, §2.10 migrations, §2.13 Supabase and §2.14
-   general security.
+4. **Function `search_path` pinning** — five `siton` functions, proven non-exploitable
+   above, with the exact remediation recorded. Held back only to avoid a migration-number
+   and manifest conflict with the open payments branch.
+5. **Sections not attacked in this pass**, and therefore claiming nothing: §2.3 integration
+   depth beyond the existing suite, §2.6 PII in API response bodies, §2.7 payments
+   (deliberately untouched — the open payments red-team branch owns that ground), and
+   §2.11 browser UX beyond the bilingual surfaces.
 
 ## Activation consequence
 
