@@ -10860,8 +10860,18 @@ export function registerFrontendExperience(
          FROM siton.participants WHERE deal_id=$1`,
         [dealId]
       );
+      // RED TEAM FIX (Phase 2 §2.6) — a buyer's name appears here only if they
+      // said it could. `public_name_opt_in` is an explicit consent flag, and
+      // /api/deals/:id/public-names already gates on it; this sibling endpoint
+      // — equally public, equally unauthenticated — did not, so a buyer who set
+      // it to false still had their first name broadcast on the deal page.
+      // The join itself is NOT hidden: it still appears, anonymised, so the
+      // activity feed and its counts stay truthful.
       const recent = await c.query(
-        `SELECT split_part(btrim(COALESCE(buyer_name,'')), ' ', 1) AS first_name, qty, created_at
+        `SELECT CASE WHEN public_name_opt_in
+                     THEN split_part(btrim(COALESCE(buyer_name,'')), ' ', 1)
+                     ELSE '' END AS first_name,
+                qty, created_at
          FROM siton.participants
          WHERE deal_id=$1 AND buyer_state NOT IN ('NotJoined','DealFailed','Dropped')
          ORDER BY created_at DESC
