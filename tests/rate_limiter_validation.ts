@@ -6,6 +6,7 @@ import { strict as assert } from "node:assert";
 
 process.env.PORT = String(process.env.PORT || "3350");
 process.env.APP_DEPLOYMENT_MODE = "demo-preview";
+process.env.RENDER = "true";
 // Small limits so tests complete quickly
 process.env.RATE_LIMIT_MAX = "3";
 process.env.RATE_LIMIT_WINDOW_MS = "60000";
@@ -23,12 +24,20 @@ async function run(name: string, fn: () => Promise<void>) {
   }
 }
 
-// Helper: inject with a spoofed client IP (relies on trustProxy:true)
+// Helper: emulate Render's public edge. CF-Connecting-IP is the trusted
+// client identity; X-Forwarded-For is deliberately treated as untrusted input.
+function renderHeaders(clientIp: string, forwardedFor = clientIp) {
+  return {
+    "cf-connecting-ip": clientIp,
+    "x-forwarded-for": forwardedFor
+  };
+}
+
 async function get(url: string, clientIp: string) {
   return app.inject({
     method: "GET",
     url,
-    headers: { "x-forwarded-for": clientIp }
+    headers: renderHeaders(clientIp)
   });
 }
 
@@ -79,7 +88,7 @@ await run("sensitive endpoint uses stricter per-path limit", async () => {
       method: "POST",
       url: "/api/otp/start",
       payload: { phone: "0501234567" },
-      headers: { "x-forwarded-for": ip }
+      headers: renderHeaders(ip)
     });
   }
 
@@ -88,7 +97,7 @@ await run("sensitive endpoint uses stricter per-path limit", async () => {
     method: "POST",
     url: "/api/otp/start",
     payload: { phone: "0501234567" },
-    headers: { "x-forwarded-for": ip }
+    headers: renderHeaders(ip)
   });
   assert.equal(res.statusCode, 429, "expected 429 from sensitive endpoint stricter limit");
 });
@@ -109,6 +118,44 @@ await run("rate limit counter resets after window expires", async () => {
   // We verify this via the Retry-After value being > 0 and <= window
   const retryAfter = Number(blocked.headers["retry-after"]);
   assert.ok(retryAfter > 0 && retryAfter <= 60, "Retry-After should be within window");
+});
+
+await run("spoofed X-Forwarded-For cannot rotate the Render rate-limit identity", async () => {
+  const realClient = "10.4.0.1";
+  for (let i = 0; i < 3; i++) {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/site/home",
+      headers: renderHeaders(realClient, `198.51.100.${20 + i}, 203.0.113.${10 + i}`)
+    });
+    assert.notEqual(res.statusCode, 429, `request ${i + 1} was rate-limited unexpectedly`);
+  }
+
+  const blocked = await app.inject({
+    method: "GET",
+    url: "/api/site/home",
+    headers: renderHeaders(realClient, "192.0.2.44, 198.51.100.77")
+  });
+  assert.equal(
+    blocked.statusCode,
+    429,
+    "rotating caller-controlled X-Forwarded-For values must not create a fresh rate-limit identity"
+  );
+});
+
+await run("missing trusted Render client header falls back to the socket instead of X-Forwarded-For", async () => {
+  const a = await app.inject({
+    method: "GET",
+    url: "/api/site/home",
+    headers: { "x-forwarded-for": "198.51.100.1" }
+  });
+  const b = await app.inject({
+    method: "GET",
+    url: "/api/site/home",
+    headers: { "x-forwarded-for": "203.0.113.99" }
+  });
+  assert.notEqual(a.statusCode, 429);
+  assert.notEqual(b.statusCode, 429);
 });
 
 await app.close();
