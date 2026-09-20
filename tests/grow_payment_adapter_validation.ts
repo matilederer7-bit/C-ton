@@ -153,7 +153,8 @@ assert.equal(requests.some((request) => request.url.includes("approveTransaction
 const unknownAdapter = buildGrowPaymentAdapter({ config, transport: async () => { throw new Error("timeout"); } });
 const unknown = await unknownAdapter.startSuspendedAuthorization({ amount_minor: 100, payer_name: "Test Buyer", payer_phone: "0500000000", description: "Deal", correlation_id: "corr-timeout" });
 assert.equal(unknown.result_class, "unknown");
-assert.equal(unknown.retryable, true);
+assert.equal(unknown.retryable, false, "ambiguous J5 create must never invite a second createPaymentProcess call");
+assert.equal((unknown as any).dispatched, true);
 const capturedUnknown = await unknownAdapter.capture(confirmedReference, 12345);
 assert.equal(capturedUnknown.result_class, "unknown");
 
@@ -165,16 +166,21 @@ const startInput = { amount_minor: 100, payer_name: "Test Buyer", payer_phone: "
 const http4xx = buildGrowPaymentAdapter({ config, transport: async () => ({ status: 422, body: { status: 0, err: { message: "invalid request" } } }) });
 assert.equal((await http4xx.startSuspendedAuthorization(startInput)).result_class, "permanent_fail");
 const http5xx = buildGrowPaymentAdapter({ config, transport: async () => ({ status: 503, body: { status: 0, err: "busy" } }) });
-assert.equal((await http5xx.startSuspendedAuthorization(startInput)).result_class, "temporary_fail");
+const ambiguous503 = await http5xx.startSuspendedAuthorization(startInput);
+assert.equal(ambiguous503.result_class, "unknown");
+assert.equal(ambiguous503.retryable, false, "a 503 after dispatch cannot prove Grow did not create the J5 process");
 const malformed = buildGrowPaymentAdapter({ config, transport: async () => ({ status: 200, body: { status: 1, data: { processId: "missing-token" } } }) });
-assert.equal((await malformed.startSuspendedAuthorization(startInput)).result_class, "unknown");
+const incompleteCreate = await malformed.startSuspendedAuthorization(startInput);
+assert.equal(incompleteCreate.result_class, "unknown");
+assert.equal(incompleteCreate.retryable, false, "an incomplete success may already represent a created provider process");
 const reset = buildGrowPaymentAdapter({ config, transport: async () => { throw new Error("ECONNRESET"); } });
 assert.equal((await reset.status(String(started.provider_reference))).state, "unknown");
 assert.equal((await adapter.status("not-a-sealed-reference")).error_code, "grow_reference_invalid");
 
 // --- sandbox/live separation is bidirectional and fail-closed ----------------
 assert.throws(() => assertGrowConfig({ ...config, environment: "sandbox", base_url: "https://secure.meshulam.co.il/api/light/server/1.0" }), /grow_sandbox_environment_requires_sandbox_meshulam_base_url/);
-assert.throws(() => assertGrowConfig({ ...config, environment: "live", base_url: "https://sandbox.meshulam.co.il/api/light/server/1.0" }), /grow_live_environment_cannot_use_sandbox_base_url/);
+assert.throws(() => assertGrowConfig({ ...config, environment: "live", base_url: "https://sandbox.meshulam.co.il/api/light/server/1.0" }), /grow_live_environment_requires_secure_meshulam_base_url/);
+assert.throws(() => assertGrowConfig({ ...config, environment: "live", base_url: "https://payments.example.invalid/api" }), /grow_live_environment_requires_secure_meshulam_base_url/);
 assertGrowConfig({ ...config, environment: "live", base_url: "https://secure.meshulam.co.il/api/light/server/1.0" });
 
 // --- callback: hint only, correlated, replay-stable --------------------------
@@ -224,4 +230,5 @@ console.log("PASS Grow status parses data.transactions[] and refreshes sealed re
 console.log("PASS Grow J4 settle uses transactionId/transactionToken/userId/sum and resolves credentials read-only first");
 console.log("PASS Grow refund/approve/release follow the official contract honestly (approve never sent, no invented void)");
 console.log("PASS Grow callback stays a structurally-validated hint (correlated, replay-stable, never money truth)");
+console.log("PASS Grow ambiguous J5 creation is non-retryable and live transport is pinned to secure.meshulam.co.il");
 console.log("PASS Grow sandbox/live separation, sealed references, redaction and UNKNOWN transport are fail-closed");

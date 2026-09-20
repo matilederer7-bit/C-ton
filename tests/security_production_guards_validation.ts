@@ -33,6 +33,22 @@ function production(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
   };
 }
 
+function growProduction(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
+  return production({
+    PAYMENT_PROVIDER: "grow",
+    PAYMENT_PROVIDER_MODE: "grow",
+    PAYMENT_ENVIRONMENT: "live",
+    PAYMENT_PROVIDER_BASE_URL: "https://secure.meshulam.co.il/api/light/server/1.0",
+    GROW_USER_ID: "grow-live-contract-user",
+    GROW_PAGE_CODE: "grow-live-contract-page",
+    GROW_REFERENCE_ENCRYPTION_KEY: "grow-live-reference-key-32-characters-minimum",
+    GROW_SUCCESS_URL: "https://siton.example.invalid/pay/success",
+    GROW_CANCEL_URL: "https://siton.example.invalid/pay/cancel",
+    GROW_NOTIFY_URL: "https://siton.example.invalid/webhooks/payments/grow",
+    ...overrides
+  });
+}
+
 assert.doesNotThrow(() => assertProductionRuntimeGuards("web", { APP_DEPLOYMENT_MODE: "demo-preview" }));
 assert.doesNotThrow(() => assertProductionRuntimeGuards("worker", { APP_DEPLOYMENT_MODE: "test", PAYMENT_PROVIDER: "mockpay" }));
 assert.doesNotThrow(() => assertProductionRuntimeGuards("web", production()));
@@ -46,6 +62,19 @@ assert.throws(() => assertProductionRuntimeGuards("web", { APP_DEPLOYMENT_MODE: 
 assert.throws(() => assertProductionRuntimeGuards("web", production({ PAYMENT_WEBHOOK_SECRET: "" })), /PAYMENT_WEBHOOK_SECRET/);
 assert.throws(() => assertProductionRuntimeGuards("web", production({ RUNTIME_ROLE: "worker" })), /cannot start the web process/);
 assert.throws(() => assertProductionRuntimeGuards("web", production({ DISABLE_OUTBOX_WORKER: "0" })), /DISABLE_OUTBOX_WORKER=1/);
+
+// Grow LIVE is a money boundary, not an arbitrary HTTPS transport. Production
+// must be pinned to the provider's canonical live host so a typo/compromised
+// config cannot redirect credentials and financial requests elsewhere.
+assert.doesNotThrow(() => assertProductionRuntimeGuards("web", growProduction()));
+assert.throws(
+  () => assertProductionRuntimeGuards("web", growProduction({ PAYMENT_PROVIDER_BASE_URL: "https://payments.example.invalid/api" })),
+  /secure\.meshulam\.co\.il/
+);
+assert.throws(
+  () => assertProductionRuntimeGuards("web", growProduction({ PAYMENT_PROVIDER_BASE_URL: "https://sandbox.meshulam.co.il/api/light/server/1.0" })),
+  /secure\.meshulam\.co\.il/
+);
 
 // A declared RUNTIME_ROLE must match the starting process in EVERY mode:
 // a staging Worker misconfigured as web fails closed at boot, not only in

@@ -1855,7 +1855,7 @@ export function buildGrowCanonicalPaymentProvider(): PaymentProvider {
           provider: providerCode,
           error: result.error_code || "grow_authorization_unavailable",
           message: result.result_class === "unknown"
-            ? "Grow authorization outcome is unknown; Siton will reconcile and will not guess."
+            ? "Grow authorization creation is ambiguous. Automatic retry is blocked because a second createPaymentProcess call could establish a duplicate J5 authorization; provider/operator review is required."
             : "Grow did not create the suspended authorization.",
           statusCode: result.result_class === "permanent_fail" ? 422 : 503,
           retryable: result.retryable,
