@@ -82,6 +82,8 @@ let current: Locale = DEFAULT_LOCALE;
 let booted = false;
 
 const listeners = new Set<(locale: Locale) => void>();
+/** Runs BEFORE the change, while the outgoing screen is still mounted. */
+const beforeListeners = new Set<(from: Locale, to: Locale) => void>();
 
 export function getLocale(): Locale {
   if (!booted) bootLocale();
@@ -120,10 +122,31 @@ export function setLocale(locale: Locale): void {
   if (!isLocale(locale)) return;
   booted = true;
   const changed = current !== locale;
+  if (changed) {
+    // BEFORE anything moves: the old screen is still mounted, so this is the
+    // only moment at which what the visitor has typed can still be read off it.
+    // Switching language remounts every screen by design (see App.tsx), which
+    // used to take a half-written enquiry with it. Listeners registered here
+    // run synchronously, on every path into setLocale — not just the language
+    // buttons — and a throwing listener must never block the switch.
+    const from = current;
+    for (const fn of Array.from(beforeListeners)) {
+      try { fn(from, locale); } catch { /* a draft capture must never trap the visitor */ }
+    }
+  }
   current = locale;
   persist(locale);
   applyDocumentLocale(locale);
   if (changed) for (const fn of Array.from(listeners)) fn(locale);
+}
+
+/**
+ * Run `fn` synchronously just BEFORE the locale changes, with the outgoing and
+ * incoming locale. Used to capture on-screen drafts while the old tree lives.
+ */
+export function subscribeBeforeLocaleChange(fn: (from: Locale, to: Locale) => void): () => void {
+  beforeListeners.add(fn);
+  return () => { beforeListeners.delete(fn); };
 }
 
 export function subscribeLocale(fn: (locale: Locale) => void): () => void {
@@ -136,4 +159,5 @@ export function __resetLocaleForTests(): void {
   current = DEFAULT_LOCALE;
   booted = false;
   listeners.clear();
+  beforeListeners.clear();
 }

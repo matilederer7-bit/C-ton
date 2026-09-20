@@ -588,5 +588,12 @@
   "mall.live_summary_deals": "{deals} עסקאות פתוחות עכשיו",
   "mall.live_summary_deals#one": "עסקה אחת פתוחה עכשיו",
   "mall.live_summary_units": "{units} יחידות כבר הצטרפו",
-  "mall.live_summary_units#one": "יחידה אחת כבר הצטרפה"
+  "mall.live_summary_units#one": "יחידה אחת כבר הצטרפה",
+  "locale_draft.title": "שינית שפה — מה לעשות עם הטקסט שכתבת?",
+  "locale_draft.intro": "שפת הממשק כבר התחלפה. הטקסט שכתבת נשמר במלואו ולא נמחק. אפשר להשאיר אותו בשפה שבה נכתב, או להחליף אותו בגרסה בשפה החדשה — אפשר לערוך אותה לפני האישור.",
+  "locale_draft.original_label": "הטקסט שכתבת (נשמר)",
+  "locale_draft.suggestion_label": "הגרסה בשפה החדשה — ניתנת לעריכה",
+  "locale_draft.keep_original": "השאר את הטקסט המקורי",
+  "locale_draft.use_translation": "השתמש בתרגום המוצע",
+  "locale_draft.no_engine_note": "אין בסיטון מנוע תרגום אוטומטי, ולכן הגרסה מתחילה מהטקסט שלך — ערכו אותה כרצונכם. שום דבר לא יוחלף בלי אישורכם."
 }
