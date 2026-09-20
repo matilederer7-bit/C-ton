@@ -36,6 +36,8 @@ services:
         generateValue: true
       - key: SELLER_SESSION_SECRET
         generateValue: true
+      - key: OTP_HASH_SALT
+        sync: false
       # R7 — canonical Supabase Storage via the storage-broker Edge Function.
       # SITON_STORAGE_BROKER_KEY is the narrowly-scoped broker credential
       # (bucket-scoped storage ops only); its plaintext lives only in Render.
@@ -96,6 +98,8 @@ services:
         generateValue: true
       - key: SELLER_SESSION_SECRET
         generateValue: true
+      - key: OTP_HASH_SALT
+        sync: false
       # R7 — the Worker shares the canonical Supabase Storage broker identity
       # (asynchronous storage cleanup must reach the same durable bucket).
       - key: STORAGE_ADAPTER
