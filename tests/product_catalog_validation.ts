@@ -57,7 +57,13 @@ await runTest("migration_072_registered_after_long_horizon", async () => {
   assert.ok(names.includes("072_product_catalog_and_fulfillment_estimates.sql"));
   assert.equal(names.some((n) => /^06[2-4]_.*product/.test(n)), false, "Product Catalog does not squat on 062-064");
   const ids = [...manifest.matchAll(/\["(\d{3}a?)", "/g)].map((m) => m[1]);
-  assert.deepEqual(ids.slice(-4), ["069", "070", "071", "072"], "canonical tail is CMS, distribution, long-horizon, Product Catalog");
+  const productCatalogIndex = ids.indexOf("072");
+  assert.ok(productCatalogIndex >= 3, "Product Catalog migration 072 is registered");
+  assert.deepEqual(
+    ids.slice(productCatalogIndex - 3, productCatalogIndex + 1),
+    ["069", "070", "071", "072"],
+    "CMS, distribution, long-horizon and Product Catalog stay in canonical order even after later migrations are added"
+  );
   assert.match(schema, /"products", "product_images"/, "boot fail-closes until 072 is applied (same rule as content tables)");
 });
 
