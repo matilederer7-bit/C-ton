@@ -2466,5 +2466,12 @@
   "mall.live_summary_deals": "{deals} deals open now",
   "mall.live_summary_deals#one": "1 deal open now",
   "mall.live_summary_units": "{units} units already joined",
-  "mall.live_summary_units#one": "1 unit already joined"
+  "mall.live_summary_units#one": "1 unit already joined",
+  "locale_draft.title": "You changed language — what about the text you wrote?",
+  "locale_draft.intro": "The interface language has already changed. Everything you wrote is kept and nothing was deleted. You can keep it in the language you wrote it in, or replace it with a version in the new language — you can edit that version before confirming.",
+  "locale_draft.original_label": "What you wrote (kept)",
+  "locale_draft.suggestion_label": "Version in the new language — editable",
+  "locale_draft.keep_original": "Keep the original text",
+  "locale_draft.use_translation": "Use the suggested translation",
+  "locale_draft.no_engine_note": "Siton has no automatic translation engine, so this version starts from your own text — edit it as you wish. Nothing is replaced without your confirmation."
 }

@@ -40,6 +40,7 @@ import { AdminStepUp } from "./adminStepUp";
 import { bootLocale } from "./i18n/locale.js";
 import { useLocale } from "./i18n/useLocale.js";
 import { LanguageSwitch } from "./i18n/LanguageSwitch.js";
+import { LocaleDraftGuard } from "./i18n/LocaleDraftGuard.js";
 import type { Locale } from "./i18n/locale.js";
 
 // Read the stored language choice and reflect it on <html lang/dir> BEFORE the
@@ -197,6 +198,10 @@ function AppTree({ locale }: { locale: Locale }) {
 
   return (
     <div className="app">
+      {/* Nothing the visitor has typed is lost when the language changes: the
+          drafts are captured before this tree is torn down and restored into
+          the new one, with an explicit choice offered for real prose. */}
+      <LocaleDraftGuard />
       {preview || previewDenied ? (
         <div className="cms-preview-banner" role="status" data-testid="cms-preview-banner" data-preview={preview ? "1" : "0"}>
           <span>{preview ? t("app.draft_preview_only_see_version") : t("app.the_preview_requires_administrator_sign")}</span>
