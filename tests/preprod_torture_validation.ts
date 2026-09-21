@@ -15,6 +15,7 @@ const __dirname = dirname(__filename);
 const repoRoot = join(__dirname, "..", "..");
 const frontendSource = join(repoRoot, "frontend");
 const frontendTarget = join(repoRoot, ".tmp_test_dist", "frontend");
+let buyerPhoneSequence = 0;
 
 function testIp(label: string) {
   const hash = Math.abs(Array.from(label).reduce((sum, ch) => sum + ch.charCodeAt(0), 0));
@@ -214,11 +215,11 @@ async function debugDeal(dealId: string) {
 }
 
 async function authorizeBuyer(suffix: string) {
-  const phoneDigits = String(
-    Math.abs(Array.from(`preprod-${suffix}-${Date.now()}-${Math.random()}`).reduce((sum, ch) => sum + ch.charCodeAt(0), 0))
-  )
-    .padStart(7, "0")
-    .slice(-7);
+  // A character-sum pseudo-hash can collide even within this small torture
+  // matrix, causing two OTP challenges to share a phone and making the test
+  // timing-dependent. Allocate a unique valid test number per authorization.
+  buyerPhoneSequence += 1;
+  const phoneDigits = String(buyerPhoneSequence).padStart(7, "0");
   const otpStart = await app.inject({
     method: "POST",
     url: "/api/otp/start",
@@ -538,4 +539,3 @@ main()
     await app.close().catch(() => undefined);
     process.exit(1);
   });
-
