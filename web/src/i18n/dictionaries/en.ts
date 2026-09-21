@@ -1352,6 +1352,7 @@ export const EN: Record<string, string> = {
   "landing.open_seller_account": "Open a seller account",
   "landing.seller_sign": "Seller sign in",
   "landing.to_my_dashboard": "To my dashboard →",
+  "legal.copyright": "© 2026 Siton. All rights reserved.",
   "legal.nav.affiliates": "Sharing policy",
   "legal.nav.demo": "Demonstration environment",
   "legal.nav.payments": "Payments policy",

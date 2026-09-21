@@ -95,7 +95,11 @@ try {
         if (!/\.(tsx?|css)$/.test(entry)) continue;
         readFileSync(full, "utf8").split("\n").forEach((line, i) => {
           const found = line.match(pictograph);
-          if (found) offenders.push(`${full}:${i + 1} ${found.join("")}`);
+          // © is mandatory legal text, not a decorative pictograph. Keep the
+          // exception exact to the generated dictionary key so it cannot
+          // become a general emoji allow-list for product UI.
+          const legalCopyrightOnly = found?.every((glyph) => glyph === "©") && line.includes('"legal.copyright"');
+          if (found && !legalCopyrightOnly) offenders.push(`${full}:${i + 1} ${found.join("")}`);
         });
       }
     };

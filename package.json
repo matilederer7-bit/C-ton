@@ -20,6 +20,8 @@
     "start:demo:prod": "npm run bootstrap:demo-db && node .demo_dist/src/app.js",
     "start:worker:prod": "node .demo_dist/src/worker.js",
     "test": "npm run test:all",
+    "verify:full": "node scripts/siton_verify.cjs",
+    "verify:release": "npm run release:preflight:full",
     "test:frontend": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/frontend_flow_validation.js && node .tmp_test_dist/tests/frontend_foundation_rtl_accessibility_validation.js",
     "test:frontend-foundation": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/frontend_foundation_rtl_accessibility_validation.js",
     "test:product-surfaces-refinement": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/product_surfaces_refinement_validation.js",

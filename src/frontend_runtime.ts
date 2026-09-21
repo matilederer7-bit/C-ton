@@ -474,7 +474,7 @@ async function renderLegalHtmlPage(
       <div class="legal-notices"><div class="notice info">${escapeHtml(ts(locale, "legal.shell.version_notice"))}</div>${pendingNotice}</div>
       <article class="panel content-doc" data-section="legal_${slug}" lang="${bodyLocale}" dir="${bodyLocale === "he" ? "rtl" : "ltr"}"><h1>${escapeHtml(page.title)}</h1>${renderLegalMarkdown(page.body.replace(/^# [^\n]+\r?\n/, ""))}</article>
     </main>
-    <footer class="footer"><div><a href="/preview/#/support">${escapeHtml(ts(locale, "cms.defaults.footer.link_support"))}</a>${aboutLink}<a href="/legal/terms">${escapeHtml(ts(locale, "cms.defaults.footer.link_terms"))}</a><a href="/legal/privacy">${escapeHtml(ts(locale, "cms.defaults.footer.link_privacy"))}</a><a href="/legal/refunds">${escapeHtml(ts(locale, "cms.defaults.footer.link_refunds"))}</a></div><div style="margin-top:8px">${escapeHtml(ts(locale, "cms.defaults.footer.text"))}</div></footer>
+    <footer class="footer"><div><a href="/preview/#/support">${escapeHtml(ts(locale, "cms.defaults.footer.link_support"))}</a>${aboutLink}<a href="/legal/terms">${escapeHtml(ts(locale, "cms.defaults.footer.link_terms"))}</a><a href="/legal/privacy">${escapeHtml(ts(locale, "cms.defaults.footer.link_privacy"))}</a><a href="/legal/refunds">${escapeHtml(ts(locale, "cms.defaults.footer.link_refunds"))}</a></div><div style="margin-top:8px">${escapeHtml(ts(locale, "cms.defaults.footer.text"))}</div><div class="footer-copyright" data-testid="site-copyright">${escapeHtml(ts(locale, "legal.copyright"))}</div></footer>
   </div></body></html>`;
 }
 

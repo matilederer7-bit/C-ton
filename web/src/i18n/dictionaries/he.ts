@@ -1351,6 +1351,7 @@ export const HE: Record<string, string> = {
   "landing.open_seller_account": "פתיחת חשבון מוכר",
   "landing.seller_sign": "התחברות מוכר",
   "landing.to_my_dashboard": "לדשבורד שלי ←",
+  "legal.copyright": "© 2026 סיטון. כל הזכויות שמורות.",
   "legal.nav.affiliates": "מדיניות שיתוף",
   "legal.nav.demo": "סביבת הדגמה",
   "legal.nav.payments": "מדיניות תשלומים",
