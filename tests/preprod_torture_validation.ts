@@ -1,5 +1,5 @@
 ﻿import assert from "node:assert/strict";
-import { createHmac } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 import { cp, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,7 +15,6 @@ const __dirname = dirname(__filename);
 const repoRoot = join(__dirname, "..", "..");
 const frontendSource = join(repoRoot, "frontend");
 const frontendTarget = join(repoRoot, ".tmp_test_dist", "frontend");
-let buyerPhoneSequence = 0;
 
 function testIp(label: string) {
   const hash = Math.abs(Array.from(label).reduce((sum, ch) => sum + ch.charCodeAt(0), 0));
@@ -215,11 +214,11 @@ async function debugDeal(dealId: string) {
 }
 
 async function authorizeBuyer(suffix: string) {
-  // A character-sum pseudo-hash can collide even within this small torture
-  // matrix, causing two OTP challenges to share a phone and making the test
-  // timing-dependent. Allocate a unique valid test number per authorization.
-  buyerPhoneSequence += 1;
-  const phoneDigits = String(buyerPhoneSequence).padStart(7, "0");
+  // The entire CI gate shares one database, so a file-local sequence can reuse
+  // a phone created by an earlier test. Derive seven decimal digits from a
+  // cryptographically unique fixture id instead of a collision-prone sum.
+  const phoneSeed = createHash("sha256").update(`${suffix}-${randomUUID()}`).digest("hex").slice(0, 12);
+  const phoneDigits = (BigInt(`0x${phoneSeed}`) % 10_000_000n).toString().padStart(7, "0");
   const otpStart = await app.inject({
     method: "POST",
     url: "/api/otp/start",
