@@ -33,6 +33,7 @@ const REQUIRED_SHELL = [
   /<article class="panel content-doc" data-section="legal_/,
   /<main class="container">/,
   /<footer class="footer">/,
+  /data-testid="site-copyright">© 2026 סיטון\. כל הזכויות שמורות\.<\/div>/,
   /href="\/preview\/#\/support">תמיכה ויצירת קשר</,
   /<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">/,
   /<meta name="theme-color" content="#17181b">/
@@ -53,6 +54,23 @@ try {
       assert.equal((res.body.match(/<h1[\s>]/g) || []).length, 1,
         `${slug} must have exactly one top-level heading`);
     }
+  });
+
+  await run("copyright is present once on every server-rendered public legal surface in both languages", async () => {
+    for (const slug of SLUGS) {
+      const he = await app.inject({ method: "GET", url: `/legal/${slug}` });
+      const en = await app.inject({ method: "GET", url: `/legal/${slug}?lang=en` });
+      assert.equal((he.body.match(/data-testid="site-copyright"/g) || []).length, 1, `${slug} Hebrew copyright count`);
+      assert.equal((en.body.match(/data-testid="site-copyright"/g) || []).length, 1, `${slug} English copyright count`);
+      assert.match(he.body, /© 2026 סיטון\. כל הזכויות שמורות\./, `${slug} Hebrew copyright`);
+      assert.match(en.body, /© 2026 Siton\. All rights reserved\./, `${slug} English copyright`);
+    }
+  });
+
+  await run("the React public shell owns the same non-editable copyright invariant", async () => {
+    const appSource = readFileSync(join(process.cwd(), "web", "src", "App.tsx"), "utf8");
+    assert.match(appSource, /data-testid="site-copyright"/);
+    assert.match(appSource, /t\("legal\.copyright"\)/);
   });
 
   await run("the legal chip strip lists the same four documents as the in-app strip and marks the current one", async () => {

@@ -255,7 +255,7 @@ await run("server: read-only requests on the sensitive prefixes get their own bo
   assert.match(appTs, /READ_ONLY_METHODS\.has\(String\(method \|\| ""\)\.toUpperCase\(\)\) \? "read" : "sensitive"/);
   assert.match(appTs, /const readKey = `r:\$\{ip\}`;/);
   assert.match(appTs, /const sensitiveKey = `s:\$\{ip\}`;/);
-  assert.match(appTs, /const SENSITIVE_PATHS = \["\/api\/otp", "\/api\/deals\/join", "\/api\/deals", "\/api\/support"\];/, "sensitive prefixes unchanged");
+  assert.match(appTs, /const SENSITIVE_PATHS = \["\/api\/otp", "\/api\/deals\/join", "\/api\/deals", "\/api\/support", "\/api\/seller\/session\/login", "\/api\/distributor\/session\/login", "\/api\/admin\/auth\/login"\];/, "sensitive prefixes include all password-login surfaces while preserving the existing protected set");
   assert.match(appTs, /const RATE_LIMIT_SENSITIVE_MAX = Number\(process\.env\.RATE_LIMIT_SENSITIVE_MAX \?\? 20\);/, "mutation budget unchanged");
 });
 

@@ -275,6 +275,9 @@ function AppTree({ locale }: { locale: Locale }) {
           <div style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>
             {footer?.fields.text ?? t(FOOTER_DEFAULT_TEXT_KEY)}
           </div>
+          <div className="footer-copyright" data-testid="site-copyright">
+            {t("legal.copyright")}
+          </div>
         </footer>
       ) : null}
     </div>

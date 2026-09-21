@@ -1685,3 +1685,7 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
    notices and push their full stops to the wrong side. */
 .legal-notices { max-width: var(--max); margin: 0 auto 12px; display: grid; gap: 10px; }
 .legal-notices .notice { margin: 0; }
+
+/* The copyright line is product chrome, not CMS content: an editor cannot
+   accidentally remove it from one public surface. It stays in normal flow. */
+.footer-copyright { margin-top: 8px; color: var(--ink-faint); font-size: .78rem; line-height: 1.5; }

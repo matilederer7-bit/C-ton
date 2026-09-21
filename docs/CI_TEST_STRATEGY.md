@@ -2,6 +2,19 @@
 
 Goal: retain every safety proof, stage work so a pull request gets a fast, complete answer, and keep the canonical backend workflow exactly as it went green on master (PR #12, PR #13). The release-readiness workflow is ADDITIVE: it never replaces or weakens a backend gate.
 
+## Canonical entry points
+
+- Full merge gate: `npm run verify:full`. This is the single normal entry
+  point for meaningful changes. It runs static release checks, isolated
+  migrations, behavioural route authorization and the complete grouped suite.
+- Release gate: `npm run verify:release`. Run this before a deploy candidate.
+  It executes the full release-preflight profile, including the dedicated
+  security, payment, concurrency, failure, migration and release proofs.
+
+Subsystem commands remain available for focused development and diagnosis.
+They are not competing definitions of a complete pass. A developer should not
+assemble an ad-hoc release gate from the long script list in `package.json`.
+
 Sources of truth: GitHub = code; Render = web/backend/worker staging runtime; Supabase = canonical PostgreSQL/Auth/infra; Grow = payment provider boundary, currently disabled (mock provider on every checked-in target). Base44 is an excluded legacy surface guarded by the canonical-integrity gate; it is never the business runtime.
 
 ## Workflows and what runs where
