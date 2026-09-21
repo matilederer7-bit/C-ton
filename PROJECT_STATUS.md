@@ -3,7 +3,7 @@
 Updated: 2026-09-21
 Master SHA: `2196927b55da3614ff48a9f07ca064132ed5ecdd`
 Staging SHA: verification pending for the current review
-Database migration high-water: repository `073`; hosted staging verification pending
+Database migration high-water: repository `074`; hosted staging currently through repository `073` / staging grants `026`; migration `074` / staging `027` pending merge
 REAL MONEY: OFF and governance BLOCKED
 Grow Live: OFF
 CI: review PR pending; local static and release-tool gates pass with documented environment skips
@@ -11,7 +11,7 @@ Open blockers: Grow Sandbox contract proof; long-horizon reauthorization proof; 
 
 ## COMPLETED
 
-- Master includes payment hardening through PR #63 and migration 073.
+- Master includes payment hardening through PR #63 and migration 073; the review adds migration 074 to restore fixed function `search_path` settings reset by later `CREATE OR REPLACE` migrations.
 - Current policy fixes the Completion Window at 24 hours, removes the historical seven-day deal cap, fixes the Siton fee at 8% of collected consideration excluding customer VAT, and forbids distributor economics.
 - Historical progress through 2026-09-18 is preserved in `docs/history/PROJECT_STATUS_THROUGH_2026-09-18.md` and Git history.
 - The current Senior Engineering Review is isolated on `codex/senior-engineering-review-20260921`.
@@ -31,6 +31,8 @@ Open blockers: Grow Sandbox contract proof; long-horizon reauthorization proof; 
 
 - Obtain green GitHub CI for the integrated review branch, including every DB-backed test group.
 - Verify hosted staging SHA, migration ledger and real browser paths after merge if the connected infrastructure permits it.
+- Apply and verify repository migration 074 / staging migration 027; re-run the Supabase security advisor to prove the five mutable-function warnings are cleared.
+- Supabase leaked-password protection is disabled. Enable it before production authentication is approved.
 - The repository does not identify a confirmed legal rights-owning entity. Public copyright therefore uses the brand name pending owner confirmation.
 
 ## PERCENTAGE

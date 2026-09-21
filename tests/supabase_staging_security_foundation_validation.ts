@@ -16,6 +16,7 @@ const auth = await readFile("supabase/staging/002_auth_identity_foundation.sql",
 const security = await readFile("supabase/staging/003_browser_fail_closed.sql", "utf8");
 const storage = await readFile("supabase/staging/004_deal_images_bucket.sql", "utf8");
 const verification = await readFile("supabase/staging/verify_r1_foundation.sql", "utf8");
+const searchPathRehardening = await readFile("supabase/staging/027_function_search_path_rehardening.sql", "utf8");
 const extractor = await readFile("scripts/extract_base44_inventory_sql.ps1", "utf8");
 
 await run("inventory_source_is_git_reconstructable", async () => {
@@ -49,6 +50,22 @@ await run("inventory_append_only_and_search_path_guards", async () => {
   assert.match(inventory, /participant_state_audit is append-only/);
   assert.match(inventory, /deal_state_audit is append-only/);
   assert.equal((inventory.match(/SET search_path = (?:''|pg_catalog(?:, siton_inventory)?)/g) || []).length, 8);
+});
+
+await run("later_recreated_siton_functions_are_rehardened", async () => {
+  for (const signature of [
+    "is_valid_action_name\\(text\\)",
+    "is_valid_deal_transition\\(text, text\\)",
+    "is_valid_money_transition\\(text, text\\)",
+    "deal_field_change_audit_append_only\\(\\)",
+    "prevent_published_deal_product_snapshot_change\\(\\)",
+  ]) {
+    assert.match(
+      searchPathRehardening,
+      new RegExp(`ALTER FUNCTION siton\\.${signature}\\s+SET search_path = siton, pg_temp;`),
+    );
+  }
+  assert.equal((searchPathRehardening.match(/ALTER FUNCTION/g) || []).length, 5);
 });
 
 await run("auth_foundation_maps_only_registered_roles", async () => {
