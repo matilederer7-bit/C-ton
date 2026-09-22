@@ -8,6 +8,11 @@
 const fs = require("node:fs");
 
 const CODEX_MODELS = ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra"];
+// Astra is reachable only through an explicit Apex escalation, so its absence
+// degrades one exceptional path. Luna, Terra and Sol carry every ordinary
+// routed task, so their absence stops normal work at the manager's own
+// `Verify selected Codex model access` gate.
+const ROUTINE_CODEX_MODELS = new Set(["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"]);
 const TIER_BY_MODEL = {
   "gpt-5.6-luna": "economy (Luna)",
   "gpt-5.6-terra": "standard (Terra)",
@@ -54,17 +59,35 @@ async function checkGithubToken({ token, repository, fetchImpl = fetch } = {}) {
   if (!response.ok) return { present: true, valid: false, detail: describeStatus(response.status) };
   const body = await response.json();
   const permissions = body.permissions || {};
-  // Classic tokens expose scopes; fine-grained tokens do not and report capability through permissions.
+  // `permissions.push` proves Contents write and nothing else. A classic token
+  // additionally declares its scopes, and `repo` does cover Actions, Issues and
+  // Pull requests. A fine-grained token declares no scopes, so those three
+  // stay UNVERIFIED here: GitHub offers no way to read them back and no
+  // side-effect-free way to exercise them. Reporting them as proven is exactly
+  // the lie that would let the manager fail at `gh pr create` after the build.
   const scopes = (response.headers && typeof response.headers.get === "function" && response.headers.get("x-oauth-scopes")) || "";
-  const lifecycleReady = permissions.push === true;
+  const scopeList = scopes.split(",").map((scope) => scope.trim()).filter(Boolean);
+  const classicRepoScope = scopeList.includes("repo");
+  const contentsWrite = permissions.push === true;
+  if (!contentsWrite) {
+    return {
+      present: true,
+      valid: false,
+      detail: "token reaches the repository but has no write (push) access, so branch, commit and Pull Request lifecycle would fail",
+      contentsWrite: false,
+      unverified: [],
+    };
+  }
+  const unverified = classicRepoScope ? [] : ["Actions: read and write", "Issues: read and write", "Pull requests: read and write"];
   return {
     present: true,
-    valid: lifecycleReady,
-    detail: lifecycleReady
-      ? `repository write access confirmed${scopes ? ` (classic scopes: ${scopes})` : " (fine-grained token)"}`
-      : "token reaches the repository but has no write (push) access, so branch, commit and Pull Request lifecycle would fail",
-    push: permissions.push === true,
-    admin: permissions.admin === true,
+    valid: true,
+    detail: classicRepoScope
+      ? `write access confirmed by the classic \`repo\` scope (scopes: ${scopes})`
+      : "Contents write confirmed (fine-grained token); Actions, Issues and Pull requests write cannot be read back from the API and are NOT verified here",
+    contentsWrite: true,
+    classicRepoScope,
+    unverified,
   };
 }
 
@@ -77,7 +100,7 @@ async function checkGithubActions({ token, repository, fetchImpl = fetch } = {})
     signal: AbortSignal.timeout(30000),
   });
   if (!response.ok) return { present: true, valid: false, detail: `Actions read failed: ${describeStatus(response.status)}; the parallel analysis swarm cannot be dispatched` };
-  return { present: true, valid: true, detail: "Actions read confirmed; swarm dispatch requires Actions write, proven only by a real run" };
+  return { present: true, valid: true, detail: "Actions read confirmed; dispatching the swarm additionally needs Actions WRITE, which this read does not prove" };
 }
 
 async function checkOpenAi({ apiKey, models = CODEX_MODELS, fetchImpl = fetch } = {}) {
@@ -121,13 +144,21 @@ function buildReport({ github, actions, openai, anthropic, oauth, repository }) 
   if (!claudeReady) blockers.push("No Claude credential: set ANTHROPIC_API_KEY (recommended) or CLAUDE_CODE_OAUTH_TOKEN so Claude can act as builder or reviewer.");
   else if (anthropic.present && anthropic.valid === false) blockers.push(`ANTHROPIC_API_KEY is present but unusable: ${anthropic.detail}`);
 
-  const unavailableModels = Object.entries(openai.models || {}).filter(([, state]) => state !== "available").map(([model]) => model);
   const warnings = [];
-  for (const model of unavailableModels) {
+  for (const [model, state] of Object.entries(openai.models || {})) {
+    if (state === "available") continue;
     const tier = TIER_BY_MODEL[model] || model;
-    warnings.push(`Codex model ${model} is not available to this account, so the ${tier} tier cannot run as routed.`);
+    const message = `Codex model ${model} is not available to this account, so the ${tier} tier cannot run as routed.`;
+    // A routed tier that cannot run is a blocker: the manager fails closed at
+    // its own model-access gate, so calling this READY would be false.
+    if (ROUTINE_CODEX_MODELS.has(model)) blockers.push(message);
+    else warnings.push(`${message} Apex is opt-in, so ordinary routed work is unaffected.`);
   }
   if (anthropic.valid === true && oauth.present) warnings.push("Both Claude credentials are configured; the manager uses ANTHROPIC_API_KEY and ignores CLAUDE_CODE_OAUTH_TOKEN.");
+  const unverified = github.present && github.valid ? github.unverified || [] : [];
+  if (unverified.length) {
+    warnings.push(`These SITON_AGENT_GITHUB_TOKEN permissions are NOT verified by this preflight and cannot be read back from the API: ${unverified.join("; ")}. Confirm them on the token itself; the first managed run is the only real proof.`);
+  }
 
   return {
     schema: "siton.credential-preflight.v1",
@@ -135,13 +166,14 @@ function buildReport({ github, actions, openai, anthropic, oauth, repository }) 
     checked_at: new Date().toISOString(),
     claude_auth_mode: anthropic.valid === true ? "api" : oauth.present ? "oauth" : "none",
     secrets: {
-      SITON_AGENT_GITHUB_TOKEN: { present: github.present, valid: github.valid, detail: github.detail, actions_read: actions.valid === true },
+      SITON_AGENT_GITHUB_TOKEN: { present: github.present, valid: github.valid, detail: github.detail, actions_read: actions.valid === true, unverified_permissions: github.unverified || [] },
       OPENAI_API_KEY: { present: openai.present, valid: openai.valid, detail: openai.detail },
       ANTHROPIC_API_KEY: { present: anthropic.present, valid: anthropic.valid, detail: anthropic.detail },
       CLAUDE_CODE_OAUTH_TOKEN: { present: oauth.present, valid: oauth.valid, detail: oauth.detail },
     },
     codex_models: openai.models || {},
     ready: blockers.length === 0,
+    unverified,
     blockers,
     warnings,
   };
@@ -154,7 +186,7 @@ function renderMarkdown(report) {
     "",
     `Repository: ${report.repository}`,
     `Checked at: ${report.checked_at}`,
-    `Overall: ${report.ready ? "READY" : "BLOCKED"}`,
+    `Overall: ${report.ready ? (report.unverified.length ? "READY, WITH UNVERIFIED TOKEN PERMISSIONS" : "READY") : "BLOCKED"}`,
     `Claude auth mode: ${report.claude_auth_mode}`,
     "",
     "| Secret | Present | Live check | Detail |",
@@ -171,6 +203,13 @@ function renderMarkdown(report) {
     lines.push("", "### BLOCKER REQUIRES OWNER ACTION", "");
     for (const blocker of report.blockers) lines.push(`- ${blocker}`);
     lines.push("", "Add the missing secrets at https://github.com/" + report.repository + "/settings/secrets/actions, then re-run this preflight.");
+  }
+  if (report.unverified.length) {
+    lines.push("", "### Not verified by this preflight", "");
+    lines.push("GitHub does not expose a fine-grained token's own permissions, and there is no side-effect-free way to exercise them. Confirm these on the token itself:");
+    lines.push("");
+    for (const permission of report.unverified) lines.push(`- ${permission}`);
+    lines.push("", "Without Actions write the swarm dispatch fails; without Pull requests write the Pull Request fails. Both happen after the build has already run.");
   }
   if (report.warnings.length) {
     lines.push("", "### Warnings", "");

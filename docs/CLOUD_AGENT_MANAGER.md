@@ -85,7 +85,17 @@ The checkout does not persist credentials. Builders therefore do not inherit the
 
 Run it from Actions, or from the GitHub mobile app, using `Siton Cloud Credential Preflight` then `Run workflow`. Give the optional `issue_number` input to have the report posted as an issue comment instead of only into the run summary.
 
-It reports, per secret, whether it is configured and whether the provider actually accepts it, plus which of `gpt-5.6-luna`, `gpt-5.6-terra`, `gpt-5.6-sol` and `gpt-6-astra` the OpenAI account can reach. A blocked preflight names the exact owner action and fails the run. Secret values are never printed, stored or echoed; every emitted string is scrubbed against the configured secrets first.
+It is `workflow_dispatch` only, on purpose. A `push` trigger would run the pushed revision of the workflow and of the script it invokes with all four long-lived secrets bound, on any branch and before any review, which would let an unreviewed branch exfiltrate every cloud credential. The script's own regression tests run secretless on every Pull Request inside the release-tools suite, so nothing is lost by refusing the automatic trigger.
+
+It reports, per secret, whether it is configured and whether the provider actually accepts it, plus which of `gpt-5.6-luna`, `gpt-5.6-terra`, `gpt-5.6-sol` and `gpt-6-astra` the OpenAI account can reach. Secret values are never printed, stored or echoed; every emitted string is scrubbed against the configured secrets first.
+
+Three verdicts:
+
+- `BLOCKED` — something needed is missing or refused. The report names the exact owner action and the run fails. An unreachable Luna, Terra or Sol blocks, because ordinary routed work stops at the manager's own model-access gate.
+- `READY, WITH UNVERIFIED TOKEN PERMISSIONS` — everything checkable passed, but the lifecycle token is fine-grained. `permissions.push` proves Contents write and nothing else; GitHub does not expose a fine-grained token's own permissions and there is no side-effect-free way to exercise them, so **Actions, Issues and Pull requests write are not verified**. The report lists them so you can confirm them on the token. This matters: without Actions write the swarm dispatch fails, and without Pull requests write the Pull Request fails, both *after* the build has already run.
+- `READY` — everything checkable passed with nothing left unverified. Only a classic token carrying the `repo` scope reaches this, because that scope is readable from the API response.
+
+An unreachable `gpt-6-astra` is a warning, not a blocker: Apex is opt-in, so ordinary routed work is unaffected.
 
 ### Recommended Siton setup
 
@@ -149,9 +159,9 @@ These are the only steps a person must perform by hand. Everything after them is
 2. **Anthropic API key.** Open https://console.anthropic.com/settings/keys , choose *Create Key*, name it `siton-cloud-agent`, and copy the value. It is shown once.
 3. **OpenAI API key.** Open https://platform.openai.com/api-keys , choose *Create new secret key*, name it `siton-cloud-agent`, and copy the value. Confirm the project has credit; a ChatGPT subscription does not by itself grant API access.
 4. **Store all three as repository secrets.** Open https://github.com/matilederer7-bit/C-ton/settings/secrets/actions and use *New repository secret* three times, with these exact names: `SITON_AGENT_GITHUB_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`.
-5. **Verify.** Run `Siton Cloud Credential Preflight` from Actions. It must report `Overall: READY`.
+5. **Verify.** Run `Siton Cloud Credential Preflight` from Actions. It must not report `BLOCKED`. With the fine-grained token from step 1 it reports `READY, WITH UNVERIFIED TOKEN PERMISSIONS` and lists the three write permissions it cannot check; confirm those against step 1 rather than assuming them.
 
-Until step 5 reports READY, every managed run stops at credential resolution and comments the missing secret names back on its source issue.
+Until step 5 stops reporting BLOCKED, every managed run stops at credential resolution and comments the missing secret names back on its source issue.
 
 ## Triggering from ChatGPT
 

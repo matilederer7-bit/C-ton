@@ -43,7 +43,7 @@ test("github token check separates absent, unusable and lifecycle-ready", async 
 
   const ready = await checkGithubToken({ token: "t", repository: "o/r", fetchImpl: async () => okRepo });
   assert.equal(ready.valid, true);
-  assert.equal(ready.push, true);
+  assert.equal(ready.contentsWrite, true);
 });
 
 test("codex model availability is reported per routed tier without downgrading", async () => {
@@ -68,9 +68,75 @@ test("codex model availability is reported per routed tier without downgrading",
     oauth: claudeOauthStatus(""),
     repository: "o/r",
   });
+  // Apex is opt-in, so an unreachable Astra does not block ordinary work.
   assert.equal(report.ready, true);
   assert.equal(report.blockers.length, 0);
   assert.ok(report.warnings.some((warning) => /gpt-6-astra/.test(warning) && /apex \(Astra\)/.test(warning)));
+});
+
+test("an unreachable routed tier blocks READY instead of warning", () => {
+  const base = {
+    github: { present: true, valid: true, detail: "ok", unverified: [] },
+    actions: { present: true, valid: true, detail: "ok" },
+    anthropic: { present: true, valid: true, detail: "ok" },
+    oauth: claudeOauthStatus(""),
+    repository: "o/r",
+  };
+  const models = (missing) => Object.fromEntries(
+    ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra"].map((model) => [model, model === missing ? "unavailable (HTTP 404)" : "available"]),
+  );
+  // Every routed tier reaches the manager's own model-access gate, so calling
+  // the account READY while one of them is unreachable would be a false verdict.
+  for (const missing of ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"]) {
+    const report = buildReport({ ...base, openai: { present: true, valid: true, detail: "ok", models: models(missing) } });
+    assert.equal(report.ready, false, `${missing} must block`);
+    assert.ok(report.blockers.some((blocker) => blocker.includes(missing)));
+    assert.match(renderMarkdown(report), /Overall: BLOCKED/);
+  }
+  const astra = buildReport({ ...base, openai: { present: true, valid: true, detail: "ok", models: models("gpt-6-astra") } });
+  assert.equal(astra.ready, true);
+  assert.equal(astra.blockers.length, 0);
+});
+
+test("token write permissions are never reported as proven when they were not checked", async () => {
+  const repoResponse = (permissions, scopes) => ({
+    ok: true,
+    status: 200,
+    headers: { get: (name) => (name === "x-oauth-scopes" ? scopes : null) },
+    json: async () => ({ permissions }),
+  });
+
+  // A fine-grained token: permissions.push proves Contents write only.
+  const fineGrained = await checkGithubToken({ token: "t", repository: "o/r", fetchImpl: async () => repoResponse({ push: true }, null) });
+  assert.equal(fineGrained.valid, true);
+  assert.equal(fineGrained.contentsWrite, true);
+  assert.deepEqual(fineGrained.unverified, ["Actions: read and write", "Issues: read and write", "Pull requests: read and write"]);
+  assert.match(fineGrained.detail, /NOT verified/);
+
+  // A classic token carrying `repo` really does cover those three.
+  const classic = await checkGithubToken({ token: "t", repository: "o/r", fetchImpl: async () => repoResponse({ push: true }, "repo, read:org") });
+  assert.equal(classic.valid, true);
+  assert.deepEqual(classic.unverified, []);
+  assert.match(classic.detail, /classic/);
+
+  // An Actions READ probe must not be presented as proof of Actions WRITE.
+  const actions = await checkGithubActions({ token: "t", repository: "o/r", fetchImpl: async () => ({ ok: true, status: 200 }) });
+  assert.match(actions.detail, /Actions WRITE, which this read does not prove/);
+
+  const report = buildReport({
+    github: fineGrained,
+    actions,
+    openai: { present: true, valid: true, detail: "ok", models: {} },
+    anthropic: { present: true, valid: true, detail: "ok" },
+    oauth: claudeOauthStatus(""),
+    repository: "o/r",
+  });
+  assert.equal(report.ready, true);
+  assert.deepEqual(report.unverified, fineGrained.unverified);
+  const markdown = renderMarkdown(report);
+  assert.match(markdown, /Overall: READY, WITH UNVERIFIED TOKEN PERMISSIONS/);
+  assert.match(markdown, /Not verified by this preflight/);
+  assert.match(markdown, /Without Actions write the swarm dispatch fails/);
 });
 
 test("a missing credential produces a named, owner-actionable blocker", () => {
@@ -159,6 +225,12 @@ test("runPreflight wires every credential from the environment", async () => {
 test("preflight workflow is phone-runnable, read-only and never echoes a secret", () => {
   const workflow = read(".github/workflows/cloud-credential-preflight.yml");
   assert.match(workflow, /on:\n  workflow_dispatch:/);
+  // A push trigger would run the PUSHED revision of this workflow and of the
+  // script it invokes, with all four long-lived secrets bound, on any branch
+  // and before review. Dispatch-only is the boundary; do not reintroduce one.
+  assert.doesNotMatch(workflow, /^\s{2}push:/m);
+  assert.doesNotMatch(workflow, /^\s{2}pull_request(_target)?:/m);
+  assert.doesNotMatch(workflow, /^\s{2}schedule:/m);
   assert.match(workflow, /permissions:\n  contents: read\n  issues: write/);
   assert.doesNotMatch(workflow, /contents: write/);
   assert.match(workflow, /node scripts\/agent_credentials_preflight\.cjs/);
