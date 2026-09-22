@@ -1,12 +1,20 @@
 # SITON PROJECT STATUS
 
-Updated: 2026-09-18
+Updated: 2026-09-22
 Canonical branch: `master`
 Current merged baseline: `2e32f436d809a330c8a2189994362cc9f459b009` (PR #53)
 Render staging: LIVE on that SHA — web `dep-dame6v0u01pc738qrku0`, worker `dep-dame6v0u01pc738qrlb0`
 Supabase staging: migration high-water **072**, grants through `staging_026`
 
 ## CURRENT SNAPSHOT
+
+## AGENT TEAM ACTIVATION — 2026-09-22
+
+- COMPLETED: PR #72 now contains a phone-first owner-only intake workflow, automatic dispatch into the Cloud Agent Manager, structured routing from Issue fields, mandatory four-lane parallel analysis for sensitive/Apex work, synthesis evidence attached to the PR, failure telemetry, and source-Issue reporting.
+- TESTED / CHECKED: repository CI is running on the updated PR head. The previous final PR head had all four hosted CI workflows green. New activation-specific regression tests were added for intake dispatch, owner gating, mandatory swarm execution and failure telemetry.
+- OPEN: hosted CI on the updated head must finish green; then PR #72 must merge to master and Issue #73 must be reopened to prove the new intake on the default branch. Repository secrets and actual model inference remain runtime proof points rather than assumptions.
+- PERCENTAGE: 85% until the first master-based end-to-end cloud run succeeds.
+- NEXT: finish CI, merge PR #72, reopen Issue #73, verify intake run, manager run, real model access, parallel swarm, synthesis and result comment. Declare CLOUD AGENT TEAM OPERATIONAL only after that proof.
 
 ### COMPLETED
 
@@ -359,13 +367,14 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 <!-- AGENT_STATUS:codex:START -->
 ### Codex latest milestone
 
-- UPDATED: 2026-09-17
-- BRANCH: `master`
-- COMPLETED: PR #37 Seller Distribution Hub merged; missing migration 070 was applied to staging; Render redeploy reached LIVE; missing CMS migration 069 was applied and verified; hosted UX/runtime gaps were converted into Issues #39/#40 with collision-safe sequencing.
-- TESTED: distribution schema exists; Render is LIVE on `8bdd401...`; CMS draft schema reads successfully; the previously confirmed active seven-day seller restriction was resolved and merged in PR #42 (`72651b2`).
-- OPEN: Claude Issue #40 replacement PR, then merge/migration071/deploy/smoke; Issue #39 follows; PR #38 after that with Product Catalog migration 072.
-- PERCENTAGE: Distribution Hub merged/deployed 100%; long-horizon current-master integration pending.
-- NEXT STEP: integrate Issue #40 output through fresh CI and staging before accepting any later overlapping UX/shelf branch.
+- UPDATED: 2026-09-22
+- BRANCH: `codex/engineering-operating-system-v2`; Apex follow-up on PR #72 head `f38b269eb3e5ab6214d6ca31df9a407477110671` in an isolated checkout.
+- COMPLETED: added exceptional Apex / `gpt-6-astra` above Luna/Terra/Sol, with four enumerated escalation reasons, mandatory concrete evidence, critical-risk validation and no silent provider/model downgrade. Connected Issue form routing fields that previously were ignored. Explicit provider overrides cannot bypass Astra on an Apex run. Head synthesis stays Sol by default; four analyst models remain economical. Added per-model API metadata preflight and model/reason telemetry. Documented direct entry links, commands, owner-only issue-open trigger, GitHub-hosted execution with computer off, separate swarm dispatch, manual merge, concurrency limits, and the distinction between model availability and authenticated inference.
+- VERIFIED SUPPORT: official OpenAI model documentation and local app model catalog include Astra. Actual OpenAI codex-action v1 source at `86365089eb2b84e0a8fb0717b304f8bdcb13b20e` accepts model/effort/profile and passes the model directly to Codex. GitHub workflow API-key inference remains unverified.
+- TESTED: focused router/manager/access/wiring tests 24/24 PASS; JavaScript syntax PASS; TypeScript noEmit PASS; all three YAML files parse, dispatch inputs within the 10-input limit; git diff check PASS. Broad release-tools run: 65 PASS, 33 FAIL, 6 SKIP; all 33 failures reproduce on the original PR head in this Windows sandbox (spawn EPERM/null process exits), zero newly failing test names. Original baseline additionally has a CRLF-sensitive workflow-text assertion failure. Canonical verifier BLOCKED by Windows npm.cmd spawn EINVAL and no disposable DATABASE_URL. Previous remote head has all four CI workflows green; new-head CI must be checked after publication.
+- OPEN: final new-head CI and PR integration; repository secret inventory and authenticated cloud smoke could not be inspected/performed in this session. Browser is signed out and available GitHub connector has no secrets/dispatch endpoint. Do not infer missing secrets from that access limit. No real-money, Grow, product runtime or production changes.
+- PERCENTAGE: Apex code/docs implementation 100%; overall activation track 85%, pending CI/integration and successful authenticated managed-task/Astra smoke.
+- NEXT STEP: publish this tested follow-up to PR #72 without force-push, verify new-head CI, integrate through owner-controlled merge, then run one docs-only managed task and a justified read-only Apex synthesis with configured cloud credentials.
 <!-- AGENT_STATUS:codex:END -->
 
 <!-- AGENT_STATUS:cloud-manager:START -->

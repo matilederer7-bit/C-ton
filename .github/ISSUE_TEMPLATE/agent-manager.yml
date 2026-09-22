@@ -34,6 +34,83 @@ body:
     validations:
       required: false
   - type: dropdown
+    id: task_type
+    attributes:
+      label: Task type
+      options:
+        - auto
+        - frontend
+        - backend
+        - database
+        - security
+        - payments
+        - tests
+        - docs
+        - ux
+        - operations
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk
+      options:
+        - normal
+        - low
+        - high
+        - critical
+    validations:
+      required: true
+  - type: dropdown
+    id: model_tier
+    attributes:
+      label: Compute tier
+      description: Auto enforces at least Senior for sensitive work. Apex requires a reason and concrete evidence below.
+      options:
+        - auto
+        - economy
+        - standard
+        - senior
+        - apex
+    validations:
+      required: true
+  - type: dropdown
+    id: apex_reason
+    attributes:
+      label: Apex reason
+      description: Choose none for ordinary work. A non-none reason with Auto requests Apex.
+      options:
+        - none
+        - cross-system-architecture
+        - critical-cross-layer
+        - conflicting-reviews
+        - senior-investigation-exhausted
+    validations:
+      required: true
+  - type: textarea
+    id: apex_evidence
+    attributes:
+      label: Apex evidence
+      description: For Apex, give at least 40 characters naming affected layers and the decision, conflicting report references, or failed Senior attempts. Critical cross-layer requires critical risk.
+    validations:
+      required: false
+  - type: textarea
+    id: allowed_paths
+    attributes:
+      label: Allowed paths
+      description: Optional explicit write ownership for collision prevention.
+      placeholder: One repository path or glob per line.
+    validations:
+      required: false
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: Issues or Pull Requests that must land first.
+      placeholder: '#123, PR #124'
+    validations:
+      required: false
+  - type: dropdown
     id: priority
     attributes:
       label: Priority

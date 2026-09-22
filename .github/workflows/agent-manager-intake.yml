@@ -1,0 +1,67 @@
+name: Siton Agent Manager Intake
+
+on:
+  issues:
+    types: [opened, reopened, labeled]
+
+permissions:
+  contents: read
+  issues: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.event.issue.user.login == github.repository_owner &&
+      startsWith(github.event.issue.title, '[agent-manager]') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'agent-manager-run')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Build safe workflow-dispatch payload
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const body = String(process.env.ISSUE_BODY || '').replace(/\r\n/g, '\n');
+          const issueNumber = String(process.env.ISSUE_NUMBER || '').trim();
+          const sections = {};
+          for (const section of body.split(/^### /m).slice(1)) {
+            const [label, ...lines] = section.split('\n');
+            const value = lines.join('\n').trim();
+            sections[label.trim()] = value === '_No response_' ? '' : value;
+          }
+          const pick = (label, fallback) => String(sections[label] || fallback);
+          const payload = {
+            ref: 'master',
+            inputs: {
+              task: `[source-issue:${issueNumber}]\n${body}`,
+              builder: 'auto',
+              reviewer: 'auto',
+              scope: pick('Scope', 'Smallest coherent repository scope required for the task.'),
+              do_not_touch: pick('Additional do-not-touch boundaries', 'Grow, real money, production side effects, unrelated product areas.'),
+              task_type: pick('Task type', 'auto'),
+              risk: pick('Risk', 'normal'),
+              model_tier: pick('Compute tier', 'auto'),
+              apex_reason: pick('Apex reason', 'none'),
+              apex_evidence: pick('Apex evidence', ''),
+            },
+          };
+          fs.writeFileSync('/tmp/agent-dispatch.json', JSON.stringify(payload));
+          NODE
+
+      - name: Dispatch cloud agent manager
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/$GITHUB_REPOSITORY/actions/workflows/cloud-agent-manager.yml/dispatches" \
+            --input /tmp/agent-dispatch.json

@@ -6,6 +6,16 @@ Status: canonical operating workflow for coding agents
 
 This document defines how Codex and Claude Code should execute repository work. `AGENTS.md` is the short binding ruleset. This file contains the detailed workflow.
 
+## Cloud team entry points
+
+- Writable cloud task: open the `Siton Cloud Agent Task` issue form or dispatch `.github/workflows/cloud-agent-manager.yml`.
+- Parallel read-only review: dispatch `.github/workflows/cloud-analysis-swarm.yml`; four isolated lanes run concurrently and a fifth head reviewer synthesizes them.
+- Apex (Astra) is an exceptional fourth tier requiring a structured reason and evidence; the default head reviewer stays Sol. Exact entry links, triggers and activation checks are in `docs/ENGINEERING_OPERATING_SYSTEM.md`.
+- Routing policy and telemetry: `scripts/agent_router.cjs` and `docs/ENGINEERING_OPERATING_SYSTEM.md`.
+- Local isolated worktrees remain available through `node scripts/agent.cjs`.
+
+GitHub Issues and Pull Requests are the handoff contract between Codex and Claude. Do not depend on one model's chat transcript being visible to the other.
+
 ## 1. Current operating model
 
 The owner defines product intent, priorities, and acceptance criteria.

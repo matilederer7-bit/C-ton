@@ -158,6 +158,7 @@
     "qa:cleanup-stale-dbs": "node scripts/qa_process_guard.cjs --cleanup-stale-dbs",
     "qa:classified": "node scripts/qa_run_classified.cjs",
     "test:release-tools": "node --test \"tests/release_tools/**/*.test.cjs\"",
+    "test:agent-router": "node --test tests/release_tools/agent_router.test.cjs",
     "gate:seven-day-cap": "node scripts/seven_day_cap_sweep.cjs",
     "gate:i18n": "node scripts/i18n/scan.cjs && node scripts/i18n/build_dictionaries.cjs --check",
     "i18n:build": "node scripts/i18n/build_dictionaries.cjs",
