@@ -159,3 +159,45 @@ test("engineering operating system has routing, parallel analysis and telemetry 
   assert.match(operatingSystem, /GitHub is the shared control plane/);
   assert.match(operatingSystem, /siton\.agent-run\.v1/);
 });
+
+const { verifyModelAccess } = require('../../scripts/agent_model_access.cjs');
+
+test('Apex cannot be silently skipped by explicit provider role overrides', () => {
+  assert.throws(() => chooseRoles({ requestedBuilder: 'claude', requestedReviewer: 'none', hasClaude: true, hasCodex: true, tier: 'apex' }), /skip Astra/);
+  assert.throws(() => chooseRoles({ requestedBuilder: 'claude', requestedReviewer: 'claude', hasClaude: true, hasCodex: true, tier: 'apex' }), /skip Astra/);
+  assert.equal(chooseRoles({ requestedBuilder: 'claude', requestedReviewer: 'codex', hasClaude: true, hasCodex: true, tier: 'apex' }).reviewer, 'codex');
+});
+
+test('model access preflight confirms metadata without claiming inference and never downgrades', async () => {
+  const model = 'gpt-6-astra';
+  const result = await verifyModelAccess({ apiKey: 'test-only', model, fetchImpl: async (url, options) => {
+    assert.equal(url, 'https://api.openai.com/v1/models/gpt-6-astra');
+    assert.equal(options.headers.Authorization, 'Bearer test-only');
+    return { ok: true, json: async () => ({ id: model }) };
+  } });
+  assert.equal(result.inferenceVerified, false);
+  for (const status of [401, 403, 404, 429]) {
+    await assert.rejects(verifyModelAccess({ apiKey: 'test-only', model, fetchImpl: async () => ({ ok: false, status }) }), /No downgrade/);
+  }
+  await assert.rejects(verifyModelAccess({ model }), /OPENAI_API_KEY/);
+  await assert.rejects(verifyModelAccess({ apiKey: 'test-only', model: 'invented' }), /Unknown/);
+  await assert.rejects(verifyModelAccess({ apiKey: 'test-only', model, fetchImpl: async () => ({ ok: true, json: async () => ({ id: 'gpt-5.6-sol' }) }) }), /did not confirm/);
+});
+
+// Workflow wiring guards cover the inputs that previously never reached the router.
+test('manager and swarm wire Apex end to end without raising all analyst tiers', () => {
+  const workflow = read('.github/workflows/cloud-agent-manager.yml');
+  const swarm = read('.github/workflows/cloud-analysis-swarm.yml');
+  const form = read('.github/ISSUE_TEMPLATE/agent-manager.yml');
+  assert.match(workflow, /SITON_ISSUE_BODY: \$\{\{ github\.event\.issue\.body \}\}/);
+  assert.match(workflow, /export SITON_MODEL_TIER="\$tier"/);
+  assert.match(workflow, /SITON_CODEX_MODEL: \$\{\{ steps\.roles\.outputs\.codex_model \}\}/);
+  assert.match(workflow, /SITON_APEX_REASON: \$\{\{ steps\.roles\.outputs\.apex_reason \}\}/);
+  assert.match(workflow, /node scripts\/agent_model_access\.cjs/);
+  assert.match(form, /label: Apex reason/);
+  assert.match(form, /label: Apex evidence/);
+  assert.match(swarm, /model: \$\{\{ steps\.head_route\.outputs\.codex_model \}\}/);
+  assert.match(swarm, /'apex' \|\| 'senior'/);
+  assert.match(swarm, /lane: tests\s+model: gpt-5\.6-luna/);
+  assert.match(swarm, /lane: security\s+model: gpt-5\.6-sol/);
+});

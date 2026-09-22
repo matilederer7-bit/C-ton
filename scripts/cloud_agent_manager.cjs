@@ -29,7 +29,7 @@ function slug(value) {
   return out || "task";
 }
 
-function chooseRoles({ requestedBuilder = "auto", requestedReviewer = "auto", hasClaude = false, hasCodex = false } = {}) {
+function chooseRoles({ requestedBuilder = "auto", requestedReviewer = "auto", hasClaude = false, hasCodex = false, tier = "auto" } = {}) {
   const builder = String(requestedBuilder || "auto").toLowerCase();
   const reviewer = String(requestedReviewer || "auto").toLowerCase();
   if (!["auto", ...AGENTS].includes(builder)) throw new Error(`invalid builder: ${builder}`);
@@ -49,6 +49,10 @@ function chooseRoles({ requestedBuilder = "auto", requestedReviewer = "auto", ha
   }
   if (selectedReviewer === "claude" && !hasClaude) throw new Error("Claude reviewer requested but no Claude cloud credential is configured");
   if (selectedReviewer === "codex" && !hasCodex) throw new Error("Codex reviewer requested but OPENAI_API_KEY is not configured");
+
+  if (tier === "apex" && selectedBuilder !== "codex" && selectedReviewer !== "codex") {
+    throw new Error("Apex requires a Codex builder or reviewer; requested roles would skip Astra");
+  }
 
   return {
     builder: selectedBuilder,
@@ -116,6 +120,7 @@ function commandRoles(args) {
     requestedReviewer,
     hasClaude: truthy(process.env.HAS_CLAUDE),
     hasCodex: truthy(process.env.HAS_CODEX),
+    tier: process.env.SITON_MODEL_TIER,
   });
   writeOutput("builder", roles.builder);
   writeOutput("reviewer", roles.reviewer);

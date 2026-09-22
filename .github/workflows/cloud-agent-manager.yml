@@ -42,11 +42,21 @@ on:
         type: choice
         options: [low, normal, high, critical]
       model_tier:
-        description: "Compute tier; sensitive work is always promoted to senior"
+        description: "Compute tier; sensitive work requires at least senior; apex needs evidence"
         required: true
         default: auto
         type: choice
-        options: [auto, economy, standard, senior]
+        options: [auto, economy, standard, senior, apex]
+      apex_reason:
+        description: "Exceptional Apex escalation reason (otherwise none)"
+        required: false
+        default: none
+        type: choice
+        options: [none, cross-system-architecture, critical-cross-layer, conflicting-reviews, senior-investigation-exhausted]
+      apex_evidence:
+        description: "Apex only: affected layers, conflicting report refs or failed Senior attempts (40+ characters)"
+        required: false
+        type: string
   issues:
     types: [opened]
 
@@ -58,9 +68,8 @@ permissions:
   pull-requests: read
   issues: read
 
-# v1 deliberately serializes managed cloud writers. This is a real queue, not
-# merely separate Git branches: overlapping product scopes cannot execute at
-# the same time and silently race each other.
+# Serializes cloud writers. GitHub concurrency retains only one pending run;
+# it is not a durable FIFO queue. Submit the next task after the active run.
 concurrency:
   group: siton-cloud-agent-manager-v1
   cancel-in-progress: false
@@ -129,6 +138,9 @@ jobs:
           REQUESTED_BUILDER: ${{ github.event_name == 'workflow_dispatch' && inputs.builder || 'auto' }}
           REQUESTED_REVIEWER: ${{ github.event_name == 'workflow_dispatch' && inputs.reviewer || 'auto' }}
           SITON_TASK: ${{ github.event_name == 'workflow_dispatch' && inputs.task || format('{0}\n\n{1}', github.event.issue.title, github.event.issue.body) }}
+          SITON_ISSUE_BODY: ${{ github.event.issue.body }}
+          SITON_APEX_REASON: ${{ inputs.apex_reason }}
+          SITON_APEX_EVIDENCE: ${{ inputs.apex_evidence }}
           SITON_TASK_TYPE: ${{ github.event_name == 'workflow_dispatch' && inputs.task_type || 'auto' }}
           SITON_RISK: ${{ github.event_name == 'workflow_dispatch' && inputs.risk || 'normal' }}
           SITON_MODEL_TIER: ${{ github.event_name == 'workflow_dispatch' && inputs.model_tier || 'auto' }}
@@ -160,7 +172,15 @@ jobs:
           selected_reviewer="$REQUESTED_REVIEWER"
           if [ "$selected_builder" = auto ]; then selected_builder="$builder"; fi
           if [ "$selected_reviewer" = auto ]; then selected_reviewer="$reviewer"; fi
+          export SITON_MODEL_TIER="$tier"
           node scripts/cloud_agent_manager.cjs roles "$selected_builder" "$selected_reviewer"
+
+      - name: Verify selected Codex model access
+        if: steps.roles.outputs.builder == 'codex' || steps.roles.outputs.reviewer == 'codex'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SITON_CODEX_MODEL: ${{ steps.roles.outputs.codex_model }}
+        run: node scripts/agent_model_access.cjs
 
       - name: Create isolated task branch and packet
         id: task
@@ -500,6 +520,8 @@ jobs:
           SITON_TASK_TYPE: ${{ steps.roles.outputs.type }}
           SITON_RISK: ${{ steps.roles.outputs.risk }}
           SITON_MODEL_TIER: ${{ steps.roles.outputs.tier }}
+          SITON_CODEX_MODEL: ${{ steps.roles.outputs.codex_model }}
+          SITON_APEX_REASON: ${{ steps.roles.outputs.apex_reason }}
           SITON_BUILDER: ${{ steps.roles.outputs.builder }}
           SITON_REVIEWER: ${{ steps.roles.outputs.reviewer }}
           SITON_FIX_PASSES: ${{ steps.review1.outputs.needs_fix == 'true' && '1' || '0' }}

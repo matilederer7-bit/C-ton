@@ -10,6 +10,7 @@ This document defines how Codex and Claude Code should execute repository work. 
 
 - Writable cloud task: open the `Siton Cloud Agent Task` issue form or dispatch `.github/workflows/cloud-agent-manager.yml`.
 - Parallel read-only review: dispatch `.github/workflows/cloud-analysis-swarm.yml`; four isolated lanes run concurrently and a fifth head reviewer synthesizes them.
+- Apex (Astra) is an exceptional fourth tier requiring a structured reason and evidence; the default head reviewer stays Sol. Exact entry links, triggers and activation checks are in `docs/ENGINEERING_OPERATING_SYSTEM.md`.
 - Routing policy and telemetry: `scripts/agent_router.cjs` and `docs/ENGINEERING_OPERATING_SYSTEM.md`.
 - Local isolated worktrees remain available through `node scripts/agent.cjs`.
 

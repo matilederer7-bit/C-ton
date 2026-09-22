@@ -65,14 +65,35 @@ body:
     id: model_tier
     attributes:
       label: Compute tier
-      description: Auto enforces senior execution for money, database, security and critical concurrency.
+      description: Auto enforces at least Senior for sensitive work. Apex requires a reason and concrete evidence below.
       options:
         - auto
         - economy
         - standard
         - senior
+        - apex
     validations:
       required: true
+  - type: dropdown
+    id: apex_reason
+    attributes:
+      label: Apex reason
+      description: Choose none for ordinary work. A non-none reason with Auto requests Apex.
+      options:
+        - none
+        - cross-system-architecture
+        - critical-cross-layer
+        - conflicting-reviews
+        - senior-investigation-exhausted
+    validations:
+      required: true
+  - type: textarea
+    id: apex_evidence
+    attributes:
+      label: Apex evidence
+      description: For Apex, give at least 40 characters naming affected layers and the decision, conflicting report references, or failed Senior attempts. Critical cross-layer requires critical risk.
+    validations:
+      required: false
   - type: textarea
     id: allowed_paths
     attributes:

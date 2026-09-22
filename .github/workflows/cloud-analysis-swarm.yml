@@ -12,6 +12,22 @@ on:
         required: false
         default: master
         type: string
+      apex_reason:
+        description: "Head synthesis only: none keeps Sol; exceptional escalation requires evidence"
+        required: false
+        default: none
+        type: choice
+        options: [none, cross-system-architecture, critical-cross-layer, conflicting-reviews, senior-investigation-exhausted]
+      apex_evidence:
+        description: "Apex only: affected layers, conflicting reports or exhausted Senior attempts (40+ characters)"
+        required: false
+        type: string
+      risk:
+        description: "Risk for head synthesis; critical-cross-layer requires critical"
+        required: false
+        default: normal
+        type: choice
+        options: [low, normal, high, critical]
 
 permissions:
   contents: read
@@ -65,6 +81,11 @@ jobs:
           const fs = require('node:fs');
           fs.writeFileSync('.analysis-packet.md', `# SITON READ-ONLY ANALYSIS\n\nTask\n${process.env.TASK}\n\nLane\n${process.env.LANE}\n\nFocus\n${process.env.FOCUS}\n\nRead AGENTS.md and docs/ENGINEERING_OPERATING_SYSTEM.md. Inspect the actual repository and target diff where one exists. Do not edit, commit, push, merge, deploy or perform external side effects. Report only concrete findings with path and evidence. End with VERDICT=PASS or VERDICT=FINDINGS.\n`);
           NODE
+      - name: Verify analyst model access
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SITON_CODEX_MODEL: ${{ matrix.model }}
+        run: node scripts/agent_model_access.cjs
       - name: Run isolated Codex analyst
         uses: openai/codex-action@v1
         with:
@@ -100,6 +121,22 @@ jobs:
           pattern: analysis-*-${{ github.run_id }}
           path: reports
           merge-multiple: true
+      - name: Route head synthesis
+        id: head_route
+        env:
+          HAS_CODEX: "true"
+          HAS_CLAUDE: "false"
+          SITON_TASK_TYPE: backend
+          SITON_MODEL_TIER: ${{ inputs.apex_reason != 'none' && inputs.apex_reason != '' && 'apex' || 'senior' }}
+          SITON_RISK: ${{ inputs.risk }}
+          SITON_APEX_REASON: ${{ inputs.apex_reason }}
+          SITON_APEX_EVIDENCE: ${{ inputs.apex_evidence }}
+        run: node scripts/agent_router.cjs route
+      - name: Verify head model access
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SITON_CODEX_MODEL: ${{ steps.head_route.outputs.codex_model }}
+        run: node scripts/agent_model_access.cjs
       - name: Build synthesis packet
         env:
           TASK: ${{ inputs.task }}
@@ -117,7 +154,7 @@ jobs:
           permission-profile: ":read-only"
           prompt-file: .synthesis-packet.md
           output-file: swarm-synthesis.md
-          model: gpt-5.6-sol
+          model: ${{ steps.head_route.outputs.codex_model }}
           effort: high
           safety-strategy: drop-sudo
       - name: Publish synthesis artifact
