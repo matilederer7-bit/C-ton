@@ -104,11 +104,14 @@ test("binding agent rules make cloud manager the sole Git and status lifecycle o
   assert.match(rules, /auto-merge is forbidden/);
 });
 
-test("cloud workflow is owner-gated, serialized, lifecycle-guarded and never auto-merges", () => {
+test("cloud workflow is owner-gated at intake, serialized, lifecycle-guarded and never auto-merges", () => {
   const workflow = read(".github/workflows/cloud-agent-manager.yml");
+  const intake = read(".github/workflows/agent-manager-intake.yml");
   assert.match(workflow, /runs-on: ubuntu-24\.04/);
-  assert.match(workflow, /github\.event\.issue\.user\.login == github\.repository_owner/);
-  assert.match(workflow, /startsWith\(github\.event\.issue\.title, '\[agent-manager\]'\)/);
+  assert.match(intake, /github\.event\.issue\.user\.login == github\.repository_owner/);
+  assert.match(intake, /startsWith\(github\.event\.issue\.title, '\[agent-manager\]'\)/);
+  assert.match(intake, /actions: write/);
+  assert.match(intake, /cloud-agent-manager\.yml\/dispatches/);
   assert.match(workflow, /group: siton-cloud-agent-manager-v1/);
   assert.match(workflow, /cancel-in-progress: false/);
   assert.match(workflow, /permissions:\n  contents: read\n  pull-requests: read\n  issues: read/);
@@ -133,6 +136,25 @@ test("cloud workflow is owner-gated, serialized, lifecycle-guarded and never aut
   assert.match(workflow, /Grow: untouched/);
 });
 
+test("phone intake is a fresh owner-only issue trigger that dispatches the manager", () => {
+  const intake = read(".github/workflows/agent-manager-intake.yml");
+  assert.match(intake, /issues:\n    types: \[opened, reopened, labeled\]/);
+  assert.match(intake, /github\.event\.label\.name == 'agent-manager-run'/);
+  assert.match(intake, /workflow-dispatch payload/);
+  assert.match(intake, /actions\/workflows\/cloud-agent-manager\.yml\/dispatches/);
+  assert.match(intake, /ref: 'master'/);
+  assert.match(intake, /builder: 'auto'/);
+  assert.match(intake, /reviewer: 'auto'/);
+});
+
+test("manager records telemetry even when a managed run fails before PR creation", () => {
+  const workflow = read(".github/workflows/cloud-agent-manager.yml");
+  assert.match(workflow, /name: Record agent-run telemetry\n        if: always\(\)/);
+  assert.match(workflow, /SITON_VERIFICATION: \$\{\{ job\.status \}\}/);
+  assert.match(workflow, /name: Upload agent-run telemetry\n        if: always\(\)/);
+  assert.match(workflow, /if-no-files-found: warn/);
+});
+
 test("cloud task branch slug helper is deterministic and bounded", () => {
   assert.equal(slug("  Seller UX / cleanup  "), "seller-ux-cleanup");
   assert.ok(slug("x".repeat(200)).length <= 54);
@@ -147,6 +169,10 @@ test("engineering operating system has routing, parallel analysis and telemetry 
   assert.match(workflow, /steps\.roles\.outputs\.codex_model/);
   assert.match(workflow, /agent-run-metric\.json/);
   assert.match(workflow, /actions\/upload-artifact@v4/);
+  assert.match(workflow, /Run required parallel analysis swarm/);
+  assert.match(workflow, /gh workflow run cloud-analysis-swarm\.yml/);
+  assert.match(workflow, /gh run watch/);
+  assert.match(workflow, /swarm-synthesis/);
   assert.match(swarm, /max-parallel: 4/);
   assert.match(swarm, /gpt-5\.6-luna/);
   assert.match(swarm, /gpt-5\.6-terra/);
@@ -189,7 +215,12 @@ test('manager and swarm wire Apex end to end without raising all analyst tiers',
   const workflow = read('.github/workflows/cloud-agent-manager.yml');
   const swarm = read('.github/workflows/cloud-analysis-swarm.yml');
   const form = read('.github/ISSUE_TEMPLATE/agent-manager.yml');
-  assert.match(workflow, /SITON_ISSUE_BODY: \$\{\{ github\.event\.issue\.body \}\}/);
+  const intake = read('.github/workflows/agent-manager-intake.yml');
+  assert.match(intake, /pick\('Risk', 'normal'\)/);
+  assert.match(intake, /pick\('Compute tier', 'auto'\)/);
+  assert.match(intake, /pick\('Task type', 'auto'\)/);
+  assert.match(intake, /\[source-issue:/);
+  assert.match(workflow, /SITON_ISSUE_BODY: \$\{\{ inputs\.task \}\}/);
   assert.match(workflow, /export SITON_MODEL_TIER="\$tier"/);
   assert.match(workflow, /SITON_CODEX_MODEL: \$\{\{ steps\.roles\.outputs\.codex_model \}\}/);
   assert.match(workflow, /SITON_APEX_REASON: \$\{\{ steps\.roles\.outputs\.apex_reason \}\}/);
