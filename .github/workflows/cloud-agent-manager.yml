@@ -513,7 +513,19 @@ jobs:
             echo "Analysis swarm synthesis artifact missing" >&2
             exit 1
           fi
-          verdict=$(grep -E '^VERDICT=(PASS|FINDINGS)        id: pr
+          verdict=$(grep -E '^VERDICT=(PASS|FINDINGS)$' "$synthesis" | tail -n1 | cut -d= -f2 || true)
+          if [ -z "$verdict" ]; then
+            echo "Analysis swarm returned no machine-readable verdict" >&2
+            cat "$synthesis" >&2
+            exit 1
+          fi
+          cp "$synthesis" /tmp/siton-swarm-synthesis.md
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "url=$run_url" >> "$GITHUB_OUTPUT"
+          echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+
+      - name: Open Pull Request
+        id: pr
         env:
           GH_TOKEN: ${{ secrets.SITON_AGENT_GITHUB_TOKEN }}
           BRANCH: ${{ steps.task.outputs.branch }}
@@ -613,95 +625,3 @@ jobs:
           run_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           printf 'Cloud Agent Manager finished this run.\n\nStatus: %s\nBuilder: %s\nReviewer: %s\nFinal review: %s\nParallel analysis: %s\nPR: %s\nRun: %s\n\nNo auto-merge was performed.\n' "$JOB_STATUS" "${BUILDER:-unknown}" "${REVIEWER:-unknown}" "${VERDICT:-unknown}" "${SWARM_VERDICT:-not-required}" "${PR_URL:-none}" "$run_url" > /tmp/cloud-issue-result.md
           gh issue comment "$issue_number" --body-file /tmp/cloud-issue-result.md
- "$synthesis" | tail -n1 | cut -d= -f2 || true)
-          if [ -z "$verdict" ]; then
-            echo "Analysis swarm returned no machine-readable verdict" >&2
-            cat "$synthesis" >&2
-            exit 1
-          fi
-          cp "$synthesis" /tmp/siton-swarm-synthesis.md
-          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
-          echo "url=$run_url" >> "$GITHUB_OUTPUT"
-          echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
-
-      - name: Open Pull Request
-        id: pr
-        env:
-          GH_TOKEN: ${{ secrets.SITON_AGENT_GITHUB_TOKEN }}
-          BRANCH: ${{ steps.task.outputs.branch }}
-          BUILDER: ${{ steps.roles.outputs.builder }}
-          REVIEWER: ${{ steps.roles.outputs.reviewer }}
-          INDEPENDENT_REVIEW: ${{ steps.roles.outputs.independent_review }}
-          VERDICT: ${{ steps.final_review.outputs.verdict }}
-          SITON_TASK: ${{ github.event_name == 'workflow_dispatch' && inputs.task || format('{0}\n\n{1}', github.event.issue.title, github.event.issue.body) }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          node - <<'NODE'
-          const fs = require('node:fs');
-          const task = String(process.env.SITON_TASK || '').trim().slice(0, 3000);
-          fs.writeFileSync('/tmp/cloud-pr-body.md', `Cloud Agent Manager run ${process.env.GITHUB_RUN_ID}\n\nBuilder: ${process.env.BUILDER}\nReviewer: ${process.env.REVIEWER}\nIndependent review: ${process.env.INDEPENDENT_REVIEW}\nFinal reviewer verdict: ${process.env.VERDICT}\n\nTask\n${task}\n\nVerification\n- git diff --check: PASS\n- canonical siton_verify: PASS\n- real money: 0\n- Grow: untouched\n- auto-merge: disabled\n`);
-          NODE
-          draft_arg=""
-          if [ "$VERDICT" = "CHANGES_REQUIRED" ] || [ "$VERDICT" = "INVALID" ]; then draft_arg="--draft"; fi
-          pr_url=$(gh pr create --base master --head "$BRANCH" --title "Cloud agent manager run ${GITHUB_RUN_ID}" --body-file /tmp/cloud-pr-body.md $draft_arg)
-          echo "url=$pr_url" >> "$GITHUB_OUTPUT"
-          echo "CLOUD_AGENT_PR=$pr_url"
-
-      - name: Attach reviewer evidence to PR
-        if: steps.roles.outputs.reviewer != 'none'
-        env:
-          GH_TOKEN: ${{ secrets.SITON_AGENT_GITHUB_TOKEN }}
-          PR_URL: ${{ steps.pr.outputs.url }}
-          NEEDED_FIX: ${{ steps.review1.outputs.needs_fix }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          review_file=.siton-review-1.txt
-          if [ "$NEEDED_FIX" = "true" ] && [ -f .siton-review-2.txt ]; then review_file=.siton-review-2.txt; fi
-          gh pr comment "$PR_URL" --body-file "$review_file"
-
-      - name: Record agent-run telemetry
-        if: always() && steps.pr.outputs.url != ''
-        env:
-          SITON_TASK_TYPE: ${{ steps.roles.outputs.type }}
-          SITON_RISK: ${{ steps.roles.outputs.risk }}
-          SITON_MODEL_TIER: ${{ steps.roles.outputs.tier }}
-          SITON_CODEX_MODEL: ${{ steps.roles.outputs.codex_model }}
-          SITON_APEX_REASON: ${{ steps.roles.outputs.apex_reason }}
-          SITON_BUILDER: ${{ steps.roles.outputs.builder }}
-          SITON_REVIEWER: ${{ steps.roles.outputs.reviewer }}
-          SITON_FIX_PASSES: ${{ steps.review1.outputs.needs_fix == 'true' && '1' || '0' }}
-          SITON_VERIFICATION: PASS
-          SITON_REVIEW_VERDICT: ${{ steps.final_review.outputs.verdict }}
-          SITON_PR_URL: ${{ steps.pr.outputs.url }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          export SITON_DURATION_SECONDS="$(( $(date +%s) - SITON_RUN_STARTED_EPOCH ))"
-          node scripts/agent_router.cjs metric agent-run-metric.json
-          cat agent-run-metric.json >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload agent-run telemetry
-        if: always() && steps.pr.outputs.url != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: agent-run-${{ github.run_id }}
-          path: agent-run-metric.json
-          if-no-files-found: error
-          retention-days: 90
-
-      - name: Report result to owner issue
-        if: github.event_name == 'issues'
-        env:
-          GH_TOKEN: ${{ secrets.SITON_AGENT_GITHUB_TOKEN }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          PR_URL: ${{ steps.pr.outputs.url }}
-          VERDICT: ${{ steps.final_review.outputs.verdict }}
-          BUILDER: ${{ steps.roles.outputs.builder }}
-          REVIEWER: ${{ steps.roles.outputs.reviewer }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          printf 'Cloud Agent Manager completed this run.\n\nBuilder: %s\nReviewer: %s\nFinal verdict: %s\nPR: %s\n\nNo auto-merge was performed.\n' "$BUILDER" "$REVIEWER" "$VERDICT" "$PR_URL" > /tmp/cloud-issue-result.md
-          gh issue comment "$ISSUE_NUMBER" --body-file /tmp/cloud-issue-result.md
