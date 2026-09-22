@@ -34,6 +34,62 @@ body:
     validations:
       required: false
   - type: dropdown
+    id: task_type
+    attributes:
+      label: Task type
+      options:
+        - auto
+        - frontend
+        - backend
+        - database
+        - security
+        - payments
+        - tests
+        - docs
+        - ux
+        - operations
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk
+      options:
+        - normal
+        - low
+        - high
+        - critical
+    validations:
+      required: true
+  - type: dropdown
+    id: model_tier
+    attributes:
+      label: Compute tier
+      description: Auto enforces senior execution for money, database, security and critical concurrency.
+      options:
+        - auto
+        - economy
+        - standard
+        - senior
+    validations:
+      required: true
+  - type: textarea
+    id: allowed_paths
+    attributes:
+      label: Allowed paths
+      description: Optional explicit write ownership for collision prevention.
+      placeholder: One repository path or glob per line.
+    validations:
+      required: false
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: Issues or Pull Requests that must land first.
+      placeholder: '#123, PR #124'
+    validations:
+      required: false
+  - type: dropdown
     id: priority
     attributes:
       label: Priority
