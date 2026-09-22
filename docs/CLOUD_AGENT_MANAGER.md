@@ -127,7 +127,8 @@ This prevents arbitrary public issues from receiving access to cloud-agent crede
 Additional boundaries:
 
 - Managed cloud writers are serialized through one GitHub Actions concurrency group.
-- The workflow's default `GITHUB_TOKEN` is read-only.
+- The workflow's default `GITHUB_TOKEN` is read-only for code. It holds `contents: read` and `pull-requests: read`, so it can never push a branch, create a Pull Request or merge.
+- It holds `issues: write` for one reason: the run result, including a credential blocker, must reach the owner even when `SITON_AGENT_GITHUB_TOKEN` is absent. GitHub scopes permissions per job, not per step, so the builder's `github_token` carries that same issue-comment ability. This is a recorded trade-off, not an oversight: a builder that can comment on an issue is a far smaller exposure than a control plane that fails silently, and the boundaries that matter (no push, no PR, no merge, no workflow edit, no HEAD change) are unaffected.
 - The dedicated GitHub lifecycle token is not persisted into the checkout and is used only by manager-owned Git/PR/comment steps.
 - Real money remains 0.
 - Grow remains untouched.
