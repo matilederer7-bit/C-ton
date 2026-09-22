@@ -137,3 +137,25 @@ test("cloud task branch slug helper is deterministic and bounded", () => {
   assert.equal(slug("  Seller UX / cleanup  "), "seller-ux-cleanup");
   assert.ok(slug("x".repeat(200)).length <= 54);
 });
+
+test("engineering operating system has routing, parallel analysis and telemetry contracts", () => {
+  const workflow = read(".github/workflows/cloud-agent-manager.yml");
+  const swarm = read(".github/workflows/cloud-analysis-swarm.yml");
+  const operatingSystem = read("docs/ENGINEERING_OPERATING_SYSTEM.md");
+  assert.match(workflow, /scripts\/agent_router\.cjs route/);
+  assert.match(workflow, /steps\.roles\.outputs\.builder_effort/);
+  assert.match(workflow, /steps\.roles\.outputs\.codex_model/);
+  assert.match(workflow, /agent-run-metric\.json/);
+  assert.match(workflow, /actions\/upload-artifact@v4/);
+  assert.match(swarm, /max-parallel: 4/);
+  assert.match(swarm, /gpt-5\.6-luna/);
+  assert.match(swarm, /gpt-5\.6-terra/);
+  assert.match(swarm, /gpt-5\.6-sol/);
+  assert.match(swarm, /architecture/);
+  assert.match(swarm, /security/);
+  assert.match(swarm, /source-of-truth/);
+  assert.match(swarm, /Head reviewer synthesis/);
+  assert.doesNotMatch(swarm, /git push|gh pr merge|gh pr create/);
+  assert.match(operatingSystem, /GitHub is the shared control plane/);
+  assert.match(operatingSystem, /siton\.agent-run\.v1/);
+});
