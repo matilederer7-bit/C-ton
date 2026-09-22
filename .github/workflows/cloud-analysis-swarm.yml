@@ -1,4 +1,5 @@
 name: Siton Read-Only Analysis Swarm
+run-name: Siton Analysis ${{ inputs.request_id }}
 
 on:
   workflow_dispatch:
@@ -6,6 +7,11 @@ on:
       task:
         description: "Repository question or review target"
         required: true
+        type: string
+      request_id:
+        description: "Stable caller correlation id"
+        required: false
+        default: manual
         type: string
       target_ref:
         description: "Branch, commit or PR head ref to inspect"
@@ -145,7 +151,7 @@ jobs:
           node - <<'NODE'
           const fs = require('node:fs');
           const reports = fs.existsSync('reports') ? fs.readdirSync('reports').sort().map((name) => `## ${name}\n${fs.readFileSync(`reports/${name}`, 'utf8')}`).join('\n\n') : 'No lane reports were produced.';
-          fs.writeFileSync('.synthesis-packet.md', `# SITON HEAD REVIEW\n\nTask\n${process.env.TASK}\n\nReconcile the independent reports below against the repository. Remove duplicates and unsupported claims. Rank valid findings by severity and state the next executable step. This is read-only.\n\n${reports}\n`);
+          fs.writeFileSync('.synthesis-packet.md', `# SITON HEAD REVIEW\n\nTask\n${process.env.TASK}\n\nReconcile the independent reports below against the repository. Remove duplicates and unsupported claims. Rank valid findings by severity and state the next executable step. This is read-only. End with exactly VERDICT=PASS when no material finding remains, or VERDICT=FINDINGS when at least one material finding remains.\n\n${reports}\n`);
           NODE
       - name: Synthesize as head reviewer
         uses: openai/codex-action@v1
