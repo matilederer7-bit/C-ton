@@ -1,0 +1,131 @@
+name: Siton Read-Only Analysis Swarm
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "Repository question or review target"
+        required: true
+        type: string
+      target_ref:
+        description: "Branch, commit or PR head ref to inspect"
+        required: false
+        default: master
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: siton-analysis-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  analyze:
+    name: ${{ matrix.lane }} lane
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - lane: architecture
+            model: gpt-5.6-terra
+            effort: medium
+            focus: "Architecture, state transitions, concurrency, boundaries and structural defects."
+          - lane: security
+            model: gpt-5.6-sol
+            effort: high
+            focus: "Authentication, authorization, secrets, input boundaries, money and abuse cases."
+          - lane: tests
+            model: gpt-5.6-luna
+            effort: low
+            focus: "Coverage gaps, weak assertions, flakes, CI topology and missing regression proof."
+          - lane: source-of-truth
+            model: gpt-5.6-luna
+            effort: low
+            focus: "Canonical documents, implementation drift, stale obligations and acceptance criteria."
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Build lane packet
+        env:
+          TASK: ${{ inputs.task }}
+          FOCUS: ${{ matrix.focus }}
+          LANE: ${{ matrix.lane }}
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          fs.writeFileSync('.analysis-packet.md', `# SITON READ-ONLY ANALYSIS\n\nTask\n${process.env.TASK}\n\nLane\n${process.env.LANE}\n\nFocus\n${process.env.FOCUS}\n\nRead AGENTS.md and docs/ENGINEERING_OPERATING_SYSTEM.md. Inspect the actual repository and target diff where one exists. Do not edit, commit, push, merge, deploy or perform external side effects. Report only concrete findings with path and evidence. End with VERDICT=PASS or VERDICT=FINDINGS.\n`);
+          NODE
+      - name: Run isolated Codex analyst
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          permission-profile: ":read-only"
+          prompt-file: .analysis-packet.md
+          output-file: analysis-${{ matrix.lane }}.md
+          model: ${{ matrix.model }}
+          effort: ${{ matrix.effort }}
+          safety-strategy: drop-sudo
+      - name: Upload lane report
+        uses: actions/upload-artifact@v4
+        with:
+          name: analysis-${{ matrix.lane }}-${{ github.run_id }}
+          path: analysis-${{ matrix.lane }}.md
+          if-no-files-found: error
+          retention-days: 30
+
+  synthesize:
+    name: Head reviewer synthesis
+    needs: analyze
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: analysis-*-${{ github.run_id }}
+          path: reports
+          merge-multiple: true
+      - name: Build synthesis packet
+        env:
+          TASK: ${{ inputs.task }}
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const reports = fs.existsSync('reports') ? fs.readdirSync('reports').sort().map((name) => `## ${name}\n${fs.readFileSync(`reports/${name}`, 'utf8')}`).join('\n\n') : 'No lane reports were produced.';
+          fs.writeFileSync('.synthesis-packet.md', `# SITON HEAD REVIEW\n\nTask\n${process.env.TASK}\n\nReconcile the independent reports below against the repository. Remove duplicates and unsupported claims. Rank valid findings by severity and state the next executable step. This is read-only.\n\n${reports}\n`);
+          NODE
+      - name: Synthesize as head reviewer
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          permission-profile: ":read-only"
+          prompt-file: .synthesis-packet.md
+          output-file: swarm-synthesis.md
+          model: gpt-5.6-sol
+          effort: high
+          safety-strategy: drop-sudo
+      - name: Publish synthesis artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: swarm-synthesis-${{ github.run_id }}
+          path: swarm-synthesis.md
+          if-no-files-found: error
+          retention-days: 90
+      - name: Job summary
+        run: cat swarm-synthesis.md >> "$GITHUB_STEP_SUMMARY"
