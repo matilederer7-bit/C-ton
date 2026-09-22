@@ -106,6 +106,14 @@ Claude builds by default and Codex performs an independent read-only review.
 
 The builder/reviewer can be overridden in manual workflow dispatch.
 
+## No separate Claude runtime is required
+
+`anthropics/claude-code-action@v1` is enough to run Claude in the cloud. It installs and drives Claude Code on the same GitHub-hosted runner that already holds the checkout, the installed dependencies and the disposable PostgreSQL service, so the builder tests and inspects the exact tree the manager verifies and commits.
+
+A separate Claude Code remote environment, a self-hosted runner or a hosted agent session would add a second execution surface, a second credential path and a second place for the working tree to diverge, while adding nothing the action does not already provide. It is deliberately not used.
+
+What the action does not grant by default is Bash. The manager therefore declares the builder's tool boundary explicitly: npm, npx and node for focused tests, read-only git for diff inspection, and no `git commit`, `git push` or `gh`. The Git lifecycle is refused at the tool layer as well as by the branch/HEAD check that follows.
+
 ## Security boundaries
 
 The owner-issue trigger is deliberately strict:
