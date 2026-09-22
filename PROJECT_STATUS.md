@@ -359,13 +359,13 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 <!-- AGENT_STATUS:codex:START -->
 ### Codex latest milestone
 
-- UPDATED: 2026-09-17
-- BRANCH: `master`
-- COMPLETED: PR #37 Seller Distribution Hub merged; missing migration 070 was applied to staging; Render redeploy reached LIVE; missing CMS migration 069 was applied and verified; hosted UX/runtime gaps were converted into Issues #39/#40 with collision-safe sequencing.
-- TESTED: distribution schema exists; Render is LIVE on `8bdd401...`; CMS draft schema reads successfully; the previously confirmed active seven-day seller restriction was resolved and merged in PR #42 (`72651b2`).
-- OPEN: Claude Issue #40 replacement PR, then merge/migration071/deploy/smoke; Issue #39 follows; PR #38 after that with Product Catalog migration 072.
-- PERCENTAGE: Distribution Hub merged/deployed 100%; long-horizon current-master integration pending.
-- NEXT STEP: integrate Issue #40 output through fresh CI and staging before accepting any later overlapping UX/shelf branch.
+- UPDATED: 2026-09-21
+- BRANCH: `codex/engineering-operating-system-v2` from `2196927b55da3614ff48a9f07ca064132ed5ecdd`
+- COMPLETED: Engineering Operating System v2 implemented without touching product runtime. GitHub remains the control plane; the cloud manager now classifies task type, risk and compute tier, promotes database/security/payments/high-risk work to Senior, uses cheaper reasoning for bounded read-heavy work, keeps a one-writer integration boundary, retains cross-provider Builder/Reviewer separation, records machine-readable run telemetry, and exposes a four-lane read-only analysis swarm with a fifth head-review synthesis job. The agent issue form now carries task type, risk, compute tier, allowed paths and dependencies.
+- TESTED: router contract 6/6 PASS; cloud-manager and operating-system contract 9/9 PASS; release-tools 89 PASS / 6 environment skips / 0 failures; mobile build, Capacitor sync and mobile gate PASS after installing the nested web dependencies; static release preflight has 20 passed gates, 0 failures and the expected four warnings, while real money remains correctly BLOCKED; all three changed YAML documents parse successfully; `git diff --check` PASS. No product, database, migration, money, Grow, Render or Supabase behavior changed.
+- OPEN: repository-side implementation is complete. Operational activation still requires the three GitHub secrets documented in `docs/ENGINEERING_OPERATING_SYSTEM.md`, followed by one harmless cloud smoke while the owner's computer is off. Repository CI on the Pull Request remains authoritative.
+- PERCENTAGE: repository implementation 100%; credential activation and computer-off smoke 0% because secrets are external to the repository and cannot be inferred or created safely by a coding session.
+- NEXT STEP: merge after CI, configure `SITON_AGENT_GITHUB_TOKEN`, `OPENAI_API_KEY` and an Anthropic credential, then run a docs-only managed task and the read-only swarm as the activation proof.
 <!-- AGENT_STATUS:codex:END -->
 
 <!-- AGENT_STATUS:cloud-manager:START -->
