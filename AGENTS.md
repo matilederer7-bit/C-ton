@@ -12,6 +12,8 @@ Read:
 4. `AI_WORKFLOW.md`
 5. the task-relevant architecture, product, UX, migration, runbook, and test files
 
+For managed or multi-agent work, also read `docs/ENGINEERING_OPERATING_SYSTEM.md`.
+
 Do not rely on memory of an older Siton phase when newer repository decisions exist.
 
 ## Source of truth
