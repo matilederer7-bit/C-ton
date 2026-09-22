@@ -63,7 +63,7 @@ on:
 permissions:
   contents: read
   pull-requests: read
-  issues: read
+  issues: write
 
 # Serializes cloud writers. GitHub concurrency retains only one pending run;
 # it is not a durable FIFO queue. Submit the next task after the active run.
@@ -140,14 +140,47 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "$MANAGER_GH_TOKEN_VALUE" ]; then
-            echo "SITON_AGENT_GITHUB_TOKEN is required for autonomous branch/PR lifecycle and downstream CI triggering" >&2
-            exit 1
-          fi
           has_codex=false
           has_claude=false
+          claude_auth=none
           if [ -n "$OPENAI_KEY_VALUE" ]; then has_codex=true; fi
-          if [ -n "$ANTHROPIC_KEY_VALUE" ] || [ -n "$CLAUDE_OAUTH_VALUE" ]; then has_claude=true; fi
+          if [ -n "$ANTHROPIC_KEY_VALUE" ]; then has_claude=true; claude_auth=api; fi
+          if [ "$has_claude" = false ] && [ -n "$CLAUDE_OAUTH_VALUE" ]; then has_claude=true; claude_auth=oauth; fi
+          echo "claude_auth=$claude_auth" >> "$GITHUB_OUTPUT"
+
+          # Presence only. No secret value is compared, printed or written anywhere.
+          {
+            echo "### Cloud credential state"
+            echo
+            echo "- SITON_AGENT_GITHUB_TOKEN: $([ -n "$MANAGER_GH_TOKEN_VALUE" ] && echo present || echo MISSING)"
+            echo "- OPENAI_API_KEY: $([ -n "$OPENAI_KEY_VALUE" ] && echo present || echo MISSING)"
+            echo "- Claude credential: $claude_auth"
+          } > /tmp/siton-credential-blocker.md
+
+          if [ -z "$MANAGER_GH_TOKEN_VALUE" ] || { [ "$has_codex" = false ] && [ "$has_claude" = false ]; }; then
+            {
+              echo
+              echo "### BLOCKER REQUIRES OWNER ACTION"
+              echo
+              if [ -z "$MANAGER_GH_TOKEN_VALUE" ]; then
+                echo "SITON_AGENT_GITHUB_TOKEN is required for autonomous branch/PR lifecycle and downstream CI triggering."
+                echo "Create a fine-grained personal access token scoped to this repository with Actions, Contents, Issues and Pull requests set to Read and write, then add it as an Actions secret named SITON_AGENT_GITHUB_TOKEN."
+              fi
+              if [ "$has_codex" = false ] && [ "$has_claude" = false ]; then
+                echo "No coding-agent credential is configured. Add OPENAI_API_KEY, ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN."
+              fi
+              echo
+              echo "Secrets page: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/settings/secrets/actions"
+              echo "Then re-run Siton Cloud Credential Preflight to confirm before queuing work again."
+            } >> /tmp/siton-credential-blocker.md
+            cat /tmp/siton-credential-blocker.md >> "$GITHUB_STEP_SUMMARY"
+            cat /tmp/siton-credential-blocker.md >&2
+            exit 1
+          fi
+
+          if [ "$has_codex" = false ] || [ "$has_claude" = false ]; then
+            echo "Only one agent provider is configured; cross-provider independent review is unavailable for this run." >> /tmp/siton-credential-blocker.md
+          fi
           export HAS_CODEX="$has_codex"
           export HAS_CLAUDE="$has_claude"
           manager_output="$GITHUB_OUTPUT"
@@ -201,11 +234,16 @@ jobs:
         if: steps.roles.outputs.builder == 'claude'
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ steps.roles.outputs.claude_auth == 'api' && secrets.ANTHROPIC_API_KEY || '' }}
+          claude_code_oauth_token: ${{ steps.roles.outputs.claude_auth == 'oauth' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
           github_token: ${{ github.token }}
           prompt: "Read .siton-cloud-task.md and execute the task completely. Follow the packet literally. Do not commit, push, merge, open a PR, or edit PROJECT_STATUS.md."
-          claude_args: "--max-turns 24"
+          claude_args: >-
+            --max-turns 24
+            --allowedTools Read Glob Grep Edit MultiEdit Write NotebookEdit TodoWrite
+            "Bash(npm run:*)" "Bash(npm test:*)" "Bash(npx:*)" "Bash(node:*)"
+            "Bash(git diff:*)" "Bash(git status:*)" "Bash(git log:*)" "Bash(git show:*)"
+            --disallowedTools WebSearch WebFetch
           show_full_output: false
 
       - name: Codex builder
@@ -286,14 +324,14 @@ jobs:
         if: steps.roles.outputs.reviewer == 'claude'
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ steps.roles.outputs.claude_auth == 'api' && secrets.ANTHROPIC_API_KEY || '' }}
+          claude_code_oauth_token: ${{ steps.roles.outputs.claude_auth == 'oauth' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
           github_token: ${{ github.token }}
           prompt: "Read .siton-review-prompt.md and perform the review exactly as instructed. This is read-only. Do not edit any repository file."
           claude_args: >-
             --max-turns 12
             --allowedTools Read Grep Glob "Bash(git diff:*)" "Bash(git status:*)" "Bash(git log:*)" "Bash(git show:*)"
-            --disallowedTools Write Edit NotebookEdit
+            --disallowedTools Write Edit MultiEdit NotebookEdit WebSearch WebFetch
           show_full_output: false
 
       - name: Extract Claude review pass 1
@@ -333,11 +371,16 @@ jobs:
         if: steps.review1.outputs.needs_fix == 'true' && steps.roles.outputs.builder == 'claude'
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ steps.roles.outputs.claude_auth == 'api' && secrets.ANTHROPIC_API_KEY || '' }}
+          claude_code_oauth_token: ${{ steps.roles.outputs.claude_auth == 'oauth' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
           github_token: ${{ github.token }}
           prompt: "Read .siton-fix-task.md. Address the valid review findings within the original scope. This is the only automatic fix pass. Do not commit, push, merge, open a PR, or edit PROJECT_STATUS.md."
-          claude_args: "--max-turns 18"
+          claude_args: >-
+            --max-turns 18
+            --allowedTools Read Glob Grep Edit MultiEdit Write NotebookEdit TodoWrite
+            "Bash(npm run:*)" "Bash(npm test:*)" "Bash(npx:*)" "Bash(node:*)"
+            "Bash(git diff:*)" "Bash(git status:*)" "Bash(git log:*)" "Bash(git show:*)"
+            --disallowedTools WebSearch WebFetch
           show_full_output: false
 
       - name: Codex bounded fix pass
@@ -395,14 +438,14 @@ jobs:
         if: steps.review1.outputs.needs_fix == 'true' && steps.roles.outputs.reviewer == 'claude'
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ steps.roles.outputs.claude_auth == 'api' && secrets.ANTHROPIC_API_KEY || '' }}
+          claude_code_oauth_token: ${{ steps.roles.outputs.claude_auth == 'oauth' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
           github_token: ${{ github.token }}
           prompt: "Re-read .siton-review-prompt.md and review the current diff after the bounded fix pass. Return the required verdict marker. Do not edit any repository file."
           claude_args: >-
             --max-turns 12
             --allowedTools Read Grep Glob "Bash(git diff:*)" "Bash(git status:*)" "Bash(git log:*)" "Bash(git show:*)"
-            --disallowedTools Write Edit NotebookEdit
+            --disallowedTools Write Edit MultiEdit NotebookEdit WebSearch WebFetch
           show_full_output: false
 
       - name: Extract Claude review pass 2
@@ -609,7 +652,7 @@ jobs:
         if: always()
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ secrets.SITON_AGENT_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.SITON_AGENT_GITHUB_TOKEN || github.token }}
           SITON_TASK: ${{ inputs.task }}
           PR_URL: ${{ steps.pr.outputs.url }}
           VERDICT: ${{ steps.final_review.outputs.verdict }}
@@ -624,4 +667,10 @@ jobs:
           if [ -z "$issue_number" ]; then exit 0; fi
           run_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           printf 'Cloud Agent Manager finished this run.\n\nStatus: %s\nBuilder: %s\nReviewer: %s\nFinal review: %s\nParallel analysis: %s\nPR: %s\nRun: %s\n\nNo auto-merge was performed.\n' "$JOB_STATUS" "${BUILDER:-unknown}" "${REVIEWER:-unknown}" "${VERDICT:-unknown}" "${SWARM_VERDICT:-not-required}" "${PR_URL:-none}" "$run_url" > /tmp/cloud-issue-result.md
+          # Presence-only credential state; a blocked run must still tell the
+          # owner what to do instead of leaving the issue silent.
+          if [ -f /tmp/siton-credential-blocker.md ]; then
+            printf '\n' >> /tmp/cloud-issue-result.md
+            cat /tmp/siton-credential-blocker.md >> /tmp/cloud-issue-result.md
+          fi
           gh issue comment "$issue_number" --body-file /tmp/cloud-issue-result.md
