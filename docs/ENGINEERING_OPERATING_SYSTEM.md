@@ -93,10 +93,32 @@ The owner's normal entry point is ChatGPT on the phone. GitHub is the execution 
 7. Repository CI remains authoritative. ChatGPT can inspect the PR, checks, logs and follow-up findings through the connected GitHub app and can perform the merge when the owner has asked for autonomous execution and the required gates are green.
 
 Required repository configuration remains:
-- `SITON_AGENT_GITHUB_TOKEN`, able to push task branches, create PRs and trigger downstream Actions.
+- `SITON_AGENT_GITHUB_TOKEN`, able to push task branches, create PRs and trigger downstream Actions. Its fine-grained permissions must include Actions read and write, because sensitive and Apex runs dispatch and then watch the swarm with this token.
 - `OPENAI_API_KEY` for Codex execution.
-- `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` for Claude and cross-provider review.
+- `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` for Claude and cross-provider review. `ANTHROPIC_API_KEY` is preferred for unattended cloud runs; the OAuth token has to be regenerated from a computer, which defeats phone-only operation.
+
+`.github/workflows/cloud-credential-preflight.yml` reports which of those are configured and which the provider actually accepts, without revealing any value. Run it before declaring the team operational and after any credential rotation. `docs/CLOUD_AGENT_MANAGER.md` holds the step-by-step owner activation runbook.
 
 A missing provider must be reported honestly. Sensitive work does not silently drop below Senior. Apex does not silently fall back from Astra.
+
+## Activation evidence log
+
+### 2026-09-22 — control plane proven, credentials absent
+
+Verified on GitHub-hosted runners with no local computer involved.
+
+| Claim | Evidence | State |
+|---|---|---|
+| Owner issue reaches the intake | Intake run `35717039463` from Issue #74 | PASS |
+| Intake dispatches the manager | Manager run `35717048403` started from that dispatch | PASS |
+| Four analysis lanes are genuinely parallel | Swarm run `35732713799`: architecture, security, tests and source-of-truth all started 13:19:31Z on four distinct runners; head synthesis started only at 13:19:44Z | PASS |
+| The router executes in the cloud | `Route head synthesis` succeeded in that same run | PASS |
+| Missing credentials fail closed, never downgrade | Every lane stopped at `Verify analyst model access`; no lane substituted a reachable model | PASS |
+| A blocked run reports to the owner's phone | Manager run `35732726575` posted the missing secret names and the exact owner action to Issue #74 with no `SITON_AGENT_GITHUB_TOKEN` present | PASS |
+| Credential state is checkable without a terminal | Preflight run `35732337550` reported `Overall: BLOCKED` with a per-secret table | PASS |
+| `SITON_AGENT_GITHUB_TOKEN`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` configured | Preflight run `35732337550`: all four reported `not configured` | BLOCKED, owner action |
+| Claude builds, Claude reviews, Codex builds, real Luna/Terra/Sol/Astra inference | Not attempted; requires the credentials above | NOT PROVEN |
+
+Nothing above may be restated as a successful agent inference. Model metadata access and job topology are not proof that a builder or reviewer produced work.
 
 First activation proof is not complete until all of the following have happened on `master`: intake trigger PASS, manager dispatch PASS, a harmless managed task produces a PR, the required model-access step succeeds, a sensitive test launches the four-lane swarm, the fifth synthesis completes, and the source Issue receives the result. Only then may the status be declared `CLOUD AGENT TEAM OPERATIONAL`.

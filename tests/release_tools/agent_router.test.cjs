@@ -103,3 +103,51 @@ test('telemetry records exact Codex model and escalation reason', () => {
   assert.equal(metric.codex_model, 'gpt-6-astra');
   assert.equal(metric.apex_reason, 'conflicting-reviews');
 });
+
+// The owner's stated cost rule: the strongest model must never be the default.
+test("routing matrix maps work to the cheapest adequate tier, model and provider", () => {
+  const matrix = [
+    { taskType: "docs", risk: "low", tier: "economy", codexModel: "gpt-5.6-luna", builder: "claude", reviewer: "codex" },
+    { taskType: "tests", risk: "low", tier: "economy", codexModel: "gpt-5.6-luna", builder: "codex", reviewer: "claude" },
+    { taskType: "frontend", risk: "normal", tier: "standard", codexModel: "gpt-5.6-terra", builder: "claude", reviewer: "codex" },
+    { taskType: "ux", risk: "normal", tier: "standard", codexModel: "gpt-5.6-terra", builder: "claude", reviewer: "codex" },
+    { taskType: "backend", risk: "normal", tier: "standard", codexModel: "gpt-5.6-terra", builder: "codex", reviewer: "claude" },
+    { taskType: "operations", risk: "normal", tier: "standard", codexModel: "gpt-5.6-terra", builder: "codex", reviewer: "claude" },
+    { taskType: "security", risk: "normal", tier: "senior", codexModel: "gpt-5.6-sol", builder: "codex", reviewer: "claude" },
+    { taskType: "database", risk: "normal", tier: "senior", codexModel: "gpt-5.6-sol", builder: "codex", reviewer: "claude" },
+    { taskType: "payments", risk: "normal", tier: "senior", codexModel: "gpt-5.6-sol", builder: "codex", reviewer: "claude" },
+    { taskType: "frontend", risk: "high", tier: "senior", codexModel: "gpt-5.6-sol", builder: "claude", reviewer: "codex" },
+  ];
+  for (const expected of matrix) {
+    const route = routeTask({ taskType: expected.taskType, risk: expected.risk, tier: "auto" });
+    for (const key of ["tier", "codexModel", "builder", "reviewer"]) {
+      assert.equal(route[key], expected[key], `${expected.taskType}/${expected.risk} ${key}`);
+    }
+    assert.notEqual(route.codexModel, "gpt-6-astra", "Astra must never be reached without an explicit escalation");
+    assert.equal(route.apexReason, "none");
+  }
+});
+
+test("Astra is reachable only through an approved reason with real evidence", () => {
+  const evidence = "Charging state machine, idempotency ledger and payout rail disagree across three layers after two Senior attempts.";
+  const apex = routeTask({ taskType: "payments", risk: "critical", tier: "auto", apexReason: "critical-cross-layer", apexEvidence: evidence });
+  assert.equal(apex.tier, "apex");
+  assert.equal(apex.codexModel, "gpt-6-astra");
+  assert.equal(apex.apexReason, "critical-cross-layer");
+
+  assert.throws(() => routeTask({ apexReason: "because-it-is-hard", apexEvidence: evidence }), /approved escalation reason/);
+  assert.throws(() => routeTask({ apexReason: "conflicting-reviews", apexEvidence: "too short" }), /at least 40 characters/);
+  assert.throws(() => routeTask({ risk: "high", apexReason: "critical-cross-layer", apexEvidence: evidence }), /requires critical risk/);
+  assert.throws(() => routeTask({ tier: "senior", apexReason: "conflicting-reviews", apexEvidence: evidence }), /conflicts with explicitly requested non-Apex tier/);
+  // No silent substitution of Sol or Claude when the Codex credential is absent.
+  assert.throws(() => routeTask({ apexReason: "conflicting-reviews", apexEvidence: evidence, hasCodex: false, hasClaude: true }), /no silent provider downgrade/);
+});
+
+test("sensitive work keeps the four-lane swarm and cheap work does not pay for it", () => {
+  assert.deepEqual(routeTask({ taskType: "security", risk: "normal" }).lanes, ["architecture", "security", "tests", "source-of-truth"]);
+  assert.deepEqual(routeTask({ taskType: "backend", risk: "critical" }).lanes, ["architecture", "security", "tests", "source-of-truth"]);
+  assert.deepEqual(routeTask({ taskType: "docs", risk: "low" }).lanes, ["tests"]);
+  assert.deepEqual(routeTask({ taskType: "backend", risk: "normal" }).lanes, ["tests", "source-of-truth"]);
+  assert.equal(routeTask({ taskType: "security" }).sensitive, true);
+  assert.equal(routeTask({ taskType: "docs", risk: "low" }).sensitive, false);
+});
