@@ -114,7 +114,10 @@ test("cloud workflow is owner-gated at intake, serialized, lifecycle-guarded and
   assert.match(intake, /cloud-agent-manager\.yml\/dispatches/);
   assert.match(workflow, /group: siton-cloud-agent-manager-v1/);
   assert.match(workflow, /cancel-in-progress: false/);
-  assert.match(workflow, /permissions:\n  contents: read\n  pull-requests: read\n  issues: read/);
+  // issues: write is the minimum that lets a blocked run still report to the
+  // phone; contents stays read so the default token can never push.
+  assert.match(workflow, /permissions:\n  contents: read\n  pull-requests: read\n  issues: write/);
+  assert.doesNotMatch(workflow, /^  contents: write/m);
   assert.match(workflow, /persist-credentials: false/);
   assert.match(workflow, /SITON_AGENT_GITHUB_TOKEN/);
   assert.match(workflow, /SITON_AGENT_GITHUB_TOKEN is required/);
@@ -231,4 +234,45 @@ test('manager and swarm wire Apex end to end without raising all analyst tiers',
   assert.match(swarm, /'apex' \|\| 'senior'/);
   assert.match(swarm, /lane: tests\s+model: gpt-5\.6-luna/);
   assert.match(swarm, /lane: security\s+model: gpt-5\.6-sol/);
+});
+
+test("a credential-blocked run still reaches the owner on the source issue", () => {
+  const workflow = read(".github/workflows/cloud-agent-manager.yml");
+  const intake = read(".github/workflows/agent-manager-intake.yml");
+  // The reporting path must not depend on the one secret most likely missing.
+  assert.match(workflow, /GH_TOKEN: \$\{\{ secrets\.SITON_AGENT_GITHUB_TOKEN \|\| github\.token \}\}/);
+  assert.match(workflow, /siton-credential-blocker\.md/);
+  assert.match(workflow, /BLOCKER REQUIRES OWNER ACTION/);
+  assert.match(workflow, /settings\/secrets\/actions/);
+  assert.match(intake, /permissions:\n  contents: read\n  issues: write\n  actions: write/);
+  assert.match(intake, /Acknowledge on the source issue/);
+  assert.match(intake, /gh issue comment/);
+});
+
+test("exactly one Claude credential is handed to claude-code-action", () => {
+  const workflow = read(".github/workflows/cloud-agent-manager.yml");
+  const apiKeyBindings = workflow.match(/anthropic_api_key: [^\n]*/g) || [];
+  const oauthBindings = workflow.match(/claude_code_oauth_token: [^\n]*/g) || [];
+  assert.equal(apiKeyBindings.length, 4);
+  assert.equal(oauthBindings.length, 4);
+  for (const binding of apiKeyBindings) assert.match(binding, /claude_auth == 'api' && secrets\.ANTHROPIC_API_KEY \|\| ''/);
+  for (const binding of oauthBindings) assert.match(binding, /claude_auth == 'oauth' && secrets\.CLAUDE_CODE_OAUTH_TOKEN \|\| ''/);
+  assert.match(workflow, /claude_auth=api/);
+  assert.match(workflow, /claude_auth=oauth/);
+});
+
+test("Claude builder can test and inspect but can never take the Git lifecycle", () => {
+  const workflow = read(".github/workflows/cloud-agent-manager.yml");
+  const builderArgs = workflow.match(/--max-turns 24[\s\S]*?--disallowedTools[^\n]*/);
+  assert.ok(builderArgs, "Claude builder must declare its tool boundary explicitly");
+  assert.match(builderArgs[0], /"Bash\(npm test:\*\)"/);
+  assert.match(builderArgs[0], /"Bash\(git diff:\*\)"/);
+  assert.match(builderArgs[0], /Edit MultiEdit Write/);
+  // Git write verbs and the GitHub CLI stay with the manager.
+  for (const forbidden of ["Bash(git commit", "Bash(git push", "Bash(gh:", "Bash(git checkout", "Bash(*)"]) {
+    assert.ok(!builderArgs[0].includes(forbidden), `builder must not be granted ${forbidden}`);
+  }
+  // Both Claude review passes stay read-only at the tool layer, not only by diff comparison.
+  const reviewerGuards = workflow.match(/--disallowedTools Write Edit MultiEdit NotebookEdit WebSearch WebFetch/g) || [];
+  assert.equal(reviewerGuards.length, 2);
 });
