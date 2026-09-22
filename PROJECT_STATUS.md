@@ -380,15 +380,15 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 <!-- AGENT_STATUS:cloud-manager:START -->
 ### Cloud Agent Manager latest milestone
 
-- UPDATED: 2026-09-17
+- UPDATED: 2026-09-22
 - BRANCH: `master`
-- BUILDER: manager infrastructure from PR #35
-- REVIEWER: repository integration completed
-- COMPLETED: GitHub-hosted orchestration, serialized writer queue, provider selection, task packets, builder lifecycle/control-plane guards, bounded review/fix cycle, canonical verification, dedicated autonomous Git lifecycle token path, isolated status ownership and PR creation are merged on master.
-- TESTED: repository integration completed through PR #35; no product runtime, database, payment or Grow behavior was changed by that merge.
-- OPEN: configure the required minimal credentials and execute one harmless computer-off smoke task.
-- PERCENTAGE: 100% repository-side; operational activation pending.
-- NEXT STEP: perform credential activation and harmless cloud smoke without enabling real money or Grow.
+- BUILDER: cloud manager infrastructure + phone-first closeout through PR #75
+- REVIEWER: cross-provider review path wired; live provider execution awaits credentials
+- COMPLETED: PR #72 and PR #75 are merged. Owner-authored phone intake reaches `Siton Agent Manager Intake`, which dispatches `Siton Cloud Agent Manager` on GitHub-hosted runners with the local computer out of the path. The manager has routed model tiers, Claude/Codex builder-reviewer support, bounded fix/review lifecycle, required parallel analysis swarm for sensitive work, failure telemetry, source-Issue reporting fallback, and a credential preflight workflow that reports only presence/live-check status and never secret values. Backend gates for PR #75 passed on rerun and the PR was merged to master SHA `28523f1c795acdfcb5b7a534da61e00b08d7ed36`.
+- TESTED: Issue #74 triggered the intake and manager from the phone-first path; the manager failed closed at credential resolution as designed. `Siton Cloud Credential Preflight` independently confirmed that `SITON_AGENT_GITHUB_TOKEN`, `OPENAI_API_KEY`, and a Claude credential are not configured. The analysis-swarm workflow has launched four parallel jobs, but model execution remains blocked by the missing provider credentials. PR #75 CI is green after backend-gates rerun.
+- OPEN: OWNER ACTION ONLY — create and store three repository Actions secrets: `SITON_AGENT_GITHUB_TOKEN`, `OPENAI_API_KEY`, and one Claude credential (recommended `ANTHROPIC_API_KEY`; alternatively `CLAUDE_CODE_OAUTH_TOKEN`). Then run credential preflight until it reports READY, followed by one docs-only end-to-end smoke and one sensitive swarm smoke. No agent can create those account-bound credentials without the owner's interactive login/approval.
+- PERCENTAGE: repository/infrastructure work 100%; operational activation 85%, blocked only on owner-controlled credentials and the post-credential live smoke.
+- NEXT STEP: owner adds the three account-bound secrets once; then ChatGPT/Claude can run the preflight and complete the remaining live builder, reviewer, routing, swarm and synthesis proofs without relying on the local computer.
 <!-- AGENT_STATUS:cloud-manager:END -->
 
 ## STANDING SAFETY AND COMMERCIAL INVARIANTS
