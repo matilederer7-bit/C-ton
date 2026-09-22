@@ -1,12 +1,20 @@
 # SITON PROJECT STATUS
 
-Updated: 2026-09-18
+Updated: 2026-09-22
 Canonical branch: `master`
 Current merged baseline: `2e32f436d809a330c8a2189994362cc9f459b009` (PR #53)
 Render staging: LIVE on that SHA — web `dep-dame6v0u01pc738qrku0`, worker `dep-dame6v0u01pc738qrlb0`
 Supabase staging: migration high-water **072**, grants through `staging_026`
 
 ## CURRENT SNAPSHOT
+
+## AGENT TEAM ACTIVATION — 2026-09-22
+
+- COMPLETED: PR #72 now contains a phone-first owner-only intake workflow, automatic dispatch into the Cloud Agent Manager, structured routing from Issue fields, mandatory four-lane parallel analysis for sensitive/Apex work, synthesis evidence attached to the PR, failure telemetry, and source-Issue reporting.
+- TESTED / CHECKED: repository CI is running on the updated PR head. The previous final PR head had all four hosted CI workflows green. New activation-specific regression tests were added for intake dispatch, owner gating, mandatory swarm execution and failure telemetry.
+- OPEN: hosted CI on the updated head must finish green; then PR #72 must merge to master and Issue #73 must be reopened to prove the new intake on the default branch. Repository secrets and actual model inference remain runtime proof points rather than assumptions.
+- PERCENTAGE: 85% until the first master-based end-to-end cloud run succeeds.
+- NEXT: finish CI, merge PR #72, reopen Issue #73, verify intake run, manager run, real model access, parallel swarm, synthesis and result comment. Declare CLOUD AGENT TEAM OPERATIONAL only after that proof.
 
 ### COMPLETED
 
