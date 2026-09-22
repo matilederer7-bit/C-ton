@@ -82,20 +82,21 @@ Apex applies to the Codex role. If Claude builds, Astra reviews; if Codex builds
 
 ## Start work here
 
-The team lives in GitHub Actions jobs, not in a permanent group chat. You can submit from a phone or any browser, then turn the computer off. GitHub-hosted Ubuntu runners execute the work; Issues, PRs and Actions artifacts retain the results.
+The owner's normal entry point is ChatGPT on the phone. GitHub is the execution control plane, not a UI the owner must operate for routine work.
 
-1. Merge the reviewed PR into master first. Issue events use workflows on the default branch; the manager explicitly checks out master even when manually dispatched from another workflow ref.
-2. In [Actions secrets](https://github.com/matilederer7-bit/C-ton/settings/secrets/actions), configure `SITON_AGENT_GITHUB_TOKEN` and `OPENAI_API_KEY`; configure `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` for cross-provider review. ChatGPT/Codex subscription access does not establish API-key billing or model permissions. A single provider runs with same-provider review and records that limitation.
-3. As `matilederer7-bit`, open [Siton Cloud Agent Task](https://github.com/matilederer7-bit/C-ton/issues/new?template=agent-manager.yml). Keep the `[agent-manager]` title prefix. Paste the outcome and acceptance criteria in Task. Set Task type, Risk and Compute tier; normally keep Auto and Apex reason = none. Opening the issue triggers the manager. Editing an existing issue or adding a comment does NOT trigger it.
-4. Alternatively open [Siton Cloud Agent Manager](https://github.com/matilederer7-bit/C-ton/actions/workflows/cloud-agent-manager.yml), choose Run workflow on master, and enter the task. CLI equivalent:
+1. State the desired outcome in ChatGPT. ChatGPT acts as the human-facing team lead and creates an owner-authored `[agent-manager]` Issue through the connected GitHub account.
+2. `.github/workflows/agent-manager-intake.yml` is the owner-only intake. On an opened or reopened manager Issue, it dispatches `cloud-agent-manager.yml` on `master` through GitHub's supported `workflow_dispatch` API. The optional `agent-manager-run` label is a deliberate retrigger path. No manual Actions button is required.
+3. The intake carries the structured Issue fields into the dispatch: task type, risk, compute tier, Apex reason/evidence, scope and protected areas. Ordinary tasks stay on the economical tier selected by the router; database, security, payments and high/critical-risk work have a Senior floor.
+4. The manager selects the builder and reviewer, runs the builder in an isolated task branch, performs canonical verification, runs an independent reviewer when credentials allow it, permits at most one bounded fix pass, updates `PROJECT_STATUS.md`, commits and pushes.
+5. Sensitive or Apex work must automatically launch `cloud-analysis-swarm.yml` before the PR opens. Four read-only lanes run in parallel: architecture, security, tests and source-of-truth. A fifth head reviewer synthesizes them. A material swarm finding forces the resulting PR to remain draft.
+6. The manager opens the PR, attaches reviewer and swarm evidence, emits telemetry even on failed managed runs, and comments the source Issue with the run/PR result. It never auto-merges.
+7. Repository CI remains authoritative. ChatGPT can inspect the PR, checks, logs and follow-up findings through the connected GitHub app and can perform the merge when the owner has asked for autonomous execution and the required gates are green.
 
-```sh
-gh workflow run cloud-agent-manager.yml --repo matilederer7-bit/C-ton --ref master -f task="Add a short docs-only example to the team runbook" -f task_type=docs -f risk=low -f model_tier=auto
-```
+Required repository configuration remains:
+- `SITON_AGENT_GITHUB_TOKEN`, able to push task branches, create PRs and trigger downstream Actions.
+- `OPENAI_API_KEY` for Codex execution.
+- `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` for Claude and cross-provider review.
 
-5. Track execution in Actions. The manager creates a task branch, builds, verifies, reviews, permits one bounded fix, updates its status slot, commits, pushes and opens a PR. For issue-triggered success it comments with the PR link. Failures are visible in Actions; there is no guaranteed issue failure comment. Merge remains owner-controlled.
-6. For four independent read-only analysts and the fifth synthesis, use [Siton Read-Only Analysis Swarm](https://github.com/matilederer7-bit/C-ton/actions/workflows/cloud-analysis-swarm.yml). Enter Task and target_ref. This is a separate workflow, NOT automatically launched by the manager's routing lanes. Reports are Actions artifacts and job summaries. For exceptional synthesis supply apex_reason and apex_evidence; critical-cross-layer also requires risk=critical.
+A missing provider must be reported honestly. Sensitive work does not silently drop below Senior. Apex does not silently fall back from Astra.
 
-Task type, Risk, Compute tier, Apex reason and Apex evidence are parsed from the Issue form. Scope, Allowed paths and Dependencies currently remain task-packet instructions; they are not automatic path locks or dependency scheduling. Check dependencies and local writer ownership before submitting overlapping work. GitHub concurrency serializes managed writers but retains only one pending run; it is not a durable FIFO queue. Submit the next task after the active run completes rather than flooding Issues.
-
-For first activation, use the docs-only example above, inspect successful model access and the actual Codex step, and confirm a new PR with checks. Then run a harmless read-only swarm with a justified Apex synthesis to prove the workflow key can execute Astra. Until those runs succeed, setup is implemented but operational activation remains unproven.
+First activation proof is not complete until all of the following have happened on `master`: intake trigger PASS, manager dispatch PASS, a harmless managed task produces a PR, the required model-access step succeeds, a sensitive test launches the four-lane swarm, the fifth synthesis completes, and the source Issue receives the result. Only then may the status be declared `CLOUD AGENT TEAM OPERATIONAL`.
