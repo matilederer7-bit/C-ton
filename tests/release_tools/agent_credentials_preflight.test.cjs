@@ -252,3 +252,19 @@ test("preflight workflow is phone-runnable, read-only and never echoes a secret"
     assert.match(workflow, new RegExp(`${name}: \\$\\{\\{ secrets\\.${name.replace(/\./g, "\\.")} \\}\\}`));
   }
 });
+
+test("a rejected Anthropic key blocks, because the manager would still route Claude steps to it", () => {
+  const report = buildReport({
+    github: { present: true, valid: true, detail: "ok" },
+    actions: { present: true, valid: true, detail: "ok" },
+    openai: { present: true, valid: true, detail: "ok", models: {} },
+    anthropic: { present: true, valid: false, detail: "HTTP 401" },
+    oauth: claudeOauthStatus(""),
+    repository: "o/r",
+  });
+  assert.equal(report.ready, false);
+  assert.ok(report.blockers.some((blocker) => /ANTHROPIC_API_KEY is present but unusable: HTTP 401/.test(blocker)));
+  assert.ok(report.blockers.some((blocker) => /delete the secret to run OpenAI-only/.test(blocker)));
+  assert.ok(!report.warnings.some((warning) => /No Claude credential/.test(warning)));
+  assert.match(renderMarkdown(report), /Overall: BLOCKED/);
+});

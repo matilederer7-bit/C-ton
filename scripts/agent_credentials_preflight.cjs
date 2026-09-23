@@ -141,11 +141,13 @@ function buildReport({ github, actions, openai, anthropic, oauth, repository }) 
   if (!openai.present) blockers.push("OPENAI_API_KEY is missing: Codex builder, Codex reviewer and the four analysis lanes cannot run.");
   else if (!openai.valid) blockers.push(`OPENAI_API_KEY is present but unusable: ${openai.detail}`);
 
+  // The manager selects Claude from key presence alone, so a rejected key would
+  // route builder/reviewer steps to a failing credential. It must block until
+  // the key is replaced or removed (removing it yields OpenAI-only mode).
+  if (anthropic.present && anthropic.valid === false) blockers.push(`ANTHROPIC_API_KEY is present but unusable: ${anthropic.detail}. The manager would still select it for Claude steps. Replace it, or delete the secret to run OpenAI-only.`);
+
   const warnings = [];
-  if (!claudeReady) {
-    if (anthropic.present && anthropic.valid === false) warnings.push(`ANTHROPIC_API_KEY is present but unusable: ${anthropic.detail}. OpenAI-only execution remains available, but cross-provider review is unavailable.`);
-    else warnings.push("No Claude credential is configured. OpenAI-only execution remains available, but cross-provider review is unavailable.");
-  }
+  if (!claudeReady && !(anthropic.present && anthropic.valid === false)) warnings.push("No Claude credential is configured. OpenAI-only execution remains available, but cross-provider review is unavailable.");
   for (const [model, state] of Object.entries(openai.models || {})) {
     if (state === "available") continue;
     const tier = TIER_BY_MODEL[model] || model;

@@ -71,6 +71,20 @@ jobs:
             effort: low
             focus: "Canonical documents, implementation drift, stale obligations and acceptance criteria."
     steps:
+      - name: Refuse untrusted dispatch actors
+        env:
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        shell: bash
+        run: |
+          # allow-bots on the Codex steps trusts every bot actor, not only the
+          # intake workflow's github-actions[bot]. Narrow it here: only the
+          # owner and that built-in bot may reach credentialed steps.
+          if [ "$TRIGGERING_ACTOR" != "$REPO_OWNER" ] && [ "$TRIGGERING_ACTOR" != "github-actions[bot]" ]; then
+            echo "::error::Refusing dispatch by untrusted actor: $TRIGGERING_ACTOR"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.target_ref }}
@@ -118,6 +132,20 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
+      - name: Refuse untrusted dispatch actors
+        env:
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        shell: bash
+        run: |
+          # allow-bots on the Codex steps trusts every bot actor, not only the
+          # intake workflow's github-actions[bot]. Narrow it here: only the
+          # owner and that built-in bot may reach credentialed steps.
+          if [ "$TRIGGERING_ACTOR" != "$REPO_OWNER" ] && [ "$TRIGGERING_ACTOR" != "github-actions[bot]" ]; then
+            echo "::error::Refusing dispatch by untrusted actor: $TRIGGERING_ACTOR"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.target_ref }}

@@ -278,3 +278,19 @@ test("Claude builder can test and inspect but can never take the Git lifecycle",
   const reviewerGuards = workflow.match(/--disallowedTools Write Edit MultiEdit NotebookEdit WebSearch WebFetch/g) || [];
   assert.equal(reviewerGuards.length, 2);
 });
+
+test("every credentialed Codex job first refuses dispatch actors other than the owner and github-actions[bot]", () => {
+  for (const file of [".github/workflows/cloud-agent-manager.yml", ".github/workflows/cloud-analysis-swarm.yml"]) {
+    const text = read(file);
+    const jobs = text.split(/\n  [a-z][a-z0-9_-]*:\n/).slice(1).filter((job) => /openai\/codex-action@v1/.test(job));
+    assert.ok(jobs.length > 0, file);
+    for (const job of jobs) {
+      const steps = job.slice(job.indexOf("\n    steps:\n"));
+      const guard = steps.indexOf("name: Refuse untrusted dispatch actors");
+      assert.ok(guard > -1, `${file}: job without actor guard`);
+      assert.ok(guard < steps.indexOf("openai/codex-action@v1"), `${file}: guard must precede Codex`);
+      assert.match(steps, /TRIGGERING_ACTOR: \$\{\{ github\.triggering_actor \}\}/);
+      assert.match(steps, /"\$TRIGGERING_ACTOR" != "\$REPO_OWNER" \] && \[ "\$TRIGGERING_ACTOR" != "github-actions\[bot\]"/);
+    }
+  }
+});
