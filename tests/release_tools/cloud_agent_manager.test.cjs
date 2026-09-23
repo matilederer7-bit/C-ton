@@ -125,6 +125,8 @@ test("cloud workflow is owner-gated at intake, serialized, lifecycle-guarded and
   assert.match(workflow, /CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"/);
   assert.match(workflow, /anthropics\/claude-code-action@v1/);
   assert.match(workflow, /openai\/codex-action@v1/);
+  assert.equal((workflow.match(/allow-bots: true/g) || []).length, 4, "every manager Codex step must trust the built-in GitHub Actions bot");
+  assert.equal((read(".github/workflows/cloud-analysis-swarm.yml").match(/allow-bots: true/g) || []).length, 2, "every swarm Codex step must trust the built-in GitHub Actions bot");
   assert.match(workflow, /permission-profile: ":read-only"/);
   assert.match(workflow, /Enforce builder lifecycle and control-plane boundary/);
   assert.match(workflow, /Builder committed or changed HEAD/);
@@ -177,9 +179,9 @@ test("engineering operating system has routing, parallel analysis and telemetry 
   assert.match(workflow, /gh run watch/);
   assert.match(workflow, /swarm-synthesis/);
   assert.match(swarm, /max-parallel: 4/);
-  assert.match(swarm, /gpt-5\.6-luna/);
-  assert.match(swarm, /gpt-5\.6-terra/);
-  assert.match(swarm, /gpt-5\.6-sol/);
+  assert.match(swarm, /gpt-6-luna/);
+  assert.match(swarm, /gpt-6-sol/);
+  assert.match(swarm, /gpt-6-sol/);
   assert.match(swarm, /architecture/);
   assert.match(swarm, /security/);
   assert.match(swarm, /source-of-truth/);
@@ -232,8 +234,8 @@ test('manager and swarm wire Apex end to end without raising all analyst tiers',
   assert.match(form, /label: Apex evidence/);
   assert.match(swarm, /model: \$\{\{ steps\.head_route\.outputs\.codex_model \}\}/);
   assert.match(swarm, /'apex' \|\| 'senior'/);
-  assert.match(swarm, /lane: tests\s+model: gpt-5\.6-luna/);
-  assert.match(swarm, /lane: security\s+model: gpt-5\.6-sol/);
+  assert.match(swarm, /lane: tests\s+model: gpt-6-luna/);
+  assert.match(swarm, /lane: security\s+model: gpt-6-sol/);
 });
 
 test("a credential-blocked run still reaches the owner on the source issue", () => {
