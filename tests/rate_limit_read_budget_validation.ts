@@ -14,6 +14,7 @@ const { Pool } = pg;
 
 process.env.APP_DEPLOYMENT_MODE = "demo-preview";
 process.env.DISABLE_OUTBOX_WORKER = "1";
+process.env.RENDER = "true";
 process.env.RATE_LIMIT_MAX = "200";
 process.env.RATE_LIMIT_WINDOW_MS = "60000";
 process.env.RATE_LIMIT_SENSITIVE_MAX = "20";
@@ -33,11 +34,14 @@ const seller = `seller-p07c-${randomUUID().slice(0, 8)}`;
 const HS = { "x-seller-id": seller, "content-type": "application/json" };
 let dealId = "";
 const ip = (n: number) => `10.77.${Math.floor(n / 250)}.${(n % 250) + 1}`;
+function renderClientHeaders(clientIp: string) {
+  return { "cf-connecting-ip": clientIp, "x-forwarded-for": `198.51.100.250, ${clientIp}` };
+}
 async function get(url: string, clientIp: string) {
-  return app.inject({ method: "GET", url, headers: { "x-forwarded-for": clientIp } });
+  return app.inject({ method: "GET", url, headers: renderClientHeaders(clientIp) });
 }
 async function post(url: string, clientIp: string, payload: unknown) {
-  return app.inject({ method: "POST", url, headers: { "x-forwarded-for": clientIp, "content-type": "application/json" }, payload: payload as any });
+  return app.inject({ method: "POST", url, headers: { ...renderClientHeaders(clientIp), "content-type": "application/json" }, payload: payload as any });
 }
 
 await run("setup: a published deal with a pickup address", async () => {
@@ -168,7 +172,7 @@ await run("I: the Draft preview route is outside both budgets and creates nothin
   const draftId = String((draft.json() as any).deal?.deal_id || (draft.json() as any).deal_id);
   const clientIp = ip(9);
   for (let i = 0; i < 130; i++) {
-    const res = await app.inject({ method: "GET", url: `/api/seller/deals/${draftId}/preview`, headers: { ...HS, "x-forwarded-for": clientIp } });
+    const res = await app.inject({ method: "GET", url: `/api/seller/deals/${draftId}/preview`, headers: { ...HS, ...renderClientHeaders(clientIp) } });
     assert.equal(res.statusCode, 200, `preview ${i}: ${res.statusCode}`);
   }
   const events = await pool.query(`SELECT count(*)::int AS n FROM siton.viral_events WHERE deal_id=$1`, [draftId]);

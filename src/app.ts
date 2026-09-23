@@ -16,6 +16,7 @@ import {
 type PoolClient = any;
 import { createHash, randomUUID } from "crypto";
 import { resolve } from "node:path";
+import { isIP } from "node:net";
 import { pathToFileURL } from "node:url";
 import dotenv from "dotenv";
 import { buildOutboxWorkerHelpers, OutboxLeaseLostError } from "./outbox_worker_helpers.js";
@@ -159,6 +160,43 @@ const MOCK_SEED = process.env.MOCK_SEED ? Number(process.env.MOCK_SEED) : null;
 const DEBUG_SURFACES_HEADER = "x-debug-access-key";
 const APP_DEPLOYMENT_MODE = process.env.APP_DEPLOYMENT_MODE || "demo-preview";
 const IS_DEMO_PREVIEW = APP_DEPLOYMENT_MODE === "demo-preview";
+
+function normalizedIp(value: unknown): string | null {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const unwrapped = raw.startsWith("[") && raw.endsWith("]") ? raw.slice(1, -1) : raw;
+  const mapped = unwrapped.startsWith("::ffff:") ? unwrapped.slice(7) : unwrapped;
+  if (isIP(mapped)) return mapped;
+  if (isIP(unwrapped)) return unwrapped;
+  return null;
+}
+
+/**
+ * Security-sensitive client-IP resolver.
+ *
+ * Fastify's `trustProxy: true` trusts forwarded hops for ordinary request
+ * metadata, but rate-limit identity must not come from X-Forwarded-For: that
+ * header can contain a caller-controlled prefix before edge proxies append to
+ * it. On Render's public edge, Cloudflare overwrites CF-Connecting-IP with the
+ * actual client address. We trust that header only when Render itself marks the
+ * runtime with RENDER=true.
+ *
+ * If the trusted edge header is absent or malformed, fail conservatively to the
+ * direct socket peer rather than accepting any forwarded address supplied by
+ * the caller.
+ */
+export function rateLimitClientIp(req: any): string {
+  if (process.env.RENDER === "true") {
+    const rawHeader = req?.headers?.["cf-connecting-ip"];
+    const header = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
+    const renderClientIp = normalizedIp(header);
+    if (renderClientIp) return renderClientIp;
+  }
+
+  const socketIp = normalizedIp(req?.raw?.socket?.remoteAddress ?? req?.socket?.remoteAddress);
+  if (socketIp) return socketIp;
+  return "unknown";
+}
 
 function isAccepted(value: unknown): boolean {
   return value === true || value === "true" || value === "on" || value === "1";
@@ -5372,9 +5410,9 @@ export { app, issueFulfillmentForCompletedDeal };
 // RATE_LIMIT_WINDOW_MS (window duration in ms). Off when RATE_LIMIT_MAX=0.
 // Uses a fixed-window counter keyed by client IP.
 //
-// Behind Render (or any proxy with trustProxy:true), req.ip already resolves
-// the first untrusted IP from X-Forwarded-For via Fastify's built-in handling.
-// Sensitive endpoints (OTP, join-deal) use a tighter per-path sub-limit.
+// Security-sensitive rate-limit keys do NOT use req.ip. On Render, the
+// edge-overwritten CF-Connecting-IP value is used; elsewhere the direct socket
+// peer is used. Sensitive endpoints use a tighter per-path sub-limit.
 // Default store is memory with explicit single-instance scale mode. The narrow
 // interface is the replacement point for Redis/DB/platform-backed enforcement.
 // ---------------------------------------------------------------------------
@@ -5393,7 +5431,7 @@ const READ_ONLY_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 export const RATE_LIMIT_SCALE_MODE = process.env.RATE_LIMIT_SCALE_MODE || "single_instance_only";
 
 // Paths that get the tighter per-IP limit (prefix match without trailing slash)
-const SENSITIVE_PATHS = ["/api/otp", "/api/deals/join", "/api/deals", "/api/support"];
+const SENSITIVE_PATHS = ["/api/otp", "/api/deals/join", "/api/deals", "/api/support", "/api/seller/session/login", "/api/distributor/session/login", "/api/admin/auth/login"];
 
 type RateLimitEntry = { count: number; resetAt: number };
 interface RateLimiterStore {
@@ -5445,9 +5483,7 @@ export function rateLimitBucketFor(method: string, url: string): "sensitive" | "
 
 if (RATE_LIMIT_MAX > 0) {
   app.addHook("onRequest", async (req, reply) => {
-    // req.ip is the correct client IP when trustProxy:true is set —
-    // Fastify reads X-Forwarded-For and returns the first untrusted address.
-    const ip = req.ip || "unknown";
+    const ip = rateLimitClientIp(req);
     const url = req.url || "";
     const now = Date.now();
 

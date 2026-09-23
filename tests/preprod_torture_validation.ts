@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 process.env.DISABLE_OUTBOX_WORKER = "1";
 process.env.PORT = "3495";
+process.env.RENDER = "true";
 
 const { app } = await import("../src/app.js");
 
@@ -57,6 +58,7 @@ async function createDeal(
     headers: {
       "x-request-id": `preprod-create-${unique}`,
       "idempotency-key": `preprod-create-${unique}`,
+      "cf-connecting-ip": testIp(`create-${unique}`),
       "x-forwarded-for": testIp(`create-${unique}`)
     },
     payload: {
@@ -84,6 +86,7 @@ async function post(
     headers: {
       "x-request-id": requestId,
       "idempotency-key": requestId,
+      "cf-connecting-ip": testIp(requestId),
       "x-forwarded-for": testIp(requestId)
     },
     payload
@@ -220,6 +223,7 @@ async function authorizeBuyer(suffix: string) {
     method: "POST",
     url: "/api/otp/start",
     headers: {
+      "cf-connecting-ip": testIp(`otp-${suffix}`),
       "x-forwarded-for": testIp(`otp-${suffix}`)
     },
     payload: {
@@ -233,6 +237,7 @@ async function authorizeBuyer(suffix: string) {
     method: "POST",
     url: "/api/otp/verify",
     headers: {
+      "cf-connecting-ip": testIp(`otp-${suffix}`),
       "x-forwarded-for": testIp(`otp-${suffix}`)
     },
     payload: {
@@ -247,6 +252,7 @@ async function authorizeBuyer(suffix: string) {
     method: "POST",
     url: "/api/payments/authorize-mock",
     headers: {
+      "cf-connecting-ip": testIp(`payment-${suffix}`),
       "x-forwarded-for": testIp(`payment-${suffix}`)
     },
     payload: {
@@ -354,12 +360,12 @@ async function main() {
       const publicDeal = await app.inject({
         method: "GET",
         url: `/api/deals/${created.deal_id}/public`,
-        headers: { "x-forwarded-for": testIp(`soak-public-${iteration}`) }
+        headers: { "cf-connecting-ip": testIp(`soak-public-${iteration}`), "x-forwarded-for": testIp(`soak-public-${iteration}`) }
       });
       const tracking = await app.inject({
         method: "GET",
         url: `/api/participants/${joinJson.participant_id}/tracking`,
-        headers: { "x-forwarded-for": testIp(`soak-tracking-${iteration}`) }
+        headers: { "cf-connecting-ip": testIp(`soak-tracking-${iteration}`), "x-forwarded-for": testIp(`soak-tracking-${iteration}`) }
       });
       assert.equal(publicDeal.statusCode, 200);
       assert.equal(tracking.statusCode, 200);
