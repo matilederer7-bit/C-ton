@@ -34,7 +34,7 @@ Multiple writers may run only when their file and migration ownership is disjoin
 
 `scripts/agent_router.cjs` is the executable policy. High-risk classification overrides a requested cheaper tier. A provider outage may fall back to the available provider, but the run records that review was not cross-provider.
 
-The executable mapping is explicit: Economy uses `gpt-5.6-luna`, Standard uses `gpt-5.6-terra`, Senior uses `gpt-5.6-sol`, and Apex uses `gpt-6-astra` with `high` reasoning. The security lane and default head synthesis use Senior; only explicitly justified head synthesis escalates to Apex; test and source-of-truth scans use Economy. Model identifiers must be reviewed when OpenAI changes Codex model availability.
+The executable mapping is explicit: Economy uses `gpt-6-luna` with low reasoning; Standard uses `gpt-6-sol` with medium reasoning; Senior uses the same `gpt-6-sol` model with high reasoning; Apex remains the exceptional `gpt-6-astra` path with high reasoning and explicit evidence. The security lane and default head synthesis use Senior; only explicitly justified head synthesis escalates to Apex; test and source-of-truth scans use Economy. Model identifiers must be reviewed when OpenAI changes Codex model availability.
 
 ## Definition of done
 
@@ -48,9 +48,9 @@ Each managed run emits a `siton.agent-run.v1` JSON record as a GitHub Actions ar
 
 - `SITON_AGENT_GITHUB_TOKEN`, a GitHub token able to push task branches, create Pull Requests and trigger normal CI.
 - `OPENAI_API_KEY` for Codex cloud execution.
-- `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` for Claude cloud execution.
+- Optional: `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` for Claude cloud execution and cross-provider review.
 
-When only one model provider is configured, cloud execution still works but independent cross-provider review does not. The manager reports this explicitly.
+OpenAI-only operation is a supported first-class mode: Codex may build and review with the same provider, while the four-lane analysis swarm remains available. Adding Claude improves provider independence but is not a prerequisite for computer-independent phone operation. The manager reports same-provider review explicitly.
 
 ## Safety boundaries
 
@@ -71,9 +71,9 @@ The router validates the enum, minimum evidence length and critical-risk require
 
 Apex applies to the Codex role. If Claude builds, Astra reviews; if Codex builds, Astra builds and handles the one bounded fix pass. Explicit role overrides that remove every Codex role are rejected. Claude's model is currently provider-default, not mapped to the OpenAI tier names. Telemetry records the exact Codex model and escalation reason.
 
-## Verified model support and access boundary (2026-09-22)
+## Verified model support and access boundary (2026-09-23)
 
-- Official [model catalog](https://developers.openai.com/api/docs/models) lists Luna, Terra, Sol and Astra with the exact IDs above. [Astra documentation](https://developers.openai.com/api/docs/models/gpt-6-astra) supports high reasoning and tool use through Responses.
+- Official [model catalog](https://developers.openai.com/api/docs/models) lists the GPT-6 family as `gpt-6-luna`, `gpt-6-sol` and `gpt-6-astra`. Sol is documented for complex coding and agentic workflows; Luna is the efficient high-volume model. [Astra documentation](https://developers.openai.com/api/docs/models/gpt-6-astra) remains the exceptional high-compute path.
 - The local Codex app advertises `gpt-6-astra` among its available task/agent models. This is app availability, not an entitlement check for a GitHub API key.
 - The [Codex GitHub Action](https://learn.chatgpt.com/docs/github-action) accepts `model` and `effort` and invokes Codex through the Responses API. The workflow passes the routed model on every Codex build/review/fix call.
 - Inspected the actual OpenAI Action v1 source at commit `86365089eb2b84e0a8fb0717b304f8bdcb13b20e`: `action.yml` declares `model`, `effort` and `permission-profile`; `src/runCodexExec.ts` passes the model directly as `--model` and effort as `model_reasoning_effort`, with no three-model allowlist.
@@ -95,13 +95,22 @@ The owner's normal entry point is ChatGPT on the phone. GitHub is the execution 
 Required repository configuration remains:
 - `SITON_AGENT_GITHUB_TOKEN`, able to push task branches, create PRs and trigger downstream Actions. Its fine-grained permissions must include Actions read and write, because sensitive and Apex runs dispatch and then watch the swarm with this token.
 - `OPENAI_API_KEY` for Codex execution.
-- `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` for Claude and cross-provider review. `ANTHROPIC_API_KEY` is preferred for unattended cloud runs; the OAuth token has to be regenerated from a computer, which defeats phone-only operation.
+- Optional: `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` for Claude and cross-provider review. OpenAI-only operation is valid without it; when Claude is added, `ANTHROPIC_API_KEY` is preferred for unattended cloud runs.
 
 `.github/workflows/cloud-credential-preflight.yml` reports which of those are configured and which the provider actually accepts, without revealing any value. Run it before declaring the team operational and after any credential rotation. `docs/CLOUD_AGENT_MANAGER.md` holds the step-by-step owner activation runbook.
 
 A missing provider must be reported honestly. Sensitive work does not silently drop below Senior. Apex does not silently fall back from Astra.
 
 ## Activation evidence log
+
+### 2026-09-23 — ChatGPT-to-cloud path exercised, Codex nested-trigger defect isolated
+
+- ChatGPT created owner-authored Issue #77. The owner-only intake accepted it and dispatched manager run `35917126097` with no local computer involved.
+- Credential preflight attempt 2 on run `35751558579` live-checked `SITON_AGENT_GITHUB_TOKEN` and `OPENAI_API_KEY` as present and accepted. Claude remains absent and is now treated as optional for OpenAI-only operation.
+- The manager passed dependency install, role resolution, selected-model metadata access and isolated branch creation. It then failed at the first Codex inference because `openai/codex-action@v1` rejected nested actor `github-actions[bot]`.
+- The pinned OpenAI action exposes `allow-bots: true` specifically for trusted GitHub-owned bot actors. The manager and swarm now set that input on every Codex invocation. This does not allow arbitrary bots or users.
+- Routing is upgraded to GPT-6: Luna for Economy, Sol medium for Standard, Sol high for Senior, Astra only for explicit Apex escalation.
+- Post-merge proof still required: rerun credential preflight against the new model IDs, retrigger Issue #77 until a managed PR is created, then run one sensitive smoke that completes the four parallel lanes and fifth synthesis.
 
 ### 2026-09-22 — control plane proven, credentials absent
 
