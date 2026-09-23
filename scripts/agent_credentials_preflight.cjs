@@ -7,16 +7,15 @@
 
 const fs = require("node:fs");
 
-const CODEX_MODELS = ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra"];
+const CODEX_MODELS = ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra"];
 // Astra is reachable only through an explicit Apex escalation, so its absence
 // degrades one exceptional path. Luna, Terra and Sol carry every ordinary
 // routed task, so their absence stops normal work at the manager's own
 // `Verify selected Codex model access` gate.
-const ROUTINE_CODEX_MODELS = new Set(["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"]);
+const ROUTINE_CODEX_MODELS = new Set(["gpt-6-luna", "gpt-6-sol"]);
 const TIER_BY_MODEL = {
-  "gpt-5.6-luna": "economy (Luna)",
-  "gpt-5.6-terra": "standard (Terra)",
-  "gpt-5.6-sol": "senior (Sol)",
+  "gpt-6-luna": "economy (Luna)",
+  "gpt-6-sol": "standard/senior (Sol)",
   "gpt-6-astra": "apex (Astra)",
 };
 
@@ -141,10 +140,12 @@ function buildReport({ github, actions, openai, anthropic, oauth, repository }) 
   if (github.present && !actions.valid) blockers.push(`SITON_AGENT_GITHUB_TOKEN cannot read Actions: ${actions.detail}`);
   if (!openai.present) blockers.push("OPENAI_API_KEY is missing: Codex builder, Codex reviewer and the four analysis lanes cannot run.");
   else if (!openai.valid) blockers.push(`OPENAI_API_KEY is present but unusable: ${openai.detail}`);
-  if (!claudeReady) blockers.push("No Claude credential: set ANTHROPIC_API_KEY (recommended) or CLAUDE_CODE_OAUTH_TOKEN so Claude can act as builder or reviewer.");
-  else if (anthropic.present && anthropic.valid === false) blockers.push(`ANTHROPIC_API_KEY is present but unusable: ${anthropic.detail}`);
 
   const warnings = [];
+  if (!claudeReady) {
+    if (anthropic.present && anthropic.valid === false) warnings.push(`ANTHROPIC_API_KEY is present but unusable: ${anthropic.detail}. OpenAI-only execution remains available, but cross-provider review is unavailable.`);
+    else warnings.push("No Claude credential is configured. OpenAI-only execution remains available, but cross-provider review is unavailable.");
+  }
   for (const [model, state] of Object.entries(openai.models || {})) {
     if (state === "available") continue;
     const tier = TIER_BY_MODEL[model] || model;
