@@ -9,7 +9,7 @@ const fs = require("node:fs");
 
 const CODEX_MODELS = ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra"];
 // Astra is reachable only through an explicit Apex escalation, so its absence
-// degrades one exceptional path. Luna, Terra and Sol carry every ordinary
+// degrades one exceptional path. GPT-6 Luna and Sol carry every ordinary
 // routed task, so their absence stops normal work at the manager's own
 // `Verify selected Codex model access` gate.
 const ROUTINE_CODEX_MODELS = new Set(["gpt-6-luna", "gpt-6-sol"]);
