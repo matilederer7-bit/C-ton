@@ -1,2 +1,6 @@
 # Migrations are hashed by the ledger runner; keep the canonical body LF on every platform.
 src/migrations/*.sql text eol=lf
+# Bootstrap payloads and installed copies must compare identically on Windows.
+docs/agent-team-bootstrap/** text eol=lf
+.claude/agents/*.md text eol=lf
+.github/pull_request_template.md text eol=lf

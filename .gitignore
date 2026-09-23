@@ -33,7 +33,10 @@ pnpm-debug.log*
 
 archive_temp/
 
-.claude/
+.claude/*
+!.claude/agents/
+.claude/agents/*
+!.claude/agents/*.md
 
 .tmp_*
 .tmp*/

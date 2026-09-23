@@ -58,3 +58,17 @@ Return only useful evidence:
 - Next step
 
 The goal is maximum verified progress with minimum owner intervention and minimum token/credit waste.
+
+## Optional specialist team
+
+The ten definitions in `.claude/agents/` supplement this entry point. See
+`docs/AGENT_TEAM_CLOUD.md` for responsibilities and bootstrap recovery.
+Start with bounded reconnaissance when needed, assign exact non-overlapping
+files, and use an independent read-only reviewer for sensitive work. Installing
+definitions does not start agents or prove cloud activation.
+
+`AGENTS.md`, the engineering operating system and a managed task packet take
+precedence over specialist guidance. When `.siton-cloud-task.md` identifies a
+managed task, no subagent may commit, push, open PRs or edit PROJECT_STATUS.md:
+the cloud manager owns those actions. A local supervisor updates only its own
+status slot. Specialist model aliases do not override cloud router tiers.
