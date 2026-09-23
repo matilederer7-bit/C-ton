@@ -9,7 +9,7 @@ test("router reserves senior execution for money, database and security", () => 
     assert.equal(route.builder, "codex");
     assert.equal(route.reviewer, "claude");
     assert.equal(route.builderEffort, "high");
-    assert.equal(route.codexModel, "gpt-5.6-sol");
+    assert.equal(route.codexModel, "gpt-6-sol");
     assert.ok(route.lanes.length >= 4);
   }
 });
@@ -18,14 +18,19 @@ test("router keeps cheap read-heavy work economical", () => {
   const route = routeTask({ taskType: "docs", risk: "low", tier: "auto" });
   assert.equal(route.tier, "economy");
   assert.equal(route.builderEffort, "low");
-  assert.equal(route.codexModel, "gpt-5.6-luna");
+  assert.equal(route.codexModel, "gpt-6-luna");
   assert.deepEqual(route.lanes, ["tests"]);
 });
 
-test("standard work uses the balanced model instead of the senior model", () => {
-  const route = routeTask({ taskType: "backend", risk: "normal", tier: "auto" });
-  assert.equal(route.tier, "standard");
-  assert.equal(route.codexModel, "gpt-5.6-terra");
+test("standard and senior work share Sol but use different reasoning effort", () => {
+  const standard = routeTask({ taskType: "backend", risk: "normal", tier: "auto" });
+  const senior = routeTask({ taskType: "security", risk: "normal", tier: "auto" });
+  assert.equal(standard.tier, "standard");
+  assert.equal(standard.codexModel, "gpt-6-sol");
+  assert.equal(standard.builderEffort, "medium");
+  assert.equal(senior.tier, "senior");
+  assert.equal(senior.codexModel, "gpt-6-sol");
+  assert.equal(senior.builderEffort, "high");
 });
 
 test("router prefers separate ecosystems and degrades honestly", () => {
@@ -107,16 +112,16 @@ test('telemetry records exact Codex model and escalation reason', () => {
 // The owner's stated cost rule: the strongest model must never be the default.
 test("routing matrix maps work to the cheapest adequate tier, model and provider", () => {
   const matrix = [
-    { taskType: "docs", risk: "low", tier: "economy", codexModel: "gpt-5.6-luna", builder: "claude", reviewer: "codex" },
-    { taskType: "tests", risk: "low", tier: "economy", codexModel: "gpt-5.6-luna", builder: "codex", reviewer: "claude" },
-    { taskType: "frontend", risk: "normal", tier: "standard", codexModel: "gpt-5.6-terra", builder: "claude", reviewer: "codex" },
-    { taskType: "ux", risk: "normal", tier: "standard", codexModel: "gpt-5.6-terra", builder: "claude", reviewer: "codex" },
-    { taskType: "backend", risk: "normal", tier: "standard", codexModel: "gpt-5.6-terra", builder: "codex", reviewer: "claude" },
-    { taskType: "operations", risk: "normal", tier: "standard", codexModel: "gpt-5.6-terra", builder: "codex", reviewer: "claude" },
-    { taskType: "security", risk: "normal", tier: "senior", codexModel: "gpt-5.6-sol", builder: "codex", reviewer: "claude" },
-    { taskType: "database", risk: "normal", tier: "senior", codexModel: "gpt-5.6-sol", builder: "codex", reviewer: "claude" },
-    { taskType: "payments", risk: "normal", tier: "senior", codexModel: "gpt-5.6-sol", builder: "codex", reviewer: "claude" },
-    { taskType: "frontend", risk: "high", tier: "senior", codexModel: "gpt-5.6-sol", builder: "claude", reviewer: "codex" },
+    { taskType: "docs", risk: "low", tier: "economy", codexModel: "gpt-6-luna", builder: "claude", reviewer: "codex" },
+    { taskType: "tests", risk: "low", tier: "economy", codexModel: "gpt-6-luna", builder: "codex", reviewer: "claude" },
+    { taskType: "frontend", risk: "normal", tier: "standard", codexModel: "gpt-6-sol", builder: "claude", reviewer: "codex" },
+    { taskType: "ux", risk: "normal", tier: "standard", codexModel: "gpt-6-sol", builder: "claude", reviewer: "codex" },
+    { taskType: "backend", risk: "normal", tier: "standard", codexModel: "gpt-6-sol", builder: "codex", reviewer: "claude" },
+    { taskType: "operations", risk: "normal", tier: "standard", codexModel: "gpt-6-sol", builder: "codex", reviewer: "claude" },
+    { taskType: "security", risk: "normal", tier: "senior", codexModel: "gpt-6-sol", builder: "codex", reviewer: "claude" },
+    { taskType: "database", risk: "normal", tier: "senior", codexModel: "gpt-6-sol", builder: "codex", reviewer: "claude" },
+    { taskType: "payments", risk: "normal", tier: "senior", codexModel: "gpt-6-sol", builder: "codex", reviewer: "claude" },
+    { taskType: "frontend", risk: "high", tier: "senior", codexModel: "gpt-6-sol", builder: "claude", reviewer: "codex" },
   ];
   for (const expected of matrix) {
     const route = routeTask({ taskType: expected.taskType, risk: expected.risk, tier: "auto" });
