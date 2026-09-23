@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Metadata access is a credential preflight, not proof of successful inference.
-const MODELS = new Set(["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra"]);
+const MODELS = new Set(["gpt-6-luna", "gpt-6-sol", "gpt-6-astra"]);
 
 async function verifyModelAccess({ apiKey, model, fetchImpl = fetch }) {
   if (!MODELS.has(model)) throw new Error("Unknown routed Codex model");
