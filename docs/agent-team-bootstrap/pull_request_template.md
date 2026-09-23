@@ -55,6 +55,8 @@ Every result above was actually run. Nothing is reported as passing that was not
 
 ## Review
 
-<!-- Reviewer: P0/P1 findings only, each with a concrete failure scenario.
+<!-- Reviewer: report every actionable finding, P0/P1 first, then P2. Each
+     needs a concrete failure scenario; drop anything you cannot make concrete.
+     Style preferences are not findings.
      State which parts of the diff you did not review.
      Verdict: block merge / safe to merge. -->

@@ -5,6 +5,12 @@ model: opus
 effort: high
 tools: Read, Grep, Glob, Bash
 disallowedTools: Write, Edit, NotebookEdit
+hooks:
+  PreToolUse:
+    - matcher: "Bash"
+      hooks:
+        - type: command
+          command: 'node "$CLAUDE_PROJECT_DIR/scripts/agent_readonly_bash_guard.cjs"'
 color: red
 ---
 
@@ -31,6 +37,10 @@ The actual diff and the actual tests, never the implementing agent's summary of 
 Authentication and authorization gaps. Webhook signature verification and replay protection. Timing-safe comparison on secrets and admin keys. Rate limiter bypasses, including IP spoofing through forwarded headers. SQL injection and unparameterised queries. Secrets committed to tracked files, including inside config, permission allowlists, test fixtures and CI workflows. Idempotency and concurrency defects that allow double-charging or double-fulfilment. Migration safety. Backward-compatibility breaks. Error paths that leak internal detail.
 
 Give money paths the highest scrutiny: an authorization gap that costs a session is bad, one that moves an amount is worse.
+
+## Shell boundary
+
+Bash is limited by `scripts/agent_readonly_bash_guard.cjs`: one read-only command per call — `git diff/status/log/show`, read-only Git queries such as `ls-remote`, `merge-base` and `branch -r`, plain `git fetch`, and `ls`/`cat`/`grep`/`rg`/`find`. No pipes, chaining, redirection, test runs or scripts. If evidence needs a test or script executed, name the exact command for the supervisor or `test-engineer` to run.
 
 ## Output format
 
