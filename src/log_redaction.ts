@@ -73,40 +73,26 @@ function binaryLength(value: object): number | undefined {
   return undefined;
 }
 
-// PostgreSQL messages quote the offending input: `invalid input syntax for
-// type integer: "Jane"`, `Expected ":", but found "Jane Doe".`, SQL literals in
-// single quotes. For pg-shaped errors every quoted span is replaced; the
-// identifiers it may also hide are still reported in table/column/constraint/
-// schema/dataType. An unclosed quote redacts to the end. Linear: indexOf only.
-function redactQuotedSpans(text: string): string {
-  let out = "";
-  let index = 0;
-  while (index < text.length) {
-    let next = -1;
-    for (let cursor = index; cursor < text.length; cursor += 1) {
-      const char = text[cursor];
-      if (char === "\"" || char === "'") {
-        next = cursor;
-        break;
-      }
-    }
-    if (next === -1) {
-      out += text.slice(index);
-      break;
-    }
-    const quote = text[next] === "'" ? "'" : "\"";
-    out += `${text.slice(index, next)}${quote}[redacted]`;
-    const close = text.indexOf(quote, next + 1);
-    if (close === -1) break;
-    out += quote;
-    index = close + 1;
-  }
-  return out;
+// PostgreSQL messages quote the offending input (`invalid input syntax for
+// type json: "{"buyer_name": "Jane Doe"}"`, SQL literals in single quotes) and
+// do not escape quotes inside it, so quote pairs cannot be trusted. For
+// pg-shaped errors one span is replaced: from the first quote of either kind
+// to the last quote of either kind (to the end when there is only one). Text
+// before the first quote is kept. Identifiers this may hide are still reported
+// in table/column/constraint/schema/dataType. Linear: indexOf/lastIndexOf.
+function redactQuotedSpan(text: string): string {
+  const firstDouble = text.indexOf("\"");
+  const firstSingle = text.indexOf("'");
+  if (firstDouble === -1 && firstSingle === -1) return text;
+  const first = firstDouble === -1 ? firstSingle : firstSingle === -1 ? firstDouble : Math.min(firstDouble, firstSingle);
+  const last = Math.max(text.lastIndexOf("\""), text.lastIndexOf("'"));
+  const head = `${text.slice(0, first)}"[redacted]"`;
+  return last === first ? head : head + text.slice(last + 1);
 }
 
 function scrubString(key: string, value: string, pgShaped: boolean): string {
-  if (key === "stack") return scrubText(pgShaped ? redactQuotedSpans(value) : value, STACK_MAX_LENGTH);
-  if (key === "message" && pgShaped) return scrubText(redactQuotedSpans(value));
+  if (key === "stack") return scrubText(pgShaped ? redactQuotedSpan(value) : value, STACK_MAX_LENGTH);
+  if (key === "message" && pgShaped) return scrubText(redactQuotedSpan(value));
   return scrubText(value);
 }
 
