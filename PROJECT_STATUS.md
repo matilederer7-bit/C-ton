@@ -331,8 +331,9 @@ Current invariants:
 
   Release is `RENDER_GIT_COMMIT`. `SENTRY_DSN`, `SENTRY_ENVIRONMENT=staging` and `SENTRY_SELF_TEST=1` were set on both Render staging services through the connector. The DSN is not in the repository. `render.yaml` declares the variables and `docs/ERROR_MONITORING.md` is the runbook.
 - TESTED:
-  - `tests/error_monitoring_security_validation.ts`: 20/20 PASS on the exact outgoing envelope bytes. That includes the live Fastify handler, the client relay, a spoofed-IP flood and a real child process exiting 1 on an unhandled rejection.
-  - Five mutations each fail the suite: removing email scrubbing, weakening phone scrubbing, using the concrete URL instead of the template, bypassing the tag allowlist, and sharing the browser/server budget.
+  - `tests/error_monitoring_security_validation.ts`: 22/22 PASS on the exact outgoing envelope bytes. That includes the live Fastify handler, the client relay, a spoofed-IP flood, personal data inside relayed stack-frame paths, a full commit SHA kept as the release, and a real child process exiting 1 on an unhandled rejection.
+  - Six mutations each fail the suite: removing email scrubbing, weakening phone scrubbing, using the concrete URL instead of the template, bypassing the tag allowlist, sharing the browser/server budget, and removing frame-path scrubbing.
+  - All three Codex review findings on PR #80 are fixed: the shared event budget, unscrubbed frame paths, and the commit SHA being dropped from the release.
   - The canonical verifier ran on a disposable PostgreSQL 16:
     - `release-static`, `migrations-isolated` and `route-authorization`: PASS.
     - 266 files: 9/10 groups PASS on the first run. `security_hardening_validation` caught a `stack:` literal in `src/app.ts`; that code was moved into the monitoring module rather than weakening the guard. The security group was re-run: 48/48 PASS.
