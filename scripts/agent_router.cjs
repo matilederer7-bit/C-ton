@@ -88,7 +88,7 @@ function routeTask({ task = "", taskType = "auto", risk = "normal", tier = "auto
 
   const builderEffort = ["senior", "apex"].includes(selectedTier) ? "high" : selectedTier === "standard" ? "medium" : "low";
   const reviewerEffort = sensitive || selectedTier === "apex" ? "high" : "medium";
-  const codexModel = selectedTier === "apex" ? "gpt-6-astra" : selectedTier === "senior" ? "gpt-5.6-sol" : selectedTier === "standard" ? "gpt-5.6-terra" : "gpt-5.6-luna";
+  const codexModel = selectedTier === "apex" ? "gpt-6-astra" : selectedTier === "senior" ? "gpt-6-sol" : selectedTier === "standard" ? "gpt-6-sol" : "gpt-6-luna";
   const lanes = sensitive || selectedTier === "apex"
     ? ["architecture", "security", "tests", "source-of-truth"]
     : selectedTier === "economy" ? ["tests"] : ["tests", "source-of-truth"];

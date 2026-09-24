@@ -55,22 +55,36 @@ jobs:
       matrix:
         include:
           - lane: architecture
-            model: gpt-5.6-terra
+            model: gpt-6-sol
             effort: medium
             focus: "Architecture, state transitions, concurrency, boundaries and structural defects."
           - lane: security
-            model: gpt-5.6-sol
+            model: gpt-6-sol
             effort: high
             focus: "Authentication, authorization, secrets, input boundaries, money and abuse cases."
           - lane: tests
-            model: gpt-5.6-luna
+            model: gpt-6-luna
             effort: low
             focus: "Coverage gaps, weak assertions, flakes, CI topology and missing regression proof."
           - lane: source-of-truth
-            model: gpt-5.6-luna
+            model: gpt-6-luna
             effort: low
             focus: "Canonical documents, implementation drift, stale obligations and acceptance criteria."
     steps:
+      - name: Refuse untrusted dispatch actors
+        env:
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        shell: bash
+        run: |
+          # allow-bots on the Codex steps trusts every bot actor, not only the
+          # intake workflow's github-actions[bot]. Narrow it here: only the
+          # owner and that built-in bot may reach credentialed steps.
+          if [ "$TRIGGERING_ACTOR" != "$REPO_OWNER" ] && [ "$TRIGGERING_ACTOR" != "github-actions[bot]" ]; then
+            echo "::error::Refusing dispatch by untrusted actor: $TRIGGERING_ACTOR"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.target_ref }}
@@ -95,6 +109,7 @@ jobs:
       - name: Run isolated Codex analyst
         uses: openai/codex-action@v1
         with:
+          allow-bots: true
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           permission-profile: ":read-only"
           prompt-file: .analysis-packet.md
@@ -117,6 +132,20 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
+      - name: Refuse untrusted dispatch actors
+        env:
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        shell: bash
+        run: |
+          # allow-bots on the Codex steps trusts every bot actor, not only the
+          # intake workflow's github-actions[bot]. Narrow it here: only the
+          # owner and that built-in bot may reach credentialed steps.
+          if [ "$TRIGGERING_ACTOR" != "$REPO_OWNER" ] && [ "$TRIGGERING_ACTOR" != "github-actions[bot]" ]; then
+            echo "::error::Refusing dispatch by untrusted actor: $TRIGGERING_ACTOR"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.target_ref }}
@@ -156,6 +185,7 @@ jobs:
       - name: Synthesize as head reviewer
         uses: openai/codex-action@v1
         with:
+          allow-bots: true
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           permission-profile: ":read-only"
           prompt-file: .synthesis-packet.md

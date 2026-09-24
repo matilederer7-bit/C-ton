@@ -102,6 +102,20 @@ jobs:
           --health-retries 20
 
     steps:
+      - name: Refuse untrusted dispatch actors
+        env:
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        shell: bash
+        run: |
+          # allow-bots on the Codex steps trusts every bot actor, not only the
+          # intake workflow's github-actions[bot]. Narrow it here: only the
+          # owner and that built-in bot may reach credentialed steps.
+          if [ "$TRIGGERING_ACTOR" != "$REPO_OWNER" ] && [ "$TRIGGERING_ACTOR" != "github-actions[bot]" ]; then
+            echo "::error::Refusing dispatch by untrusted actor: $TRIGGERING_ACTOR"
+            exit 1
+          fi
+
       - name: Start run clock
         run: echo "SITON_RUN_STARTED_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
 
@@ -251,6 +265,7 @@ jobs:
         if: steps.roles.outputs.builder == 'codex'
         uses: openai/codex-action@v1
         with:
+          allow-bots: true
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           permission-profile: ":workspace"
           prompt-file: .siton-cloud-task.md
@@ -311,6 +326,7 @@ jobs:
         if: steps.roles.outputs.reviewer == 'codex'
         uses: openai/codex-action@v1
         with:
+          allow-bots: true
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           permission-profile: ":read-only"
           prompt-file: .siton-review-prompt.md
@@ -387,6 +403,7 @@ jobs:
         if: steps.review1.outputs.needs_fix == 'true' && steps.roles.outputs.builder == 'codex'
         uses: openai/codex-action@v1
         with:
+          allow-bots: true
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           permission-profile: ":workspace"
           prompt-file: .siton-fix-task.md
@@ -425,6 +442,7 @@ jobs:
         if: steps.review1.outputs.needs_fix == 'true' && steps.roles.outputs.reviewer == 'codex'
         uses: openai/codex-action@v1
         with:
+          allow-bots: true
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           permission-profile: ":read-only"
           prompt-file: .siton-review-prompt.md

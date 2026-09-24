@@ -57,7 +57,7 @@ test("codex model availability is reported per routed tier without downgrading",
     },
   });
   assert.equal(openai.valid, true);
-  assert.equal(openai.models["gpt-5.6-sol"], "available");
+  assert.equal(openai.models["gpt-6-sol"], "available");
   assert.match(openai.models["gpt-6-astra"], /unavailable/);
 
   const report = buildReport({
@@ -83,11 +83,11 @@ test("an unreachable routed tier blocks READY instead of warning", () => {
     repository: "o/r",
   };
   const models = (missing) => Object.fromEntries(
-    ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra"].map((model) => [model, model === missing ? "unavailable (HTTP 404)" : "available"]),
+    ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra"].map((model) => [model, model === missing ? "unavailable (HTTP 404)" : "available"]),
   );
   // Every routed tier reaches the manager's own model-access gate, so calling
   // the account READY while one of them is unreachable would be a false verdict.
-  for (const missing of ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"]) {
+  for (const missing of ["gpt-6-luna", "gpt-6-sol"]) {
     const report = buildReport({ ...base, openai: { present: true, valid: true, detail: "ok", models: models(missing) } });
     assert.equal(report.ready, false, `${missing} must block`);
     assert.ok(report.blockers.some((blocker) => blocker.includes(missing)));
@@ -152,17 +152,28 @@ test("a missing credential produces a named, owner-actionable blocker", () => {
   assert.equal(report.claude_auth_mode, "none");
   assert.ok(report.blockers.some((blocker) => blocker.startsWith("SITON_AGENT_GITHUB_TOKEN is missing")));
   assert.ok(report.blockers.some((blocker) => blocker.startsWith("OPENAI_API_KEY is missing")));
-  assert.ok(report.blockers.some((blocker) => /ANTHROPIC_API_KEY \(recommended\) or CLAUDE_CODE_OAUTH_TOKEN/.test(blocker)));
+  assert.ok(report.warnings.some((warning) => /No Claude credential/.test(warning)));
   const markdown = renderMarkdown(report);
   assert.match(markdown, /Overall: BLOCKED/);
   assert.match(markdown, /BLOCKER REQUIRES OWNER ACTION/);
   assert.match(markdown, /settings\/secrets\/actions/);
 });
 
-test("exactly one Claude credential is required and the API key wins", async () => {
+test("Claude is optional for OpenAI-only readiness and the API key wins when configured", async () => {
   assert.equal(claudeAuthMode({ ANTHROPIC_API_KEY: "a", CLAUDE_CODE_OAUTH_TOKEN: "b" }), "api");
   assert.equal(claudeAuthMode({ CLAUDE_CODE_OAUTH_TOKEN: "b" }), "oauth");
   assert.equal(claudeAuthMode({}), "none");
+
+  const openaiOnly = buildReport({
+    github: { present: true, valid: true, detail: "ok" },
+    actions: { present: true, valid: true, detail: "ok" },
+    openai: { present: true, valid: true, detail: "ok", models: {} },
+    anthropic: await checkAnthropic({ apiKey: "" }),
+    oauth: claudeOauthStatus(""),
+    repository: "o/r",
+  });
+  assert.equal(openaiOnly.ready, true);
+  assert.ok(openaiOnly.warnings.some((warning) => /OpenAI-only execution remains available/.test(warning)));
 
   const oauthOnly = buildReport({
     github: { present: true, valid: true, detail: "ok" },
@@ -240,4 +251,20 @@ test("preflight workflow is phone-runnable, read-only and never echoes a secret"
   for (const name of ["SITON_AGENT_GITHUB_TOKEN", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"]) {
     assert.match(workflow, new RegExp(`${name}: \\$\\{\\{ secrets\\.${name.replace(/\./g, "\\.")} \\}\\}`));
   }
+});
+
+test("a rejected Anthropic key blocks, because the manager would still route Claude steps to it", () => {
+  const report = buildReport({
+    github: { present: true, valid: true, detail: "ok" },
+    actions: { present: true, valid: true, detail: "ok" },
+    openai: { present: true, valid: true, detail: "ok", models: {} },
+    anthropic: { present: true, valid: false, detail: "HTTP 401" },
+    oauth: claudeOauthStatus(""),
+    repository: "o/r",
+  });
+  assert.equal(report.ready, false);
+  assert.ok(report.blockers.some((blocker) => /ANTHROPIC_API_KEY is present but unusable: HTTP 401/.test(blocker)));
+  assert.ok(report.blockers.some((blocker) => /delete the secret to run OpenAI-only/.test(blocker)));
+  assert.ok(!report.warnings.some((warning) => /No Claude credential/.test(warning)));
+  assert.match(renderMarkdown(report), /Overall: BLOCKED/);
 });

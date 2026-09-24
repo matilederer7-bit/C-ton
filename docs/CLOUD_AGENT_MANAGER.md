@@ -44,7 +44,7 @@ All credentials must be stored only as GitHub Actions repository secrets.
 
 ### Claude
 
-Exactly one Claude credential is needed. The manager selects it and passes only that one to `claude-code-action`; configuring both is allowed but the OAuth token is then ignored.
+A Claude credential is optional: without one the team runs OpenAI-only, and review is Codex reviewing Codex rather than cross-provider. When configured, exactly one Claude credential is used. The manager selects it and passes only that one to `claude-code-action`; configuring both is allowed but the OAuth token is then ignored. A configured Anthropic key that the provider rejects blocks the preflight, because the manager selects Claude from key presence alone and would route Claude steps to the failing key: replace it, or delete the secret to return to OpenAI-only mode.
 
 - `ANTHROPIC_API_KEY` — preferred for this system.
 - `CLAUDE_CODE_OAUTH_TOKEN` — supported fallback.
@@ -87,11 +87,11 @@ Run it from Actions, or from the GitHub mobile app, using `Siton Cloud Credentia
 
 It is `workflow_dispatch` only, on purpose. A `push` trigger would run the pushed revision of the workflow and of the script it invokes with all four long-lived secrets bound, on any branch and before any review, which would let an unreviewed branch exfiltrate every cloud credential. The script's own regression tests run secretless on every Pull Request inside the release-tools suite, so nothing is lost by refusing the automatic trigger.
 
-It reports, per secret, whether it is configured and whether the provider actually accepts it, plus which of `gpt-5.6-luna`, `gpt-5.6-terra`, `gpt-5.6-sol` and `gpt-6-astra` the OpenAI account can reach. Secret values are never printed, stored or echoed; every emitted string is scrubbed against the configured secrets first.
+It reports, per secret, whether it is configured and whether the provider actually accepts it, plus which of `gpt-6-luna`, `gpt-6-sol` and `gpt-6-astra` the OpenAI account can reach. Secret values are never printed, stored or echoed; every emitted string is scrubbed against the configured secrets first.
 
 Three verdicts:
 
-- `BLOCKED` — something needed is missing or refused. The report names the exact owner action and the run fails. An unreachable Luna, Terra or Sol blocks, because ordinary routed work stops at the manager's own model-access gate.
+- `BLOCKED` — something needed is missing or refused. The report names the exact owner action and the run fails. An unreachable Luna or Sol blocks, because ordinary routed work stops at the manager's own model-access gate. A missing Claude credential does not block; a present but rejected Anthropic key does.
 - `READY, WITH UNVERIFIED TOKEN PERMISSIONS` — everything checkable passed, but the lifecycle token is fine-grained. `permissions.push` proves Contents write and nothing else; GitHub does not expose a fine-grained token's own permissions and there is no side-effect-free way to exercise them, so **Actions, Issues and Pull requests write are not verified**. The report lists them so you can confirm them on the token. This matters: without Actions write the swarm dispatch fails, and without Pull requests write the Pull Request fails, both *after* the build has already run.
 - `READY` — everything checkable passed with nothing left unverified. Only a classic token carrying the `repo` scope reaches this, because that scope is readable from the API response.
 
@@ -99,12 +99,12 @@ An unreachable `gpt-6-astra` is a warning, not a blocker: Apex is opt-in, so ord
 
 ### Recommended Siton setup
 
-Minimum useful cloud mode:
+Minimum useful cloud mode (OpenAI-only):
 
 - `SITON_AGENT_GITHUB_TOKEN`
-- one Claude credential
+- `OPENAI_API_KEY`
 
-This gives Claude build plus bounded same-provider review.
+This gives Codex build plus bounded same-provider review. The preflight reports READY with a warning that cross-provider review is unavailable.
 
 Preferred two-provider mode:
 
@@ -156,9 +156,9 @@ Additional boundaries:
 These are the only steps a person must perform by hand. Everything after them is automatic.
 
 1. **GitHub lifecycle token.** Open https://github.com/settings/personal-access-tokens/new . Set Token name to `siton-agent-manager`, Resource owner to `matilederer7-bit`, Expiration to your preferred rotation period, and Repository access to *Only select repositories* → `matilederer7-bit/C-ton`. Under Repository permissions set Actions, Contents, Issues and Pull requests to *Read and write* (Metadata becomes read-only automatically). Generate the token and copy it.
-2. **Anthropic API key.** Open https://console.anthropic.com/settings/keys , choose *Create Key*, name it `siton-cloud-agent`, and copy the value. It is shown once.
+2. **Anthropic API key (optional).** Needed only for Claude as builder or cross-provider reviewer. Open https://console.anthropic.com/settings/keys , choose *Create Key*, name it `siton-cloud-agent`, and copy the value. It is shown once. Skip this step for OpenAI-only operation.
 3. **OpenAI API key.** Open https://platform.openai.com/api-keys , choose *Create new secret key*, name it `siton-cloud-agent`, and copy the value. Confirm the project has credit; a ChatGPT subscription does not by itself grant API access.
-4. **Store all three as repository secrets.** Open https://github.com/matilederer7-bit/C-ton/settings/secrets/actions and use *New repository secret* three times, with these exact names: `SITON_AGENT_GITHUB_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`.
+4. **Store them as repository secrets.** Open https://github.com/matilederer7-bit/C-ton/settings/secrets/actions and use *New repository secret* once per credential, with these exact names: `SITON_AGENT_GITHUB_TOKEN`, `OPENAI_API_KEY`, and `ANTHROPIC_API_KEY` only if you created it in step 2.
 5. **Verify.** Run `Siton Cloud Credential Preflight` from Actions. It must not report `BLOCKED`. With the fine-grained token from step 1 it reports `READY, WITH UNVERIFIED TOKEN PERMISSIONS` and lists the three write permissions it cannot check; confirm those against step 1 rather than assuming them.
 
 Until step 5 stops reporting BLOCKED, every managed run stops at credential resolution and comments the missing secret names back on its source issue.

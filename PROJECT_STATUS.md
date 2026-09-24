@@ -1,6 +1,6 @@
 # SITON PROJECT STATUS
 
-Updated: 2026-09-22
+Updated: 2026-09-23
 Canonical branch: `master`
 Current merged baseline: `2e32f436d809a330c8a2189994362cc9f459b009` (PR #53)
 Render staging: LIVE on that SHA — web `dep-dame6v0u01pc738qrku0`, worker `dep-dame6v0u01pc738qrlb0`
@@ -8,13 +8,13 @@ Supabase staging: migration high-water **072**, grants through `staging_026`
 
 ## CURRENT SNAPSHOT
 
-## AGENT TEAM ACTIVATION — 2026-09-22
+## AGENT TEAM ACTIVATION — 2026-09-23
 
-- COMPLETED: PR #72 is merged at `d752d5952cdc9dbffe4a4b4accec81c8f1ebe4dd`. On top of it, the control plane is now verifiable and self-reporting: a phone-runnable credential preflight (`cloud-credential-preflight.yml` plus `scripts/agent_credentials_preflight.cjs`) reports per-secret presence and live provider acceptance, and per-tier Codex model availability, without revealing any value; the manager's result comment no longer depends on `SITON_AGENT_GITHUB_TOKEN`, so a credential-blocked run still reaches the owner; the Claude builder received an explicit tool boundary (npm/node plus read-only git, without `git commit`, `git push` or `gh`) because `claude-code-action` grants no Bash by default and the builder therefore could not run the tests its own task packet demands; exactly one Claude credential is now handed to the action; intake acknowledges every accepted task on its issue; and the documented fine-grained token permissions gained **Actions: read and write**, without which the mandatory swarm dispatch would have failed after the build was already paid for.
-- TESTED / CHECKED: proven on GitHub-hosted runners with no local computer involved. Preflight run `35732337550` reported `Overall: BLOCKED` with a per-secret table. Swarm run `35732713799` started all four lanes (architecture, security, tests, source-of-truth) at `13:19:31Z` on four distinct runners with head synthesis only at `13:19:44Z`, so parallelism is real and not merely declared; its `Route head synthesis` step succeeded, proving the router executes in the cloud; every lane then failed closed at `Verify analyst model access` with no substituted model. Manager run `35732726575` posted the missing secret names and the exact owner action onto Issue #74 with no `SITON_AGENT_GITHUB_TOKEN` configured — the same situation that left Issue #74 silent in run `35717048403`. Locally: 15 router tests, 17 cloud-manager tests and 10 preflight tests pass; five workflow/report guards were mutation-tested (granting the builder `Bash(git commit:*)`, reverting the report-token fallback, reintroducing the credentialed push trigger and demoting a routed Codex tier to a warning each fail the suite), and the credential shell guard was checked against its full truth table. Canonical verification was completed on a disposable local PostgreSQL 16: `release-static`, `migrations-isolated` and `route-authorization` PASS, and all 265 repository test files pass across every group (unit 17, integration 47, db 8, api 50, workers 15, payments 45, security 47, concurrency 10, failure 9, e2e 17). REAL_MONEY remains BLOCKED. Hosted CI on PR #75: `Release readiness` and `Web runtime depth gates` pass on every head. `backend-gates` is intermittent on the GitHub runner — across four heads of the same content it failed in three different groups (api, workers, e2e) and passed all 36 steps on head `bcf185d`, which differs from the head after it only by one sentence of prose in this file. A documentation sentence cannot change an end-to-end test outcome, and CI is measurably slower than the same suites locally (e2e 236 s vs 159 s; the worker fencing arrangement 43 s vs 12 s), so the intermittency is runner load rather than this change. No test was retuned, skipped or quarantined to obtain a green result, and the ~2% arrangement flake that `worker_two_process_fencing_validation.ts` documents in its own source was left exactly as its author measured it.
-- OPEN: **all four repository secrets are absent** — `SITON_AGENT_GITHUB_TOKEN`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` all reported `not configured` in run `35732337550`. Creating them requires an interactive login on github.com, console.anthropic.com and platform.openai.com, so no agent can perform it. Until they exist, nothing can prove Claude as builder, Claude as reviewer, Codex as builder or reviewer, real Luna/Terra/Sol/Astra inference, Astra availability on this account, a managed PR, or a swarm synthesis verdict. Those remain UNPROVEN, not assumed.
-- PERCENTAGE: 70%. The control plane, routing, parallel topology, fail-closed behaviour and owner feedback loop are proven; every credentialed agent path is not.
-- NEXT: the owner follows the activation runbook in `docs/CLOUD_AGENT_MANAGER.md` (create the three credentials, store them as repository secrets), then runs `Siton Cloud Credential Preflight` until it reports `Overall: READY`, then reopens Issue #74. Declare `CLOUD AGENT TEAM OPERATIONAL` only after a managed run reaches a Pull Request with a real builder, a real cross-provider reviewer verdict and a four-lane swarm synthesis.
+- COMPLETED: the phone-first ChatGPT path has now been exercised with live credentials. Credential preflight run `35751558579` attempt 2 confirmed `SITON_AGENT_GITHUB_TOKEN` present with repository write access and `OPENAI_API_KEY` accepted by OpenAI. ChatGPT then created owner-authored Issue #77; intake run `35917114702` accepted it and dispatched Cloud Agent Manager run `35917126097` without using the local computer. The run passed dependency install, role routing, Codex model metadata access and isolated branch creation. Its first real Codex step exposed one control-plane defect: OpenAI's `codex-action` correctly rejected nested actor `github-actions[bot]`. The action provides an explicit trusted-GitHub-bot switch for this exact pattern; the manager and analysis swarm now set it on every Codex invocation. The same change upgrades routing to GPT-6: Economy `gpt-6-luna` low, Standard `gpt-6-sol` medium, Senior `gpt-6-sol` high, Apex `gpt-6-astra` only by explicit escalation evidence. Preflight now treats Claude as optional for OpenAI-only execution while warning that cross-provider review is unavailable.
+- TESTED / CHECKED: preflight attempt 2 reported GitHub token PASS and OpenAI credential PASS. Issue #77 proved ChatGPT can create the owner-authored intake task and GitHub can dispatch the manager entirely in the cloud. Manager run `35917126097` selected Codex, confirmed model metadata and failed only at the OpenAI Action actor guard; the job log identified `github-actions[bot]` with permission `none`. The pinned `openai/codex-action@v1` source exposes `allow-bots: true`, restricted to trusted GitHub-owned bot actors. Repository contract tests are updated to require that flag on all four manager Codex calls and both swarm Codex calls. Hosted CI for this branch is still pending. REAL MONEY remains 0; Grow and product runtime are untouched.
+- OPEN: merge the control-plane fix after green CI; rerun preflight on master to prove `gpt-6-luna` and `gpt-6-sol` access for this API project; retrigger Issue #77 until the OpenAI-only managed run reaches a PR; then run one sensitive cloud smoke proving four parallel GPT-6 analysis lanes plus fifth synthesis. Claude is optional for operation but still open if independent cross-provider review is desired.
+- PERCENTAGE: 90% for phone-first cloud-team activation. ChatGPT-to-intake-to-manager and both owner-controlled credentials are proven live; the remaining proof is successful Codex inference through the trusted nested trigger, managed PR creation, and one completed sensitive swarm.
+- NEXT: integrate this branch through CI, rerun preflight, retrigger Issue #77, and declare `CLOUD AGENT TEAM OPERATIONAL` only after a real managed PR and sensitive swarm both complete. Do not wait for Claude to prove the OpenAI-only path.
 
 ### COMPLETED
 
@@ -380,15 +380,15 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 <!-- AGENT_STATUS:cloud-manager:START -->
 ### Cloud Agent Manager latest milestone
 
-- UPDATED: 2026-09-17
-- BRANCH: `master`
-- BUILDER: manager infrastructure from PR #35
-- REVIEWER: repository integration completed
-- COMPLETED: GitHub-hosted orchestration, serialized writer queue, provider selection, task packets, builder lifecycle/control-plane guards, bounded review/fix cycle, canonical verification, dedicated autonomous Git lifecycle token path, isolated status ownership and PR creation are merged on master.
-- TESTED: repository integration completed through PR #35; no product runtime, database, payment or Grow behavior was changed by that merge.
-- OPEN: configure the required minimal credentials and execute one harmless computer-off smoke task.
-- PERCENTAGE: 100% repository-side; operational activation pending.
-- NEXT STEP: perform credential activation and harmless cloud smoke without enabling real money or Grow.
+- UPDATED: 2026-09-23
+- BRANCH: `chatgpt/phone-team-gpt6-openai-only-20260923`
+- BUILDER: ChatGPT control-plane repair
+- REVIEWER: hosted CI pending
+- COMPLETED: live ChatGPT-originated Issue #77 reached the owner-only intake and Cloud Agent Manager with the local computer irrelevant; GitHub and OpenAI credentials are live. Root cause of the first Codex run is isolated to the OpenAI Action's nested-trigger actor guard. The supported trusted-bot input is wired on all manager and swarm Codex calls. OpenAI-only operation is first-class and routing is upgraded to GPT-6 Luna/Sol with Astra exceptional only.
+- TESTED: preflight run `35751558579` attempt 2 passed GitHub and OpenAI credentials. Intake `35917114702` dispatched manager `35917126097`; manager passed through selected-model metadata access and branch creation, then failed exactly at Codex actor authorization before inference. Contract tests were updated for the bot guard and GPT-6 routing; hosted CI remains pending.
+- OPEN: green CI, merge, post-merge GPT-6 preflight, successful Issue #77 managed PR, then one sensitive four-lane swarm plus fifth synthesis. Claude remains optional for cross-provider review.
+- PERCENTAGE: 90% activation.
+- NEXT STEP: merge only after CI, rerun preflight on master, retrigger Issue #77 and prove a full OpenAI-only managed PR plus sensitive swarm. REAL MONEY remains 0; Grow untouched.
 <!-- AGENT_STATUS:cloud-manager:END -->
 
 ## STANDING SAFETY AND COMMERCIAL INVARIANTS
