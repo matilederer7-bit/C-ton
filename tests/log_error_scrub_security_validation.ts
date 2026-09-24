@@ -874,6 +874,45 @@ await run("a 4-level AggregateError tree (20 children per level, 8421 nodes, 8 K
   assert.ok(/\d+ more errors/i.test(text), "no marker records the collapsed children");
 });
 
+// The string budget is measured in JSON-encoded UTF-8 BYTES, not UTF-16
+// characters: a control character encodes as 6 bytes (\u0001), a Hebrew
+// letter as 2 and an emoji as 4, so a character count under-measures badly.
+await run("the string budget counts JSON-encoded UTF-8 bytes: control characters and multi-byte text stay < 96 KB", () => {
+  const fillers: Array<[string, string]> = [
+    ["control", "\u0001".repeat(30_000)],
+    ["control mix", "\u0000\u001f\u007f\"\\".repeat(6_000)],
+    ["hebrew", "א".repeat(30_000)],
+    ["emoji", "😀".repeat(15_000)],
+    ["lone surrogates", "\uD800".repeat(30_000)]
+  ];
+  const failures: string[] = [];
+  for (const [name, filler] of fillers) {
+    const makeError = (label: string, cause?: unknown) => {
+      const err: any = new Error(`${label} ${filler}`, cause === undefined ? undefined : { cause });
+      err.stack = `${label} ${filler}\n${filler}`;
+      Object.assign(err, { code: filler, table: filler, column: filler, constraint: filler, schema: filler, dataType: filler, routine: filler, syscall: filler });
+      return err;
+    };
+    let chain: any = makeError("root");
+    for (let depth = 0; depth < 6; depth += 1) chain = makeError(`level ${depth}`, chain);
+    const agg: any = new AggregateError(Array.from({ length: 30 }, (_, index) => makeError(`child ${index}`)), `batch ${filler}`);
+    agg.stack = filler;
+    const aggWithCause: any = new AggregateError([agg, chain], `outer ${filler}`, { cause: chain });
+
+    for (const [shape, input] of [["cause chain", chain], ["aggregate", agg], ["aggregate + cause", aggWithCause]] as const) {
+      const started = Date.now();
+      let result: unknown;
+      try { result = serializeSafely(input, `${name} ${shape}`); }
+      catch (error) { failures.push(`${name} ${shape}: ${(error as any)?.message}`); continue; }
+      const elapsed = Date.now() - started;
+      const bytes = Buffer.byteLength(JSON.stringify(result, (_key, item) => (typeof item === "bigint" ? item.toString() : item)), "utf8");
+      if (bytes >= 96 * 1024) failures.push(`${name} ${shape}: ${bytes} bytes`);
+      if (elapsed >= 500) failures.push(`${name} ${shape}: ${elapsed} ms`);
+    }
+  }
+  assert.deepEqual(failures, [], "encoded-size budget exceeded");
+});
+
 // ── 7 ──
 // scrubText truncates BEFORE it scrubs. If the cut lands inside a secret, the
 // surviving prefix no longer matches its pattern (a 7-digit phone prefix, an
