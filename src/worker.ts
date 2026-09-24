@@ -13,6 +13,14 @@ import {
 import { runScheduledWorkerBatch } from "./worker_scheduler.js";
 import { assertProductionRuntimeGuards } from "./production_guards.js";
 import { createRuntimePool } from "./db.js";
+import {
+  captureException,
+  captureSelfTestIfRequested,
+  errorMonitoringSummary,
+  flushMonitoring,
+  initErrorMonitoring,
+  installProcessErrorCapture
+} from "./error_monitoring.js";
 
 const logger = pino({ level: process.env.LOG_LEVEL || "info" });
 const WORKER_ID = getWorkerIdentity();
@@ -105,11 +113,15 @@ export async function startWorker() {
   if (readyError) throw readyError;
   await writeHeartbeat("starting");
   heartbeatTimer = setInterval(() => {
-    writeHeartbeat(accepting ? "ready" : "draining").catch((error) => logger.error({ err: error }, "worker_heartbeat_failed"));
+    writeHeartbeat(accepting ? "ready" : "draining").catch((error) => {
+      logger.error({ err: error }, "worker_heartbeat_failed");
+      captureException(error, { mechanism: "worker_heartbeat", tags: { worker_id: WORKER_ID } });
+    });
   }, HEARTBEAT_MS);
   heartbeatTimer.unref();
   await writeHeartbeat("ready");
   logger.info({ worker_id: WORKER_ID, concurrency: CONCURRENCY }, "worker_ready");
+  captureSelfTestIfRequested("worker");
 
   let pollCount = 0;
   while (accepting) {
@@ -118,6 +130,7 @@ export async function startWorker() {
       await activeCycle;
     } catch (error) {
       logger.error({ err: error, worker_id: WORKER_ID }, "worker_cycle_failed");
+      captureException(error, { mechanism: "worker_cycle", tags: { worker_id: WORKER_ID } });
     } finally {
       activeCycle = null;
     }
@@ -140,16 +153,22 @@ export async function stopWorker(signal: string) {
   await writeHeartbeat("stopped").catch(() => undefined);
   await controlPool.end();
   await closeWorkerDatabase();
+  await flushMonitoring(2_000);
   logger.info({ worker_id: WORKER_ID }, "worker_stopped");
 }
 
 const entryPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : "";
 if (entryPath === import.meta.url) {
+  initErrorMonitoring({ service: "worker" });
+  installProcessErrorCapture((error, kind) => logger.fatal({ err: error, kind, worker_id: WORKER_ID }, "process_fatal_error"));
+  logger.info(errorMonitoringSummary(), "error_monitoring");
   process.once("SIGTERM", () => stopWorker("SIGTERM").then(() => process.exit(0)).catch(() => process.exit(1)));
   process.once("SIGINT", () => stopWorker("SIGINT").then(() => process.exit(0)).catch(() => process.exit(1)));
   startWorker().catch(async (error) => {
     logger.fatal({ err: error, worker_id: WORKER_ID }, "worker_start_failed");
+    captureException(error, { level: "fatal", mechanism: "startup", handled: false, tags: { worker_id: WORKER_ID } });
     await stopWorker("startup_failure").catch(() => undefined);
+    await flushMonitoring(2_000);
     process.exitCode = 1;
   });
 }

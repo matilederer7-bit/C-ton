@@ -131,6 +131,16 @@ import { ensureParticipantTrackingTables, issueParticipantTrackingToken } from "
 import { ensureAdminInterventionTables, isFlagActive } from "./admin_intervention.js";
 import { mallStatusForState } from "./mall_read_model.js";
 import { classifyDeadline, DEADLINE_DEFAULT_MS as DEADLINE_POLICY_DEFAULT_MS } from "./deadline_policy.js";
+import {
+  captureException,
+  captureSelfTestIfRequested,
+  errorMonitoringSummary,
+  flushMonitoring,
+  initErrorMonitoring,
+  installProcessErrorCapture,
+  isErrorMonitoringEnabled,
+  normalizeClientRoute
+} from "./error_monitoring.js";
 dotenv.config();
 
 const PORT = Number(process.env.PORT || 3000);
@@ -5573,6 +5583,18 @@ app.setErrorHandler((error: any, req: any, reply) => {
     // request id and can be joined to the audit trail. The root logger has no
     // request binding and would write an orphan line.
     (req?.log ?? app.log).error({ err: error }, "unhandled route error");
+    // Correlation only: the route TEMPLATE (never the concrete URL), method,
+    // status and the canonical request id. No body, header, cookie or query.
+    captureException(error, {
+      mechanism: "fastify_error_handler",
+      handled: false,
+      tags: {
+        route: req?.routeOptions?.url,
+        method: req?.method,
+        status_code: httpStatus,
+        request_id: req?.id
+      }
+    });
   }
   const hasSafeProductEnvelope = Boolean(error.publicError || error.productCode);
   const exposeDetails = httpStatus < 500 || hasSafeProductEnvelope;
@@ -5597,6 +5619,53 @@ app.setErrorHandler((error: any, req: any, reply) => {
 });
 
 app.get("/health", async () => ({ ok: true }));
+
+// Browser error relay. The web client never holds the Sentry DSN; it posts a
+// bounded report here and the server forwards it through the same allowlist
+// and scrubbing as server errors. Anonymous by design, so it is size-capped,
+// schema-strict, rate-limited per IP and always answers 204 without revealing
+// whether monitoring is enabled or the report was accepted.
+const CLIENT_ERROR_RATE_MAX = 10;
+const CLIENT_ERROR_FIELD_LIMITS = { type: 120, message: 1_000, stack: 8_000, route: 500, release: 80 } as const;
+
+export function parseClientErrorReport(body: unknown) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const input = body as Record<string, unknown>;
+  if (input.source !== "web" && input.source !== "legacy") return null;
+  const out: Record<string, string> = { source: input.source };
+  for (const [field, limit] of Object.entries(CLIENT_ERROR_FIELD_LIMITS)) {
+    const value = input[field];
+    if (value === undefined || value === null) continue;
+    if (typeof value !== "string" || value.length > limit) return null;
+    out[field] = value;
+  }
+  if (!out.message) return null;
+  return out as { source: "web" | "legacy"; message: string; type?: string; stack?: string; route?: string; release?: string };
+}
+
+app.post("/api/client-errors", { bodyLimit: 16 * 1024 }, async (req: any, reply: any) => {
+  reply.code(204);
+  if (!isErrorMonitoringEnabled()) return reply.send();
+  const entry = rateLimitStore.hit(`ce:${req.ip || "unknown"}`, Date.now(), 60_000);
+  if (entry.count > CLIENT_ERROR_RATE_MAX) return reply.send();
+  const report = parseClientErrorReport(req.body);
+  if (!report) return reply.send();
+  captureException(
+    { name: report.type || "BrowserError", message: report.message, stack: report.stack || "" },
+    {
+      service: "browser",
+      mechanism: "browser_global_handler",
+      handled: false,
+      tags: {
+        client_source: report.source,
+        client_route: normalizeClientRoute(report.route),
+        client_release: report.release,
+        request_id: req.id
+      }
+    }
+  );
+  return reply.send();
+});
 
 app.get("/readiness", async (_req: any, reply: any) => {
   try {
@@ -8221,17 +8290,27 @@ async function gracefulShutdown(signal: string) {
   } catch (e) {
     app.log.error({ err: e }, "error closing pool");
   }
+  await flushMonitoring(2_000);
   clearTimeout(forceExit);
   process.exit(0);
 }
 
 const entryPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : "";
 if (entryPath === import.meta.url) {
+  initErrorMonitoring({ service: "web" });
+  installProcessErrorCapture((error, kind) => app.log.fatal({ err: error, kind }, "process_fatal_error"));
+  app.log.info(errorMonitoringSummary(), "error_monitoring");
   process.once("SIGTERM", () => gracefulShutdown("SIGTERM"));
   process.once("SIGINT", () => gracefulShutdown("SIGINT"));
-  startApplication().catch((error) => {
-    app.log.error({ err: error }, "application startup failed");
-    process.exitCode = 1;
-  });
+  startApplication()
+    .then(() => {
+      captureSelfTestIfRequested("web");
+    })
+    .catch(async (error) => {
+      app.log.error({ err: error }, "application startup failed");
+      captureException(error, { level: "fatal", mechanism: "startup", handled: false });
+      await flushMonitoring(2_000);
+      process.exitCode = 1;
+    });
 }
 
