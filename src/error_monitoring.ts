@@ -168,7 +168,10 @@ const SCRUB_RULES: Array<[RegExp, string]> = [
   // Phone numbers, card numbers, bank accounts, national ids: any run of nine
   // or more digits, optionally separated by spaces or dashes, with or without
   // a leading +.
-  [/\+?\b\d(?:[\s-]?\d){8,}\b/g, "[redacted:number]"],
+  // Separators between digit groups may be up to two of space, dash, dot or
+  // parenthesis, so "+972 (50) 123-4567" and "050.123.4567" are caught too.
+  // Bounded separator runs keep this linear.
+  [/\+?\(?\b\d(?:[\s().-]{0,2}\d){8,}\b\)?/g, "[redacted:number]"],
 ];
 
 // Long opaque credentials (API keys, hashes used as secrets): a run of 32+

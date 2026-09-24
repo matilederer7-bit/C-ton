@@ -215,6 +215,18 @@ await run("scrubText: long text without whitespace keeps its leading correlation
   assert.ok(Date.now() - started < 500, `scrubText took ${Date.now() - started} ms`);
 });
 
+await run("scrubText: phone numbers with parentheses or dots are redacted", () => {
+  for (const phone of ["+972 (50) 123-4567", "(050) 123 4567", "050.123.4567", "+972-(0)50-1234567"]) {
+    const scrubbed = monitoring.scrubText(`call ${phone} now`);
+    assert.ok(!/\d{3}/.test(scrubbed.replace("[redacted:number]", "")), `${phone} -> ${scrubbed}`);
+  }
+  assert.equal(monitoring.scrubText("released 2026-09-24 at 11:45"), "released 2026-09-24 at 11:45");
+  const started = Date.now();
+  monitoring.scrubText("1(".repeat(16_000), 8_000);
+  monitoring.scrubText("1 ".repeat(16_000), 8_000);
+  assert.ok(Date.now() - started < 500, "number rule is not linear");
+});
+
 await run("scrubText leaves an ordinary engineering message intact and bounds length", () => {
   const plain = "duplicate key value violates unique constraint deals_pkey";
   assert.equal(monitoring.scrubText(plain), plain);
