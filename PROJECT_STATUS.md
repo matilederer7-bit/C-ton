@@ -370,6 +370,24 @@ Current invariants:
 - PERCENTAGE: 90% for the logging track. The worker serializer is complete; the `app.ts` call sites remain.
 - NEXT STEP: once #70 and #71 land or are closed, route the `app.ts` worker-path console errors through the serializer, and install the fatal handler regardless of Sentry.
 
+### Claude Code milestone — CI MinIO image source recovered (PR #84)
+
+- UPDATED: 2026-09-24
+- BRANCH: `claude/ci-minio-image-source`, PR #84 (ci-gates risk family).
+- COMPLETED: From about 12:50 UTC on 2026-09-24, `quay.io/minio/{minio,mc}` refused anonymous pulls (`unauthorized`). That turned `web-runtime-core`, `web-runtime-resilience` and the `backend-gates` Docker smoke red on master (`e721072`, run 36001951807) and on every PR. The Docker Hub `minio/*` repositories had already been removed before 2026-09-14. `docker-compose.ci.yml` now uses Chainguard's signed images on Docker Hub, pinned by index digest:
+  - the server is `chainguard/minio:latest@sha256:bd01…`, run as root so it can write the fresh named volume;
+  - the client is `chainguard/minio-client:latest-dev@sha256:614e…`, the `-dev` variant because the init script needs `/bin/sh`.
+- CHECKED:
+  - `web-runtime-core`, `docker-release-lab` and `preflight-static` are green on `e176dc3`. That proves the images pull, the server entrypoint works, and every `mc` bucket, policy and user step completes, because `web` waits for `minio-init` to finish successfully.
+  - R1 (Claude sub-agent, senior, read-only) returned APPROVE. No script, test or workflow asserts image names, and `docker_readiness_static` and `proof_no_real_money` both pass.
+  - R2 (Codex) asked for this status entry.
+- OPEN:
+  - `backend-gates` is still pending. It carries the MinIO restart-persistence smoke.
+  - Chainguard's free tier keeps only rolling tags, so the pinned digests may stop being pullable later. When that happens, re-pin to the current digest, or mirror MinIO into a registry this repository controls (for example GHCR).
+  - The comment does not record which MinIO release the digests contain.
+- PROGRESS: 90%. The remaining 10% is `backend-gates` green, then merge.
+- NEXT STEP: Merge #84 when all checks are green, then merge master into #82 and merge #82 when its CI is green.
+
 ### Claude Code latest milestone — error monitoring (Sentry) end to end
 
 - UPDATED: 2026-09-24
