@@ -239,8 +239,13 @@ await run("scrubText: a quoted multi-word credential is redacted through its clo
   const scrubbed = monitoring.scrubText(text);
   for (const word of ["horse", "battery", "staple", "green", "red'", " b c", "plain"]) assert.ok(!scrubbed.includes(word), `${word} survived: ${scrubbed}`);
   assert.ok(scrubbed.startsWith("login failed password=[redacted]") && scrubbed.endsWith(" next"), scrubbed);
+  const long = monitoring.scrubText(`password="${"q".repeat(600)}" tail`);
+  assert.ok(!long.includes("qqq"), `suffix of a long quoted credential survived: ${long}`);
+  const unclosed = monitoring.scrubText(`secret='${"w".repeat(900)}`);
+  assert.ok(!unclosed.includes("www"), "suffix of an unclosed long credential survived");
   const started = Date.now();
   monitoring.scrubText(`password="${"x ".repeat(20_000)}`, 8_000);
+  monitoring.scrubText(`password="`.repeat(4_000), 8_000);
   assert.ok(Date.now() - started < 100, "unclosed quote is not linear");
 });
 
