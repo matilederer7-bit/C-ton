@@ -352,6 +352,24 @@ await run("/api/client-errors: at most 10 reports per minute per IP are relayed"
   assert.equal(sent.length, 10);
 });
 
+await run("/api/client-errors: a flood from rotating spoofed IPs is capped globally and cannot starve server errors", async () => {
+  enable();
+  for (let i = 0; i < 40; i += 1) {
+    await app.inject({
+      method: "POST",
+      url: "/api/client-errors",
+      headers: { "x-forwarded-for": `198.51.100.${i + 1}` },
+      payload: clientReport({ message: `flood ${i}` })
+    });
+  }
+  const response = await app.inject({ method: "POST", url: "/__monitoring-test/boom/after-flood" });
+  assert.equal(response.statusCode, 500);
+  await monitoring.flushMonitoring();
+  const services = sent.map((envelope) => eventOf(envelope).tags.service);
+  assert.equal(services.filter((service) => service === "browser").length, 10, "browser budget is not global");
+  assert.equal(services.filter((service) => service === "web").length, 1, "server error was starved by the browser flood");
+});
+
 await run("normalizeClientRoute collapses ids and tokens", () => {
   assert.equal(monitoring.normalizeClientRoute("#/deal/3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b"), "/deal/:param");
   assert.equal(monitoring.normalizeClientRoute("/app/track/AbC123xyz?t=1"), "/app/track/:param");

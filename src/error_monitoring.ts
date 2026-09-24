@@ -39,6 +39,7 @@ type MonitoringState = {
   service: MonitoringService;
   transport: MonitoringTransport;
   maxEventsPerWindow: number;
+  maxBrowserEventsPerWindow: number;
   windowMs: number;
 };
 
@@ -64,8 +65,12 @@ const ALLOWED_TAGS = new Set([
 const TAG_VALUE = /^[A-Za-z0-9_.:/\-]{1,200}$/;
 
 let state: MonitoringState | null = null;
+// Server and browser events have separate budgets. The browser relay is
+// anonymous and its per-IP limit keys on a client-controllable address
+// (trustProxy), so a flood of fake browser reports must not be able to
+// exhaust the budget that real server errors depend on.
 let windowStartedAt = 0;
-let sentInWindow = 0;
+const sentInWindow = { server: 0, browser: 0 };
 const recentFingerprints = new Map<string, number>();
 const pending = new Set<Promise<void>>();
 
@@ -102,6 +107,7 @@ export function initErrorMonitoring(options: {
   release?: string;
   transport?: MonitoringTransport;
   maxEventsPerWindow?: number;
+  maxBrowserEventsPerWindow?: number;
   windowMs?: number;
 }): boolean {
   const dsn = parseDsn(options.dsn ?? process.env.SENTRY_DSN);
@@ -116,10 +122,12 @@ export function initErrorMonitoring(options: {
     service: options.service,
     transport: options.transport ?? defaultTransport,
     maxEventsPerWindow: Math.max(1, options.maxEventsPerWindow ?? 30),
+    maxBrowserEventsPerWindow: Math.max(1, options.maxBrowserEventsPerWindow ?? 10),
     windowMs: Math.max(1_000, options.windowMs ?? 60_000)
   };
   windowStartedAt = 0;
-  sentInWindow = 0;
+  sentInWindow.server = 0;
+  sentInWindow.browser = 0;
   recentFingerprints.clear();
   return true;
 }
@@ -305,17 +313,19 @@ export function buildEvent(error: unknown, context: MonitoringContext = {}) {
   };
 }
 
-function withinBudget(fingerprint: string): boolean {
+function withinBudget(fingerprint: string, browser: boolean): boolean {
   if (!state) return false;
   const now = Date.now();
   if (now - windowStartedAt >= state.windowMs) {
     windowStartedAt = now;
-    sentInWindow = 0;
+    sentInWindow.server = 0;
+    sentInWindow.browser = 0;
   }
   for (const [key, seenAt] of recentFingerprints) if (now - seenAt >= DEDUPE_WINDOW_MS) recentFingerprints.delete(key);
   if (recentFingerprints.has(fingerprint)) return false;
-  if (sentInWindow >= state.maxEventsPerWindow) return false;
-  sentInWindow += 1;
+  const bucket = browser ? "browser" : "server";
+  if (sentInWindow[bucket] >= (browser ? state.maxBrowserEventsPerWindow : state.maxEventsPerWindow)) return false;
+  sentInWindow[bucket] += 1;
   recentFingerprints.set(fingerprint, now);
   return true;
 }
@@ -333,7 +343,7 @@ export function captureException(error: unknown, context: MonitoringContext = {}
     const top = event.exception.values[0];
     const topFrame = top?.stacktrace?.frames.at(-1);
     const fingerprint = [event.tags.service, top?.type, top?.value, topFrame?.filename, topFrame?.lineno].join("|");
-    if (!withinBudget(fingerprint)) return null;
+    if (!withinBudget(fingerprint, event.tags.service === "browser")) return null;
     const body = [
       JSON.stringify({ event_id: event.event_id, sent_at: new Date().toISOString() }),
       JSON.stringify({ type: "event" }),
@@ -395,6 +405,26 @@ export function installProcessErrorCapture(logFatal: (error: unknown, kind: stri
   return true;
 }
 
+export type BrowserErrorReport = { source: "web" | "legacy"; message: string; type?: string; stack?: string; route?: string; release?: string };
+
+/** Relay a validated browser report. The route is reduced to its shape. */
+export function captureBrowserReport(report: BrowserErrorReport, requestId: unknown): string | null {
+  return captureException(
+    { name: report.type || "BrowserError", message: report.message, stack: report.stack || "" },
+    {
+      service: "browser",
+      mechanism: "browser_global_handler",
+      handled: false,
+      tags: {
+        client_source: report.source,
+        client_route: normalizeClientRoute(report.route),
+        client_release: report.release,
+        request_id: requestId
+      }
+    }
+  );
+}
+
 export class MonitoringSelfTestError extends Error {
   constructor(service: MonitoringService) {
     super(`Siton error-monitoring self-test from ${service} (synthetic; no user, database or money effect)`);
@@ -420,7 +450,8 @@ export function captureSelfTestIfRequested(service: MonitoringService): string |
 export function resetErrorMonitoringForTests() {
   state = null;
   windowStartedAt = 0;
-  sentInWindow = 0;
+  sentInWindow.server = 0;
+  sentInWindow.browser = 0;
   recentFingerprints.clear();
   pending.clear();
 }

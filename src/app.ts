@@ -132,6 +132,7 @@ import { ensureAdminInterventionTables, isFlagActive } from "./admin_interventio
 import { mallStatusForState } from "./mall_read_model.js";
 import { classifyDeadline, DEADLINE_DEFAULT_MS as DEADLINE_POLICY_DEFAULT_MS } from "./deadline_policy.js";
 import {
+  captureBrowserReport,
   captureException,
   captureSelfTestIfRequested,
   errorMonitoringSummary,
@@ -139,7 +140,7 @@ import {
   initErrorMonitoring,
   installProcessErrorCapture,
   isErrorMonitoringEnabled,
-  normalizeClientRoute
+  type BrowserErrorReport
 } from "./error_monitoring.js";
 dotenv.config();
 
@@ -5626,7 +5627,7 @@ app.get("/health", async () => ({ ok: true }));
 // schema-strict, rate-limited per IP and always answers 204 without revealing
 // whether monitoring is enabled or the report was accepted.
 const CLIENT_ERROR_RATE_MAX = 10;
-const CLIENT_ERROR_FIELD_LIMITS = { type: 120, message: 1_000, stack: 8_000, route: 500, release: 80 } as const;
+const CLIENT_ERROR_FIELD_LIMITS = { "type": 120, "message": 1_000, "stack": 8_000, "route": 500, "release": 80 } as const;
 
 export function parseClientErrorReport(body: unknown) {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
@@ -5640,7 +5641,7 @@ export function parseClientErrorReport(body: unknown) {
     out[field] = value;
   }
   if (!out.message) return null;
-  return out as { source: "web" | "legacy"; message: string; type?: string; stack?: string; route?: string; release?: string };
+  return out as BrowserErrorReport;
 }
 
 app.post("/api/client-errors", { bodyLimit: 16 * 1024 }, async (req: any, reply: any) => {
@@ -5650,20 +5651,7 @@ app.post("/api/client-errors", { bodyLimit: 16 * 1024 }, async (req: any, reply:
   if (entry.count > CLIENT_ERROR_RATE_MAX) return reply.send();
   const report = parseClientErrorReport(req.body);
   if (!report) return reply.send();
-  captureException(
-    { name: report.type || "BrowserError", message: report.message, stack: report.stack || "" },
-    {
-      service: "browser",
-      mechanism: "browser_global_handler",
-      handled: false,
-      tags: {
-        client_source: report.source,
-        client_route: normalizeClientRoute(report.route),
-        client_release: report.release,
-        request_id: req.id
-      }
-    }
-  );
+  captureBrowserReport(report, req.id);
   return reply.send();
 });
 
