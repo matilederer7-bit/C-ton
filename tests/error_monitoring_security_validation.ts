@@ -177,11 +177,11 @@ await run("scrubText: a secret straddling the pre-scrub cut does not survive as 
 await run("scrubText: a space-separated card or phone straddling the cut leaves no digit group", () => {
   const unit = `${SENSITIVE.jwt}${"x".repeat(40)} `;
   const prefix = unit.repeat(Math.floor(3_600 / unit.length));
-  for (const secret of [SENSITIVE.card, "050 123 4567 8"]) {
+  for (const secret of [SENSITIVE.card, "050 123 4567 8", "+972 (50) 123-4567", "(050) 123.4567"]) {
     const filler = 4_000 - prefix.length - 1 - Math.floor(secret.length / 2);
     const text = `${prefix}${"y".repeat(filler)} ${secret} tail`;
     const scrubbed = monitoring.scrubText(text);
-    assert.ok(!/\b4111\b|\b050\b|\b123\b/.test(scrubbed), `digit group survived: ${scrubbed.slice(-60)}`);
+    assert.ok(!/\b4111\b|\b050\b|\b123\b|\(50\)|\b972\b/.test(scrubbed), `digit group survived: ${scrubbed.slice(-60)}`);
   }
 });
 

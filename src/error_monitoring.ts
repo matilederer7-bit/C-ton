@@ -192,7 +192,8 @@ const redactOpaqueToken = (run: string) => (/\d/.test(run) && /[A-Za-z]/.test(ru
 // prefix. The scan stops at punctuation or whitespace, so earlier fields and
 // correlation ids are kept; it is a single linear backward pass.
 const SECRET_CHAR = /[A-Za-z0-9._%+@/=~-]/;
-const DIGIT_GROUP_CHAR = /[\d\s+-]/;
+// Same separators as the number rule (space, dash, dot, parentheses).
+const DIGIT_GROUP_CHAR = /[\d\s().+-]/;
 
 function cutBeforePartialToken(text: string, limit: number): string {
   let end = limit;
