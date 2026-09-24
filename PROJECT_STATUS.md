@@ -312,6 +312,37 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
+### Claude Code latest milestone — Claude Code as permanent team lead (PR #82)
+
+- UPDATED: 2026-09-24
+- BRANCH: `claude/team-lead-operating-model`, PR #82.
+- COMPLETED: The existing team mechanisms were mapped and reused, not rebuilt:
+  - the rules and status slots in `AGENTS.md`
+  - the `agent_router` risk policy
+  - the GitHub Actions intake, manager, swarm and preflight (still inoperative until its secrets exist)
+  - the Codex connector review on every PR
+  - the specialist definitions in open PR #79
+  - CI, Sentry, Render and Supabase
+
+  Added only what was missing:
+  - `docs/CLAUDE_TEAM_LEAD.md`, the binding lead procedure: preflight with an early branch push, work-plan JSON, dispatch to sub-agents in worktrees, integration, independent and Codex review with a senior reviewer for risky paths, CI, status before merge, deploy verification, stop conditions, the loop rule, the 8% and no-distributor-commission invariants, and the owner report.
+  - `scripts/team_plan_check.cjs` with 11 tests. It enforces scope, DoD and dependencies per assignment; disjoint writers; no writes to paths changed on open branches (computed from git); read-only reviewers; an independent reviewer for every builder; and an independent senior reviewer for database, money, security (including redaction and web auth), state-machine and CI paths.
+  - A `CLAUDE.md` pointer.
+- TESTED: The procedure was proven end to end by the smoke in PR #83, merged at `e721072`.
+  - Two Claude builders ran in parallel isolated worktrees from a fixed interface contract.
+  - The lead re-planned mid-task (B3) when the adversarial tests found leaks in an unassigned file.
+  - A read-only senior reviewer made 5 passes, and Codex reviewed several rounds.
+  - About 18 real defects were found and fixed, each with a failing-first test.
+  - The approach changed after repeated pattern leaks (loop rule), and CI was green before merge.
+
+  Codex's three findings on this PR (early branch push, status before merge, web auth files as security) are fixed and tested.
+- OPEN:
+  - PR #79 (the specialist definitions) awaits review and merge; until then sub-agents use the built-in agent types with the same packet.
+  - Codex as a builder still needs the Actions secrets.
+  - The review cycle is long when every push cancels `backend-gates`; batch fixes before pushing.
+- PERCENTAGE: 90%. The procedure is operational from a phone-started cloud session and proven by one full task; the #79 integration and the Codex-builder path remain.
+- NEXT STEP: review and integrate PR #79 under this procedure, then take the next owner task.
+
 ### Claude Code latest milestone — worker error logs scrubbed (team-lead smoke, PR #83)
 
 - UPDATED: 2026-09-24
