@@ -211,6 +211,7 @@ await run("scrubText: long text without whitespace keeps its leading correlation
   monitoring.scrubText("a".repeat(31_998) + " b" + "c".repeat(10), 8_000);
   monitoring.scrubText("a-".repeat(16_000), 8_000);
   monitoring.scrubText("?a".repeat(16_000), 8_000);
+  monitoring.scrubText("token".repeat(6_400), 8_000);
   assert.ok(Date.now() - started < 500, `scrubText took ${Date.now() - started} ms`);
 });
 

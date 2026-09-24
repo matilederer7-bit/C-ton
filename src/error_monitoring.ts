@@ -153,8 +153,9 @@ const SCRUB_RULES: Array<[RegExp, string]> = [
   // Authorization header values.
   [/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, "$1 [redacted]"],
   // key=value / key: value where the key names a credential.
-  // Anchored at the start of a run of name characters (linear on long runs).
-  [/(?<![A-Za-z_-])([A-Za-z_-]*(?:password|passwd|secret|token|api[_-]?key|authorization|cookie|cvv|cvc|otp)[A-Za-z_-]*)(\s*[:=]\s*)(["']?)[^\s"'&,;)]+/gi, "$1$2$3[redacted]"],
+  // Anchored at the start of a run of name characters, with the name bounded
+  // on both sides so a repeated keyword cannot make it quadratic.
+  [/(?<![A-Za-z_-])([A-Za-z_-]{0,64}(?:password|passwd|secret|token|api[_-]?key|authorization|cookie|cvv|cvc|otp)[A-Za-z_-]{0,64})(\s*[:=]\s*)(["']?)[^\s"'&,;)]+/gi, "$1$2$3[redacted]"],
   // Query strings anywhere in the text (tracking/OTP tokens travel in them).
   // The key part stops at "?" and "=" so a long run of "?" is linear.
   [/\?[^\s"'#?=]*=[^\s"'#]*/g, "?[redacted-query]"],
