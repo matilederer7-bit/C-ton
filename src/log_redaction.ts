@@ -120,15 +120,32 @@ interface Context {
   chars: number;
 }
 
+// Size as pino writes it: JSON-escaped (control characters become \uXXXX)
+// and UTF-8 encoded.
+function encodedSize(text: string): number {
+  return Buffer.byteLength(JSON.stringify(text), "utf8");
+}
+
+// ctx.chars is a budget of encoded bytes. Strings reaching here are already
+// bounded by scrubText (at most STACK_MAX_LENGTH characters), and the cut
+// loop is capped, so the work per string stays bounded.
 function takeChars(ctx: Context, text: string): string {
   if (ctx.chars <= 0) return BUDGET_OMITTED;
-  if (text.length <= ctx.chars) {
-    ctx.chars -= text.length;
+  const size = encodedSize(text);
+  if (size <= ctx.chars) {
+    ctx.chars -= size;
     return text;
   }
-  const kept = text.slice(0, ctx.chars);
+  let length = Math.floor((text.length * ctx.chars) / size);
+  for (let attempt = 0; attempt < 16 && length > 0; attempt += 1) {
+    const cutSize = encodedSize(text.slice(0, length));
+    if (cutSize <= ctx.chars) break;
+    // Shrink by half the overshoot (at least one character).
+    length -= Math.max(1, Math.ceil((length * (cutSize - ctx.chars)) / cutSize / 2));
+  }
+  if (length > 0 && encodedSize(text.slice(0, length)) > ctx.chars) length = 0;
   ctx.chars = 0;
-  return `${kept}…[truncated: log size budget]`;
+  return length > 0 ? `${text.slice(0, length)}…[truncated: log size budget]` : BUDGET_OMITTED;
 }
 
 // Scalar diagnostic value, or undefined when the value is not emittable.
