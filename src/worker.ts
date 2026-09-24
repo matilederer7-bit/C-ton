@@ -21,8 +21,9 @@ import {
   initErrorMonitoring,
   installProcessErrorCapture
 } from "./error_monitoring.js";
+import { errorLogSerializer } from "./log_redaction.js";
 
-const logger = pino({ level: process.env.LOG_LEVEL || "info" });
+export const logger = pino({ level: process.env.LOG_LEVEL || "info", serializers: { err: errorLogSerializer } });
 const WORKER_ID = getWorkerIdentity();
 const POLL_MS = Math.max(50, Number(process.env.OUTBOX_POLL_MS || 1_000));
 const CONCURRENCY = Math.max(1, Math.min(32, Number(process.env.WORKER_CONCURRENCY || 4)));
