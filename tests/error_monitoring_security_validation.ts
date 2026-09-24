@@ -128,6 +128,17 @@ await run("DSN parsing: envelope URL and public key; malformed or non-https DSNs
   assert.equal(monitoring.parseDsn("not a url"), null);
 });
 
+await run("a full 40-character commit SHA is kept as the release", async () => {
+  const sha = "28523f1c795acdfcb5b7a534da61e00b08d7ed36";
+  enable({ release: sha });
+  assert.equal((monitoring.errorMonitoringSummary() as any).release, sha);
+  monitoring.captureException(new Error("release check"), { service: "browser", tags: { client_release: sha } });
+  await monitoring.flushMonitoring();
+  const event = eventOf(sent[0]!);
+  assert.equal(event.release, sha);
+  assert.equal(event.tags.client_release, sha);
+});
+
 await run("the startup summary never contains the DSN or its key", () => {
   enable();
   const summary = JSON.stringify(monitoring.errorMonitoringSummary());
@@ -368,6 +379,23 @@ await run("/api/client-errors: a flood from rotating spoofed IPs is capped globa
   const services = sent.map((envelope) => eventOf(envelope).tags.service);
   assert.equal(services.filter((service) => service === "browser").length, 10, "browser budget is not global");
   assert.equal(services.filter((service) => service === "web").length, 1, "server error was starved by the browser flood");
+});
+
+await run("/api/client-errors: personal data or tokens inside stack-frame paths are scrubbed", async () => {
+  enable();
+  await app.inject({
+    method: "POST",
+    url: "/api/client-errors",
+    payload: clientReport({
+      stack: `Error: x\n    at load (https://evil.example/${SENSITIVE.email}/${SENSITIVE.jwt}/app.js:1:2)\n    at go@https://evil.example/u/${SENSITIVE.phone_plain}/x.js:3:4`
+    })
+  });
+  await monitoring.flushMonitoring();
+  assert.equal(sent.length, 1);
+  assertNoSensitive(sent[0]!.body, "frame paths");
+  const frames = eventOf(sent[0]!).exception.values[0].stacktrace.frames;
+  assert.equal(frames.length, 2);
+  assert.ok(frames.some((frame: any) => frame.filename.includes("[redacted:email]")), JSON.stringify(frames));
 });
 
 await run("normalizeClientRoute collapses ids and tokens", () => {

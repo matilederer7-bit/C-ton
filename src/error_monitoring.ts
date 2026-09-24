@@ -183,9 +183,15 @@ export function scrubText(input: unknown, maxLength = MAX_MESSAGE_LENGTH): strin
   return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
 }
 
+// At least one hex letter, so a digits-only phone or card number never
+// passes as a SHA.
+const GIT_SHA = /^(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}$/i;
+
 function cleanTagValue(value: unknown): string {
   if (value === undefined || value === null) return "";
   const text = String(value).trim();
+  // A commit SHA is the release identifier, not a credential.
+  if (GIT_SHA.test(text)) return text;
   if (!TAG_VALUE.test(text)) return "";
   // A value that scrubbing would change carries something it must not.
   return scrubText(text, 200) === text ? text : "";
@@ -228,7 +234,9 @@ function cleanFilename(raw: string): string {
   file = file.replace(/[?#].*$/, "");
   const appRoot = process.cwd();
   if (appRoot && appRoot !== "/" && file.startsWith(appRoot + "/")) file = file.slice(appRoot.length + 1);
-  return file.slice(0, 300);
+  // Relayed browser stacks are caller-controlled text: a path segment can
+  // carry an email or a token just like the message can.
+  return scrubText(file, 300);
 }
 
 function frameFromParts(fn: string, location: string): Frame | null {
