@@ -8,6 +8,7 @@ Before any meaningful task, read and obey:
 2. `AI_WORKFLOW.md` — detailed execution workflow, testing, Git, coordination, and completion protocol.
 3. `PROJECT_STATUS.md` — current implementation state and active blockers.
 4. `docs/CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md` plus any newer canonical amendments relevant to the task.
+5. `docs/CLAUDE_TEAM_LEAD.md` — you are the owner's permanent team lead: plan, check the plan with `scripts/team_plan_check.cjs`, dispatch, review, CI, merge and verify deploy.
 
 Do not ask the owner to repeat rules already defined in those files.
 
