@@ -155,7 +155,9 @@ const SCRUB_RULES: Array<[RegExp, string]> = [
   // key=value / key: value where the key names a credential.
   // Anchored at the start of a run of name characters, with the name bounded
   // on both sides so a repeated keyword cannot make it quadratic.
-  [/(?<![A-Za-z_-])([A-Za-z_-]{0,64}(?:password|passwd|secret|token|api[_-]?key|authorization|cookie|cvv|cvc|otp)[A-Za-z_-]{0,64})(\s*[:=]\s*)(["']?)[^\s"'&,;)]+/gi, "$1$2$3[redacted]"],
+  // A quoted value is redacted through its closing quote (multi-word
+  // passphrases); bounded so an unclosed quote stays linear.
+  [/(?<![A-Za-z_-])([A-Za-z_-]{0,64}(?:password|passwd|secret|token|api[_-]?key|authorization|cookie|cvv|cvc|otp)[A-Za-z_-]{0,64})(\s*[:=]\s*)(?:"[^"]{0,512}"?|'[^']{0,512}'?|[^\s"'&,;)]+)/gi, "$1$2[redacted]"],
   // Query strings anywhere in the text (tracking/OTP tokens travel in them).
   // The key part stops at "?" and "=" so a long run of "?" is linear.
   [/\?[^\s"'#?=]*=[^\s"'#]*/g, "?[redacted-query]"],

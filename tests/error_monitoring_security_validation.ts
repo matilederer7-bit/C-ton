@@ -234,6 +234,16 @@ await run("scrubText: a repeated credential keyword stays linear (bounded key na
   assert.ok(Date.now() - started < 100, `took ${Date.now() - started} ms`);
 });
 
+await run("scrubText: a quoted multi-word credential is redacted through its closing quote", () => {
+  const text = `login failed password="correct horse battery staple" secret='blue green red' token: "a b c" api_key=plain next`;
+  const scrubbed = monitoring.scrubText(text);
+  for (const word of ["horse", "battery", "staple", "green", "red'", " b c", "plain"]) assert.ok(!scrubbed.includes(word), `${word} survived: ${scrubbed}`);
+  assert.ok(scrubbed.startsWith("login failed password=[redacted]") && scrubbed.endsWith(" next"), scrubbed);
+  const started = Date.now();
+  monitoring.scrubText(`password="${"x ".repeat(20_000)}`, 8_000);
+  assert.ok(Date.now() - started < 100, "unclosed quote is not linear");
+});
+
 await run("scrubText leaves an ordinary engineering message intact and bounds length", () => {
   const plain = "duplicate key value violates unique constraint deals_pkey";
   assert.equal(monitoring.scrubText(plain), plain);
