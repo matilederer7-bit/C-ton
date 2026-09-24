@@ -76,48 +76,45 @@ function binaryLength(value: object): number | undefined {
   return undefined;
 }
 
-// Replaces the contents of every parenthesised group that starts with one of
-// the markers, up to its matching close parenthesis (nesting aware) or the end
-// of the string when unbalanced. Single left-to-right pass, no regex
-// backtracking.
+// PostgreSQL does not escape parentheses inside values, so a ")" in a detail
+// line cannot be trusted to end a value list: `Key (a)=(x) Jane, Apt 3)` would
+// leak the remainder if redaction stopped at the first close. Instead, from the
+// first value-list opening, everything up to the LAST ")" in the string (or to
+// the end when there is none) is replaced. Text after that last ")" is kept
+// only when it is a known pg suffix. Over-redaction is intended. Linear:
+// indexOf/lastIndexOf only.
 const PG_VALUE_MARKERS = ["=(", "Failing row contains ("];
+const PG_FIXED_SUFFIXES = new Set(["", ".", " already exists."]);
+const PG_TABLE_SUFFIX_PREFIXES = [" is not present in table \"", " is still referenced from table \""];
+
+function isKnownPgSuffix(suffix: string): boolean {
+  if (PG_FIXED_SUFFIXES.has(suffix)) return true;
+  for (const prefix of PG_TABLE_SUFFIX_PREFIXES) {
+    if (!suffix.startsWith(prefix) || !suffix.endsWith("\".")) continue;
+    const table = suffix.slice(prefix.length, suffix.length - 2);
+    // A table name: no quotes, whitespace-free, short.
+    if (table.length > 0 && table.length <= 128 && !/["\s]/.test(table)) return true;
+  }
+  return false;
+}
 
 function redactPgValueLists(input: string): string {
   const text = input.length > PG_SCAN_MAX_LENGTH ? input.slice(0, PG_SCAN_MAX_LENGTH) : input;
-  let out = "";
-  let index = 0;
-  while (index < text.length) {
-    let next = -1;
-    let marker = "";
-    for (const candidate of PG_VALUE_MARKERS) {
-      const found = text.indexOf(candidate, index);
-      if (found !== -1 && (next === -1 || found < next)) {
-        next = found;
-        marker = candidate;
-      }
-    }
-    if (next === -1) {
-      out += text.slice(index);
-      break;
-    }
-    const open = next + marker.length; // position just after "("
-    out += text.slice(index, open) + "[redacted]";
-    let depth = 1;
-    let cursor = open;
-    while (cursor < text.length && depth > 0) {
-      const char = text[cursor];
-      if (char === "(") depth += 1;
-      else if (char === ")") depth -= 1;
-      cursor += 1;
-    }
-    if (depth === 0) {
-      out += ")";
-      index = cursor;
-    } else {
-      index = text.length;
+  let start = -1;
+  let open = -1;
+  for (const marker of PG_VALUE_MARKERS) {
+    const found = text.indexOf(marker);
+    if (found !== -1 && (start === -1 || found < start)) {
+      start = found;
+      open = found + marker.length;
     }
   }
-  return out;
+  if (open === -1) return text;
+  const lastClose = text.lastIndexOf(")");
+  const prefix = text.slice(0, open) + "[redacted]";
+  if (lastClose < open) return prefix;
+  const suffix = text.slice(lastClose + 1);
+  return prefix + ")" + (isKnownPgSuffix(suffix) ? suffix : "");
 }
 
 function scrubString(key: string, value: string): string {
