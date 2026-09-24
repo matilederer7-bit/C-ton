@@ -1,12 +1,14 @@
 // C-ton brand consistency — Web, PWA, Android, iOS.
 //
-// Shelf closeout 2026-09-17 (source codex/visual-rebrand-c-ton, reconciled
-// against the current site): deep graphite dominates, one vivid orange accent,
-// effects restrained (glow/shadow intensities ~15% below the shelf rebrand).
-// The React web app already carried the dark brand; this pins it, brings the
-// native launcher/store icons, the iOS splash, the PWA manifest identity and the
-// logo source into the same identity, and guards against a regression to the
-// retired teal/cream art.
+// 2026-09-24 "Daylight" visual refresh (owner decision): the canonical React
+// web app moved from the graphite + orange dark theme to a light ground with
+// Siton Indigo as the brand colour and Siton Coral as the "live" accent. This
+// pins the new web identity and its accessibility floor.
+//
+// The legacy /app PWA shell and the native launcher/store/splash art were NOT
+// part of that refresh (they are separate surfaces with their own build and
+// store pipelines); their existing graphite identity stays pinned below until
+// a follow-up brings them over, so neither can drift silently.
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
@@ -28,7 +30,10 @@ const [webCss, webIndex, legacyIndex, manifestRaw, logo, frontendLogo, iosIcon, 
 function token(name: string): string {
   const m = webCss.match(new RegExp(`--${name}:\\s*([^;]+);`));
   assert.ok(m, `token --${name} missing`);
-  return String(m![1] ?? "").trim();
+  const value = String(m![1] ?? "").trim();
+  // a token that aliases another (--success: var(--accent-cyan)) resolves to it
+  const alias = /^var\(--([a-z0-9-]+)\)$/.exec(value);
+  return alias ? token(alias[1]!) : value;
 }
 function alpha(value: string): number {
   const m = value.match(/rgba\([^)]*,\s*([0-9.]+)\)/);
@@ -55,36 +60,51 @@ function contrast(fg: string, bg: string): number {
   return Math.round((Math.max(a, b) / Math.min(a, b)) * 100) / 100;
 }
 
-// ── Web: graphite ground, orange accent, restrained effects ─────────────────
-assert.equal(token("bg"), "#17181b", "deep graphite ground");
-assert.equal(token("bg-deep"), "#101114");
-assert.equal(token("brand"), "#ec6608", "the one commercial orange");
-assert.match(webCss, /color-scheme:\s*dark/);
+// ── Web: daylight ground, indigo brand, coral live accent ───────────────────
+assert.equal(token("bg"), "#f6f7fb", "cool paper-white ground");
+assert.equal(token("surface"), "#ffffff", "cards and panels are pure white");
+assert.equal(token("brand"), "#4a3aff", "Siton Indigo is the brand colour");
+assert.equal(token("live"), "#ff5a36", "Siton Coral is the live accent");
+assert.match(webCss, /color-scheme:\s*light/);
+assert.doesNotMatch(webCss, /color-scheme:\s*dark/, "no dark scheme left in the canonical web app");
+assert.ok(relativeLuminance(token("bg")) > 0.85 && relativeLuminance(token("surface")) > 0.85, "the grounds are light");
 assert.ok(alpha(token("brand-glow")) <= 0.32, `brand glow must stay restrained (≤0.32), saw ${token("brand-glow")}`);
-assert.ok(alpha(token("accent-cyan-glow")) <= 0.19, "cyan glow stays a whisper");
-assert.ok(alpha(token("shadow")) <= 0.47 && alpha(token("shadow-soft")) <= 0.38 && alpha(token("shadow-pop")) <= 0.55, "shadows ~15% lighter than the shelf rebrand");
+assert.ok(alpha(token("shadow")) <= 0.25 && alpha(token("shadow-soft")) <= 0.2 && alpha(token("shadow-pop")) <= 0.3, "light-theme shadows stay soft");
 assert.doesNotMatch(webCss, /#0f766e|#faf7f2|#C65A1E/i, "no retired teal/cream/brick tokens in the canonical web app");
+// the retired dark theme does not linger as hard-coded values
+assert.doesNotMatch(webCss, /#16130f|#17181b|#101114|rgba\(16, ?17, ?20/i, "no graphite leftovers outside the token layer");
 
-// Every ink token must be READABLE on every surface it can land on. --ink-faint
-// is not decorative: it carries the brand sub-line, the footer links and the
-// footer text at 11–14px, so it needs the 4.5:1 WCAG AA floor for normal text.
-// It shipped at #767d89, which measured 3.65:1 on --surface-warm in the browser.
-for (const ink of ["ink", "ink-soft", "ink-faint"]) {
-  for (const surface of ["bg", "bg-deep", "surface", "surface-warm"]) {
+// Every ink token must be READABLE on every surface it can land on (WCAG AA
+// 4.5:1 for normal text) — and so must every coloured TEXT token.
+const grounds = ["bg", "bg-deep", "surface", "surface-warm"];
+for (const ink of ["ink", "ink-soft", "ink-faint", "brand-hi", "live-ink", "success", "saffron", "pomegranate", "sky"]) {
+  for (const surface of grounds) {
     const ratio = contrast(token(ink), token(surface));
     assert.ok(ratio >= 4.5, `--${ink} on --${surface} is ${ratio}:1 — below the 4.5:1 AA floor for normal text`);
   }
 }
-// and the three inks must stay distinguishable from each other, brightest first
+// state text on its own tint
+for (const [ink, tint] of [["success", "success-tint"], ["saffron", "saffron-tint"], ["pomegranate", "pomegranate-tint"], ["sky", "sky-tint"], ["live-ink", "live-tint"]] as const) {
+  const ratio = contrast(token(ink), token(tint));
+  assert.ok(ratio >= 4.5, `--${ink} on --${tint} is ${ratio}:1`);
+}
+// white text on the filled controls
+for (const fill of ["brand", "brand-hi", "brand-deep", "live-strong", "pomegranate"]) {
+  const ratio = contrast("#ffffff", token(fill));
+  assert.ok(ratio >= 4.5, `white on --${fill} is ${ratio}:1`);
+}
+assert.equal(token("on-brand"), "#ffffff");
+// and the three inks must stay distinguishable from each other, darkest first
 assert.ok(
-  relativeLuminance(token("ink")) > relativeLuminance(token("ink-soft"))
-  && relativeLuminance(token("ink-soft")) > relativeLuminance(token("ink-faint")),
-  "the ink ramp must stay ordered: ink brighter than ink-soft brighter than ink-faint"
+  relativeLuminance(token("ink")) < relativeLuminance(token("ink-soft"))
+  && relativeLuminance(token("ink-soft")) < relativeLuminance(token("ink-faint")),
+  "the ink ramp must stay ordered: ink darker than ink-soft darker than ink-faint"
 );
-console.log("PASS ink tokens clear WCAG AA on every canonical surface and keep their ramp");
+console.log("PASS ink, brand and state text tokens clear WCAG AA on every canonical surface");
 assert.match(webCss, /@media \(prefers-reduced-motion: reduce\)/, "motion stays optional");
-assert.match(webIndex, /<meta name="theme-color" content="#17181b" \/>/, "web PWA/browser chrome is graphite");
-console.log("PASS web: graphite + orange tokens, glow/shadow restrained, no retired teal");
+assert.match(webIndex, /<meta name="theme-color" content="#f6f7fb" \/>/, "web browser chrome matches the daylight ground");
+assert.match(webIndex, /html \{ background: #f6f7fb; \}/, "pre-hydration paint is the daylight ground");
+console.log("PASS web: daylight + indigo/coral tokens, soft effects, no graphite leftovers");
 
 // ── PWA (legacy /app shell): same identity, same chrome ─────────────────────
 const manifest = JSON.parse(manifestRaw);
@@ -102,14 +122,15 @@ assert.match(legacyIndex, /<meta name="theme-color" content="#17181b" \/>/);
 assert.doesNotMatch(manifestRaw + legacyIndex, /#0f766e/i, "the teal PWA chrome is retired");
 console.log("PASS pwa: manifest identity C-ton, graphite chrome, PNG icon set");
 
-// ── Logo source of truth: graphite C mark with the orange bar ───────────────
-for (const [label, svg] of [["assets/logo.svg", logo], ["frontend/icons/logo.svg", frontendLogo]] as const) {
-  assert.match(svg, /Dark graphite C mark with a vivid orange bar/, `${label} describes the C-ton identity`);
-  assert.match(svg, /#ff8a2a/i, `${label} carries the orange bar`);
-  assert.match(svg, /#0b0c0e/i, `${label} carries the graphite ground`);
-  assert.doesNotMatch(svg, /#0f766e|#faf7f2/i, `${label} has no teal/cream`);
-}
-console.log("PASS logo: graphite + orange identity, no teal");
+// ── Logo source of truth: the daylight C mark ───────────────────────────────
+assert.match(logo, /white C on a Siton Indigo tile with the Siton Coral bar/, "assets/logo.svg describes the C-ton identity");
+assert.match(logo, /#4a3aff/i, "assets/logo.svg carries Siton Indigo");
+assert.match(logo, /#ff5a36/i, "assets/logo.svg carries the coral bar");
+assert.doesNotMatch(logo, /#0f766e|#faf7f2/i);
+// the legacy /app shell keeps its own graphite icon until its follow-up
+assert.match(frontendLogo, /Dark graphite C mark with a vivid orange bar/);
+assert.doesNotMatch(frontendLogo, /#0f766e|#faf7f2/i, "frontend/icons/logo.svg has no teal/cream");
+console.log("PASS logo: daylight mark is the source of truth; legacy shell icon unchanged");
 
 // ── Native: launcher/store icons and splash are the same mark ───────────────
 for (const [label, bytes] of [["iOS AppIcon 1024", iosIcon], ["Android xxxhdpi launcher", androidIcon], ["Android adaptive foreground", androidFg], ["iOS splash", splash], ["iOS splash dark", splashDark]] as const) {

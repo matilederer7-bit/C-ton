@@ -3,10 +3,11 @@ import { BRAND_MARK_URL, BRAND_NAME } from "./config";
 import { t } from "./i18n/index.js";
 
 // ── C-ton brand primitives ──────────────────────────────────────────────────
-// The owner-supplied logo asset is the single source of visual identity.
-// BrandMark renders the square C+bar emblem; BrandWordmark renders the name in
-// live text (styled to match the logo: gray "ton", orange "C-"), so the topbar
-// stays crisp at any size while the emblem stays the real asset.
+// The C-ton logo is drawn as vectors in assets/brand/ (2026-09-24 "Daylight"
+// refresh: a white C on a Siton Indigo tile with the Siton Coral bar) and
+// rendered to the raster files under web/public/brand/ by
+// scripts/render_brand_assets.cjs. BrandMark renders the square C+bar emblem;
+// BrandWordmark renders the approved wordmark image.
 
 export function BrandMark({ size = 38 }: { size?: number }) {
   return (
@@ -22,8 +23,8 @@ export function BrandMark({ size = 38 }: { size?: number }) {
   );
 }
 
-// The topbar shows the ACTUAL approved wordmark pixels (cropped + keyed from
-// web/public/brand/c-ton-logo.png) — never a text reconstruction of it.
+// The topbar shows the approved wordmark image (rendered from
+// assets/brand/c-ton-wordmark.svg) — never a text reconstruction of it.
 const BRAND_WORDMARK_URL = `${(import.meta as any).env?.BASE_URL || "/"}brand/c-ton-wordmark.png`;
 
 // The wordmark carries its RENDERED size as attributes (the 540x140 source
@@ -44,8 +45,8 @@ export function BrandWordmark() {
 }
 
 // ── branded loading state ───────────────────────────────────────────────────
-// Reusable C-ton loading surface: the real brand emblem breathing on the dark
-// ground. Reduced-motion users get a static mark. minHeight prevents layout
+// Reusable C-ton loading surface: the real brand emblem breathing on the
+// daylight ground. Reduced-motion users get a static mark. minHeight prevents layout
 // jump when the loaded content replaces the loader.
 // LAUNCH POLISH (P8) — a wait that outlives SLOW_HINT_MS gets ONE honest extra
 // line (the hosted runtime can take up to ~30 s to wake after idle). It never

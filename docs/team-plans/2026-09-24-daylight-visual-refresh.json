@@ -1,0 +1,67 @@
+{
+  "task": "Daylight visual refresh: light, alive, trustworthy Siton web UI with a recoloured logo — presentation layer only, zero behaviour change",
+  "lead": "claude-lead",
+  "base": "origin/master",
+  "open_branches": [
+    "origin/codex/senior-engineering-review-20260921"
+  ],
+  "interface_contract": {},
+  "assignments": [
+    {
+      "id": "B1",
+      "agent": "claude-lead",
+      "role": "builder",
+      "scope": "design tokens, stylesheet, brand assets, progress-meter colours, brand pins in tests/proofs",
+      "allowed": [
+        "web/src/styles.css",
+        "web/src/cms.css",
+        "web/src/util.ts",
+        "web/src/brand.tsx",
+        "web/index.html",
+        "web/public/brand/",
+        "assets/logo.svg",
+        "assets/brand/",
+        "scripts/render_brand_assets.cjs",
+        "scripts/ux_polish_round2_browser_proof.cjs",
+        "scripts/r7r8_browser_proof.cjs",
+        "tests/visual_brand_consistency_validation.ts",
+        "PROJECT_STATUS.md",
+        "docs/team-plans/2026-09-24-daylight-visual-refresh.json"
+      ],
+      "forbidden": [
+        "src/",
+        "supabase/",
+        "src/migrations/",
+        ".github/workflows/",
+        "web/src/pages/",
+        "web/src/api.ts",
+        "web/src/auth.tsx",
+        "web/src/session.ts"
+      ],
+      "depends_on": [],
+      "dod": [
+        "every text token >= 4.5:1 on every ground",
+        "no class/testid/prop/logic change",
+        "web build green",
+        "style-pinning suites green",
+        "browser proof no new failures vs master"
+      ]
+    },
+    {
+      "id": "R1",
+      "agent": "claude-subagent",
+      "role": "reviewer",
+      "scope": "independent read-only review: presentation-only boundary, contrast, RTL/mobile layout regressions",
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "verdict with concrete failure scenarios"
+      ]
+    }
+  ],
+  "overlap_decision": "TEAM_PLAN_FAIL is expected and accepted: the owner's task is a whole-product restyle and cannot avoid web/src/styles.css. PR #71 (stale since 2026-09-21) only appends one .footer-copyright rule at the END of styles.css using --ink-faint; this branch keeps that token name and does not touch the end of the file, so #71 merges without a conflict. PROJECT_STATUS.md edits are confined to the claude slot."
+}

@@ -68,14 +68,14 @@ async function main() {
       console.log(`  mall: ${snap.loaded}/${snap.total} imgs rendered, ${snap.supabase} from Supabase CDN`);
     });
 
-    await run("gray+orange design system is live (orange accent token applied)", async () => {
+    await run("daylight design system is live (Siton Indigo brand token applied)", async () => {
       const ok = await cdp.evaluate(`(() => {
         const root = getComputedStyle(document.documentElement);
         const brand = (root.getPropertyValue('--brand') || '').trim().toLowerCase();
         const bg = (root.getPropertyValue('--bg') || '').trim().toLowerCase();
         return { brand, bg };
       })()`);
-      if (!/ec6608|#ec/.test(ok.brand)) throw new Error(`brand token not orange: ${ok.brand}`);
+      if (!/4a3aff/.test(ok.brand)) throw new Error(`brand token not Siton Indigo: ${ok.brand}`);
       console.log(`  --brand=${ok.brand} --bg=${ok.bg}`);
     });
 
