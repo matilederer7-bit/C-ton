@@ -106,10 +106,35 @@ function isPgShaped(source: Record<string, unknown>): boolean {
   return typeof code === "string" && SQLSTATE.test(code) && routine !== undefined && routine !== UNREADABLE;
 }
 
+// One budget shared by the whole serialization of a single log call, so nested
+// AggregateErrors cannot multiply into a multi-megabyte line: at most
+// MAX_NODES error nodes (root, causes and errors children combined) and at most
+// MAX_TOTAL_CHARS characters of emitted string values.
+const MAX_NODES = 50;
+const MAX_TOTAL_CHARS = 64 * 1024;
+const BUDGET_OMITTED = "[omitted: log size budget]";
+
+interface Context {
+  seen: WeakSet<object>;
+  nodes: number;
+  chars: number;
+}
+
+function takeChars(ctx: Context, text: string): string {
+  if (ctx.chars <= 0) return BUDGET_OMITTED;
+  if (text.length <= ctx.chars) {
+    ctx.chars -= text.length;
+    return text;
+  }
+  const kept = text.slice(0, ctx.chars);
+  ctx.chars = 0;
+  return `${kept}…[truncated: log size budget]`;
+}
+
 // Scalar diagnostic value, or undefined when the value is not emittable.
-function scrubScalar(key: string, value: unknown, pgShaped: boolean): unknown {
+function scrubScalar(key: string, value: unknown, pgShaped: boolean, ctx: Context): unknown {
   if (value === null) return null;
-  if (typeof value === "string") return scrubString(key, value, pgShaped);
+  if (typeof value === "string") return ctx.chars <= 0 ? BUDGET_OMITTED : takeChars(ctx, scrubString(key, value, pgShaped));
   if (typeof value === "boolean") return value;
   if (typeof value === "number") return Number.isFinite(value) ? scrubNumber(value) : value;
   if (typeof value === "bigint") return scrubNumber(value);
@@ -129,23 +154,33 @@ function errorTypeName(value: Error): string {
   return typeof name === "string" ? scrubText(name, 100) : "Error";
 }
 
-function serializeNested(value: unknown, depth: number, seen: WeakSet<object>): unknown {
-  if (depth >= MAX_DEPTH) return "[Truncated]";
-  if (value !== null && typeof value === "object" && seen.has(value)) return "[Circular]";
-  return serialize(value, depth, seen);
+function omittedMarker(count: number): string {
+  return `[${count} more errors omitted]`;
 }
 
-function serialize(value: unknown, depth: number, seen: WeakSet<object>): Serialized {
+function serializeNested(value: unknown, depth: number, ctx: Context): unknown {
+  if (depth >= MAX_DEPTH) return "[Truncated]";
+  if (value !== null && typeof value === "object" && ctx.seen.has(value)) return "[Circular]";
+  if (ctx.nodes <= 0) return omittedMarker(1);
+  return serialize(value, depth, ctx);
+}
+
+function scrubMessage(ctx: Context, text: string): string {
+  return ctx.chars <= 0 ? BUDGET_OMITTED : takeChars(ctx, scrubText(text));
+}
+
+function serialize(value: unknown, depth: number, ctx: Context): Serialized {
+  ctx.nodes -= 1;
   if (value === null || value === undefined) return { type: value === null ? "null" : "undefined", message: String(value) };
-  if (typeof value === "string") return { type: "string", message: scrubText(value) };
+  if (typeof value === "string") return { type: "string", message: scrubMessage(ctx, value) };
   if (typeof value !== "object" && typeof value !== "function") {
-    return { type: typeof value, message: scrubText(String(value)) };
+    return { type: typeof value, message: scrubMessage(ctx, String(value)) };
   }
   const source = value as Record<string, unknown>;
   const binary = binaryLength(source);
   if (binary !== undefined) return { type: "binary", message: `[binary ${binary} bytes]` };
 
-  seen.add(source);
+  ctx.seen.add(source);
   try {
     const out: Serialized = {};
     let omitted = 0;
@@ -171,38 +206,44 @@ function serialize(value: unknown, depth: number, seen: WeakSet<object>): Serial
       }
       if (raw === undefined) continue;
       if (key === "cause") {
-        out.cause = serializeNested(raw, depth + 1, seen);
+        out.cause = serializeNested(raw, depth + 1, ctx);
         continue;
       }
       if (key === "errors") {
         if (Array.isArray(raw)) {
-          const length = raw.length;
+          const length = safeRead(() => raw.length);
+          const total = typeof length === "number" ? length : 0;
           const items: unknown[] = [];
-          for (let index = 0; index < Math.min(length, MAX_ERRORS); index += 1) {
+          const limit = Math.min(total, MAX_ERRORS);
+          let index = 0;
+          for (; index < limit; index += 1) {
+            if (ctx.nodes <= 0) break;
             const item = safeRead(() => raw[index]);
-            items.push(item === UNREADABLE ? "[unreadable]" : serializeNested(item, depth + 1, seen));
+            items.push(item === UNREADABLE ? "[unreadable]" : serializeNested(item, depth + 1, ctx));
           }
-          if (length > MAX_ERRORS) items.push(`[${length - MAX_ERRORS} more errors]`);
+          // Children not serialized (budget or per-array cap); nested ones
+          // below them are not counted, so the number is a lower bound.
+          if (total > index) items.push(omittedMarker(total - index));
           out.errors = items;
         } else {
-          out.errors = serializeNested(raw, depth + 1, seen);
+          out.errors = serializeNested(raw, depth + 1, ctx);
         }
         continue;
       }
-      const scalar = scrubScalar(key, raw, pgShaped);
+      const scalar = scrubScalar(key, raw, pgShaped, ctx);
       if (scalar === undefined) omitted += 1;
       else out[key] = scalar;
     }
     if (omitted > 0) out.omitted_keys = omitted;
     return out;
   } finally {
-    seen.delete(source);
+    ctx.seen.delete(source);
   }
 }
 
 export function errorLogSerializer(err: unknown): Record<string, unknown> {
   try {
-    return serialize(err, 0, new WeakSet<object>());
+    return serialize(err, 0, { seen: new WeakSet<object>(), nodes: MAX_NODES, chars: MAX_TOTAL_CHARS });
   } catch {
     return unserializable();
   }
