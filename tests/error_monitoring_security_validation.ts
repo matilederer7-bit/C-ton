@@ -239,6 +239,9 @@ await run("scrubText: a quoted multi-word credential is redacted through its clo
   const scrubbed = monitoring.scrubText(text);
   for (const word of ["horse", "battery", "staple", "green", "red'", " b c", "plain"]) assert.ok(!scrubbed.includes(word), `${word} survived: ${scrubbed}`);
   assert.ok(scrubbed.startsWith("login failed password=[redacted]") && scrubbed.endsWith(" next"), scrubbed);
+  const json = monitoring.scrubText(`request failed: {"password":"correct horse battery staple","api_key": "k1 k2","user":"ok"} and {'secret':'s1 s2'}`);
+  for (const word of ["horse", "staple", "k1", "k2", "s1", "s2"]) assert.ok(!json.includes(word), `JSON-quoted key leaked ${word}: ${json}`);
+  assert.ok(json.includes('"user":"ok"'), `unrelated JSON field was damaged: ${json}`);
   const long = monitoring.scrubText(`password="${"q".repeat(600)}" tail`);
   assert.ok(!long.includes("qqq"), `suffix of a long quoted credential survived: ${long}`);
   const unclosed = monitoring.scrubText(`secret='${"w".repeat(900)}`);
