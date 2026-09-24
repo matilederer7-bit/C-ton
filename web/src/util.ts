@@ -252,7 +252,8 @@ export function progressColor(ratioToTarget: number): string {
   const r = clamp(ratioToTarget, 0, 1);
   if (r >= 1) return "linear-gradient(90deg, #0e9467, #19b27c)";
   if (r < 0.6) return "linear-gradient(90deg, #4a3aff, #6d5dff)";
-  // 0.6 → 1: the coral share of the leading edge grows with the ratio
-  const warm = Math.round(55 + (r - 0.6) * 100); // 55% → 95%
+  // 0.6 → 1: the coral share of the leading edge GROWS with the ratio — the
+  // violet stop recedes from 95% to 55%, so coral spans 5% → 45% of the fill
+  const warm = Math.round(95 - (r - 0.6) * 100); // 95% → 55%
   return `linear-gradient(90deg, #4a3aff, #7b5cff ${warm}%, #ff5a36)`;
 }
