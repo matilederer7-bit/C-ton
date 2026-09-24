@@ -182,7 +182,7 @@ const redactOpaqueToken = (run: string) => (/\d/.test(run) && /[A-Za-z]/.test(ru
  * correlation keys an investigator needs.
  */
 // Cut at `limit`, then step back to the last whitespace so a token split by
-// the cut is dropped whole. The step-back is bounded: text with no whitespace
+// the cut is dropped whole, together with any trailing digit groups. The step-back is bounded: text with no whitespace
 // near the cut loses at most PARTIAL_TOKEN_WINDOW characters (keeping earlier
 // correlation ids), and a plain backward scan keeps this linear.
 const PARTIAL_TOKEN_WINDOW = 512;
@@ -191,6 +191,9 @@ function cutBeforePartialToken(text: string, limit: number): string {
   const floor = Math.max(0, limit - PARTIAL_TOKEN_WINDOW);
   let end = limit;
   while (end > floor && !/\s/.test(text[end - 1] ?? "")) end -= 1;
+  // A card or phone number written in groups ("4111 1111 1111 1111") spans
+  // several tokens: also drop trailing digit groups so no prefix survives.
+  while (end > floor && /[\d\s+-]/.test(text[end - 1] ?? "")) end -= 1;
   return text.slice(0, end > floor ? end : floor);
 }
 
