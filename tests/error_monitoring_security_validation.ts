@@ -211,7 +211,7 @@ await run("scrubText: long text without whitespace keeps its leading correlation
   monitoring.scrubText("a".repeat(31_998) + " b" + "c".repeat(10), 8_000);
   monitoring.scrubText("a-".repeat(16_000), 8_000);
   monitoring.scrubText("?a".repeat(16_000), 8_000);
-  monitoring.scrubText("token".repeat(6_400), 8_000);
+
   assert.ok(Date.now() - started < 500, `scrubText took ${Date.now() - started} ms`);
 });
 
@@ -225,6 +225,13 @@ await run("scrubText: phone numbers with parentheses or dots are redacted", () =
   monitoring.scrubText("1(".repeat(16_000), 8_000);
   monitoring.scrubText("1 ".repeat(16_000), 8_000);
   assert.ok(Date.now() - started < 500, "number rule is not linear");
+});
+
+await run("scrubText: a repeated credential keyword stays linear (bounded key name)", () => {
+  const started = Date.now();
+  monitoring.scrubText("token".repeat(6_400), 8_000);
+  monitoring.scrubText("a-token=".repeat(4_000), 8_000);
+  assert.ok(Date.now() - started < 100, `took ${Date.now() - started} ms`);
 });
 
 await run("scrubText leaves an ordinary engineering message intact and bounds length", () => {
