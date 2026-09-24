@@ -1,4 +1,39 @@
-﻿const root = document.getElementById("app");
+﻿// Browser error reporting: uncaught errors and unhandled rejections are posted
+// to the same-origin /api/client-errors relay, which scrubs and forwards them.
+// Only type, message, stack and the route shape (ids/tokens -> :param) leave.
+(() => {
+  if (globalThis.SitonMobile?.isNative) return;
+  let reported = 0;
+  const seen = new Set();
+  const routeShape = () => String(location.hash || location.pathname || "/").replace(/^#/, "").split(/[?#]/)[0]
+    .split("/").slice(0, 8)
+    .map((segment) => (!segment || /^[a-z][a-z-]{0,23}$/.test(segment) ? segment : ":param"))
+    .join("/");
+  const report = (error) => {
+    if (reported >= 5) return;
+    const err = error instanceof Error ? error : null;
+    const message = String(err ? err.message : error ?? "unknown").slice(0, 1000);
+    const key = `${err?.name}|${message}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    reported += 1;
+    try {
+      fetch("/api/client-errors", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ source: "legacy", type: (err?.name || "BrowserError").slice(0, 120), message, stack: String(err?.stack || "").slice(0, 8000), route: routeShape() }),
+        credentials: "omit",
+        keepalive: true
+      }).catch(() => undefined);
+    } catch {
+      // Reporting must never create a second failure.
+    }
+  };
+  window.addEventListener("error", (event) => report(event.error ?? event.message));
+  window.addEventListener("unhandledrejection", (event) => report(event.reason));
+})();
+
+const root = document.getElementById("app");
 const FLOW_KEY = "siton_flow_v2";
 const FLOW_SCHEMA_VERSION = 2;
 const SAFE_RESUME_KEY = "siton_safe_resume_v1";

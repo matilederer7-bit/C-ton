@@ -32,6 +32,7 @@
     { "class": "public-write", "pattern": "^/api/mall/events$" },
     { "class": "public-write", "pattern": "^/api/viral/events$" },
     { "class": "public-write", "pattern": "^/api/support/contact$" },
+    { "class": "public-write", "pattern": "^/api/client-errors$", "methods": ["POST"], "note": "browser error relay to error monitoring; 16 KiB body cap, schema-strict, 10/min per IP, always 204, scrubbed server-side (src/error_monitoring.ts)" },
     { "class": "public-write", "pattern": "^/api/deals/:[A-Za-z]+/(inquiries|chat|feedback)$", "methods": ["POST"] },
     { "class": "public-write", "pattern": "^/api/deals/:[A-Za-z]+/chat/:[A-Za-z]+/reaction$" },
     { "class": "public-write", "pattern": "^/api/inquiries/:[A-Za-z]+/messages$" },

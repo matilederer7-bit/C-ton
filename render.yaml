@@ -63,6 +63,12 @@ services:
         value: log-only
       - key: PAYOUT_PROVIDER
         value: internal-ledger
+      # Error monitoring (src/error_monitoring.ts, docs/ERROR_MONITORING.md).
+      # The DSN is set in the dashboard, never in the repository.
+      - key: SENTRY_ENVIRONMENT
+        value: staging
+      - key: SENTRY_DSN
+        sync: false
 
   # R4 — the single approved continuous Background Worker (0.5 CPU / 512 MB,
   # "starter", ~US$7/month; the only paid staging resource). Same Docker image
@@ -124,3 +130,9 @@ services:
         value: log-only
       - key: PAYOUT_PROVIDER
         value: internal-ledger
+      # Error monitoring (src/error_monitoring.ts, docs/ERROR_MONITORING.md).
+      # The DSN is set in the dashboard, never in the repository.
+      - key: SENTRY_ENVIRONMENT
+        value: staging
+      - key: SENTRY_DSN
+        sync: false
