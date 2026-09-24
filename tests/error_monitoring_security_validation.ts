@@ -186,15 +186,20 @@ await run("scrubText: a space-separated card or phone straddling the cut leaves 
 });
 
 await run("scrubText: a secret straddling the cut in whitespace-free JSON leaves no prefix", () => {
-  const filler = Array.from({ length: 200 }, (_, i) => `"u${i}.long.local.part@example.com"`).join(",");
-  for (let overlap = 4; overlap <= 12; overlap += 1) {
-    const head = `{"deal":"${DEAL_ID}","list":[${filler}`.slice(0, 4_000 - overlap);
-    const text = `${head},"${SENSITIVE.email}"]}`;
-    const cutAt = text.indexOf(SENSITIVE.email);
-    assert.ok(cutAt < 4_000 && cutAt + SENSITIVE.email.length > 4_000, "fixture must straddle the cut");
-    const scrubbed = monitoring.scrubText(text, 1_000);
-    assert.ok(!scrubbed.includes("buyer.real"), `overlap ${overlap}: ${scrubbed.slice(-50)}`);
-    assert.ok(scrubbed.includes(DEAL_ID), "correlation id lost");
+  // No whitespace anywhere; long emails shrink when scrubbed. The secret is
+  // placed both at the cut itself and 512 characters before it (where a
+  // bounded step-back used to fall back to a fixed floor).
+  const filler = Array.from({ length: 400 }, (_, i) => `"u${i}.${"l".repeat(80)}@example.com"`).join(",");
+  for (const boundary of [4_000, 3_488]) {
+    for (let overlap = 4; overlap <= 12; overlap += 1) {
+      const head = `{"deal":"${DEAL_ID}","list":[${filler}`.slice(0, boundary - overlap);
+      const text = `${head},"${SENSITIVE.email}",${filler}]}`;
+      const at = text.indexOf(SENSITIVE.email);
+      assert.ok(at < boundary && at + SENSITIVE.email.length > boundary && text.length > 4_000 && !/\s/.test(text), "fixture must straddle the boundary without whitespace");
+      const scrubbed = monitoring.scrubText(text, 1_000);
+      assert.ok(!scrubbed.includes("buyer.real"), `boundary ${boundary} overlap ${overlap}: ${scrubbed.slice(-50)}`);
+      assert.ok(scrubbed.includes(DEAL_ID), "correlation id lost");
+    }
   }
 });
 
