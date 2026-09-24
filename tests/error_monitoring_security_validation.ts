@@ -185,13 +185,27 @@ await run("scrubText: a space-separated card or phone straddling the cut leaves 
   }
 });
 
+await run("scrubText: a secret straddling the cut in whitespace-free JSON leaves no prefix", () => {
+  const filler = Array.from({ length: 200 }, (_, i) => `"u${i}.long.local.part@example.com"`).join(",");
+  for (let overlap = 4; overlap <= 12; overlap += 1) {
+    const head = `{"deal":"${DEAL_ID}","list":[${filler}`.slice(0, 4_000 - overlap);
+    const text = `${head},"${SENSITIVE.email}"]}`;
+    const cutAt = text.indexOf(SENSITIVE.email);
+    assert.ok(cutAt < 4_000 && cutAt + SENSITIVE.email.length > 4_000, "fixture must straddle the cut");
+    const scrubbed = monitoring.scrubText(text, 1_000);
+    assert.ok(!scrubbed.includes("buyer.real"), `overlap ${overlap}: ${scrubbed.slice(-50)}`);
+    assert.ok(scrubbed.includes(DEAL_ID), "correlation id lost");
+  }
+});
+
 await run("scrubText: long text without whitespace keeps its leading correlation id and stays fast", () => {
   const text = `deal ${DEAL_ID} ` + `{"k":"${"v".repeat(6_000)}"}`;
   const started = Date.now();
   const scrubbed = monitoring.scrubText(text);
   assert.ok(scrubbed.includes(DEAL_ID), "correlation id lost");
-  const pathological = "a".repeat(31_998) + " b" + "c".repeat(10);
-  monitoring.scrubText(pathological, 8_000);
+  monitoring.scrubText("a".repeat(31_998) + " b" + "c".repeat(10), 8_000);
+  monitoring.scrubText("a-".repeat(16_000), 8_000);
+  monitoring.scrubText("?a".repeat(16_000), 8_000);
   assert.ok(Date.now() - started < 500, `scrubText took ${Date.now() - started} ms`);
 });
 

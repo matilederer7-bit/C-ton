@@ -153,7 +153,8 @@ const SCRUB_RULES: Array<[RegExp, string]> = [
   // Authorization header values.
   [/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, "$1 [redacted]"],
   // key=value / key: value where the key names a credential.
-  [/\b([A-Za-z_-]*(?:password|passwd|secret|token|api[_-]?key|authorization|cookie|cvv|cvc|otp)[A-Za-z_-]*)(\s*[:=]\s*)(["']?)[^\s"'&,;)]+/gi, "$1$2$3[redacted]"],
+  // Anchored at the start of a run of name characters (linear on long runs).
+  [/(?<![A-Za-z_-])([A-Za-z_-]*(?:password|passwd|secret|token|api[_-]?key|authorization|cookie|cvv|cvc|otp)[A-Za-z_-]*)(\s*[:=]\s*)(["']?)[^\s"'&,;)]+/gi, "$1$2$3[redacted]"],
   // Query strings anywhere in the text (tracking/OTP tokens travel in them).
   // The key part stops at "?" and "=" so a long run of "?" is linear.
   [/\?[^\s"'#?=]*=[^\s"'#]*/g, "?[redacted-query]"],
@@ -181,20 +182,21 @@ const redactOpaqueToken = (run: string) => (/\d/.test(run) && /[A-Za-z]/.test(ru
  * participant and request ids) are kept: they are opaque and are the
  * correlation keys an investigator needs.
  */
-// Cut at `limit`, then step back to the last whitespace so a token split by
-// the cut is dropped whole, together with any trailing digit groups. The step-back is bounded: text with no whitespace
-// near the cut loses at most PARTIAL_TOKEN_WINDOW characters (keeping earlier
-// correlation ids), and a plain backward scan keeps this linear.
-const PARTIAL_TOKEN_WINDOW = 512;
+// Cut at `limit`, then step back over every character a secret can be made
+// of (emails, tokens, base64, numbers), and over trailing digit groups such
+// as a spaced card or phone number, so nothing split by the cut survives as a
+// prefix. The scan stops at punctuation or whitespace, so earlier fields and
+// correlation ids are kept; it is a single linear backward pass.
+const SECRET_CHAR = /[A-Za-z0-9._%+@/=~-]/;
+const DIGIT_GROUP_CHAR = /[\d\s+-]/;
 
 function cutBeforePartialToken(text: string, limit: number): string {
-  const floor = Math.max(0, limit - PARTIAL_TOKEN_WINDOW);
   let end = limit;
-  while (end > floor && !/\s/.test(text[end - 1] ?? "")) end -= 1;
-  // A card or phone number written in groups ("4111 1111 1111 1111") spans
-  // several tokens: also drop trailing digit groups so no prefix survives.
-  while (end > floor && /[\d\s+-]/.test(text[end - 1] ?? "")) end -= 1;
-  return text.slice(0, end > floor ? end : floor);
+  const back = (pattern: RegExp) => { while (end > 0 && pattern.test(text[end - 1] ?? "")) end -= 1; };
+  back(SECRET_CHAR);
+  back(DIGIT_GROUP_CHAR);
+  back(SECRET_CHAR);
+  return text.slice(0, end);
 }
 
 export function scrubText(input: unknown, maxLength = MAX_MESSAGE_LENGTH): string {
