@@ -328,7 +328,7 @@ Current invariants:
   - Four quadratic rules became linear. A 32 KB stack took about 1.1 s and blocked the worker; it now takes about 2 ms.
 - WHO: B1 (Claude sub-agent, isolated worktree) built the serializer and worker wiring. B2 (Claude sub-agent, parallel worktree) wrote the adversarial tests from a fixed interface contract. B3 (the lead) fixed `scrubText`. R1 (Claude sub-agent, read-only, senior) did three review passes. R2 (Codex connector) did two review rounds. Across the rounds, B2, R1 and Codex found 10 real leaks or performance defects, and all are fixed. After three pattern-redaction rounds leaked new pg message shapes, the approach changed from redacting pg fields to dropping them (loop rule).
 - TESTED:
-  - `log_error_scrub_security_validation`: 39/39 (including a nested-AggregateError budget case: 8421 nodes → at most 50 nodes and about 72 KB).
+  - `log_error_scrub_security_validation`: 40/40 (including a nested-AggregateError budget case — 8421 nodes become at most 50 nodes and about 72 KB — and an encoded-byte budget for control characters and multi-byte text).
   - `error_monitoring_security_validation`: 27/27.
   - Mutations each fail the suites: allowlist widened, `detail` re-allowed, scrubbing disabled, the old cut, the digit-group step removed, and the old number rule.
   - The final head passes the security group (49/49 files), the workers group (15/15) and `release:preflight:static` (0 FAIL); `error_monitoring_security_validation` is 28/28 after the last timing check.
