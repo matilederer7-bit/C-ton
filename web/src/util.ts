@@ -243,17 +243,17 @@ export function utcIsoToIsraelParts(iso: string | null | undefined): { date: str
   return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${String(Number(parts.hour) % 24).padStart(2, "0")}:${parts.minute}` };
 }
 
-// Warm→cyan progress story (P0.3 palette): hot commercial orange far from the
-// minimum, easing into the single premium cyan accent as the group closes in.
+// Daylight progress story (2026-09-24 visual refresh): the group meter fills in
+// Siton Indigo while the group is forming, its LEADING EDGE warms into Siton
+// Coral as the group closes in on the target (the deal "heating up"), and it
+// turns success green once the target is reached. Presentation only — the
+// ratio it receives and the width it sits in are unchanged.
 export function progressColor(ratioToTarget: number): string {
   const r = clamp(ratioToTarget, 0, 1);
-  if (r >= 1) return "linear-gradient(90deg, #45b9c9, #6fd3e0)";
-  // Warm commercial orange deepening to amber; the hue never wanders into
-  // green — near the target only the LEADING EDGE cools into the single cyan
-  // accent (sRGB gradient blend, which passes through neutral, not green).
-  const hue = Math.round(18 + r * 20); // 18 (hot orange) → 38 (amber)
-  const sat = Math.round(82 - r * 10);
-  const base = `hsl(${hue} ${sat}% 50%)`;
-  if (r < 0.75) return `linear-gradient(90deg, ${base}, hsl(${hue + 6} ${Math.max(60, sat - 4)}% 55%))`;
-  return `linear-gradient(90deg, ${base}, #6fd3e0)`;
+  if (r >= 1) return "linear-gradient(90deg, #0e9467, #19b27c)";
+  if (r < 0.6) return "linear-gradient(90deg, #4a3aff, #6d5dff)";
+  // 0.6 → 1: the coral share of the leading edge GROWS with the ratio — the
+  // violet stop recedes from 95% to 55%, so coral spans 5% → 45% of the fill
+  const warm = Math.round(95 - (r - 0.6) * 100); // 95% → 55%
+  return `linear-gradient(90deg, #4a3aff, #7b5cff ${warm}%, #ff5a36)`;
 }

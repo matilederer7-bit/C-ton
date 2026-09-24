@@ -312,7 +312,39 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
-### Claude Code latest milestone — Claude Code as permanent team lead (PR #82)
+### Claude Code latest milestone — "Daylight" visual refresh of the web app (UI only)
+
+- UPDATED: 2026-09-24
+- BRANCH: `claude/pensive-curie-sqa8ud` from master `fc437e5`. Checked the open PRs #70, #71, #78 and #79 for overlap. Only #71 touches `web/src/styles.css`: it appends one footer rule at the end of the file that uses `--ink-faint`. That token name is kept and the end of the file is untouched.
+- COMPLETED — what changed (presentation layer only):
+  - **New visual language, "Daylight".**
+    - Ground: cool paper white `#f6f7fb`, with pure-white cards, hairline borders and soft navy-tinted shadows.
+    - Brand: **Siton Indigo** `#4a3aff` for primary actions, links, selection, focus and the group meter.
+    - Accent: **Siton Coral** `#ff5a36`, used only for "happening now": live dots, the pulsing dot on a collecting (PendingTarget) status pill, urgency facts, the meter's leading edge as a deal nears its target, and section-marker bars (the logo bar motif).
+    - Semantic states are reserved: green success, amber warning, red error, blue info/charging.
+    - Type: Rubik for display (headings, prices, counters, KPIs) and Assistant for body text.
+  - **Token layer rewritten** in `web/src/styles.css`. The existing token names are kept, so every inline `var(--…)` reference still resolves. New tokens: `--on-brand`, `--live*`, `--saffron-fill`, `--success-fill`, `--shadow-brand`, `--font-display`. About 85 hard-coded dark-theme values were replaced; none is left outside the token layer. Hover, focus, disabled, selected, error, warning, success and info states were all restyled. Topbar, sticky phone CTA, modals, toast, admin nav, cards, chips, notices, the countdown and `web/src/cms.css` moved to light surfaces.
+  - **Group meter.** `web/src/util.ts#progressColor` now returns an indigo fill that warms to coral at the leading edge from 60% of the target, and turns green at the target. The inputs, width and thresholds are unchanged. The fill is mirrored in place under RTL so the warm edge leads.
+  - **Logo.** The same C + bar structure, redrawn as vectors: a white C on an indigo tile with the coral bar, plus a matching geometric wordmark (indigo C, coral dash, navy "ton"). Sources are in `assets/brand/*.svg`, and `assets/logo.svg` is the new source of truth. `scripts/render_brand_assets.cjs` (uses the existing `sharp` dependency) regenerates the **same file names** under `web/public/brand/`, so no URL, cache rule or share-preview path changed. The dark 3D hero render was replaced by a daylight lockup (mark and wordmark ringed by "participants").
+  - `web/index.html`: theme colour, pre-hydration paint and boot loader moved to daylight; Rubik was added to the existing Google Fonts request.
+- DELIBERATELY NOT CHANGED:
+  - No backend, database, migration, route, API, auth, state, payment, worker or business-rule file was touched.
+  - No component logic, props, text, `data-testid` or class name changed; the only TS edits are the colour strings in `progressColor` and comments in `brand.tsx`.
+  - `src/frontend_runtime.ts` was not touched. The server-rendered legal pages reuse the React stylesheet, so they get the new look, but their `<meta theme-color>` stays `#17181b` (dark mobile browser chrome on `/legal/*` only).
+  - The legacy `/app` PWA shell (`frontend/`), and the native iOS/Android icons and splash, keep the graphite identity. They have their own store and build pipelines; that is a follow-up.
+- TESTED:
+  - `tests/visual_brand_consistency_validation.ts` now pins the new identity. It computes WCAG AA ≥4.5:1 for every ink and every coloured text token on all four grounds, for state text on its tint, and for white on every filled control. It fails on any graphite leftover. PASS.
+  - The stylesheet-pinning suites all PASS: product_surfaces_refinement, frontend_foundation_buyer_polish, admin_support_product_surfaces, admin_rtl_surface, product_catalog, pickup_navigation, frontend_foundation_countdown_pickup, buyer_tracking_refinement, frontend_foundation_rtl_accessibility.
+  - `web` build (tsc + vite): PASS.
+  - Browser proof `proof:ux-round2` at 320/390/430/768/1280/1440 (overflow, layout, focus, selection, attention, no console errors): 312 PASS / 12 FAIL.
+    - All 12 failures are UX-4 "exactly one receipt method" checks. Master `fc437e5` fails the identical 12, so they are pre-existing product-contract drift in the proof, not this change.
+    - Its colour pins, and one in `r7r8_browser_proof.cjs`, were updated from orange to the new canonical colours.
+  - Screenshots of the landing, deal, wizard, seller dashboard and every sweep surface were reviewed on phone and desktop.
+- OPEN: the legacy `/app` shell, native icons/splash and the legal-page theme-color are still graphite (see above).
+- PERCENTAGE: 90% until merged, deployed and verified on staging.
+- NEXT STEP: PR → CI → merge → Render deploy → visual verification on `https://siton-staging-web.onrender.com`.
+
+### Claude Code milestone — Claude Code as permanent team lead (PR #82)
 
 - UPDATED: 2026-09-24
 - BRANCH: `claude/team-lead-operating-model`, PR #82.
