@@ -162,6 +162,104 @@ await run("scrubText removes every sensitive class and keeps UUID correlation id
   assert.ok(scrubbed.includes("[redacted:email]") && scrubbed.includes("[redacted:number]") && scrubbed.includes("[redacted:jwt]"), scrubbed);
 });
 
+await run("scrubText: a secret straddling the pre-scrub cut does not survive as a prefix", () => {
+  // Each JWT shrinks to "[redacted:jwt]", pulling whatever sits at the cut
+  // back inside the 1000-character output limit.
+  const unit = `${SENSITIVE.jwt}${"x".repeat(40)} `;
+  const prefix = unit.repeat(Math.floor(3_600 / unit.length));
+  const text = `${prefix}${"y".repeat(4_000 - prefix.length - 11)} ${SENSITIVE.email} and ${SENSITIVE.card_plain}`;
+  assert.ok(text.indexOf(SENSITIVE.email) < 4_000 && text.indexOf(SENSITIVE.email) + SENSITIVE.email.length > 4_000, "fixture must straddle the cut");
+  const scrubbed = monitoring.scrubText(text);
+  assert.ok(!scrubbed.includes("buyer.real"), `email prefix survived: ${scrubbed.slice(-80)}`);
+  assert.ok(!/41111111/.test(scrubbed), "card prefix survived");
+});
+
+await run("scrubText: a space-separated card or phone straddling the cut leaves no digit group", () => {
+  const unit = `${SENSITIVE.jwt}${"x".repeat(40)} `;
+  const prefix = unit.repeat(Math.floor(3_600 / unit.length));
+  for (const secret of [SENSITIVE.card, "050 123 4567 8", "+972 (50) 123-4567", "(050) 123.4567"]) {
+    const filler = 4_000 - prefix.length - 1 - Math.floor(secret.length / 2);
+    const text = `${prefix}${"y".repeat(filler)} ${secret} tail`;
+    const scrubbed = monitoring.scrubText(text);
+    assert.ok(!/\b4111\b|\b050\b|\b123\b|\(50\)|\b972\b/.test(scrubbed), `digit group survived: ${scrubbed.slice(-60)}`);
+  }
+});
+
+await run("scrubText: a secret straddling the cut in whitespace-free JSON leaves no prefix", () => {
+  // No whitespace anywhere; long emails shrink when scrubbed. The secret is
+  // placed both at the cut itself and 512 characters before it (where a
+  // bounded step-back used to fall back to a fixed floor).
+  const filler = Array.from({ length: 400 }, (_, i) => `"u${i}.${"l".repeat(80)}@example.com"`).join(",");
+  for (const boundary of [4_000, 3_488]) {
+    for (let overlap = 4; overlap <= 12; overlap += 1) {
+      const head = `{"deal":"${DEAL_ID}","list":[${filler}`.slice(0, boundary - overlap);
+      const text = `${head},"${SENSITIVE.email}",${filler}]}`;
+      const at = text.indexOf(SENSITIVE.email);
+      assert.ok(at < boundary && at + SENSITIVE.email.length > boundary && text.length > 4_000 && !/\s/.test(text), "fixture must straddle the boundary without whitespace");
+      const scrubbed = monitoring.scrubText(text, 1_000);
+      assert.ok(!scrubbed.includes("buyer.real"), `boundary ${boundary} overlap ${overlap}: ${scrubbed.slice(-50)}`);
+      assert.ok(scrubbed.includes(DEAL_ID), "correlation id lost");
+    }
+  }
+});
+
+await run("scrubText: long text without whitespace keeps its leading correlation id and stays fast", () => {
+  const text = `deal ${DEAL_ID} ` + `{"k":"${"v".repeat(6_000)}"}`;
+  const started = Date.now();
+  const scrubbed = monitoring.scrubText(text);
+  assert.ok(scrubbed.includes(DEAL_ID), "correlation id lost");
+  monitoring.scrubText("a".repeat(31_998) + " b" + "c".repeat(10), 8_000);
+  monitoring.scrubText("a-".repeat(16_000), 8_000);
+  monitoring.scrubText("?a".repeat(16_000), 8_000);
+
+  assert.ok(Date.now() - started < 500, `scrubText took ${Date.now() - started} ms`);
+});
+
+await run("scrubText: phone numbers with parentheses or dots are redacted", () => {
+  for (const phone of ["+972 (50) 123-4567", "(050) 123 4567", "050.123.4567", "+972-(0)50-1234567"]) {
+    const scrubbed = monitoring.scrubText(`call ${phone} now`);
+    assert.ok(!/\d{3}/.test(scrubbed.replace("[redacted:number]", "")), `${phone} -> ${scrubbed}`);
+  }
+  assert.equal(monitoring.scrubText("released 2026-09-24 at 11:45"), "released 2026-09-24 at 11:45");
+  const started = Date.now();
+  monitoring.scrubText("1(".repeat(16_000), 8_000);
+  monitoring.scrubText("1 ".repeat(16_000), 8_000);
+  assert.ok(Date.now() - started < 500, "number rule is not linear");
+});
+
+await run("scrubText: a repeated credential keyword stays linear (bounded key name)", () => {
+  const started = Date.now();
+  monitoring.scrubText("token".repeat(6_400), 8_000);
+  monitoring.scrubText("a-token=".repeat(4_000), 8_000);
+  assert.ok(Date.now() - started < 100, `took ${Date.now() - started} ms`);
+});
+
+await run("scrubText: a quoted multi-word credential is redacted through its closing quote", () => {
+  const text = `login failed password="correct horse battery staple" secret='blue green red' token: "a b c" api_key=plain next`;
+  const scrubbed = monitoring.scrubText(text);
+  for (const word of ["horse", "battery", "staple", "green", "red'", " b c", "plain"]) assert.ok(!scrubbed.includes(word), `${word} survived: ${scrubbed}`);
+  assert.ok(scrubbed.startsWith("login failed password=[redacted]") && scrubbed.endsWith(" next"), scrubbed);
+  const json = monitoring.scrubText(`request failed: {"password":"correct horse battery staple","api_key": "k1 k2","user":"ok"} and {'secret':'s1 s2'}`);
+  for (const word of ["horse", "staple", "k1", "k2", "s1", "s2"]) assert.ok(!json.includes(word), `JSON-quoted key leaked ${word}: ${json}`);
+  assert.ok(json.includes('"user":"ok"'), `unrelated JSON field was damaged: ${json}`);
+  const escaped = monitoring.scrubText(String.raw`{"password":"correct \"horse\" battery staple","user":"ok"} and secret='it\'s blue green'`);
+  for (const word of ["horse", "battery", "staple", "blue", "green"]) assert.ok(!escaped.includes(word), `escaped quote leaked ${word}: ${escaped}`);
+  assert.ok(escaped.includes('"user":"ok"'), `field after an escaped credential was damaged: ${escaped}`);
+  const embedded = monitoring.scrubText(String.raw`request failed: {\"password\":\"correct horse battery staple\",\"user\":\"ok\"} and {\'secret\':\'blue green\'}`);
+  for (const word of ["horse", "battery", "staple", "blue", "green"]) assert.ok(!embedded.includes(word), `escaped JSON leaked ${word}: ${embedded}`);
+  assert.ok(embedded.includes(String.raw`\"user\":\"ok\"`), `field after escaped JSON credential was damaged: ${embedded}`);
+  const long = monitoring.scrubText(`password="${"q".repeat(600)}" tail`);
+  assert.ok(!long.includes("qqq"), `suffix of a long quoted credential survived: ${long}`);
+  const unclosed = monitoring.scrubText(`secret='${"w".repeat(900)}`);
+  assert.ok(!unclosed.includes("www"), "suffix of an unclosed long credential survived");
+  const started = Date.now();
+  monitoring.scrubText(`password="${"x ".repeat(20_000)}`, 8_000);
+  monitoring.scrubText(`password="`.repeat(4_000), 8_000);
+  monitoring.scrubText(`password="${"\\\"".repeat(10_000)}`, 8_000);
+  monitoring.scrubText(`password=\\"${"a".repeat(30_000)}`, 8_000);
+  assert.ok(Date.now() - started < 100, "unclosed quote is not linear");
+});
+
 await run("scrubText leaves an ordinary engineering message intact and bounds length", () => {
   const plain = "duplicate key value violates unique constraint deals_pkey";
   assert.equal(monitoring.scrubText(plain), plain);

@@ -153,32 +153,77 @@ const SCRUB_RULES: Array<[RegExp, string]> = [
   // Authorization header values.
   [/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, "$1 [redacted]"],
   // key=value / key: value where the key names a credential.
-  [/\b([A-Za-z_-]*(?:password|passwd|secret|token|api[_-]?key|authorization|cookie|cvv|cvc|otp)[A-Za-z_-]*)(\s*[:=]\s*)(["']?)[^\s"'&,;)]+/gi, "$1$2$3[redacted]"],
+  // Anchored at the start of a run of name characters, with the name bounded
+  // on both sides so a repeated keyword cannot make it quadratic.
+  // JSON-style quoted keys ("password": "...") are matched too, including
+  // JSON embedded in a string with escaped quotes ({\"password\":\"...\"}).
+  // A quoted value is redacted through its real closing quote (backslash
+  // escapes are skipped), or to the end of
+  // the text when unclosed (multi-word or very long passphrases). Matches
+  // start only at a credential name and a quoted match consumes everything
+  // it scans, so the rule stays linear on the already length-capped input.
+  [/(?<![A-Za-z_-])([A-Za-z_-]{0,64}(?:password|passwd|secret|token|api[_-]?key|authorization|cookie|cvv|cvc|otp)[A-Za-z_-]{0,64})(\\?["']?\s*[:=]\s*)(?:\\(["'])(?:(?!\\\3)[\s\S])*(?:\\\3)?|"(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?|[^\s"'\\&,;)]+)/gi, "$1$2[redacted]"],
   // Query strings anywhere in the text (tracking/OTP tokens travel in them).
-  [/\?[^\s"'#]*=[^\s"'#]*/g, "?[redacted-query]"],
+  // The key part stops at "?" and "=" so a long run of "?" is linear.
+  [/\?[^\s"'#?=]*=[^\s"'#]*/g, "?[redacted-query]"],
   // Email addresses.
-  [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[redacted:email]"],
+  // Anchored at the start of a run: without the lookbehind every position of
+  // a long word was retried (about 1 s on 32 KB).
+  [/(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[redacted:email]"],
   // IPv4 addresses.
   [/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, "[redacted:ip]"],
   // Phone numbers, card numbers, bank accounts, national ids: any run of nine
   // or more digits, optionally separated by spaces or dashes, with or without
   // a leading +.
-  [/\+?\b\d(?:[\s-]?\d){8,}\b/g, "[redacted:number]"],
-  // Long opaque credentials (API keys, hashes used as secrets).
-  [/\b(?=[A-Za-z0-9_-]*\d)(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{32,}\b/g, "[redacted:token]"]
+  // Separators between digit groups may be up to two of space, dash, dot or
+  // parenthesis, so "+972 (50) 123-4567" and "050.123.4567" are caught too.
+  // Bounded separator runs keep this linear.
+  [/\+?\(?\b\d(?:[\s().-]{0,2}\d){8,}\b\)?/g, "[redacted:number]"],
 ];
+
+// Long opaque credentials (API keys, hashes used as secrets): a run of 32+
+// token characters that mixes letters and digits. Matched once per run and
+// tested in the replacer; lookaheads at every position were quadratic on a
+// long single word (about 1 s on a 32 KB stack).
+const OPAQUE_TOKEN = /[A-Za-z0-9_-]{32,}/g;
+const redactOpaqueToken = (run: string) => (/\d/.test(run) && /[A-Za-z]/.test(run) ? "[redacted:token]" : run);
 
 /**
  * Remove personal data and credentials from free text. UUIDs (deal,
  * participant and request ids) are kept: they are opaque and are the
  * correlation keys an investigator needs.
  */
+// Cut at `limit`, then step back over every character a secret can be made
+// of (emails, tokens, base64, numbers), and over trailing digit groups such
+// as a spaced card or phone number, so nothing split by the cut survives as a
+// prefix. The scan stops at punctuation or whitespace, so earlier fields and
+// correlation ids are kept; it is a single linear backward pass.
+const SECRET_CHAR = /[A-Za-z0-9._%+@/=~-]/;
+// Same separators as the number rule (space, dash, dot, parentheses).
+const DIGIT_GROUP_CHAR = /[\d\s().+-]/;
+
+function cutBeforePartialToken(text: string, limit: number): string {
+  let end = limit;
+  const back = (pattern: RegExp) => { while (end > 0 && pattern.test(text[end - 1] ?? "")) end -= 1; };
+  back(SECRET_CHAR);
+  back(DIGIT_GROUP_CHAR);
+  back(SECRET_CHAR);
+  return text.slice(0, end);
+}
+
 export function scrubText(input: unknown, maxLength = MAX_MESSAGE_LENGTH): string {
   let text = String(input ?? "");
-  if (text.length > maxLength * 4) text = text.slice(0, maxLength * 4);
+  if (text.length > maxLength * 4) {
+    // A value straddling the cut would survive as a prefix no rule
+    // recognises (half an email, the first digits of a card), and later
+    // redactions can shrink the text enough to pull that prefix inside the
+    // output limit. Drop the trailing partial token before scrubbing.
+    text = `${cutBeforePartialToken(text, maxLength * 4)} [truncated]`;
+  }
   const uuids: string[] = [];
   text = text.replace(UUID, (match) => `\u0000${uuids.push(match) - 1}\u0000`);
   for (const [pattern, replacement] of SCRUB_RULES) text = text.replace(pattern, replacement);
+  text = text.replace(OPAQUE_TOKEN, redactOpaqueToken);
   text = text.replace(/\u0000(\d+)\u0000/g, (_match, index) => uuids[Number(index)] ?? "");
   return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
 }
