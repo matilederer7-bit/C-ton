@@ -32,28 +32,31 @@ The one piece this file adds is `scripts/team_plan_check.cjs`: an executable che
    - `git fetch origin`.
    - Confirm `master`, open PRs, and active branches with recent commits.
    - Record in the plan every open branch whose files the task might touch.
+   - Create the task branch `claude/<slug>` from `master` and push it before dispatching anyone. This follows the `AGENTS.md` checkpoint rule. If the push fails, stop and follow the authorization fallback in `CLAUDE.md`; never accumulate work only inside the container.
 2. **Plan.** Decompose the task. Write `docs/team-plans/<date>-<slug>.json`, with one assignment per builder and reviewer (format below). Run `node scripts/team_plan_check.cjs <plan>`. It must print `TEAM_PLAN_PASS` before any writer starts.
 3. **Dispatch.**
    - Builders are sub-agents started with worktree isolation and given their exact packet.
    - Independent builders run in parallel.
    - A builder with a dependency receives a fixed interface contract, so its authoring can still run in parallel. Only the verification waits.
    - Builders commit locally in their worktree. Only the lead pushes.
-4. **Integrate.** The lead brings every builder commit onto one task branch (`claude/<slug>`). It re-reads the combined diff and runs the focused tests, the relevant gates, and the canonical verifier when a disposable PostgreSQL is available. It also re-runs mutation checks on security claims.
+4. **Integrate.** The lead brings every builder commit onto the task branch and pushes a checkpoint at each coherent milestone. It re-reads the combined diff and runs the focused tests, the relevant gates, and the canonical verifier when a disposable PostgreSQL is available. It also re-runs mutation checks on security claims.
 5. **Pull Request.** One PR per work unit. The body names who built what, who reviews, the plan file, and the evidence.
 6. **Review.**
    - Every builder is reviewed by an independent reviewer: a separate read-only sub-agent, plus Codex on the PR.
    - Senior-risk work (see the matrix) needs an independent reviewer marked `senior` with the security-auditor posture. It also needs every Codex finding fixed or answered.
    - Findings are fixed in the same PR, and each review thread gets a reply and is resolved.
 7. **CI.** Watch the PR (subscription plus a scheduled check-in). A red check is root-caused and fixed, never re-run blindly. Never skip, disable or weaken a test or gate.
-8. **Merge.** Squash-merge only when all of the following hold:
-   - CI is green on the current head.
-   - There is no merge conflict.
-   - No review thread is unresolved.
-   - Every review the plan requires has been given.
+8. **Status, then merge.**
+   - Before merging, commit the `PROJECT_STATUS.md` update for the task (the `claude` slot: completed, checked, open, percentage, next step) onto the task PR, so it reaches `master` through that PR.
+   - Squash-merge only when all of the following hold:
+     - CI is green on the current head.
+     - There is no merge conflict.
+     - No review thread is unresolved.
+     - Every review the plan requires has been given.
 
    Never force-push shared branches, never rewrite history, never write directly to `master`.
 9. **Deploy verification.** `master` auto-deploys to Render staging. Confirm both services are `live` on the merge SHA. Check readiness and logs, and confirm no new Sentry issue appeared.
-10. **Status and report.** Update the `claude` slot of `PROJECT_STATUS.md` with what was completed, what was checked, what is open, a percentage, and the next step. Then report to the owner.
+10. **Post-deploy evidence and report.** Evidence that exists only after the merge (deploy ids, live checks) goes into the next task's status update, or into a small docs-only follow-up PR that goes through the same review and CI rules. Then report to the owner.
 
 ## Work plan format
 
@@ -107,7 +110,7 @@ Codex writes only through its own PRs. It is never assigned files that a Claude 
 |---|---|---|
 | database | `src/migrations/`, `supabase/`, schema contract, runtime DB boundary | senior reviewer + Codex; isolated migration proof (`npm run test:migrations-isolated`); never applied to hosted DB without explicit owner authorization |
 | money | payment, payout, invoice, fee, VAT, Grow, reconciliation, webhooks | senior reviewer + Codex; `gate:money-tax`, `proof:no-real-money` |
-| security | auth, sessions, OTP, tracking tokens, production guards, route policy | senior reviewer + Codex; `ci:route-authorization`, security test group |
+| security | auth, sessions, OTP, tracking tokens, production guards, route policy, PII redaction (`error_monitoring`, `log_redaction`), web client auth/session/token handling (`web/src/auth*`, `session`, `api`, `admin*`) | senior reviewer + Codex; `ci:route-authorization`, security test group |
 | state-machine | `src/app.ts`, worker, inventory, authorization lifecycle, outbox | senior reviewer + Codex; affected test groups |
 | ci-gates | `.github/workflows/` | senior reviewer + Codex; never weaken a gate |
 | everything else | docs, UI, tooling | independent reviewer + Codex |

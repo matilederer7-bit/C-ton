@@ -16,7 +16,7 @@ test("a disjoint two-builder plan with independent review passes", () => {
 });
 
 test("overlapping writers are rejected, including directory grants", () => {
-  const result = checkPlan(plan([builder("B1", ["web/src/ui/"]), builder("B2", ["web/src/ui/button.ts"]), reviewer("R", ["B1", "B2"])]));
+  const result = checkPlan(plan([builder("B1", ["web/public/ui/"]), builder("B2", ["web/public/ui/button.css"]), reviewer("R", ["B1", "B2"])]));
   assert.deepEqual(codes(result), ["writer_overlap"]);
 });
 
@@ -36,7 +36,7 @@ test("reviewers are read-only and every builder needs an independent reviewer", 
 });
 
 test("database, money, security, state-machine and CI paths require an independent senior reviewer", () => {
-  for (const path of ["src/error_monitoring.ts", "src/log_redaction.ts", "src/migrations/075_x.sql", "src/payment_provider.ts", "src/seller_auth.ts", "src/app.ts", ".github/workflows/x.yml", "src/platform_fee_money.ts"]) {
+  for (const path of ["web/src/auth.tsx", "web/src/session.ts", "web/src/authRedirect.ts", "web/src/api.ts", "src/error_monitoring.ts", "src/log_redaction.ts", "src/migrations/075_x.sql", "src/payment_provider.ts", "src/seller_auth.ts", "src/app.ts", ".github/workflows/x.yml", "src/platform_fee_money.ts"]) {
     const missing = checkPlan(plan([builder("B1", [path]), reviewer("R", ["B1"])]));
     assert.deepEqual(codes(missing), ["senior_review_missing"], path);
     const present = checkPlan(plan([builder("B1", [path]), reviewer("R", ["B1"], { senior: true })]));
@@ -48,6 +48,7 @@ test("a directory grant that could contain high-risk files is treated as senior"
   assert.ok(riskFamilies(["src/"]).includes("money"));
   assert.deepEqual(riskFamilies(["docs/"]), []);
   assert.deepEqual(riskFamilies(["web/src/components.tsx"]), []);
+  assert.ok(riskFamilies(["web/src/"]).includes("security"));
 });
 
 test("missing scope, Definition of Done, allowed paths or dependencies are rejected", () => {
