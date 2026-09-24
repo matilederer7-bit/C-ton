@@ -174,6 +174,16 @@ await run("scrubText: a secret straddling the pre-scrub cut does not survive as 
   assert.ok(!/41111111/.test(scrubbed), "card prefix survived");
 });
 
+await run("scrubText: long text without whitespace keeps its leading correlation id and stays fast", () => {
+  const text = `deal ${DEAL_ID} ` + `{"k":"${"v".repeat(6_000)}"}`;
+  const started = Date.now();
+  const scrubbed = monitoring.scrubText(text);
+  assert.ok(scrubbed.includes(DEAL_ID), "correlation id lost");
+  const pathological = "a".repeat(31_998) + " b" + "c".repeat(10);
+  monitoring.scrubText(pathological, 8_000);
+  assert.ok(Date.now() - started < 500, `scrubText took ${Date.now() - started} ms`);
+});
+
 await run("scrubText leaves an ordinary engineering message intact and bounds length", () => {
   const plain = "duplicate key value violates unique constraint deals_pkey";
   assert.equal(monitoring.scrubText(plain), plain);
