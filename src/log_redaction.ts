@@ -12,6 +12,16 @@ const MAX_KEYS = 50;
 const MAX_ARRAY_ITEMS = 20;
 const STACK_MAX_LENGTH = 8000;
 
+// Values under these keys are credentials or card data whatever their shape
+// (e.g. `cookie: "session=abc123"`), so they are dropped, not pattern-scrubbed.
+const CREDENTIAL_KEY =
+  /authorization|cookie|api[-_]?key|token|secret|passw(?:or)?d|(?:^|[-_.])otp|session|cvv|cvc|card[-_]?number|^pan$/i;
+const PASSTHROUGH_KEYS = new Set(["type", "code", "message", "stack"]);
+
+function isCredentialKey(key: string): boolean {
+  return !PASSTHROUGH_KEYS.has(key) && CREDENTIAL_KEY.test(key);
+}
+
 const UNSERIALIZABLE = Object.freeze({ type: "UnserializableError", message: "[unserializable error]" });
 
 function scrubValue(value: unknown, key: string | undefined, depth: number, seen: WeakSet<object>): unknown {
@@ -56,6 +66,10 @@ function scrubObject(source: Record<string, unknown>, depth: number, seen: WeakS
       break;
     }
     count += 1;
+    if (isCredentialKey(key)) {
+      out[scrubText(key, 100)] = "[redacted]";
+      continue;
+    }
     const scrubbed = safeRead(() => scrubValue(source[key], key, depth + 1, seen));
     if (scrubbed !== undefined) out[scrubText(key, 100)] = scrubbed;
   }
@@ -98,6 +112,10 @@ function manualErr(err: Error): Record<string, unknown> {
   }
   for (const key of keys.slice(0, MAX_KEYS)) {
     if (key in out) continue;
+    if (isCredentialKey(key)) {
+      out[key] = "[redacted]";
+      continue;
+    }
     out[key] = safeRead(() => (err as unknown as Record<string, unknown>)[key]);
   }
   return out;
