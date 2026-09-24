@@ -828,6 +828,52 @@ await run("quoted-span redaction is linear: 100 KB of quotes in a pg message in 
   assert.ok(elapsed < 200, `redaction took ${elapsed} ms`);
 });
 
+// ── 6e. Shared budget across the whole error tree ──
+// Per-level caps (20 children, depth 4) still allow 20^4 nodes. One call has a
+// SHARED budget: at most 50 error nodes in total and ~64 KB of strings.
+
+function countErrorObjects(value: unknown, seen = new Set<unknown>()): number {
+  if (value === null || typeof value !== "object" || seen.has(value)) return 0;
+  seen.add(value);
+  let count = !Array.isArray(value) && Object.prototype.hasOwnProperty.call(value, "type") ? 1 : 0;
+  for (const child of Object.values(value as Record<string, unknown>)) count += countErrorObjects(child, seen);
+  return count;
+}
+
+await run("a 4-level AggregateError tree (20 children per level, 8421 nodes, 8 KB stacks) stays within the shared budget", () => {
+  const DEEP_SECRET = ["deep", "leaf", "buyer"].join(".") + "@example.com";
+  const stackFor = (label: string, extra = "") =>
+    `Error: ${label} ${SENSITIVE.email} ${extra}\n` + `    at frame (/app/src/worker.ts:1:1) ${SENSITIVE.phone_intl}\n`.repeat(160).slice(0, 8 * 1024);
+  let nodes = 0;
+  function build(level: number, path: string): Error {
+    nodes += 1;
+    if (level === 3) {
+      const isLast = path.endsWith(".19.19.19");
+      const leaf: any = new Error(`leaf ${path} ${isLast ? DEEP_SECRET : SENSITIVE.card_plain}`);
+      leaf.stack = stackFor(`leaf ${path}`, isLast ? DEEP_SECRET : "");
+      return leaf;
+    }
+    const children = Array.from({ length: 20 }, (_, index) => build(level + 1, `${path}.${index}`));
+    const node: any = new AggregateError(children, `level ${level} ${path}`);
+    node.stack = stackFor(`level ${level} ${path}`);
+    return node;
+  }
+  const root = build(0, "r");
+  assert.equal(nodes, 8421, "fixture: expected 8421 nodes");
+
+  const started = Date.now();
+  const result = serializeSafely(root, "aggregate tree");
+  const elapsed = Date.now() - started;
+  const text = stringify(result);
+  assert.ok(text.length < 128 * 1024, `result is ${text.length} bytes`);
+  const errorObjects = countErrorObjects(result);
+  assert.ok(errorObjects <= 50, `${errorObjects} error objects serialized (max 50)`);
+  assert.ok(elapsed < 500, `serializing took ${elapsed} ms`);
+  assert.ok(!text.includes(DEEP_SECRET) && !text.includes("deep.leaf.buyer"), "the deep-leaf secret appeared");
+  assertNoLeak(result, "aggregate tree");
+  assert.ok(/\d+ more errors/i.test(text), "no marker records the collapsed children");
+});
+
 // ── 7 ──
 // scrubText truncates BEFORE it scrubs. If the cut lands inside a secret, the
 // surviving prefix no longer matches its pattern (a 7-digit phone prefix, an
