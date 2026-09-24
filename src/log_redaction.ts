@@ -117,9 +117,49 @@ function redactPgValueLists(input: string): string {
   return prefix + ")" + (isKnownPgSuffix(suffix) ? suffix : "");
 }
 
+// JSON parse errors put the offending input in `Token "..."`; the token ends
+// at the next double quote (or the end of the string). Other double-quoted
+// text (table and constraint identifiers) is kept.
+const PG_TOKEN_MARKER = "Token \"";
+
+function redactPgJsonTokens(text: string): string {
+  let out = "";
+  let index = 0;
+  while (index < text.length) {
+    const found = text.indexOf(PG_TOKEN_MARKER, index);
+    if (found === -1) {
+      out += text.slice(index);
+      break;
+    }
+    const open = found + PG_TOKEN_MARKER.length;
+    out += text.slice(index, open) + "[redacted]";
+    const close = text.indexOf("\"", open);
+    if (close === -1) break;
+    out += "\"";
+    index = close + 1;
+  }
+  return out;
+}
+
+// SQL literals (e.g. `SQL statement "INSERT ... VALUES ('Jane', ...)"` in a
+// where context from dynamic EXECUTE). Quotes inside literals are doubled,
+// not escaped, so everything from the first to the last single quote is
+// replaced; a lone quote redacts to the end.
+function redactSqlLiterals(text: string): string {
+  const first = text.indexOf("'");
+  if (first === -1) return text;
+  const last = text.lastIndexOf("'");
+  if (last === first) return `${text.slice(0, first)}'[redacted]`;
+  return `${text.slice(0, first)}'[redacted]'${text.slice(last + 1)}`;
+}
+
+function redactPgDiagnostic(value: string): string {
+  return redactSqlLiterals(redactPgJsonTokens(redactPgValueLists(value)));
+}
+
 function scrubString(key: string, value: string): string {
   if (key === "stack") return scrubText(value, STACK_MAX_LENGTH);
-  if (PG_VALUE_KEYS.has(key)) return scrubText(redactPgValueLists(value));
+  if (PG_VALUE_KEYS.has(key)) return scrubText(redactPgDiagnostic(value));
   return scrubText(value);
 }
 
