@@ -7,13 +7,14 @@ import { scrubText } from "./error_monitoring.js";
 // application errors carry buyer names and addresses, and config objects carry
 // credentials whose values have no recognisable shape. So only a fixed
 // allowlist of diagnostic fields is emitted; everything else is dropped and
-// only counted. Every emitted string is still scrubbed, and PostgreSQL value
-// lists in detail/hint/where are removed before scrubbing.
+// only counted. Every emitted string is still scrubbed. PostgreSQL detail,
+// hint and where echo row values and input in shapes that pattern redaction
+// kept missing, so they are not emitted at all; quoted spans in pg messages
+// are redacted.
 
 const MAX_DEPTH = 4;
 const MAX_ERRORS = 20;
 const STACK_MAX_LENGTH = 8000;
-const PG_SCAN_MAX_LENGTH = 20_000;
 
 const ALLOWED_KEYS = [
   "type",
@@ -32,14 +33,10 @@ const ALLOWED_KEYS = [
   "constraint",
   "dataType",
   "position",
-  "detail",
-  "hint",
-  "where",
   "cause",
   "errors"
 ] as const;
 const ALLOWED = new Set<string>(ALLOWED_KEYS);
-const PG_VALUE_KEYS = new Set(["detail", "hint", "where"]);
 
 const UNREADABLE = Symbol("unreadable");
 
@@ -76,97 +73,57 @@ function binaryLength(value: object): number | undefined {
   return undefined;
 }
 
-// PostgreSQL does not escape parentheses inside values, so a ")" in a detail
-// line cannot be trusted to end a value list: `Key (a)=(x) Jane, Apt 3)` would
-// leak the remainder if redaction stopped at the first close. Instead, from the
-// first value-list opening, everything up to the LAST ")" in the string (or to
-// the end when there is none) is replaced. Text after that last ")" is kept
-// only when it is a known pg suffix. Over-redaction is intended. Linear:
-// indexOf/lastIndexOf only.
-const PG_VALUE_MARKERS = ["=(", "Failing row contains ("];
-const PG_FIXED_SUFFIXES = new Set(["", ".", " already exists."]);
-const PG_TABLE_SUFFIX_PREFIXES = [" is not present in table \"", " is still referenced from table \""];
-
-function isKnownPgSuffix(suffix: string): boolean {
-  if (PG_FIXED_SUFFIXES.has(suffix)) return true;
-  for (const prefix of PG_TABLE_SUFFIX_PREFIXES) {
-    if (!suffix.startsWith(prefix) || !suffix.endsWith("\".")) continue;
-    const table = suffix.slice(prefix.length, suffix.length - 2);
-    // A table name: no quotes, whitespace-free, short.
-    if (table.length > 0 && table.length <= 128 && !/["\s]/.test(table)) return true;
-  }
-  return false;
-}
-
-function redactPgValueLists(input: string): string {
-  const text = input.length > PG_SCAN_MAX_LENGTH ? input.slice(0, PG_SCAN_MAX_LENGTH) : input;
-  let start = -1;
-  let open = -1;
-  for (const marker of PG_VALUE_MARKERS) {
-    const found = text.indexOf(marker);
-    if (found !== -1 && (start === -1 || found < start)) {
-      start = found;
-      open = found + marker.length;
-    }
-  }
-  if (open === -1) return text;
-  const lastClose = text.lastIndexOf(")");
-  const prefix = text.slice(0, open) + "[redacted]";
-  if (lastClose < open) return prefix;
-  const suffix = text.slice(lastClose + 1);
-  return prefix + ")" + (isKnownPgSuffix(suffix) ? suffix : "");
-}
-
-// JSON parse errors put the offending input in `Token "..."`; the token ends
-// at the next double quote (or the end of the string). Other double-quoted
-// text (table and constraint identifiers) is kept.
-const PG_TOKEN_MARKER = "Token \"";
-
-function redactPgJsonTokens(text: string): string {
+// PostgreSQL messages quote the offending input: `invalid input syntax for
+// type integer: "Jane"`, `Expected ":", but found "Jane Doe".`, SQL literals in
+// single quotes. For pg-shaped errors every quoted span is replaced; the
+// identifiers it may also hide are still reported in table/column/constraint/
+// schema/dataType. An unclosed quote redacts to the end. Linear: indexOf only.
+function redactQuotedSpans(text: string): string {
   let out = "";
   let index = 0;
   while (index < text.length) {
-    const found = text.indexOf(PG_TOKEN_MARKER, index);
-    if (found === -1) {
+    let next = -1;
+    for (let cursor = index; cursor < text.length; cursor += 1) {
+      const char = text[cursor];
+      if (char === "\"" || char === "'") {
+        next = cursor;
+        break;
+      }
+    }
+    if (next === -1) {
       out += text.slice(index);
       break;
     }
-    const open = found + PG_TOKEN_MARKER.length;
-    out += text.slice(index, open) + "[redacted]";
-    const close = text.indexOf("\"", open);
+    const quote = text[next] === "'" ? "'" : "\"";
+    out += `${text.slice(index, next)}${quote}[redacted]`;
+    const close = text.indexOf(quote, next + 1);
     if (close === -1) break;
-    out += "\"";
+    out += quote;
     index = close + 1;
   }
   return out;
 }
 
-// SQL literals (e.g. `SQL statement "INSERT ... VALUES ('Jane', ...)"` in a
-// where context from dynamic EXECUTE). Quotes inside literals are doubled,
-// not escaped, so everything from the first to the last single quote is
-// replaced; a lone quote redacts to the end.
-function redactSqlLiterals(text: string): string {
-  const first = text.indexOf("'");
-  if (first === -1) return text;
-  const last = text.lastIndexOf("'");
-  if (last === first) return `${text.slice(0, first)}'[redacted]`;
-  return `${text.slice(0, first)}'[redacted]'${text.slice(last + 1)}`;
-}
-
-function redactPgDiagnostic(value: string): string {
-  return redactSqlLiterals(redactPgJsonTokens(redactPgValueLists(value)));
-}
-
-function scrubString(key: string, value: string): string {
-  if (key === "stack") return scrubText(value, STACK_MAX_LENGTH);
-  if (PG_VALUE_KEYS.has(key)) return scrubText(redactPgDiagnostic(value));
+function scrubString(key: string, value: string, pgShaped: boolean): string {
+  if (key === "stack") return scrubText(pgShaped ? redactQuotedSpans(value) : value, STACK_MAX_LENGTH);
+  if (key === "message" && pgShaped) return scrubText(redactQuotedSpans(value));
   return scrubText(value);
 }
 
+const SQLSTATE = /^[0-9A-Z]{5}$/;
+
+function isPgShaped(source: Record<string, unknown>): boolean {
+  const severity = safeRead(() => source.severity);
+  if (typeof severity === "string") return true;
+  const code = safeRead(() => source.code);
+  const routine = safeRead(() => source.routine);
+  return typeof code === "string" && SQLSTATE.test(code) && routine !== undefined && routine !== UNREADABLE;
+}
+
 // Scalar diagnostic value, or undefined when the value is not emittable.
-function scrubScalar(key: string, value: unknown): unknown {
+function scrubScalar(key: string, value: unknown, pgShaped: boolean): unknown {
   if (value === null) return null;
-  if (typeof value === "string") return scrubString(key, value);
+  if (typeof value === "string") return scrubString(key, value, pgShaped);
   if (typeof value === "boolean") return value;
   if (typeof value === "number") return Number.isFinite(value) ? scrubNumber(value) : value;
   if (typeof value === "bigint") return scrubNumber(value);
@@ -212,6 +169,7 @@ function serialize(value: unknown, depth: number, seen: WeakSet<object>): Serial
     else for (const key of ownKeys) if (!ALLOWED.has(key)) omitted += 1;
 
     const isError = value instanceof Error;
+    const pgShaped = isPgShaped(source);
     for (const key of ALLOWED_KEYS) {
       const raw = safeRead(() => source[key]);
       if (raw === UNREADABLE) {
@@ -245,7 +203,7 @@ function serialize(value: unknown, depth: number, seen: WeakSet<object>): Serial
         }
         continue;
       }
-      const scalar = scrubScalar(key, raw);
+      const scalar = scrubScalar(key, raw, pgShaped);
       if (scalar === undefined) omitted += 1;
       else out[key] = scalar;
     }
