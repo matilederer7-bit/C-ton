@@ -45,7 +45,7 @@ Sending is capped at 30 events per minute per process, and identical errors are 
 | --- | --- | --- |
 | `SENTRY_DSN` | web, worker | DSN of `c-ton/siton-staging`. Monitoring is disabled when it is unset. |
 | `SENTRY_ENVIRONMENT` | web, worker | `staging` |
-| `SENTRY_SELF_TEST` | web, worker | `1` sends one synthetic `MonitoringSelfTestError` per boot, tagged `self_test:true`, at level warning. It is never thrown, so no request, job, database row or money path sees it. Remove it once the proof is recorded. |
+| `SENTRY_SELF_TEST` | web, worker | `1` sends one synthetic `MonitoringSelfTestError` per boot, tagged `self_test:true`, at level warning. It is never thrown, so no request, job, database row or money path sees it. Currently `0`: the proof was recorded on 2026-09-24 as issues `SITON-STAGING-1` and `SITON-STAGING-2`, release `2839ad6`. |
 
 ## Investigating with Claude Code
 
@@ -55,5 +55,6 @@ Sending is capped at 30 events per minute per process, and identical errors are 
 
 ## Known limits
 
+- Sentry shows a `user.geo` inferred from the sending IP. That is always the Render server, never a browser.
 - Browser stack frames point at minified bundles. No source maps are uploaded.
 - No performance tracing or breadcrumbs, by design: each would be a new channel for personal data.

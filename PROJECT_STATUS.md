@@ -338,12 +338,19 @@ Current invariants:
     - `release-static`, `migrations-isolated` and `route-authorization`: PASS.
     - 266 files: 9/10 groups PASS on the first run. `security_hardening_validation` caught a `stack:` literal in `src/app.ts`; that code was moved into the monitoring module rather than weakening the guard. The security group was re-run: 48/48 PASS.
   - `release:preflight:static` on the final code: 16 PASS, 0 FAIL, 4 known warnings. `web` build and `mobile:verify` PASS.
+- STAGING PROOF (2026-09-24): PR #80 merged at `2839ad636f7ff656f11d3a56b02513d6ae051809`. Render deployed web `dep-daqf5nnf3r2c739aal50` and worker `dep-daqf5nnf3r2c739aalig` live on that SHA. Both services logged `error_monitoring enabled=true environment=staging release=2839ad6…`. Through the Sentry connector:
+  - Project `c-ton/siton-staging` is readable.
+  - Issues `SITON-STAGING-1` (worker) and `SITON-STAGING-2` (web), both `MonitoringSelfTestError`, are readable. Their events are `a7287843c3d8487ba072e7850b653685` and `60f8cc35afa946e9b789043fc33286fe`.
+  - Each event has tags `environment:staging`, `release:<full SHA>`, `service`, `self_test:true`.
+  - Each stack trace points into `.demo_dist/src/worker.js:100 (startWorker)` and `.demo_dist/src/app.js:7121` respectively.
+
+  `SENTRY_SELF_TEST` was then set to `0` on both services (Render's merge API cannot delete a single variable), and both issues were resolved in Sentry with a proof comment. They were kept, not deleted.
 - OPEN:
-  - Staging proof is pending until PR #80 reaches master, because Render deploys only `master`. Once it does, confirm through the Sentry connector that the self-test event, its issue and its stack trace are readable, then remove `SENTRY_SELF_TEST`.
   - No source maps for browser frames.
-  - The pino "unhandled route error" log line (pre-existing, Render logs only) still prints the raw error message. Scrubbing it is a separate logging-hygiene task.
-- PERCENTAGE: 85%. Code, tests, Sentry project and staging configuration are done; the live staging round trip is not yet proven.
-- NEXT STEP: merge PR #80 on green CI, then verify the self-test event in Sentry and remove `SENTRY_SELF_TEST`.
+  - Sentry shows `user.geo` inferred from the sending IP. Every event is sent by the Render server, never by a browser, so this is the server's location and not a user's. Turning off IP storage in the Sentry project settings would remove it; that is an owner settings choice.
+  - The pre-existing pino "unhandled route error" line (Render logs only) still prints the raw error message. That needs a separate logging-hygiene task.
+- PERCENTAGE: 100% for the task as specified: code, tests, Sentry project, staging configuration, live round trip and connector read-back.
+- NEXT STEP: optionally delete `SENTRY_SELF_TEST` in the Render dashboard (it is inert at `0`), and consider disabling IP storage in Sentry project settings.
 
 ### Claude Code latest milestone
 
