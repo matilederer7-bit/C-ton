@@ -312,6 +312,33 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
+### Claude Code latest milestone — worker error logs scrubbed (team-lead smoke, PR #83)
+
+- UPDATED: 2026-09-24
+- BRANCH: `claude/smoke-worker-log-scrub` from master `ff5f814`, PR #83. It was run as the first task under the team-lead procedure (PR #82). The plan is `docs/team-plans/2026-09-24-smoke-worker-log-scrub.json`, and `TEAM_PLAN_PASS` was checked against 4 open branches.
+- COMPLETED: The outbox worker wrote raw error objects to hosted Render logs, including pg `detail` such as `Key (phone)=(…)`, provider payloads and credential headers. `src/log_redaction.ts` (`errorLogSerializer`) is now the worker logger's `err` serializer.
+  - It emits only an allowlist of diagnostic fields: type, message, stack, code, errno, syscall, status, statusCode, severity, routine, schema, table, column, constraint, dataType, position, cause and errors.
+  - pg `detail`, `hint` and `where` are dropped, because they carry row values by design. Every other key is dropped too, and only a count is kept.
+  - For pg errors, quoted input echoed in `message` and `stack` is redacted.
+  - Strings go through `scrubText`. Numbers that look like a phone or card are redacted, and binary values are replaced by their size. It is bounded and never throws.
+
+  `scrubText`, which Sentry shares, was hardened too:
+  - A secret straddling the pre-scrub cut no longer survives as a prefix, in spaced or whitespace-free text.
+  - Phones written with parentheses or dots are caught.
+  - Four quadratic rules became linear. A 32 KB stack took about 1.1 s and blocked the worker; it now takes about 2 ms.
+- WHO: B1 (Claude sub-agent, isolated worktree) built the serializer and worker wiring. B2 (Claude sub-agent, parallel worktree) wrote the adversarial tests from a fixed interface contract. B3 (the lead) fixed `scrubText`. R1 (Claude sub-agent, read-only, senior) did three review passes. R2 (Codex connector) did two review rounds. Across the rounds, B2, R1 and Codex found 10 real leaks or performance defects, and all are fixed. After three pattern-redaction rounds leaked new pg message shapes, the approach changed from redacting pg fields to dropping them (loop rule).
+- TESTED:
+  - `log_error_scrub_security_validation`: 40/40 (including a nested-AggregateError budget case — 8421 nodes become at most 50 nodes and about 72 KB — and an encoded-byte budget for control characters and multi-byte text).
+  - `error_monitoring_security_validation`: 27/27.
+  - Mutations each fail the suites: allowlist widened, `detail` re-allowed, scrubbing disabled, the old cut, the digit-group step removed, and the old number rule.
+  - The final head passes the security group (49/49 files), the workers group (15/15) and `release:preflight:static` (0 FAIL); `error_monitoring_security_validation` is 28/28 after the last timing check.
+- OPEN:
+  - `console.error(..., error)` calls on worker paths in `src/app.ts` (finalize-deal outbox), and the fatal-error printer when Sentry is off, still bypass the serializer. `src/app.ts` is held by open PRs #70 and #71, so this is the next task.
+  - Residual risk accepted by design (senior review): a non-pg wrapper error that re-embeds a pg message (`insert failed: ${pgErr.message}`) keeps quoted values in its own message, and pg `RAISE` text without quotes is logged as written. Both go with the `app.ts` follow-up.
+  - No source maps for browser Sentry frames.
+- PERCENTAGE: 90% for the logging track. The worker serializer is complete; the `app.ts` call sites remain.
+- NEXT STEP: once #70 and #71 land or are closed, route the `app.ts` worker-path console errors through the serializer, and install the fatal handler regardless of Sentry.
+
 ### Claude Code latest milestone — error monitoring (Sentry) end to end
 
 - UPDATED: 2026-09-24
