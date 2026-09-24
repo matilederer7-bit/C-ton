@@ -34,7 +34,7 @@ const AGENTS = new Set(["claude-lead", "claude-subagent", "codex", "chatgpt", "c
 const HIGH_RISK = [
   { family: "database", pattern: /^(src\/migrations\/|supabase\/|scripts\/run_migrations|src\/schema_contract\.ts$|src\/db\.ts$|src\/runtime_database_boundary\.ts$|src\/.*\.sql$)/ },
   { family: "money", pattern: /^src\/(.*payment.*|.*payout.*|platform_fee_money|money_input|vat_authority|invoice_.*|grow_.*|synthetic_payment_provider|payment_reconciliation|webhook_ingestion)\.ts$/ },
-  { family: "security", pattern: /^src\/(.*auth.*|seller_auth|admin_identity|otp_rail|participant_tracking_security|production_guards|seller_enforcement|buyer_session)\.ts$|^config\/(runtime-environment-policy|route-classification)\.json$|^scripts\/protected_route_policy\.cjs$/ },
+  { family: "security", pattern: /^src\/(.*auth.*|seller_auth|admin_identity|otp_rail|participant_tracking_security|production_guards|seller_enforcement|buyer_session|error_monitoring|log_redaction)\.ts$|^config\/(runtime-environment-policy|route-classification)\.json$|^scripts\/protected_route_policy\.cjs$/ },
   { family: "state-machine", pattern: /^src\/(app|inventory_repository|authorization_lifecycle|outbox_worker_helpers|worker|worker_scheduler)\.ts$/ },
   { family: "ci-gates", pattern: /^\.github\/workflows\// }
 ];

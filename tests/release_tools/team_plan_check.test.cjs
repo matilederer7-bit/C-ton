@@ -36,7 +36,7 @@ test("reviewers are read-only and every builder needs an independent reviewer", 
 });
 
 test("database, money, security, state-machine and CI paths require an independent senior reviewer", () => {
-  for (const path of ["src/migrations/075_x.sql", "src/payment_provider.ts", "src/seller_auth.ts", "src/app.ts", ".github/workflows/x.yml", "src/platform_fee_money.ts"]) {
+  for (const path of ["src/error_monitoring.ts", "src/log_redaction.ts", "src/migrations/075_x.sql", "src/payment_provider.ts", "src/seller_auth.ts", "src/app.ts", ".github/workflows/x.yml", "src/platform_fee_money.ts"]) {
     const missing = checkPlan(plan([builder("B1", [path]), reviewer("R", ["B1"])]));
     assert.deepEqual(codes(missing), ["senior_review_missing"], path);
     const present = checkPlan(plan([builder("B1", [path]), reviewer("R", ["B1"], { senior: true })]));
@@ -80,4 +80,5 @@ test("the committed smoke plan is valid", () => {
   const result = checkPlan(smoke);
   assert.equal(result.ok, true, JSON.stringify(result.findings));
   assert.equal(result.builders.find((item) => item.id === "B1").risk, "senior");
+  assert.equal(result.builders.find((item) => item.id === "B3").risk, "senior");
 });

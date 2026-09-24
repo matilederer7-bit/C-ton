@@ -18,8 +18,18 @@
       "agent": "claude-subagent",
       "role": "builder",
       "scope": "Implementation: error log serializer and worker logger wiring",
-      "allowed": ["src/log_redaction.ts", "src/worker.ts"],
-      "forbidden": ["src/app.ts", "src/error_monitoring.ts", "src/migrations/", "tests/", ".github/", "PROJECT_STATUS.md"],
+      "allowed": [
+        "src/log_redaction.ts",
+        "src/worker.ts"
+      ],
+      "forbidden": [
+        "src/app.ts",
+        "src/error_monitoring.ts",
+        "src/migrations/",
+        "tests/",
+        ".github/",
+        "PROJECT_STATUS.md"
+      ],
       "depends_on": [],
       "dod": [
         "src/log_redaction.ts implements the interface contract",
@@ -33,9 +43,17 @@
       "agent": "claude-subagent",
       "role": "builder",
       "scope": "Adversarial tests written from the interface contract, in parallel with B1",
-      "allowed": ["tests/log_error_scrub_security_validation.ts"],
-      "forbidden": ["src/", ".github/", "PROJECT_STATUS.md"],
-      "depends_on": ["B1"],
+      "allowed": [
+        "tests/log_error_scrub_security_validation.ts"
+      ],
+      "forbidden": [
+        "src/",
+        ".github/",
+        "PROJECT_STATUS.md"
+      ],
+      "depends_on": [
+        "B1"
+      ],
       "dependency_note": "Authoring is parallel against the fixed interface contract; only the passing run depends on B1's integrated result.",
       "dod": [
         "hostile pg-style and nested errors carry email, phone, card, JWT, bearer, password and IP values; none survive serialization",
@@ -46,23 +64,70 @@
       ]
     },
     {
+      "id": "B3",
+      "agent": "claude-lead",
+      "role": "builder",
+      "scope": "Re-plan after B2's findings: fix scrubText's pre-scrub cut in the shared redaction module (a secret straddling the cut survived as a prefix)",
+      "allowed": [
+        "src/error_monitoring.ts",
+        "tests/error_monitoring_security_validation.ts"
+      ],
+      "forbidden": [
+        "src/log_redaction.ts",
+        "src/worker.ts",
+        "src/app.ts",
+        "tests/log_error_scrub_security_validation.ts",
+        "src/migrations/"
+      ],
+      "depends_on": [],
+      "dod": [
+        "the trailing partial token is dropped before scrubbing",
+        "a regression fixture that fails without the fix and passes with it",
+        "error monitoring suite green"
+      ]
+    },
+    {
       "id": "R1",
       "agent": "claude-subagent",
       "role": "reviewer",
       "senior": true,
       "scope": "Independent senior security review of the integrated diff (security-auditor posture, read-only)",
-      "reviews": ["B1", "B2"],
-      "depends_on": ["B1", "B2"],
-      "dod": ["verdict with concrete failure scenarios for every finding; no blocking finding open at merge"]
+      "reviews": [
+        "B1",
+        "B2",
+        "B3"
+      ],
+      "depends_on": [
+        "B1",
+        "B2",
+        "B3"
+      ],
+      "dod": [
+        "verdict with concrete failure scenarios for every finding; no blocking finding open at merge"
+      ]
     },
     {
       "id": "R2",
       "agent": "codex",
       "role": "reviewer",
       "scope": "Independent cross-provider review through the ChatGPT Codex connector on the Pull Request",
-      "reviews": ["B1", "B2"],
-      "depends_on": ["B1", "B2"],
-      "dod": ["every Codex finding is fixed or answered on its thread before merge"]
+      "reviews": [
+        "B1",
+        "B2",
+        "B3"
+      ],
+      "depends_on": [
+        "B1",
+        "B2",
+        "B3"
+      ],
+      "dod": [
+        "every Codex finding is fixed or answered on its thread before merge"
+      ]
     }
+  ],
+  "replan_log": [
+    "B2's adversarial tests: 21/23 passed against B1. Two real leaks were found: (1) credential-named keys such as cookie, set-cookie, authorization and x-api-key were written whole; (2) scrubText cut the text before scrubbing, so a straddling secret survived as a prefix.",
+    "Finding (1) is in B1's scope and was returned to B1. Finding (2) is in src/error_monitoring.ts, which no builder held; it was added as B3 (lead), and R1 and R2 review it."
   ]
 }
