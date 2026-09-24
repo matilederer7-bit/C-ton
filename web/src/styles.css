@@ -125,7 +125,7 @@ input, select, textarea {
 }
 input:hover, select:hover, textarea:hover { border-color: #b3b9ca; }
 input:disabled, select:disabled, textarea:disabled { background: var(--surface-warm); color: var(--ink-faint); cursor: not-allowed; }
-input::placeholder, textarea::placeholder { color: var(--ink-faint); opacity: .85; }
+input::placeholder, textarea::placeholder { color: var(--ink-faint); opacity: 1; }
 input:focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
   outline: none; box-shadow: 0 0 0 3px var(--brand-glow); border-color: var(--brand);
 }
@@ -1713,7 +1713,7 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
   unicode-bidi: isolate;
 }
 .lang-btn + .lang-btn { border-inline-start: 1px solid var(--line); }
-.lang-btn:hover { color: var(--ink); background: var(--surface-2, rgba(255,255,255,.04)); }
+.lang-btn:hover { color: var(--ink); background: var(--surface-warm); }
 .lang-btn.active { color: var(--brand-hi); background: var(--brand-tint); }
 .lang-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
 @media (max-width: 420px) {
