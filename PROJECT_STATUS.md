@@ -312,6 +312,38 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
+### Claude Code latest milestone — error monitoring (Sentry) end to end
+
+- UPDATED: 2026-09-24
+- BRANCH: `claude/elegant-edison-uqin15` from master `28523f1c795acdfcb5b7a534da61e00b08d7ed36`, PR #80. No overlap with open PRs #78 (agent routing) or #79 (agent bootstrap).
+- COMPLETED: Before this there was no Sentry project and nothing in the repo reported to Sentry. The Sentry connector created project `c-ton/siton-staging` (team `c-ton`, region `de.sentry.io`). `src/error_monitoring.ts` is a Sentry client with no dependencies:
+  - Each event is built from an allowlist: type, scrubbed message, parsed frames, and fixed correlation tags that must pass a strict value policy.
+  - It never reads bodies, headers, cookies, query strings, user identity or IPs.
+  - It scrubs emails, phones, card and account numbers, JWTs, bearer tokens, credential `key=value` pairs, IPs and long opaque keys. UUID correlation ids are kept.
+  - Server budget is 30 events/min and the browser relay has its own global 10/min, so spoofed-IP floods cannot starve server errors. Identical errors are deduplicated for 60 s.
+  - It is disabled when `SENTRY_DSN` is unset.
+
+  What each part reports:
+  - Web: 5xx errors (tagged with route template, method, status and the canonical `request_id`), startup failure, and uncaught exceptions and unhandled rejections (reported, then exit 1 as Node does).
+  - Worker: cycle, heartbeat, startup and fatal errors, tagged with `worker_id`.
+  - Browser: `web/` and legacy `frontend/` go through `POST /api/client-errors`, which is classified public-write. It allows 16 KiB per report, rejects anything outside its schema, relays at most 10/min per IP and always answers 204. Routes are reduced to their shape.
+  - `SENTRY_SELF_TEST=1` sends one synthetic warning per boot and never throws it.
+
+  Release is `RENDER_GIT_COMMIT`. `SENTRY_DSN`, `SENTRY_ENVIRONMENT=staging` and `SENTRY_SELF_TEST=1` were set on both Render staging services through the connector. The DSN is not in the repository. `render.yaml` declares the variables and `docs/ERROR_MONITORING.md` is the runbook.
+- TESTED:
+  - `tests/error_monitoring_security_validation.ts`: 20/20 PASS on the exact outgoing envelope bytes. That includes the live Fastify handler, the client relay, a spoofed-IP flood and a real child process exiting 1 on an unhandled rejection.
+  - Five mutations each fail the suite: removing email scrubbing, weakening phone scrubbing, using the concrete URL instead of the template, bypassing the tag allowlist, and sharing the browser/server budget.
+  - The canonical verifier ran on a disposable PostgreSQL 16:
+    - `release-static`, `migrations-isolated` and `route-authorization`: PASS.
+    - 266 files: 9/10 groups PASS on the first run. `security_hardening_validation` caught a `stack:` literal in `src/app.ts`; that code was moved into the monitoring module rather than weakening the guard. The security group was re-run: 48/48 PASS.
+  - `release:preflight:static` on the final code: 16 PASS, 0 FAIL, 4 known warnings. `web` build and `mobile:verify` PASS.
+- OPEN:
+  - Staging proof is pending until PR #80 reaches master, because Render deploys only `master`. Once it does, confirm through the Sentry connector that the self-test event, its issue and its stack trace are readable, then remove `SENTRY_SELF_TEST`.
+  - No source maps for browser frames.
+  - The pino "unhandled route error" log line (pre-existing, Render logs only) still prints the raw error message. Scrubbing it is a separate logging-hygiene task.
+- PERCENTAGE: 85%. Code, tests, Sentry project and staging configuration are done; the live staging round trip is not yet proven.
+- NEXT STEP: merge PR #80 on green CI, then verify the self-test event in Sentry and remove `SENTRY_SELF_TEST`.
+
 ### Claude Code latest milestone
 
 - UPDATED: 2026-09-20
