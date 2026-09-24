@@ -17,8 +17,9 @@
 //   4. UUID correlation ids and `type` survive
 //   5. hostile inputs never throw and always return an object
 //   6. output stays bounded (5 MB input -> < 64 KB); numbers, binary and
-//      __proto__; contract v2 allowlist (only known error keys survive,
-//      `omitted_keys` counts the rest; pg value lists redacted)
+//      __proto__; contract v3 allowlist (only known error keys survive,
+//      `omitted_keys` counts the rest; pg detail/hint/where are dropped and
+//      quoted spans in a pg message are redacted)
 //   7. truncation boundaries do not cut a secret into a surviving fragment
 //   8. the live worker logger uses errorLogSerializer, and a real pino line
 //      written through it (including via a child logger) carries no secret
@@ -101,11 +102,11 @@ function assertNoLeak(result: unknown, label: string) {
   assert.deepEqual(findLeaks(text), [], `${label} leaked: ${text.slice(0, 400)}`);
 }
 
-// Contract v2: the serializer emits ONLY these keys (plus `omitted_keys`, a
+// Contract v3: the serializer emits ONLY these keys (plus `omitted_keys`, a
 // count, when anything was dropped). cause / errors follow the same rules.
 const ALLOWED_KEYS = new Set([
   "type", "message", "stack", "code", "errno", "syscall", "status", "statusCode", "severity", "routine",
-  "schema", "table", "column", "constraint", "dataType", "position", "detail", "hint", "where", "cause", "errors",
+  "schema", "table", "column", "constraint", "dataType", "position", "cause", "errors",
   "omitted_keys"
 ]);
 
@@ -196,6 +197,7 @@ await run("pg unique-violation: detail/hint/where/table/constraint carry no PII,
   assert.equal(result.type, "DatabaseError", "type must survive");
   const text = stringify(result);
   assert.ok(text.includes("participants_phone_key"), "non-sensitive constraint name should remain for triage");
+  assertPgEchoDropped(result, "pg error", 3);
 });
 
 await run("pg error with Key (a, b)=(x, y) composite detail and a pg column-level detail are scrubbed", () => {
@@ -474,17 +476,18 @@ await run("Buffer, typed arrays, ArrayBuffer and DataView are emitted as `[binar
   const ab = new TextEncoder().encode(`ab password=${SENSITIVE.password}`).buffer;
   const dv = new DataView(new TextEncoder().encode(`dv ${SENSITIVE.email_seller}`).buffer);
   const err: any = new Error("binary");
-  Object.assign(err, { detail: buf, hint: u8, where: ab, table: dv, column: u16, payload: buf });
-  err.cause = { message: "inner", detail: buf };
+  Object.assign(err, { table: buf, column: u8, constraint: ab, schema: dv, dataType: u16, payload: buf, detail: buf });
+  err.cause = { message: "inner", table: buf };
   const result: any = serializeSafely(err, "binary");
   assertNoLeak(result, "binary");
-  assert.equal(result.detail, `[binary ${buf.byteLength} bytes]`);
-  assert.equal(result.hint, `[binary ${u8.byteLength} bytes]`);
-  assert.equal(result.where, `[binary ${ab.byteLength} bytes]`);
-  assert.equal(result.table, `[binary ${dv.byteLength} bytes]`);
-  assert.equal(result.column, `[binary ${u16.byteLength} bytes]`);
+  assert.equal(result.table, `[binary ${buf.byteLength} bytes]`);
+  assert.equal(result.column, `[binary ${u8.byteLength} bytes]`);
+  assert.equal(result.constraint, `[binary ${ab.byteLength} bytes]`);
+  assert.equal(result.schema, `[binary ${dv.byteLength} bytes]`);
+  assert.equal(result.dataType, `[binary ${u16.byteLength} bytes]`);
   assert.equal(result.payload, undefined, "a non-allowlisted binary key was kept");
-  assert.equal(result.cause?.detail, `[binary ${buf.byteLength} bytes]`);
+  assert.equal(result.detail, undefined, "detail must be dropped under v3");
+  assert.equal(result.cause?.table, `[binary ${buf.byteLength} bytes]`);
   // No byte array anywhere: the decoded bytes would be the secret.
   assert.ok(!/"data"\s*:\s*\[/.test(stringify(result)), "a Buffer was serialized as its byte array");
   // A bare Buffer as the logged value.
@@ -497,7 +500,7 @@ await run("a `__proto__` key is dropped and counted, never becomes the prototype
     value: { polluted: "yes", phone: SENSITIVE.phone_intl, inner: { card: SENSITIVE.card_plain } },
     enumerable: true, writable: true, configurable: true
   });
-  err.cause = JSON.parse(`{"message":"inner","__proto__":{"polluted":"yes","isAdmin":true,"email":"${SENSITIVE.email}"},"detail":"ok detail"}`);
+  err.cause = JSON.parse(`{"message":"inner","__proto__":{"polluted":"yes","isAdmin":true,"email":"${SENSITIVE.email}"},"table":"ok_table"}`);
   assert.ok(Object.prototype.hasOwnProperty.call(err, "__proto__"), "fixture: __proto__ must be an own property");
   const result: any = serializeSafely(err, "__proto__");
   assertNoLeak(result, "__proto__");
@@ -512,7 +515,7 @@ await run("a `__proto__` key is dropped and counted, never becomes the prototype
   assert.ok(result.cause && typeof result.cause === "object", "the plain-object cause disappeared");
   assert.ok(!Object.prototype.hasOwnProperty.call(result.cause, "__proto__"), "nested __proto__ was kept");
   assert.equal(result.cause.isAdmin, undefined, "the cause inherited from the hostile __proto__ value");
-  assert.equal(result.cause.detail, "ok detail");
+  assert.equal(result.cause.table, "ok_table");
   assert.equal(typeof result.cause.omitted_keys, "number");
   const text = stringify(result);
   assert.ok(!text.includes('"__proto__"'), "__proto__ key present in the JSON");
@@ -593,37 +596,46 @@ await run("`omitted_keys` is a count only: absent when nothing is dropped, exact
   assertNoPerson(forged, "forged count");
 });
 
-await run("pg detail `Key (...)=(...)` and `Failing row contains (...)` leak neither name nor address; code, table, constraint survive", () => {
+// Contract v3: pg `detail`, `hint` and `where` echo the offending row, SQL
+// literals and JSON input in too many shapes to redact reliably (three
+// separate leaks were found here), so they are DROPPED and counted. Every
+// payload below must vanish together with its key.
+
+
+function assertPgEchoDropped(result: any, label: string, planted: number) {
+  for (const key of ["detail", "hint", "where"]) assert.ok(!Object.prototype.hasOwnProperty.call(result, key), `${label}: \`${key}\` survived`);
+  assert.equal(typeof result.omitted_keys, "number", `${label}: omitted_keys missing`);
+  assert.ok(result.omitted_keys >= planted, `${label}: omitted_keys=${result.omitted_keys}, expected >= ${planted}`);
+}
+
+await run("pg `Key (...)=(...)` and `Failing row contains (...)` in detail/hint/where are dropped; code, table, constraint survive", () => {
   const unique = Object.assign(new DatabaseError(`duplicate key value violates unique constraint "participants_buyer_name_key"`), {
-    code: "23505", table: "participants", constraint: "participants_buyer_name_key", schema: "public",
+    code: "23505", severity: "ERROR", routine: "_bt_check_unique", table: "participants", constraint: "participants_buyer_name_key", schema: "public",
     detail: `Key (buyer_name)=(${PERSON_NAME}) already exists.`,
     hint: `Compare Key (buyer_name, delivery_address)=(${PERSON_NAME}, ${STREET}) with the existing row.`,
     where: `SQL function "upsert" statement 1: Key (delivery_address)=(${STREET})`
   });
-  const r1 = serializeSafely(unique, "pg Key detail");
+  const r1: any = serializeSafely(unique, "pg Key detail");
   assertNoPerson(r1, "pg Key detail");
+  assertPgEchoDropped(r1, "pg Key detail", 3);
   assert.equal(r1.code, "23505");
   assert.equal(r1.table, "participants");
   assert.equal(r1.constraint, "participants_buyer_name_key");
-  assert.ok(String(r1.detail).includes("=([redacted])"), `detail not visibly redacted: ${r1.detail}`);
-  assert.ok(String(r1.detail).includes("buyer_name"), "the column list in detail should survive for triage");
+  assert.equal(r1.schema, "public");
 
   const notNull = Object.assign(new DatabaseError(`null value in column "phone" of relation "participants" violates not-null constraint`), {
-    code: "23502", table: "participants", column: "phone", constraint: "participants_phone_not_null",
+    code: "23502", severity: "ERROR", routine: "ExecConstraints", table: "participants", column: "phone", constraint: "participants_phone_not_null",
     detail: `Failing row contains (${DEAL_ID}, ${PERSON_NAME}, ${STREET}, null).`
   });
-  const r2 = serializeSafely(notNull, "pg Failing row");
+  const r2: any = serializeSafely(notNull, "pg Failing row");
   assertNoPerson(r2, "pg Failing row");
+  assertPgEchoDropped(r2, "pg Failing row", 1);
   assert.equal(r2.code, "23502");
-  assert.equal(r2.table, "participants");
+  assert.equal(r2.column, "phone");
   assert.equal(r2.constraint, "participants_phone_not_null");
-  assert.ok(String(r2.detail).includes("Failing row contains ([redacted])"), `detail: ${r2.detail}`);
 });
 
-// pg prints row values unquoted, so a value can itself contain ')' or a
-// newline. A lazy `\(([^)]*)\)` stops at the first ')' and lets the rest of
-// the row through.
-await run("pg value lists with ')', nested parentheses or newlines inside a value do not leak the remainder", () => {
+await run("pg value lists with ')', nested parentheses or newlines inside a value do not leak (detail/hint/where dropped)", () => {
   const cases = [
     `Failing row contains (${DEAL_ID}, x) ${PERSON_NAME}, ${STREET}, null).`,
     `Failing row contains (${DEAL_ID}, (${PERSON_NAME}, ${STREET}), null).`,
@@ -634,12 +646,14 @@ await run("pg value lists with ')', nested parentheses or newlines inside a valu
   ];
   const leaks: string[] = [];
   for (const detail of cases) {
-    const err = Object.assign(new DatabaseError("violation"), { code: "23505", table: "participants", detail, hint: detail, where: detail });
-    const text = stringify(serializeSafely(err, "pg hostile list"));
+    const err = Object.assign(new DatabaseError("violation"), { code: "23505", severity: "ERROR", table: "participants", detail, hint: detail, where: detail });
+    const result: any = serializeSafely(err, "pg hostile list");
+    assertPgEchoDropped(result, "pg hostile list", 3);
+    const text = stringify(result);
     const found = PERSON_FRAGMENTS.filter((fragment) => text.includes(fragment));
     if (found.length) leaks.push(`${JSON.stringify(detail).slice(0, 70)} -> ${found.join(",")}`);
   }
-  assert.deepEqual(leaks, [], "a pg value list leaked past its redaction");
+  assert.deepEqual(leaks, [], "a pg value list leaked");
 });
 
 await run("cause chains and AggregateError children obey the same allowlist, the 20-error bound and the depth bound", () => {
@@ -670,11 +684,15 @@ await run("cause chains and AggregateError children obey the same allowlist, the
   assert.ok(levels <= 5, `cause nested ${levels} levels deep`);
 });
 
-// ── 6d. SQL literals and JSON tokens in detail / hint / where ──
-// pg echoes the offending INPUT in these fields: single-quoted SQL literals
-// in CONTEXT ("SQL statement ..."), and `Token "..." is invalid.` for bad
-// JSON. Double-quoted identifiers (table and constraint names) are schema,
-// not data, and must survive for triage.
+// ── 6d. SQL literals, JSON tokens and quoted spans ──
+// pg echoes the offending INPUT: single-quoted SQL literals in CONTEXT
+// ("SQL statement ..."), `Token "..." is invalid.` and the raw JSON line for
+// bad JSON, and double-quoted values in the MESSAGE itself
+// (`invalid input syntax for type integer: "..."`). Under v3 detail / hint /
+// where are dropped, and in a pg-shaped error (string `severity`, or a
+// 5-character SQLSTATE `code` plus `routine`) every quoted span in `message`
+// is redacted. Identifiers stay available in table / column / constraint /
+// schema / dataType.
 
 const SQL_ADDRESS = ["Herzl", "5", "Tel", "Aviv"].join(" ");
 const SQL_FRAGMENTS = [...PERSON_FRAGMENTS, SQL_ADDRESS, "Tel Aviv", "Brien", "Doe"];
@@ -684,91 +702,130 @@ function sqlLeaks(result: unknown): string[] {
   return SQL_FRAGMENTS.filter((fragment) => text.includes(fragment));
 }
 
-function pgError(fields: Record<string, string>) {
-  return Object.assign(new DatabaseError("violation"), { code: "22P02", table: "buyers", ...fields });
+function pgError(fields: Record<string, string>, message = "violation") {
+  return Object.assign(new DatabaseError(message), { code: "22P02", severity: "ERROR", routine: "pg_input_error", table: "buyers", ...fields });
 }
 
-await run("single-quoted SQL literals in `where` (INSERT ... VALUES ('Jane Doe', 'Herzl 5 Tel Aviv')) leak neither name nor address", () => {
-  const where = `SQL statement "INSERT INTO t VALUES ('${PERSON_NAME}', '${SQL_ADDRESS}')" PL/pgSQL function add_buyer() line 3 at SQL statement`;
-  const result: any = serializeSafely(pgError({ where, detail: where, hint: where }), "sql literal");
-  assert.deepEqual(sqlLeaks(result), [], `sql literal leaked: ${stringify(result).slice(0, 300)}`);
-  assert.ok(String(result.where).includes("'[redacted]'"), `where not visibly redacted: ${result.where}`);
-  assert.ok(String(result.where).includes("SQL statement"), "the non-literal context should survive");
+// Every echo payload from the v2 era, planted in detail, hint and where.
+const ECHO_PAYLOADS = [
+  `SQL statement "INSERT INTO t VALUES ('${PERSON_NAME}', '${SQL_ADDRESS}')" PL/pgSQL function add_buyer() line 3 at SQL statement`,
+  `Token "Jane" is invalid.`,
+  `Token "${PERSON_NAME}" is invalid. Token "${STREET}" is invalid.`,
+  `Token "${PERSON_NAME} is invalid and never closed`,
+  `Expected end of input. Token "Herzl" is invalid.`,
+  `Token "Jane" is invalid.\nToken "Herzl`,
+  `Token ""Token "Jane" is invalid.`,
+  `SQL statement "INSERT INTO buyers (name, city) VALUES ('O''Brien', '${SQL_ADDRESS}')"`,
+  `Key (name)=(O'Brien) already exists.`,
+  `'O''Brien'`,
+  `invalid input syntax for type integer: '${PERSON_NAME} ${STREET}`,
+  `'${PERSON_NAME}' then more text '`,
+  `JSON data, line 1: {"buyer_name": "${PERSON_NAME}", "address": "${STREET}", }`,
+  `Expected ":", but found "${PERSON_NAME}".`,
+  `Check constraint "orders_amount_check" on table "buyers": '${PERSON_NAME}'`
+];
+
+await run("SQL-literal, Token, O''Brien, lone-quote and JSON-echo payloads in detail/hint/where never appear, and the keys are dropped and counted", () => {
+  const leaks: string[] = [];
+  for (const payload of ECHO_PAYLOADS) {
+    const result: any = serializeSafely(pgError({ detail: payload, hint: payload, where: payload }), "echo payload");
+    assertPgEchoDropped(result, `echo payload ${JSON.stringify(payload).slice(0, 40)}`, 3);
+    const found = sqlLeaks(result);
+    if (found.length) leaks.push(`${JSON.stringify(payload).slice(0, 60)} -> ${found.join(",")}`);
+  }
+  assert.deepEqual(leaks, [], "an echo payload leaked");
+  // Also when the error is NOT pg-shaped: detail / hint / where are dropped regardless.
+  const plain: any = serializeSafely(Object.assign(new Error("plain"), { detail: ECHO_PAYLOADS[0]!, hint: ECHO_PAYLOADS[12]!, where: ECHO_PAYLOADS[13]! }), "non-pg echo");
+  assertPgEchoDropped(plain, "non-pg echo", 3);
+  assert.deepEqual(sqlLeaks(plain), [], "non-pg echo leaked");
+  // And inside a cause / AggregateError child.
+  const wrapped: any = serializeSafely(new AggregateError([pgError({ detail: ECHO_PAYLOADS[0]! })], "batch", { cause: pgError({ where: ECHO_PAYLOADS[12]! }) }), "nested echo");
+  assert.deepEqual(sqlLeaks(wrapped), [], "nested echo leaked");
 });
 
-await run("`Token \"...\"` in hint/detail/where is redacted: single, multiple, unclosed, and next to a kept identifier", () => {
-  const cases = [
-    `Token "Jane" is invalid.`,
-    `Token "${PERSON_NAME}" is invalid. Token "${STREET}" is invalid.`,
-    `Token "${PERSON_NAME} is invalid and never closed`,
-    `Expected end of input. Token "Herzl" is invalid.`,
-    `Token "Jane" is invalid.\nToken "Herzl`,
-    `Token ""Token "Jane" is invalid.`
+await run("pg message `invalid input syntax for type integer: \"Jane Doe\"` redacts the quoted span", () => {
+  const result: any = serializeSafely(pgError({}, `invalid input syntax for type integer: "${PERSON_NAME}"`), "pg integer");
+  assert.deepEqual(sqlLeaks(result), [], `pg integer leaked: ${stringify(result).slice(0, 300)}`);
+  assert.ok(String(result.message).includes('"[redacted]"'), `message: ${result.message}`);
+  assert.ok(String(result.message).includes("invalid input syntax for type integer"), "the non-quoted text should survive");
+});
+
+await run("pg `invalid input syntax for type json` messages with echoed values leak nothing (double, single, unclosed, many spans)", () => {
+  const messages = [
+    // pg quotes the input WITHOUT escaping embedded quotes, so an input that
+    // itself contains `"` breaks naive open/close pairing:
+    `invalid input syntax for type integer: "x" ${PERSON_NAME} "y"`,
+    `invalid input syntax for type json: "{"buyer_name": "${PERSON_NAME}", "address": "${STREET}"}"`,
+    `invalid input syntax for type json: "{\\"buyer_name\\": \\"${PERSON_NAME}\\"}"`,
+    `invalid input syntax for type json: '{"buyer_name": "${PERSON_NAME}", "address": "${STREET}"}'`,
+    `invalid input syntax for type json at "${PERSON_NAME}" near "${STREET}"`,
+    `invalid input syntax for type json: "${PERSON_NAME}, ${STREET}`,
+    `invalid input syntax for type json: '${PERSON_NAME}`,
+    `invalid input syntax for type json: "a" 'b' "${PERSON_NAME}" '${STREET}' "c`
   ];
   const leaks: string[] = [];
-  for (const text of cases) {
-    const result: any = serializeSafely(pgError({ detail: text, hint: text, where: text }), "json token");
-    const found = sqlLeaks(result);
-    if (found.length) leaks.push(`${JSON.stringify(text).slice(0, 60)} -> ${found.join(",")}`);
+  for (const message of messages) {
+    for (const shape of [{ severity: "ERROR" }, { severity: undefined, routine: "json_errsave_error" }] as const) {
+      const err: any = new DatabaseError(message);
+      err.code = "22P02";
+      if (shape.severity) err.severity = shape.severity;
+      if ("routine" in shape) err.routine = shape.routine;
+      const result: any = serializeSafely(err, "pg json message");
+      const found = sqlLeaks(result);
+      if (found.length) leaks.push(`${JSON.stringify(message).slice(0, 60)} (${shape.severity ? "severity" : "code+routine"}) -> ${found.join(",")}`);
+    }
   }
-  assert.deepEqual(leaks, [], "a JSON token leaked");
-  const kept: any = serializeSafely(pgError({ hint: `Token "Jane" is invalid. See table "buyers".` }), "token + identifier");
-  assert.ok(String(kept.hint).includes('Token "[redacted]"'), `hint: ${kept.hint}`);
-  assert.ok(String(kept.hint).includes('table "buyers"'), `the identifier after a token was lost: ${kept.hint}`);
+  assert.deepEqual(leaks, [], "a pg json message leaked");
 });
 
-await run("SQL quote escaping ('O''Brien') and a lone `'` redact everything they cover", () => {
-  const escaped = `SQL statement "INSERT INTO buyers (name, city) VALUES ('O''Brien', '${SQL_ADDRESS}')"`;
-  const r1: any = serializeSafely(pgError({ where: escaped, detail: `Key (name)=(O'Brien) already exists.`, hint: `'O''Brien'` }), "O''Brien");
-  assert.deepEqual(sqlLeaks(r1), [], `escaped quote leaked: ${stringify(r1).slice(0, 300)}`);
-
-  const lone = `invalid input syntax for type integer: '${PERSON_NAME} ${STREET}`;
-  const r2: any = serializeSafely(pgError({ detail: lone, hint: lone, where: lone }), "lone quote");
-  assert.deepEqual(sqlLeaks(r2), [], `lone quote leaked: ${stringify(r2).slice(0, 300)}`);
-  assert.ok(String(r2.detail).includes("invalid input syntax"), "the text before a lone quote should survive");
-
-  const trailing = `'${PERSON_NAME}' then more text ${"'"}`;
-  const r3: any = serializeSafely(pgError({ where: trailing }), "quote at end");
-  assert.deepEqual(sqlLeaks(r3), [], `quote at end leaked: ${stringify(r3).slice(0, 300)}`);
-});
-
-await run("double-quoted identifiers (table \"buyers\", constraint \"orders_amount_check\") survive redaction", () => {
-  const hint = `Check constraint "orders_amount_check" on table "buyers" in schema "public".`;
-  const where = `PL/pgSQL function "validate_order"() line 4 at RAISE; relation "buyers"`;
-  const detail = `Failing row violates constraint "orders_amount_check" of relation "buyers".`;
-  const result: any = serializeSafely(pgError({ hint, where, detail, constraint: "orders_amount_check" }), "identifiers");
-  assert.ok(String(result.hint).includes('constraint "orders_amount_check"'), `hint: ${result.hint}`);
-  assert.ok(String(result.hint).includes('table "buyers"'), `hint: ${result.hint}`);
-  assert.ok(String(result.where).includes('relation "buyers"'), `where: ${result.where}`);
-  assert.ok(String(result.detail).includes('constraint "orders_amount_check"'), `detail: ${result.detail}`);
-  assert.equal(result.constraint, "orders_amount_check");
+await run("pg unique violation: quoted constraint is redacted in the message but the `constraint` field survives", () => {
+  const err = pgError({ code: "23505", constraint: "buyers_phone_key", table: "buyers", column: "phone", dataType: "text", schema: "public",
+    detail: `Key (phone)=(${SENSITIVE.phone_plain}) already exists.` }, `duplicate key value violates unique constraint "buyers_phone_key"`);
+  const result: any = serializeSafely(err, "pg unique v3");
+  assertNoLeak(result, "pg unique v3");
+  assertPgEchoDropped(result, "pg unique v3", 1);
+  assert.ok(String(result.message).includes('"[redacted]"'), `message: ${result.message}`);
+  assert.ok(!String(result.message).includes("buyers_phone_key"), "the quoted span in a pg message was kept");
+  assert.equal(result.constraint, "buyers_phone_key");
   assert.equal(result.table, "buyers");
+  assert.equal(result.column, "phone");
+  assert.equal(result.schema, "public");
+  assert.equal(result.dataType, "text");
+  assert.equal(result.code, "23505");
 });
 
-// pg's CONTEXT for bad JSON input echoes the JSON line itself:
-//   DETAIL: Token "}" is invalid.   CONTEXT: JSON data, line 1: {"name": "Jane Doe", }
-//   DETAIL: Expected ":", but found "Jane".
-// The personal data sits in DOUBLE quotes there, not in a Token or a literal.
-await run("pg JSON-input CONTEXT (`JSON data, line 1: {...}`) and `but found \"...\"` do not leak the values they echo", () => {
-  const where = `JSON data, line 1: {"buyer_name": "${PERSON_NAME}", "address": "${STREET}", }`;
-  const r1: any = serializeSafely(pgError({ detail: `Token "}" is invalid.`, where }), "json context");
-  assert.deepEqual(sqlLeaks(r1), [], `json context leaked: ${stringify(r1).slice(0, 300)}`);
-  const r2: any = serializeSafely(pgError({ detail: `Expected ":", but found "${PERSON_NAME}".` }), "json found");
-  assert.deepEqual(sqlLeaks(r2), [], `json 'found' leaked: ${stringify(r2).slice(0, 300)}`);
+await run("a non-pg Error whose message has quotes keeps non-sensitive quoted text (scrubText only)", () => {
+  const nonPg: any[] = [
+    new Error(`unknown outbox event type "invoice.issue" for handler 'grow'`),
+    Object.assign(new Error(`unknown outbox event type "invoice.issue" for handler 'grow'`), { code: "ERR_UNKNOWN_EVENT" }),
+    Object.assign(new Error(`unknown outbox event type "invoice.issue" for handler 'grow'`), { code: "ABCDE" })   // SQLSTATE-shaped code but no routine
+  ];
+  for (const err of nonPg) {
+    const result: any = serializeSafely(err, "non-pg quotes");
+    assert.ok(String(result.message).includes('"invoice.issue"'), `double-quoted text lost: ${result.message}`);
+    assert.ok(String(result.message).includes("'grow'"), `single-quoted text lost: ${result.message}`);
+  }
+  // scrubText still applies inside quotes of a non-pg message.
+  const sensitive: any = serializeSafely(new Error(`send failed to "${SENSITIVE.email}" via '${SENSITIVE.phone_intl}'`), "non-pg sensitive quotes");
+  assertNoLeak(sensitive, "non-pg sensitive quotes");
 });
 
-await run("SQL-literal and Token redaction is linear: 100 KB of quotes and many Token markers in < 200 ms", () => {
-  serializeSafely(pgError({ detail: `Token "a" 'b'` }), "warm-up");
-  const quotes = "'".repeat(100_000);
-  const tokens = `Token "`.repeat(15_000);
-  const mixed = `'Token "x`.repeat(12_000);
-  const alternating = `a'b"`.repeat(25_000);
+await run("quoted-span redaction is linear: 100 KB of quotes in a pg message in < 200 ms", () => {
+  serializeSafely(pgError({}, `x "a" 'b'`), "warm-up");
+  const inputs = [
+    "'".repeat(100_000),
+    '"'.repeat(100_000),
+    `'"`.repeat(50_000),
+    `Token "`.repeat(15_000),
+    `a'b"`.repeat(25_000)
+  ];
   const started = Date.now();
-  const result: any = serializeSafely(pgError({ detail: quotes, hint: tokens, where: mixed }), "linear");
-  serializeSafely(pgError({ detail: alternating, hint: mixed + quotes, where: tokens + quotes }), "linear 2");
+  for (const message of inputs) {
+    const result = serializeSafely(pgError({ detail: message, hint: message, where: message }, message), "linear");
+    assert.ok(stringify(result).length < 64 * 1024, "linear-case output is not bounded");
+  }
   const elapsed = Date.now() - started;
   assert.ok(elapsed < 200, `redaction took ${elapsed} ms`);
-  assert.ok(stringify(result).length < 64 * 1024, "linear-case output is not bounded");
 });
 
 // ── 7 ──
@@ -791,9 +848,9 @@ await run("a secret cut in half by a truncation boundary does not survive as a f
       for (const keep of [7, 8, 9, 10, 11, 12]) {
         if (keep >= secret.length) continue;
         const message = filler(cut - keep) + secret + " tail";
-        for (const field of ["message", "detail"] as const) {
+        for (const field of ["message", "table"] as const) {
           const err: any = new Error(field === "message" ? message : "boundary");
-          if (field === "detail") err.detail = message;
+          if (field === "table") err.table = message;
           let result: unknown;
           try { result = errorLogSerializer(err); } catch { leaks.push(`cut=${cut} keep=${keep} ${field}: threw`); continue; }
           const found = findLeaks(stringify(result));
