@@ -27,10 +27,13 @@ const UNSERIALIZABLE = Object.freeze({ type: "UnserializableError", message: "[u
 function scrubValue(value: unknown, key: string | undefined, depth: number, seen: WeakSet<object>): unknown {
   if (value === null || value === undefined) return value;
   if (typeof value === "string") return key === "stack" ? scrubText(value, STACK_MAX_LENGTH) : scrubText(value);
-  if (typeof value === "number" || typeof value === "boolean") return value;
-  if (typeof value === "bigint") return scrubText(value.toString());
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? scrubNumber(value) : value;
+  if (typeof value === "bigint") return scrubNumber(value);
   if (typeof value === "symbol" || typeof value === "function") return undefined;
   if (typeof value !== "object") return undefined;
+  const binary = binaryLength(value);
+  if (binary !== undefined) return `[binary ${binary} bytes]`;
 
   if (seen.has(value)) return "[Circular]";
   if (depth >= MAX_DEPTH) return "[Truncated]";
@@ -51,6 +54,31 @@ function scrubValue(value: unknown, key: string | undefined, depth: number, seen
   }
 }
 
+// A phone or card number stored as a number is as personal as its string form.
+function scrubNumber(value: number | bigint): number | string {
+  const text = String(value);
+  if (scrubText(text) !== text) return "[redacted:number]";
+  // bigint is not JSON-serializable; keep its (safe) digits as text.
+  return typeof value === "bigint" ? text : value;
+}
+
+// Buffers, typed arrays and DataViews would otherwise serialize byte by byte.
+function binaryLength(value: object): number | undefined {
+  try {
+    if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return (value as ArrayBuffer).byteLength;
+    if (typeof SharedArrayBuffer !== "undefined" && value instanceof SharedArrayBuffer) return value.byteLength;
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+// Plain assignment of "__proto__" would replace the output's prototype and
+// drop the key; define every key as an ordinary own data property instead.
+function setOwn(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+}
+
 function scrubObject(source: Record<string, unknown>, depth: number, seen: WeakSet<object>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   let keys: string[];
@@ -62,16 +90,16 @@ function scrubObject(source: Record<string, unknown>, depth: number, seen: WeakS
   let count = 0;
   for (const key of keys) {
     if (count >= MAX_KEYS) {
-      out["[truncated_keys]"] = keys.length - MAX_KEYS;
+      setOwn(out, "[truncated_keys]", keys.length - MAX_KEYS);
       break;
     }
     count += 1;
     if (isCredentialKey(key)) {
-      out[scrubText(key, 100)] = "[redacted]";
+      setOwn(out, scrubText(key, 100), "[redacted]");
       continue;
     }
     const scrubbed = safeRead(() => scrubValue(source[key], key, depth + 1, seen));
-    if (scrubbed !== undefined) out[scrubText(key, 100)] = scrubbed;
+    if (scrubbed !== undefined) setOwn(out, scrubText(key, 100), scrubbed);
   }
   return out;
 }
@@ -86,6 +114,8 @@ function safeRead(read: () => unknown): unknown {
 
 function safeStdErr(err: Error): Record<string, unknown> {
   try {
+    // pino copies own keys by plain assignment, which loses a "__proto__" key.
+    if (Object.prototype.hasOwnProperty.call(err, "__proto__")) return manualErr(err);
     const serialized = pino.stdSerializers.err(err) as unknown;
     if (serialized && typeof serialized === "object") return serialized as Record<string, unknown>;
     return { message: String(serialized) };
@@ -111,12 +141,8 @@ function manualErr(err: Error): Record<string, unknown> {
     keys = [];
   }
   for (const key of keys.slice(0, MAX_KEYS)) {
-    if (key in out) continue;
-    if (isCredentialKey(key)) {
-      out[key] = "[redacted]";
-      continue;
-    }
-    out[key] = safeRead(() => (err as unknown as Record<string, unknown>)[key]);
+    if (Object.prototype.hasOwnProperty.call(out, key)) continue;
+    setOwn(out, key, isCredentialKey(key) ? "[redacted]" : safeRead(() => (err as unknown as Record<string, unknown>)[key]));
   }
   return out;
 }
