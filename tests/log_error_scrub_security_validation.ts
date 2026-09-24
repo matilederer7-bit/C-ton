@@ -670,6 +670,107 @@ await run("cause chains and AggregateError children obey the same allowlist, the
   assert.ok(levels <= 5, `cause nested ${levels} levels deep`);
 });
 
+// ── 6d. SQL literals and JSON tokens in detail / hint / where ──
+// pg echoes the offending INPUT in these fields: single-quoted SQL literals
+// in CONTEXT ("SQL statement ..."), and `Token "..." is invalid.` for bad
+// JSON. Double-quoted identifiers (table and constraint names) are schema,
+// not data, and must survive for triage.
+
+const SQL_ADDRESS = ["Herzl", "5", "Tel", "Aviv"].join(" ");
+const SQL_FRAGMENTS = [...PERSON_FRAGMENTS, SQL_ADDRESS, "Tel Aviv", "Brien", "Doe"];
+
+function sqlLeaks(result: unknown): string[] {
+  const text = stringify(result);
+  return SQL_FRAGMENTS.filter((fragment) => text.includes(fragment));
+}
+
+function pgError(fields: Record<string, string>) {
+  return Object.assign(new DatabaseError("violation"), { code: "22P02", table: "buyers", ...fields });
+}
+
+await run("single-quoted SQL literals in `where` (INSERT ... VALUES ('Jane Doe', 'Herzl 5 Tel Aviv')) leak neither name nor address", () => {
+  const where = `SQL statement "INSERT INTO t VALUES ('${PERSON_NAME}', '${SQL_ADDRESS}')" PL/pgSQL function add_buyer() line 3 at SQL statement`;
+  const result: any = serializeSafely(pgError({ where, detail: where, hint: where }), "sql literal");
+  assert.deepEqual(sqlLeaks(result), [], `sql literal leaked: ${stringify(result).slice(0, 300)}`);
+  assert.ok(String(result.where).includes("'[redacted]'"), `where not visibly redacted: ${result.where}`);
+  assert.ok(String(result.where).includes("SQL statement"), "the non-literal context should survive");
+});
+
+await run("`Token \"...\"` in hint/detail/where is redacted: single, multiple, unclosed, and next to a kept identifier", () => {
+  const cases = [
+    `Token "Jane" is invalid.`,
+    `Token "${PERSON_NAME}" is invalid. Token "${STREET}" is invalid.`,
+    `Token "${PERSON_NAME} is invalid and never closed`,
+    `Expected end of input. Token "Herzl" is invalid.`,
+    `Token "Jane" is invalid.\nToken "Herzl`,
+    `Token ""Token "Jane" is invalid.`
+  ];
+  const leaks: string[] = [];
+  for (const text of cases) {
+    const result: any = serializeSafely(pgError({ detail: text, hint: text, where: text }), "json token");
+    const found = sqlLeaks(result);
+    if (found.length) leaks.push(`${JSON.stringify(text).slice(0, 60)} -> ${found.join(",")}`);
+  }
+  assert.deepEqual(leaks, [], "a JSON token leaked");
+  const kept: any = serializeSafely(pgError({ hint: `Token "Jane" is invalid. See table "buyers".` }), "token + identifier");
+  assert.ok(String(kept.hint).includes('Token "[redacted]"'), `hint: ${kept.hint}`);
+  assert.ok(String(kept.hint).includes('table "buyers"'), `the identifier after a token was lost: ${kept.hint}`);
+});
+
+await run("SQL quote escaping ('O''Brien') and a lone `'` redact everything they cover", () => {
+  const escaped = `SQL statement "INSERT INTO buyers (name, city) VALUES ('O''Brien', '${SQL_ADDRESS}')"`;
+  const r1: any = serializeSafely(pgError({ where: escaped, detail: `Key (name)=(O'Brien) already exists.`, hint: `'O''Brien'` }), "O''Brien");
+  assert.deepEqual(sqlLeaks(r1), [], `escaped quote leaked: ${stringify(r1).slice(0, 300)}`);
+
+  const lone = `invalid input syntax for type integer: '${PERSON_NAME} ${STREET}`;
+  const r2: any = serializeSafely(pgError({ detail: lone, hint: lone, where: lone }), "lone quote");
+  assert.deepEqual(sqlLeaks(r2), [], `lone quote leaked: ${stringify(r2).slice(0, 300)}`);
+  assert.ok(String(r2.detail).includes("invalid input syntax"), "the text before a lone quote should survive");
+
+  const trailing = `'${PERSON_NAME}' then more text ${"'"}`;
+  const r3: any = serializeSafely(pgError({ where: trailing }), "quote at end");
+  assert.deepEqual(sqlLeaks(r3), [], `quote at end leaked: ${stringify(r3).slice(0, 300)}`);
+});
+
+await run("double-quoted identifiers (table \"buyers\", constraint \"orders_amount_check\") survive redaction", () => {
+  const hint = `Check constraint "orders_amount_check" on table "buyers" in schema "public".`;
+  const where = `PL/pgSQL function "validate_order"() line 4 at RAISE; relation "buyers"`;
+  const detail = `Failing row violates constraint "orders_amount_check" of relation "buyers".`;
+  const result: any = serializeSafely(pgError({ hint, where, detail, constraint: "orders_amount_check" }), "identifiers");
+  assert.ok(String(result.hint).includes('constraint "orders_amount_check"'), `hint: ${result.hint}`);
+  assert.ok(String(result.hint).includes('table "buyers"'), `hint: ${result.hint}`);
+  assert.ok(String(result.where).includes('relation "buyers"'), `where: ${result.where}`);
+  assert.ok(String(result.detail).includes('constraint "orders_amount_check"'), `detail: ${result.detail}`);
+  assert.equal(result.constraint, "orders_amount_check");
+  assert.equal(result.table, "buyers");
+});
+
+// pg's CONTEXT for bad JSON input echoes the JSON line itself:
+//   DETAIL: Token "}" is invalid.   CONTEXT: JSON data, line 1: {"name": "Jane Doe", }
+//   DETAIL: Expected ":", but found "Jane".
+// The personal data sits in DOUBLE quotes there, not in a Token or a literal.
+await run("pg JSON-input CONTEXT (`JSON data, line 1: {...}`) and `but found \"...\"` do not leak the values they echo", () => {
+  const where = `JSON data, line 1: {"buyer_name": "${PERSON_NAME}", "address": "${STREET}", }`;
+  const r1: any = serializeSafely(pgError({ detail: `Token "}" is invalid.`, where }), "json context");
+  assert.deepEqual(sqlLeaks(r1), [], `json context leaked: ${stringify(r1).slice(0, 300)}`);
+  const r2: any = serializeSafely(pgError({ detail: `Expected ":", but found "${PERSON_NAME}".` }), "json found");
+  assert.deepEqual(sqlLeaks(r2), [], `json 'found' leaked: ${stringify(r2).slice(0, 300)}`);
+});
+
+await run("SQL-literal and Token redaction is linear: 100 KB of quotes and many Token markers in < 200 ms", () => {
+  serializeSafely(pgError({ detail: `Token "a" 'b'` }), "warm-up");
+  const quotes = "'".repeat(100_000);
+  const tokens = `Token "`.repeat(15_000);
+  const mixed = `'Token "x`.repeat(12_000);
+  const alternating = `a'b"`.repeat(25_000);
+  const started = Date.now();
+  const result: any = serializeSafely(pgError({ detail: quotes, hint: tokens, where: mixed }), "linear");
+  serializeSafely(pgError({ detail: alternating, hint: mixed + quotes, where: tokens + quotes }), "linear 2");
+  const elapsed = Date.now() - started;
+  assert.ok(elapsed < 200, `redaction took ${elapsed} ms`);
+  assert.ok(stringify(result).length < 64 * 1024, "linear-case output is not bounded");
+});
+
 // ── 7 ──
 // scrubText truncates BEFORE it scrubs. If the cut lands inside a secret, the
 // surviving prefix no longer matches its pattern (a 7-digit phone prefix, an
