@@ -162,6 +162,18 @@ await run("scrubText removes every sensitive class and keeps UUID correlation id
   assert.ok(scrubbed.includes("[redacted:email]") && scrubbed.includes("[redacted:number]") && scrubbed.includes("[redacted:jwt]"), scrubbed);
 });
 
+await run("scrubText: a secret straddling the pre-scrub cut does not survive as a prefix", () => {
+  // Each JWT shrinks to "[redacted:jwt]", pulling whatever sits at the cut
+  // back inside the 1000-character output limit.
+  const unit = `${SENSITIVE.jwt}${"x".repeat(40)} `;
+  const prefix = unit.repeat(Math.floor(3_600 / unit.length));
+  const text = `${prefix}${"y".repeat(4_000 - prefix.length - 11)} ${SENSITIVE.email} and ${SENSITIVE.card_plain}`;
+  assert.ok(text.indexOf(SENSITIVE.email) < 4_000 && text.indexOf(SENSITIVE.email) + SENSITIVE.email.length > 4_000, "fixture must straddle the cut");
+  const scrubbed = monitoring.scrubText(text);
+  assert.ok(!scrubbed.includes("buyer.real"), `email prefix survived: ${scrubbed.slice(-80)}`);
+  assert.ok(!/41111111/.test(scrubbed), "card prefix survived");
+});
+
 await run("scrubText leaves an ordinary engineering message intact and bounds length", () => {
   const plain = "duplicate key value violates unique constraint deals_pkey";
   assert.equal(monitoring.scrubText(plain), plain);

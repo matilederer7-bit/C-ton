@@ -175,7 +175,13 @@ const SCRUB_RULES: Array<[RegExp, string]> = [
  */
 export function scrubText(input: unknown, maxLength = MAX_MESSAGE_LENGTH): string {
   let text = String(input ?? "");
-  if (text.length > maxLength * 4) text = text.slice(0, maxLength * 4);
+  if (text.length > maxLength * 4) {
+    // A value straddling the cut would survive as a prefix no rule
+    // recognises (half an email, the first digits of a card), and later
+    // redactions can shrink the text enough to pull that prefix inside the
+    // output limit. Drop the trailing partial token before scrubbing.
+    text = `${text.slice(0, maxLength * 4).replace(/\S*$/, "")} [truncated]`;
+  }
   const uuids: string[] = [];
   text = text.replace(UUID, (match) => `\u0000${uuids.push(match) - 1}\u0000`);
   for (const [pattern, replacement] of SCRUB_RULES) text = text.replace(pattern, replacement);
