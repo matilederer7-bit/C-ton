@@ -380,6 +380,96 @@ await run("non-Error values (string with email, null, undefined, number, boolean
   for (const [label, input] of inputs) assertNoLeak(serializeSafely(input, label), label);
 });
 
+// ── 6b. Numbers, binary payloads and __proto__ keys ──
+// A phone or card stored as a NUMBER never passes through a string scrubber,
+// and JSON.stringify writes its digits verbatim. A Buffer serializes as a
+// byte array that decodes straight back to the text it carried.
+
+await run("numbers and bigints whose digits look like a phone or card are redacted; ordinary numbers are kept", () => {
+  const err: any = new Error("numeric");
+  err.phone = 972501234567;
+  err.card = 4111111111111111;
+  err.cardBig = 4111111111111111n;
+  err.phoneBig = 972501234567n;
+  err.pgCode = 23505;
+  err.count = 42;
+  err.ratio = 0.5;
+  err.negative = -7;
+  err.nested = { phone: 972501234567, list: [4111111111111111, 42], deeper: { big: 972501234567n, retries: 3 } };
+  const result: any = serializeSafely(err, "numbers");
+  assertNoLeak(result, "numbers");
+  const text = stringify(result);
+  assert.ok(!text.includes("972501234567") && !text.includes("4111111111111111"), `numeric digits leaked: ${text.slice(0, 300)}`);
+  for (const key of ["phone", "card", "cardBig", "phoneBig"]) assert.equal(result[key], "[redacted:number]", `${key} was not redacted`);
+  assert.equal(result.nested?.phone, "[redacted:number]");
+  assert.equal(result.nested?.list?.[0], "[redacted:number]");
+  assert.equal(result.nested?.deeper?.big, "[redacted:number]");
+  assert.equal(result.pgCode, 23505, "an ordinary number (23505) must stay a number");
+  assert.equal(result.count, 42);
+  assert.equal(result.ratio, 0.5);
+  assert.equal(result.negative, -7);
+  assert.equal(result.nested?.list?.[1], 42);
+  assert.equal(result.nested?.deeper?.retries, 3);
+  // A numeric pg code keeps working as the triage key.
+  const pg: any = new Error("dup");
+  pg.code = 23505;
+  assert.equal(serializeSafely(pg, "numeric code").code, 23505);
+});
+
+await run("Buffer, typed arrays, ArrayBuffer and DataView are emitted as `[binary N bytes]`, never their contents", () => {
+  const buf = Buffer.from(`buffer ${SENSITIVE.email} ${SENSITIVE.phone_intl}`);
+  const u8 = new TextEncoder().encode(`u8 ${SENSITIVE.card_plain}`);
+  const u16 = new Uint16Array([0x3530, 0x3130, 0x3332, 0x3534]);
+  const ab = new TextEncoder().encode(`ab password=${SENSITIVE.password}`).buffer;
+  const dv = new DataView(new TextEncoder().encode(`dv ${SENSITIVE.email_seller}`).buffer);
+  const err: any = new Error("binary");
+  Object.assign(err, { buf, u8, u16, ab, dv, nested: { buf, list: [u8] } });
+  const result: any = serializeSafely(err, "binary");
+  assertNoLeak(result, "binary");
+  assert.equal(result.buf, `[binary ${buf.byteLength} bytes]`);
+  assert.equal(result.u8, `[binary ${u8.byteLength} bytes]`);
+  assert.equal(result.u16, `[binary ${u16.byteLength} bytes]`);
+  assert.equal(result.ab, `[binary ${ab.byteLength} bytes]`);
+  assert.equal(result.dv, `[binary ${dv.byteLength} bytes]`);
+  assert.equal(result.nested?.buf, `[binary ${buf.byteLength} bytes]`);
+  assert.equal(result.nested?.list?.[0], `[binary ${u8.byteLength} bytes]`);
+  // No byte array anywhere: the decoded bytes would be the secret.
+  assert.ok(!/"data"\s*:\s*\[/.test(stringify(result)), "a Buffer was serialized as its byte array");
+  // A bare Buffer as the logged value.
+  assertNoLeak(serializeSafely(buf, "bare buffer"), "bare buffer");
+});
+
+await run("a `__proto__` key is kept as an own data property, scrubbed, and never pollutes Object.prototype", () => {
+  const hostileNested = JSON.parse(`{"__proto__":{"polluted":"yes","email":"${SENSITIVE.email}","isAdmin":true},"ok":"fine"}`);
+  const err: any = new Error("proto");
+  Object.defineProperty(err, "__proto__", {
+    value: { polluted: "yes", phone: SENSITIVE.phone_intl, inner: { card: SENSITIVE.card_plain } },
+    enumerable: true, writable: true, configurable: true
+  });
+  err.nested = hostileNested;
+  assert.ok(Object.prototype.hasOwnProperty.call(err, "__proto__"), "fixture: __proto__ must be an own property");
+  const result: any = serializeSafely(err, "__proto__");
+  assertNoLeak(result, "__proto__");
+  // Nothing leaked onto the global prototype.
+  assert.equal(({} as any).polluted, undefined, "Object.prototype was polluted");
+  assert.equal(({} as any).isAdmin, undefined, "Object.prototype was polluted");
+  assert.ok(!Object.prototype.hasOwnProperty.call(Object.prototype, "polluted"));
+  // The output kept __proto__ as ordinary data and did not re-parent itself.
+  assert.ok(Object.prototype.hasOwnProperty.call(result, "__proto__"), "__proto__ on the error was dropped or turned into a prototype");
+  const own = Object.getOwnPropertyDescriptor(result, "__proto__")!.value;
+  assert.equal(own?.polluted, "yes");
+  assert.equal(typeof own?.phone, "string");
+  assert.equal(result.polluted, undefined, "the result inherited from the hostile __proto__ value");
+  assert.ok(Object.prototype.hasOwnProperty.call(result.nested, "__proto__"), "nested __proto__ was dropped or turned into a prototype");
+  assert.equal(result.nested.isAdmin, undefined, "the nested result inherited from the hostile __proto__ value");
+  assert.equal(result.nested.ok, "fine");
+  const text = stringify(result);
+  assert.ok(text.includes('"__proto__"'), "__proto__ key missing from the JSON");
+  // Round-trip through JSON.parse must not pollute either.
+  JSON.parse(text);
+  assert.equal(({} as any).polluted, undefined);
+});
+
 // ── 7 ──
 // scrubText truncates BEFORE it scrubs. If the cut lands inside a secret, the
 // surviving prefix no longer matches its pattern (a 7-digit phone prefix, an
