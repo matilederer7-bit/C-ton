@@ -242,6 +242,9 @@ await run("scrubText: a quoted multi-word credential is redacted through its clo
   const json = monitoring.scrubText(`request failed: {"password":"correct horse battery staple","api_key": "k1 k2","user":"ok"} and {'secret':'s1 s2'}`);
   for (const word of ["horse", "staple", "k1", "k2", "s1", "s2"]) assert.ok(!json.includes(word), `JSON-quoted key leaked ${word}: ${json}`);
   assert.ok(json.includes('"user":"ok"'), `unrelated JSON field was damaged: ${json}`);
+  const escaped = monitoring.scrubText(String.raw`{"password":"correct \"horse\" battery staple","user":"ok"} and secret='it\'s blue green'`);
+  for (const word of ["horse", "battery", "staple", "blue", "green"]) assert.ok(!escaped.includes(word), `escaped quote leaked ${word}: ${escaped}`);
+  assert.ok(escaped.includes('"user":"ok"'), `field after an escaped credential was damaged: ${escaped}`);
   const long = monitoring.scrubText(`password="${"q".repeat(600)}" tail`);
   assert.ok(!long.includes("qqq"), `suffix of a long quoted credential survived: ${long}`);
   const unclosed = monitoring.scrubText(`secret='${"w".repeat(900)}`);
@@ -249,6 +252,7 @@ await run("scrubText: a quoted multi-word credential is redacted through its clo
   const started = Date.now();
   monitoring.scrubText(`password="${"x ".repeat(20_000)}`, 8_000);
   monitoring.scrubText(`password="`.repeat(4_000), 8_000);
+  monitoring.scrubText(`password="${"\\\"".repeat(10_000)}`, 8_000);
   assert.ok(Date.now() - started < 100, "unclosed quote is not linear");
 });
 
