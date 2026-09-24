@@ -331,9 +331,10 @@ Current invariants:
   - `log_error_scrub_security_validation`: 38/38.
   - `error_monitoring_security_validation`: 27/27.
   - Mutations each fail the suites: allowlist widened, `detail` re-allowed, scrubbing disabled, the old cut, the digit-group step removed, and the old number rule.
-  - An earlier head passed the security group (49/49), the workers group (15/15) and `release:preflight:static` (0 FAIL). The final head is re-verified by hosted CI.
+  - The final head passes the security group (49/49 files), the workers group (15/15) and `release:preflight:static` (0 FAIL); `error_monitoring_security_validation` is 28/28 after the last timing check.
 - OPEN:
   - `console.error(..., error)` calls on worker paths in `src/app.ts` (finalize-deal outbox), and the fatal-error printer when Sentry is off, still bypass the serializer. `src/app.ts` is held by open PRs #70 and #71, so this is the next task.
+  - Residual risk accepted by design (senior review): a non-pg wrapper error that re-embeds a pg message (`insert failed: ${pgErr.message}`) keeps quoted values in its own message, and pg `RAISE` text without quotes is logged as written. Both go with the `app.ts` follow-up.
   - No source maps for browser Sentry frames.
 - PERCENTAGE: 90% for the logging track. The worker serializer is complete; the `app.ts` call sites remain.
 - NEXT STEP: once #70 and #71 land or are closed, route the `app.ts` worker-path console errors through the serializer, and install the fatal handler regardless of Sentry.
