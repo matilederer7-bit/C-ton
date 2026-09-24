@@ -3,8 +3,9 @@
 // The outbox worker logs `{ err }` on every failed cycle, heartbeat and fatal
 // path. A pg error carries the offending row in `detail`, a provider error can
 // echo an Authorization header, and a wrapped error drags its whole `cause`
-// chain along. src/log_redaction.ts (errorLogSerializer) scrubs every string
-// the pino err serializer would emit; src/worker.ts wires it into `logger`.
+// chain along. src/log_redaction.ts (errorLogSerializer) keeps only an
+// allowlist of error keys, scrubs every string it keeps, and src/worker.ts
+// wires it into `logger`.
 //
 // This file is adversarial: it tries to make a secret reach the serialized
 // output through every channel it can think of, and tries to make the
@@ -15,7 +16,9 @@
 //   3. a three-level cause chain and nested custom objects / arrays
 //   4. UUID correlation ids and `type` survive
 //   5. hostile inputs never throw and always return an object
-//   6. output stays bounded (5 MB input -> < 64 KB)
+//   6. output stays bounded (5 MB input -> < 64 KB); numbers, binary and
+//      __proto__; contract v2 allowlist (only known error keys survive,
+//      `omitted_keys` counts the rest; pg value lists redacted)
 //   7. truncation boundaries do not cut a secret into a surviving fragment
 //   8. the live worker logger uses errorLogSerializer, and a real pino line
 //      written through it (including via a child logger) carries no secret
@@ -98,6 +101,55 @@ function assertNoLeak(result: unknown, label: string) {
   assert.deepEqual(findLeaks(text), [], `${label} leaked: ${text.slice(0, 400)}`);
 }
 
+// Contract v2: the serializer emits ONLY these keys (plus `omitted_keys`, a
+// count, when anything was dropped). cause / errors follow the same rules.
+const ALLOWED_KEYS = new Set([
+  "type", "message", "stack", "code", "errno", "syscall", "status", "statusCode", "severity", "routine",
+  "schema", "table", "column", "constraint", "dataType", "position", "detail", "hint", "where", "cause", "errors",
+  "omitted_keys"
+]);
+
+function allowlistViolations(value: unknown, where: string, out: string[], depth = 0) {
+  if (value === null || typeof value !== "object" || depth > 12) return;
+  if (Array.isArray(value)) { out.push(`${where}: an error serialized as an array`); return; }
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== "string") out.push(`${where}.<symbol>`);
+    else if (!ALLOWED_KEYS.has(key)) out.push(`${where}.${key}`);
+  }
+  const record = value as Record<string, unknown>;
+  if (Object.prototype.hasOwnProperty.call(record, "omitted_keys")) {
+    const count = record.omitted_keys;
+    if (typeof count !== "number" || !Number.isInteger(count) || count < 1) out.push(`${where}.omitted_keys is not a positive integer count`);
+  }
+  const proto = Object.getPrototypeOf(record);
+  if (proto !== Object.prototype && proto !== null) out.push(`${where}: unexpected prototype`);
+  if (Object.prototype.hasOwnProperty.call(record, "cause")) allowlistViolations(record.cause, `${where}.cause`, out, depth + 1);
+  if (Object.prototype.hasOwnProperty.call(record, "errors")) {
+    const errors = record.errors;
+    if (!Array.isArray(errors)) out.push(`${where}.errors is not an array`);
+    else {
+      // At most 20 serialized children; one trailing string marker such as
+      // "[30 more errors]" is allowed.
+      const objects = errors.filter((child) => child !== null && typeof child === "object").length;
+      if (objects > 20 || errors.length > 21) out.push(`${where}.errors has ${errors.length} entries (${objects} objects; max 20)`);
+      errors.forEach((child, index) => allowlistViolations(child, `${where}.errors[${index}]`, out, depth + 1));
+    }
+  }
+}
+
+function assertAllowlisted(result: unknown, label: string) {
+  const violations: string[] = [];
+  allowlistViolations(result, "err", violations);
+  assert.deepEqual(violations.slice(0, 10), [], `${label}: output outside the v2 allowlist`);
+}
+
+// Dropped key NAMES must not appear either (the count is all that is kept).
+function assertNoKeyNames(result: unknown, names: string[], label: string) {
+  const text = stringify(result);
+  const found = names.filter((name) => text.includes(`"${name}"`));
+  assert.deepEqual(found, [], `${label}: dropped key name(s) present: ${text.slice(0, 300)}`);
+}
+
 function serializeSafely(input: unknown, label: string): Record<string, unknown> {
   let result: unknown;
   try {
@@ -110,7 +162,8 @@ function serializeSafely(input: unknown, label: string): Record<string, unknown>
   try { text = stringify(result); } catch (error) {
     throw new Error(`${label}: result is not JSON-serializable (${(error as any)?.message})`);
   }
-  assert.ok(text.length > 2, `${label}: result is empty`);
+  assert.ok(text.startsWith("{"), `${label}: result does not serialize as an object`);
+  assertAllowlisted(result, label);
   return result as Record<string, unknown>;
 }
 
@@ -383,37 +436,35 @@ await run("non-Error values (string with email, null, undefined, number, boolean
 // ── 6b. Numbers, binary payloads and __proto__ keys ──
 // A phone or card stored as a NUMBER never passes through a string scrubber,
 // and JSON.stringify writes its digits verbatim. A Buffer serializes as a
-// byte array that decodes straight back to the text it carried.
+// byte array that decodes straight back to the text it carried. Under v2 only
+// allowlisted keys carry values, so these are planted on allowlisted keys.
 
 await run("numbers and bigints whose digits look like a phone or card are redacted; ordinary numbers are kept", () => {
   const err: any = new Error("numeric");
-  err.phone = 972501234567;
-  err.card = 4111111111111111;
-  err.cardBig = 4111111111111111n;
-  err.phoneBig = 972501234567n;
-  err.pgCode = 23505;
-  err.count = 42;
-  err.ratio = 0.5;
-  err.negative = -7;
-  err.nested = { phone: 972501234567, list: [4111111111111111, 42], deeper: { big: 972501234567n, retries: 3 } };
+  err.errno = 972501234567;
+  err.status = 4111111111111111;
+  err.statusCode = 972501234567n;
+  err.position = 4111111111111111n;
+  err.code = 23505;
+  err.phone = 972501234567;          // not allowlisted: dropped entirely
+  err.cause = Object.assign(new Error("inner"), { errno: 972501234567, status: 42 });
   const result: any = serializeSafely(err, "numbers");
   assertNoLeak(result, "numbers");
   const text = stringify(result);
   assert.ok(!text.includes("972501234567") && !text.includes("4111111111111111"), `numeric digits leaked: ${text.slice(0, 300)}`);
-  for (const key of ["phone", "card", "cardBig", "phoneBig"]) assert.equal(result[key], "[redacted:number]", `${key} was not redacted`);
-  assert.equal(result.nested?.phone, "[redacted:number]");
-  assert.equal(result.nested?.list?.[0], "[redacted:number]");
-  assert.equal(result.nested?.deeper?.big, "[redacted:number]");
-  assert.equal(result.pgCode, 23505, "an ordinary number (23505) must stay a number");
-  assert.equal(result.count, 42);
-  assert.equal(result.ratio, 0.5);
-  assert.equal(result.negative, -7);
-  assert.equal(result.nested?.list?.[1], 42);
-  assert.equal(result.nested?.deeper?.retries, 3);
-  // A numeric pg code keeps working as the triage key.
-  const pg: any = new Error("dup");
-  pg.code = 23505;
-  assert.equal(serializeSafely(pg, "numeric code").code, 23505);
+  for (const key of ["errno", "status", "statusCode", "position"]) assert.equal(result[key], "[redacted:number]", `${key} was not redacted`);
+  assert.equal(result.code, 23505, "an ordinary number (23505) must stay a number");
+  assert.equal(result.phone, undefined, "a non-allowlisted numeric key was kept");
+  assert.equal(result.cause?.errno, "[redacted:number]");
+  assert.equal(result.cause?.status, 42);
+
+  const ordinary = Object.assign(new Error("ordinary"), { errno: -111, status: 500, statusCode: 42, position: 17, code: 23505 });
+  const kept: any = serializeSafely(ordinary, "ordinary numbers");
+  assert.equal(kept.errno, -111);
+  assert.equal(kept.status, 500);
+  assert.equal(kept.statusCode, 42);
+  assert.equal(kept.position, 17);
+  assert.equal(kept.code, 23505);
 });
 
 await run("Buffer, typed arrays, ArrayBuffer and DataView are emitted as `[binary N bytes]`, never their contents", () => {
@@ -423,51 +474,200 @@ await run("Buffer, typed arrays, ArrayBuffer and DataView are emitted as `[binar
   const ab = new TextEncoder().encode(`ab password=${SENSITIVE.password}`).buffer;
   const dv = new DataView(new TextEncoder().encode(`dv ${SENSITIVE.email_seller}`).buffer);
   const err: any = new Error("binary");
-  Object.assign(err, { buf, u8, u16, ab, dv, nested: { buf, list: [u8] } });
+  Object.assign(err, { detail: buf, hint: u8, where: ab, table: dv, column: u16, payload: buf });
+  err.cause = { message: "inner", detail: buf };
   const result: any = serializeSafely(err, "binary");
   assertNoLeak(result, "binary");
-  assert.equal(result.buf, `[binary ${buf.byteLength} bytes]`);
-  assert.equal(result.u8, `[binary ${u8.byteLength} bytes]`);
-  assert.equal(result.u16, `[binary ${u16.byteLength} bytes]`);
-  assert.equal(result.ab, `[binary ${ab.byteLength} bytes]`);
-  assert.equal(result.dv, `[binary ${dv.byteLength} bytes]`);
-  assert.equal(result.nested?.buf, `[binary ${buf.byteLength} bytes]`);
-  assert.equal(result.nested?.list?.[0], `[binary ${u8.byteLength} bytes]`);
+  assert.equal(result.detail, `[binary ${buf.byteLength} bytes]`);
+  assert.equal(result.hint, `[binary ${u8.byteLength} bytes]`);
+  assert.equal(result.where, `[binary ${ab.byteLength} bytes]`);
+  assert.equal(result.table, `[binary ${dv.byteLength} bytes]`);
+  assert.equal(result.column, `[binary ${u16.byteLength} bytes]`);
+  assert.equal(result.payload, undefined, "a non-allowlisted binary key was kept");
+  assert.equal(result.cause?.detail, `[binary ${buf.byteLength} bytes]`);
   // No byte array anywhere: the decoded bytes would be the secret.
   assert.ok(!/"data"\s*:\s*\[/.test(stringify(result)), "a Buffer was serialized as its byte array");
   // A bare Buffer as the logged value.
   assertNoLeak(serializeSafely(buf, "bare buffer"), "bare buffer");
 });
 
-await run("a `__proto__` key is kept as an own data property, scrubbed, and never pollutes Object.prototype", () => {
-  const hostileNested = JSON.parse(`{"__proto__":{"polluted":"yes","email":"${SENSITIVE.email}","isAdmin":true},"ok":"fine"}`);
+await run("a `__proto__` key is dropped and counted, never becomes the prototype, and never pollutes Object.prototype", () => {
   const err: any = new Error("proto");
   Object.defineProperty(err, "__proto__", {
     value: { polluted: "yes", phone: SENSITIVE.phone_intl, inner: { card: SENSITIVE.card_plain } },
     enumerable: true, writable: true, configurable: true
   });
-  err.nested = hostileNested;
+  err.cause = JSON.parse(`{"message":"inner","__proto__":{"polluted":"yes","isAdmin":true,"email":"${SENSITIVE.email}"},"detail":"ok detail"}`);
   assert.ok(Object.prototype.hasOwnProperty.call(err, "__proto__"), "fixture: __proto__ must be an own property");
   const result: any = serializeSafely(err, "__proto__");
   assertNoLeak(result, "__proto__");
-  // Nothing leaked onto the global prototype.
   assert.equal(({} as any).polluted, undefined, "Object.prototype was polluted");
   assert.equal(({} as any).isAdmin, undefined, "Object.prototype was polluted");
   assert.ok(!Object.prototype.hasOwnProperty.call(Object.prototype, "polluted"));
-  // The output kept __proto__ as ordinary data and did not re-parent itself.
-  assert.ok(Object.prototype.hasOwnProperty.call(result, "__proto__"), "__proto__ on the error was dropped or turned into a prototype");
-  const own = Object.getOwnPropertyDescriptor(result, "__proto__")!.value;
-  assert.equal(own?.polluted, "yes");
-  assert.equal(typeof own?.phone, "string");
+  assert.ok(!Object.prototype.hasOwnProperty.call(result, "__proto__"), "__proto__ was kept");
+  assert.equal(Object.getPrototypeOf(result), Object.prototype, "the result was re-parented");
   assert.equal(result.polluted, undefined, "the result inherited from the hostile __proto__ value");
-  assert.ok(Object.prototype.hasOwnProperty.call(result.nested, "__proto__"), "nested __proto__ was dropped or turned into a prototype");
-  assert.equal(result.nested.isAdmin, undefined, "the nested result inherited from the hostile __proto__ value");
-  assert.equal(result.nested.ok, "fine");
+  assert.equal(typeof result.omitted_keys, "number");
+  assert.ok(result.omitted_keys >= 1, "the dropped __proto__ key was not counted");
+  assert.ok(result.cause && typeof result.cause === "object", "the plain-object cause disappeared");
+  assert.ok(!Object.prototype.hasOwnProperty.call(result.cause, "__proto__"), "nested __proto__ was kept");
+  assert.equal(result.cause.isAdmin, undefined, "the cause inherited from the hostile __proto__ value");
+  assert.equal(result.cause.detail, "ok detail");
+  assert.equal(typeof result.cause.omitted_keys, "number");
   const text = stringify(result);
-  assert.ok(text.includes('"__proto__"'), "__proto__ key missing from the JSON");
-  // Round-trip through JSON.parse must not pollute either.
+  assert.ok(!text.includes('"__proto__"'), "__proto__ key present in the JSON");
   JSON.parse(text);
   assert.equal(({} as any).polluted, undefined);
+});
+
+// ── 6c. Contract v2: allowlist ──
+// Free-text scrubbing cannot recognise a name or a street address, and a
+// credential with a short opaque value has no shape at all. The only safe
+// rule is to drop every key that is not on the allowlist.
+
+const PERSON_NAME = ["Jane", "Doe"].join(" ");
+const STREET = ["12", "Herzl", "St"].join(" ");
+const PERSON_FRAGMENTS = [PERSON_NAME, STREET, "Jane", "Herzl"];
+const DB_URL = ["postgres", "://", "svc_worker", ":", "pw7h3kq", "@", "db.internal.example.com", ":5432/siton"].join("");
+const REPO_CREDENTIALS: Record<string, string> = {
+  "x-admin-key": ["adm", "9x7q"].join("-"),
+  DATABASE_URL: DB_URL,
+  SITON_STORAGE_BROKER_KEY: ["brk", "4f2a"].join("-"),
+  GROW_REFERENCE_ENCRYPTION_KEY: ["grw", "81kq"].join("-")
+};
+const DROPPED_NAMES = ["buyer_name", "delivery_address", "response", "config", "request", "body", "env", ...Object.keys(REPO_CREDENTIALS)];
+
+function assertNoPerson(result: unknown, label: string) {
+  const text = stringify(result);
+  const found = PERSON_FRAGMENTS.filter((fragment) => text.includes(fragment));
+  assert.deepEqual(found, [], `${label} leaked a name or address: ${text.slice(0, 400)}`);
+}
+
+function assertNoRepoCredential(result: unknown, label: string) {
+  const text = stringify(result);
+  const found = Object.entries(REPO_CREDENTIALS).filter(([, value]) => text.includes(value)).map(([key]) => key);
+  if (text.includes("pw7h3kq") || text.includes("svc_worker")) found.push("DATABASE_URL fragment");
+  assert.deepEqual(found, [], `${label} leaked a credential value: ${text.slice(0, 400)}`);
+}
+
+await run("names and addresses under arbitrary keys (buyer_name, delivery_address, response.data, config.data, request.body) never appear", () => {
+  const err: any = new Error("provider rejected the order");
+  err.buyer_name = PERSON_NAME;
+  err.delivery_address = STREET;
+  err.response = { status: 422, data: { buyer: { name: PERSON_NAME, address: STREET } } };
+  err.config = { url: "/orders", data: JSON.stringify({ buyer_name: PERSON_NAME, delivery_address: STREET }) };
+  err.request = { body: { name: PERSON_NAME, address: STREET } };
+  err.status = 422;
+  const result: any = serializeSafely(err, "person keys");
+  assertNoPerson(result, "person keys");
+  assertNoKeyNames(result, DROPPED_NAMES, "person keys");
+  assert.equal(result.status, 422, "an allowlisted key was dropped");
+  assert.equal(typeof result.omitted_keys, "number");
+  assert.ok(result.omitted_keys >= 5, `omitted_keys=${result.omitted_keys}, expected at least 5`);
+});
+
+await run("repo credential keys (x-admin-key, DATABASE_URL, SITON_STORAGE_BROKER_KEY, GROW_REFERENCE_ENCRYPTION_KEY) with short opaque values never appear", () => {
+  const err: any = new Error("storage broker call failed");
+  Object.assign(err, REPO_CREDENTIALS);
+  err.config = { headers: { "x-admin-key": REPO_CREDENTIALS["x-admin-key"] } };
+  err.env = { ...REPO_CREDENTIALS };
+  err.cause = Object.assign(new Error("inner"), REPO_CREDENTIALS);
+  const agg: any = new AggregateError([Object.assign(new Error("child"), REPO_CREDENTIALS)], "batch");
+  for (const [label, input] of [["top", err], ["aggregate", agg]] as const) {
+    const result = serializeSafely(input, `repo credentials ${label}`);
+    assertNoRepoCredential(result, `repo credentials ${label}`);
+    assertNoKeyNames(result, DROPPED_NAMES, `repo credentials ${label}`);
+  }
+});
+
+await run("`omitted_keys` is a count only: absent when nothing is dropped, exact for one key, and not attacker-controlled", () => {
+  const clean = serializeSafely(Object.assign(new Error("clean"), { code: "E1" }), "clean");
+  assert.ok(!Object.prototype.hasOwnProperty.call(clean, "omitted_keys"), "omitted_keys present although nothing was dropped");
+  const one = serializeSafely(Object.assign(new Error("one"), { buyer_name: PERSON_NAME }), "one dropped");
+  assert.equal(one.omitted_keys, 1);
+  assertNoPerson(one, "one dropped");
+  assertNoKeyNames(one, ["buyer_name"], "one dropped");
+  // An attacker who sets `omitted_keys` itself must not smuggle text through it.
+  const forged = serializeSafely(Object.assign(new Error("forged"), { omitted_keys: PERSON_NAME, delivery_address: STREET }), "forged count");
+  assert.equal(typeof forged.omitted_keys, "number", "omitted_keys was taken from the input");
+  assertNoPerson(forged, "forged count");
+});
+
+await run("pg detail `Key (...)=(...)` and `Failing row contains (...)` leak neither name nor address; code, table, constraint survive", () => {
+  const unique = Object.assign(new DatabaseError(`duplicate key value violates unique constraint "participants_buyer_name_key"`), {
+    code: "23505", table: "participants", constraint: "participants_buyer_name_key", schema: "public",
+    detail: `Key (buyer_name)=(${PERSON_NAME}) already exists.`,
+    hint: `Compare Key (buyer_name, delivery_address)=(${PERSON_NAME}, ${STREET}) with the existing row.`,
+    where: `SQL function "upsert" statement 1: Key (delivery_address)=(${STREET})`
+  });
+  const r1 = serializeSafely(unique, "pg Key detail");
+  assertNoPerson(r1, "pg Key detail");
+  assert.equal(r1.code, "23505");
+  assert.equal(r1.table, "participants");
+  assert.equal(r1.constraint, "participants_buyer_name_key");
+  assert.ok(String(r1.detail).includes("=([redacted])"), `detail not visibly redacted: ${r1.detail}`);
+  assert.ok(String(r1.detail).includes("buyer_name"), "the column list in detail should survive for triage");
+
+  const notNull = Object.assign(new DatabaseError(`null value in column "phone" of relation "participants" violates not-null constraint`), {
+    code: "23502", table: "participants", column: "phone", constraint: "participants_phone_not_null",
+    detail: `Failing row contains (${DEAL_ID}, ${PERSON_NAME}, ${STREET}, null).`
+  });
+  const r2 = serializeSafely(notNull, "pg Failing row");
+  assertNoPerson(r2, "pg Failing row");
+  assert.equal(r2.code, "23502");
+  assert.equal(r2.table, "participants");
+  assert.equal(r2.constraint, "participants_phone_not_null");
+  assert.ok(String(r2.detail).includes("Failing row contains ([redacted])"), `detail: ${r2.detail}`);
+});
+
+// pg prints row values unquoted, so a value can itself contain ')' or a
+// newline. A lazy `\(([^)]*)\)` stops at the first ')' and lets the rest of
+// the row through.
+await run("pg value lists with ')', nested parentheses or newlines inside a value do not leak the remainder", () => {
+  const cases = [
+    `Failing row contains (${DEAL_ID}, x) ${PERSON_NAME}, ${STREET}, null).`,
+    `Failing row contains (${DEAL_ID}, (${PERSON_NAME}, ${STREET}), null).`,
+    `Failing row contains (${DEAL_ID}, line one\n${PERSON_NAME}, ${STREET}, null).`,
+    `Key (delivery_address)=(Apt 3) ${STREET}) already exists.`,
+    `Key (lower(buyer_name))=(${PERSON_NAME}) already exists.`,
+    `Key (buyer_name)=(${PERSON_NAME}) already exists.\nKey (delivery_address)=(${STREET}) already exists.`
+  ];
+  const leaks: string[] = [];
+  for (const detail of cases) {
+    const err = Object.assign(new DatabaseError("violation"), { code: "23505", table: "participants", detail, hint: detail, where: detail });
+    const text = stringify(serializeSafely(err, "pg hostile list"));
+    const found = PERSON_FRAGMENTS.filter((fragment) => text.includes(fragment));
+    if (found.length) leaks.push(`${JSON.stringify(detail).slice(0, 70)} -> ${found.join(",")}`);
+  }
+  assert.deepEqual(leaks, [], "a pg value list leaked past its redaction");
+});
+
+await run("cause chains and AggregateError children obey the same allowlist, the 20-error bound and the depth bound", () => {
+  const leafCause = Object.assign(new Error("leaf"), { buyer_name: PERSON_NAME, response: { data: { address: STREET } }, code: "ELEAF" });
+  const midCause = Object.assign(new Error("mid", { cause: leafCause }), { delivery_address: STREET, request: { body: { name: PERSON_NAME } } });
+  const top = Object.assign(new Error("top", { cause: midCause }), { config: { data: PERSON_NAME } });
+  const r1 = serializeSafely(top, "cause allowlist");
+  assertNoPerson(r1, "cause allowlist");
+  assertNoKeyNames(r1, DROPPED_NAMES, "cause allowlist");
+
+  const children = Array.from({ length: 50 }, (_, index) => Object.assign(new Error(`child ${index}`), { buyer_name: PERSON_NAME, delivery_address: STREET, code: `E${index}` }));
+  const agg: any = new AggregateError(children, "batch failed");
+  agg.request = { body: { name: PERSON_NAME } };
+  const r2: any = serializeSafely(agg, "aggregate allowlist");
+  assertNoPerson(r2, "aggregate allowlist");
+  assertNoKeyNames(r2, DROPPED_NAMES, "aggregate allowlist");
+  assert.ok(Array.isArray(r2.errors), "AggregateError children are not emitted under `errors`");
+  const childObjects = r2.errors.filter((child: unknown) => child !== null && typeof child === "object");
+  assert.ok(childObjects.length >= 1 && childObjects.length <= 20, `errors has ${childObjects.length} serialized children`);
+  for (const child of r2.errors) if (child && typeof child === "object") assert.equal(typeof child.omitted_keys, "number", "a child's dropped keys were not counted");
+
+  // Depth 4: a 10-deep chain never nests beyond the bound.
+  let chain: any = new Error("root");
+  for (let depth = 0; depth < 10; depth += 1) chain = new Error(`level ${depth}`, { cause: chain });
+  let node: any = serializeSafely(chain, "cause depth");
+  let levels = 0;
+  while (node && typeof node === "object" && node.cause && typeof node.cause === "object") { node = node.cause; levels += 1; }
+  assert.ok(levels <= 5, `cause nested ${levels} levels deep`);
 });
 
 // ── 7 ──
