@@ -1,56 +1,59 @@
-import pino from "pino";
 import { scrubText } from "./error_monitoring.js";
 
-// Pino's default `err` serializer copies message, stack and every enumerable
-// property of an error. Database errors carry `detail`, `hint`, `where`, etc.,
-// which can hold customer values (e.g. `Key (phone)=(0501234567)`). This
-// serializer keeps the shape of pino's output but scrubs every string in it
-// before it reaches hosted logs.
+// Error serializer for hosted logs.
+//
+// Copying every enumerable property of an error (pino's default) cannot be
+// made safe by pattern scrubbing: axios errors carry request/response bodies,
+// application errors carry buyer names and addresses, and config objects carry
+// credentials whose values have no recognisable shape. So only a fixed
+// allowlist of diagnostic fields is emitted; everything else is dropped and
+// only counted. Every emitted string is still scrubbed, and PostgreSQL value
+// lists in detail/hint/where are removed before scrubbing.
 
 const MAX_DEPTH = 4;
-const MAX_KEYS = 50;
-const MAX_ARRAY_ITEMS = 20;
+const MAX_ERRORS = 20;
 const STACK_MAX_LENGTH = 8000;
+const PG_SCAN_MAX_LENGTH = 20_000;
 
-// Values under these keys are credentials or card data whatever their shape
-// (e.g. `cookie: "session=abc123"`), so they are dropped, not pattern-scrubbed.
-const CREDENTIAL_KEY =
-  /authorization|cookie|api[-_]?key|token|secret|passw(?:or)?d|(?:^|[-_.])otp|session|cvv|cvc|card[-_]?number|^pan$/i;
-const PASSTHROUGH_KEYS = new Set(["type", "code", "message", "stack"]);
+const ALLOWED_KEYS = [
+  "type",
+  "message",
+  "stack",
+  "code",
+  "errno",
+  "syscall",
+  "status",
+  "statusCode",
+  "severity",
+  "routine",
+  "schema",
+  "table",
+  "column",
+  "constraint",
+  "dataType",
+  "position",
+  "detail",
+  "hint",
+  "where",
+  "cause",
+  "errors"
+] as const;
+const ALLOWED = new Set<string>(ALLOWED_KEYS);
+const PG_VALUE_KEYS = new Set(["detail", "hint", "where"]);
 
-function isCredentialKey(key: string): boolean {
-  return !PASSTHROUGH_KEYS.has(key) && CREDENTIAL_KEY.test(key);
+const UNREADABLE = Symbol("unreadable");
+
+type Serialized = Record<string, unknown>;
+
+function unserializable(): Serialized {
+  return { type: "UnserializableError", message: "[unserializable error]" };
 }
 
-const UNSERIALIZABLE = Object.freeze({ type: "UnserializableError", message: "[unserializable error]" });
-
-function scrubValue(value: unknown, key: string | undefined, depth: number, seen: WeakSet<object>): unknown {
-  if (value === null || value === undefined) return value;
-  if (typeof value === "string") return key === "stack" ? scrubText(value, STACK_MAX_LENGTH) : scrubText(value);
-  if (typeof value === "boolean") return value;
-  if (typeof value === "number") return Number.isFinite(value) ? scrubNumber(value) : value;
-  if (typeof value === "bigint") return scrubNumber(value);
-  if (typeof value === "symbol" || typeof value === "function") return undefined;
-  if (typeof value !== "object") return undefined;
-  const binary = binaryLength(value);
-  if (binary !== undefined) return `[binary ${binary} bytes]`;
-
-  if (seen.has(value)) return "[Circular]";
-  if (depth >= MAX_DEPTH) return "[Truncated]";
-  seen.add(value);
+function safeRead<T>(read: () => T): T | typeof UNREADABLE {
   try {
-    if (Array.isArray(value)) {
-      const out: unknown[] = [];
-      const limit = Math.min(value.length, MAX_ARRAY_ITEMS);
-      for (let index = 0; index < limit; index += 1) out.push(safeRead(() => scrubValue(value[index], undefined, depth + 1, seen)));
-      if (value.length > MAX_ARRAY_ITEMS) out.push(`[${value.length - MAX_ARRAY_ITEMS} more items]`);
-      return out;
-    }
-    if (value instanceof Error) return scrubObject(safeStdErr(value), depth, seen);
-    if (value instanceof Date) return safeRead(() => value.toISOString());
-    return scrubObject(value as Record<string, unknown>, depth, seen);
-  } finally {
-    seen.delete(value);
+    return read();
+  } catch {
+    return UNREADABLE;
   }
 }
 
@@ -73,97 +76,153 @@ function binaryLength(value: object): number | undefined {
   return undefined;
 }
 
-// Plain assignment of "__proto__" would replace the output's prototype and
-// drop the key; define every key as an ordinary own data property instead.
-function setOwn(target: Record<string, unknown>, key: string, value: unknown): void {
-  Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
-}
+// Replaces the contents of every parenthesised group that starts with one of
+// the markers, up to its matching close parenthesis (nesting aware) or the end
+// of the string when unbalanced. Single left-to-right pass, no regex
+// backtracking.
+const PG_VALUE_MARKERS = ["=(", "Failing row contains ("];
 
-function scrubObject(source: Record<string, unknown>, depth: number, seen: WeakSet<object>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  let keys: string[];
-  try {
-    keys = Object.keys(source);
-  } catch {
-    return { message: "[unreadable object]" };
-  }
-  let count = 0;
-  for (const key of keys) {
-    if (count >= MAX_KEYS) {
-      setOwn(out, "[truncated_keys]", keys.length - MAX_KEYS);
+function redactPgValueLists(input: string): string {
+  const text = input.length > PG_SCAN_MAX_LENGTH ? input.slice(0, PG_SCAN_MAX_LENGTH) : input;
+  let out = "";
+  let index = 0;
+  while (index < text.length) {
+    let next = -1;
+    let marker = "";
+    for (const candidate of PG_VALUE_MARKERS) {
+      const found = text.indexOf(candidate, index);
+      if (found !== -1 && (next === -1 || found < next)) {
+        next = found;
+        marker = candidate;
+      }
+    }
+    if (next === -1) {
+      out += text.slice(index);
       break;
     }
-    count += 1;
-    if (isCredentialKey(key)) {
-      setOwn(out, scrubText(key, 100), "[redacted]");
-      continue;
+    const open = next + marker.length; // position just after "("
+    out += text.slice(index, open) + "[redacted]";
+    let depth = 1;
+    let cursor = open;
+    while (cursor < text.length && depth > 0) {
+      const char = text[cursor];
+      if (char === "(") depth += 1;
+      else if (char === ")") depth -= 1;
+      cursor += 1;
     }
-    const scrubbed = safeRead(() => scrubValue(source[key], key, depth + 1, seen));
-    if (scrubbed !== undefined) setOwn(out, scrubText(key, 100), scrubbed);
+    if (depth === 0) {
+      out += ")";
+      index = cursor;
+    } else {
+      index = text.length;
+    }
   }
   return out;
 }
 
-function safeRead(read: () => unknown): unknown {
-  try {
-    return read();
-  } catch {
-    return "[unreadable]";
-  }
+function scrubString(key: string, value: string): string {
+  if (key === "stack") return scrubText(value, STACK_MAX_LENGTH);
+  if (PG_VALUE_KEYS.has(key)) return scrubText(redactPgValueLists(value));
+  return scrubText(value);
 }
 
-function safeStdErr(err: Error): Record<string, unknown> {
-  try {
-    // pino copies own keys by plain assignment, which loses a "__proto__" key.
-    if (Object.prototype.hasOwnProperty.call(err, "__proto__")) return manualErr(err);
-    const serialized = pino.stdSerializers.err(err) as unknown;
-    if (serialized && typeof serialized === "object") return serialized as Record<string, unknown>;
-    return { message: String(serialized) };
-  } catch {
-    // pino's serializer reads every property directly; a throwing getter
-    // aborts it. Rebuild the same shape one guarded read at a time.
-    return manualErr(err);
+// Scalar diagnostic value, or undefined when the value is not emittable.
+function scrubScalar(key: string, value: unknown): unknown {
+  if (value === null) return null;
+  if (typeof value === "string") return scrubString(key, value);
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? scrubNumber(value) : value;
+  if (typeof value === "bigint") return scrubNumber(value);
+  if (typeof value === "object") {
+    const binary = binaryLength(value);
+    if (binary !== undefined) return `[binary ${binary} bytes]`;
   }
+  return undefined;
 }
 
-function manualErr(err: Error): Record<string, unknown> {
-  const out: Record<string, unknown> = {
-    type: safeRead(() => err.constructor?.name ?? "Error"),
-    message: safeRead(() => err.message),
-    stack: safeRead(() => err.stack)
-  };
-  const cause = safeRead(() => (err as { cause?: unknown }).cause);
-  if (cause !== undefined && cause !== "[unreadable]") out.cause = cause;
-  let keys: string[] = [];
+function errorTypeName(value: Error): string {
+  const name = safeRead(() => {
+    const ctor = value.constructor;
+    if (typeof ctor === "function" && typeof ctor.name === "string" && ctor.name) return ctor.name;
+    return typeof value.name === "string" && value.name ? value.name : "Error";
+  });
+  return typeof name === "string" ? scrubText(name, 100) : "Error";
+}
+
+function serializeNested(value: unknown, depth: number, seen: WeakSet<object>): unknown {
+  if (depth >= MAX_DEPTH) return "[Truncated]";
+  if (value !== null && typeof value === "object" && seen.has(value)) return "[Circular]";
+  return serialize(value, depth, seen);
+}
+
+function serialize(value: unknown, depth: number, seen: WeakSet<object>): Serialized {
+  if (value === null || value === undefined) return { type: value === null ? "null" : "undefined", message: String(value) };
+  if (typeof value === "string") return { type: "string", message: scrubText(value) };
+  if (typeof value !== "object" && typeof value !== "function") {
+    return { type: typeof value, message: scrubText(String(value)) };
+  }
+  const source = value as Record<string, unknown>;
+  const binary = binaryLength(source);
+  if (binary !== undefined) return { type: "binary", message: `[binary ${binary} bytes]` };
+
+  seen.add(source);
   try {
-    keys = Object.keys(err);
-  } catch {
-    keys = [];
+    const out: Serialized = {};
+    let omitted = 0;
+
+    const ownKeys = safeRead(() => Object.keys(source));
+    if (ownKeys === UNREADABLE) omitted += 1;
+    else for (const key of ownKeys) if (!ALLOWED.has(key)) omitted += 1;
+
+    const isError = value instanceof Error;
+    for (const key of ALLOWED_KEYS) {
+      const raw = safeRead(() => source[key]);
+      if (raw === UNREADABLE) {
+        out[key] = "[unreadable]";
+        continue;
+      }
+      if (key === "type") {
+        if (isError) {
+          out.type = errorTypeName(value as Error);
+          continue;
+        }
+        if (raw === undefined) continue;
+      }
+      if (raw === undefined) continue;
+      if (key === "cause") {
+        out.cause = serializeNested(raw, depth + 1, seen);
+        continue;
+      }
+      if (key === "errors") {
+        if (Array.isArray(raw)) {
+          const length = raw.length;
+          const items: unknown[] = [];
+          for (let index = 0; index < Math.min(length, MAX_ERRORS); index += 1) {
+            const item = safeRead(() => raw[index]);
+            items.push(item === UNREADABLE ? "[unreadable]" : serializeNested(item, depth + 1, seen));
+          }
+          if (length > MAX_ERRORS) items.push(`[${length - MAX_ERRORS} more errors]`);
+          out.errors = items;
+        } else {
+          out.errors = serializeNested(raw, depth + 1, seen);
+        }
+        continue;
+      }
+      const scalar = scrubScalar(key, raw);
+      if (scalar === undefined) omitted += 1;
+      else out[key] = scalar;
+    }
+    if (omitted > 0) out.omitted_keys = omitted;
+    return out;
+  } finally {
+    seen.delete(source);
   }
-  for (const key of keys.slice(0, MAX_KEYS)) {
-    if (Object.prototype.hasOwnProperty.call(out, key)) continue;
-    setOwn(out, key, isCredentialKey(key) ? "[redacted]" : safeRead(() => (err as unknown as Record<string, unknown>)[key]));
-  }
-  return out;
 }
 
 export function errorLogSerializer(err: unknown): Record<string, unknown> {
   try {
-    const seen = new WeakSet<object>();
-    if (err instanceof Error) {
-      // Mark the root error seen so a self-referencing cause/property becomes [Circular].
-      seen.add(err);
-      return scrubObject(safeStdErr(err), 0, seen);
-    }
-    if (err === null || err === undefined) return { type: typeof err === "undefined" ? "undefined" : "null", message: String(err) };
-    if (typeof err === "string") return { type: "string", message: scrubText(err) };
-    if (typeof err === "object") {
-      const scrubbed = scrubValue(err, undefined, 0, seen);
-      if (scrubbed && typeof scrubbed === "object" && !Array.isArray(scrubbed)) return scrubbed as Record<string, unknown>;
-      return { type: "object", message: scrubText(String(scrubbed)), value: scrubbed };
-    }
-    return { type: typeof err, message: scrubText(String(err)) };
+    return serialize(err, 0, new WeakSet<object>());
   } catch {
-    return { ...UNSERIALIZABLE };
+    return unserializable();
   }
 }
