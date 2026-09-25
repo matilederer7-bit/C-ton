@@ -2315,7 +2315,7 @@ export function registerFrontendExperience(
 <script>window.location.replace(${JSON.stringify(spaPath)});</script>
 <style>body{background:#f6f7fb;color:#13142b;font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0}</style>
 </head>
-<body><p><a style="color:#ff8a2e" href="${safeSpa}">${escapeHtml(ts(shareLocale, "deal.share.redirecting"))}</a></p></body>
+<body><p><a style="color:#3b2bd9" href="${safeSpa}">${escapeHtml(ts(shareLocale, "deal.share.redirecting"))}</a></p></body>
 </html>`;
     return reply
       .header("cache-control", "public, max-age=300")
