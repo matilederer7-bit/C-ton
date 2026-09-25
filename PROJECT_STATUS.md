@@ -312,6 +312,22 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
+### Claude Code latest milestone — Daylight for the legacy /app shell, PWA icons and native app icons (PR #87)
+
+- UPDATED: 2026-09-25
+- BRANCH: `claude/daylight-legacy-native` from master `ba4eb89` (PR #87). Owner follow-up to #85: "move /app and the app icons to the new design too."
+- COMPLETED:
+  - **Legacy `/app` shell** (`frontend/`): token layer rewritten to Daylight (Siton Indigo, paper-white ground, semantic state colours, Rubik display + Assistant text); brick orange, dark body gradient and the dark seller-create hero removed; `index.html`, `offline.html` and the manifest moved to the daylight chrome; the seven PWA icons and `logo.svg` rendered from `assets/brand/c-ton-mark.svg`; service-worker cache bumped to `siton-shell-v3-daylight` so installed PWAs drop the graphite copies.
+  - **Native**: `assets/native/*` (icon-only, icon-foreground, icon-background, splash, splash-dark) rendered from the vector mark by `scripts/render_brand_assets.cjs`; `npm run mobile:assets` now uses @capacitor/assets custom mode on that folder and then renders the Android adaptive layers at their native 108dp sizes (the tool writes 48dp). iOS AppIcon + light/dark Splash and every Android launcher/adaptive/splash density regenerated. No Contents.json, XML, Gradle or Xcode reference changed.
+  - **Server-rendered pages** (`src/frontend_runtime.ts`, four presentation strings): legal shell theme-color + no-stylesheet fallback CSS, share-redirect page body and link colours.
+  - `tests/visual_brand_consistency` now samples pixels (sharp) on PWA icons, iOS icon, Android launcher/adaptive layers and both splash themes.
+- REVIEW: independent read-only reviewer → REQUEST_CHANGES on one delivery gap (service-worker cache) + one contrast note (redirect link), both fixed (`de51e54`, `b6d90d5`); Codex P2 (same cache finding) fixed and resolved.
+- TESTED: `visual_brand_consistency` PASS; `mobile:verify` → `MOBILE_GATE_PASS`; `test:mobile-readiness` → `MOBILE_TESTS_PASS`; `legal_html_shell_alignment`, `frontend_flow` (group runner), `frontend_foundation_rtl_accessibility`, `admin_rtl_surface`, `product_surfaces_refinement` PASS; `git diff --check` clean; `/app` home/seller/deal at 1280 and 390 reviewed by eye (no overflow); native art reviewed by eye (iOS icon, adaptive foreground, round launcher, PWA icon, light/dark iOS splash, Android portrait/landscape splash).
+- DELIBERATELY NOT CHANGED: no route, API, auth, state, payment, worker, schema or business rule; `frontend/app.js` untouched; `web/public/brand` bytes identical to master.
+- OPEN: `mobile:verify` in a checkout whose `node_modules` is a symlink rewrites `android/capacitor.settings.gradle` and `ios/App/CapApp-SPM/Package.swift` with absolute paths (environment artifact, reverted, not committed); the tracked `node_modules` symlink and the intermittent CI browser e2e files are queued as separate tasks.
+- PERCENTAGE: 95% — merge, deploy and by-eye check of `/app` on staging remain.
+- NEXT STEP: CI green → squash-merge #87 → Render deploy → verify `/app` and `/app/manifest.webmanifest` on staging.
+
 ### Claude Code latest milestone — "Daylight" visual refresh of the web app (UI only)
 
 - UPDATED: 2026-09-24
