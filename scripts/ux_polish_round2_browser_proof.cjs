@@ -685,8 +685,14 @@ async function main() {
         await wait(300);
         await ev(`document.querySelectorAll('[data-testid="receipt-method-option"] input')[3].click()`);
         await wait(300);
-        const floor = await ev(`[...document.querySelectorAll('[data-testid="receipt-method-option"]')].filter(c => c.dataset.selected === '1').length`);
-        eq(floor, 1, 'the last remaining receipt method stays on');
+        const floor = await ev(`(() => {
+          const cards = [...document.querySelectorAll('[data-testid="receipt-method-option"]')];
+          return { count: cards.filter(c => c.dataset.selected === '1').length, fourth: cards[3].dataset.selected, fourthChecked: cards[3].querySelector('input').checked };
+        })()`);
+        eq(floor.count, 1, 'the last remaining receipt method stays on');
+        // and it is THAT method — not a default the set fell back to
+        eq(floor.fourth, '1', 'the fourth card is still the selected one');
+        eq(floor.fourthChecked, true, 'its checkbox is still checked');
       });
 
       if (width === 390 || width === 1280) await shot(`receipt-methods-${width}`);

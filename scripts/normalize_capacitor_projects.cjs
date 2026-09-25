@@ -8,7 +8,9 @@ const { readFileSync, writeFileSync } = require("node:fs");
 // projects hold. Fold any such path back onto the project-relative root each
 // project expects (`../` from android/, `../../../` from ios/App/CapApp-SPM/).
 function portable(content, relativeRoot) {
-  return content.replace(/(?:\.\.\/)+(?:[^'"\s]*?\/)?(node_modules|mobile-plugins)\//g, `${relativeRoot}$1/`);
+  // the path sits inside quotes in both files, so a parent directory with
+  // whitespace ("My Repo") is part of it and must be consumed too
+  return content.replace(/(?:\.\.\/)+(?:[^'"]*?\/)?(node_modules|mobile-plugins)\//g, `${relativeRoot}$1/`);
 }
 
 const swiftPackage = "ios/App/CapApp-SPM/Package.swift";
