@@ -58,7 +58,7 @@ export async function launchChromiumTarget(
   const label = String(options.label || "siton-cdp").replace(/[^a-z0-9_-]/gi, "-");
   const profileDir = await mkdtemp(join(tmpdir(), `${label}-`));
   let stderr = "";
-  let spawnError: Error | null = null;
+  let spawnErrorMessage = "";
   const browser: ChildProcess = spawn(executable, [
     "--headless=new", "--disable-gpu", "--disable-dev-shm-usage", "--no-sandbox",
     "--disable-breakpad", "--disable-crash-reporter", "--no-first-run",
@@ -71,7 +71,7 @@ export async function launchChromiumTarget(
   browser.stderr?.on("data", (chunk) => {
     stderr = (stderr + String(chunk)).slice(-8_000);
   });
-  browser.once("error", (error) => { spawnError = error; });
+  browser.once("error", (error) => { spawnErrorMessage = error instanceof Error ? error.message : String(error); });
 
   const timeoutMs = options.timeoutMs ?? (process.env.CI ? 60_000 : 35_000);
   const deadline = Date.now() + timeoutMs;
@@ -79,7 +79,7 @@ export async function launchChromiumTarget(
   let wsUrl = "";
 
   while (Date.now() < deadline && !wsUrl) {
-    if (spawnError) break;
+    if (spawnErrorMessage) break;
     if (browser.exitCode !== null || browser.signalCode !== null) break;
 
     if (!debugPort) {
@@ -106,8 +106,8 @@ export async function launchChromiumTarget(
   }
 
   if (!wsUrl) {
-    const exit = spawnError
-      ? `spawn error: ${spawnError.message}`
+    const exit = spawnErrorMessage
+      ? `spawn error: ${spawnErrorMessage}`
       : `exitCode=${browser.exitCode ?? "running"} signal=${browser.signalCode ?? "none"}`;
     if (browser.exitCode === null) browser.kill("SIGKILL");
     await wait(200);
