@@ -1,5 +1,5 @@
 import { assertRequiredTables } from "./schema_contract.js";
-import { randomBytes, randomUUID, scrypt as scryptCb, timingSafeEqual, createHash } from "crypto";
+import { randomBytes, randomUUID, randomInt, scrypt as scryptCb, timingSafeEqual, createHash } from "crypto";
 import { promisify } from "util";
 import { ADMIN_API_KEY, isProductionLikeEnv } from "./runtime_config.js";
 import { buildSupabaseVerifier } from "./supabase_auth.js";
@@ -323,8 +323,12 @@ export function adminPublicIdentity(identity: AdminIdentity) {
   };
 }
 
+// Admin MFA is a second authentication factor: the code must be drawn from a
+// cryptographically secure RNG, never Math.random (whose V8 xorshift128+ state
+// is recoverable from observed outputs). Mirrors the buyer OTP rail.
+export const ADMIN_MFA_MAX_ATTEMPTS = 5;
 export function createAdminMfaCode() {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return String(randomInt(0, 1_000_000)).padStart(6, "0");
 }
 
 export function safeAdminId(identity: AdminIdentity) {

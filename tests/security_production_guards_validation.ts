@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { assertProductionRuntimeGuards } from "../src/production_guards.js";
+import { resolveCompletionWindowMinutes } from "../src/runtime_config.js";
 
 function production(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
   return {
@@ -83,5 +84,23 @@ assert.throws(() => assertProductionRuntimeGuards("worker", { APP_DEPLOYMENT_MOD
 assert.throws(() => assertProductionRuntimeGuards("web", { APP_DEPLOYMENT_MODE: "staging", RUNTIME_ROLE: "worker" }), /cannot start the web process/);
 assert.doesNotThrow(() => assertProductionRuntimeGuards("worker", { APP_DEPLOYMENT_MODE: "staging", RUNTIME_ROLE: "worker" }));
 assert.doesNotThrow(() => assertProductionRuntimeGuards("worker", { APP_DEPLOYMENT_MODE: "staging" }));
+
+// Canonical amendment 2026-09-16 §2: the Completion Window is hard-locked to
+// 24h and NOT environment-configurable. The boot guard rejects a non-canonical
+// override in production; an unset value or the canonical 1440 is accepted.
+assert.throws(() => assertProductionRuntimeGuards("web", production({ COMPLETION_WINDOW_MINUTES: "1" })), /COMPLETION_WINDOW_MINUTES cannot be set/);
+assert.throws(() => assertProductionRuntimeGuards("web", production({ COMPLETION_WINDOW_MINUTES: "10080" })), /hard-locked to 24 hours/);
+assert.doesNotThrow(() => assertProductionRuntimeGuards("web", production({ COMPLETION_WINDOW_MINUTES: "1440" })));
+assert.doesNotThrow(() => assertProductionRuntimeGuards("web", production()));
+
+// The resolver is the runtime enforcement: a production-like env IGNORES the
+// override (always 1440), while a non-production test/dev runtime honors it so
+// the blackbox/e2e harness can shorten the window.
+assert.equal(resolveCompletionWindowMinutes({ NODE_ENV: "production", COMPLETION_WINDOW_MINUTES: "1" }), 1440, "production ignores the completion-window override");
+assert.equal(resolveCompletionWindowMinutes({ RENDER: "true", COMPLETION_WINDOW_MINUTES: "5" }), 1440, "a hosted runtime ignores the completion-window override");
+assert.equal(resolveCompletionWindowMinutes({ RENDER_EXTERNAL_URL: "https://x.onrender.com", COMPLETION_WINDOW_MINUTES: "5" }), 1440, "RENDER_EXTERNAL_URL is production-like");
+assert.equal(resolveCompletionWindowMinutes({ NODE_ENV: "test", COMPLETION_WINDOW_MINUTES: "30" }), 30, "non-production honors the override for the test harness");
+assert.equal(resolveCompletionWindowMinutes({ NODE_ENV: "test" }), 1440, "non-production defaults to 24h when unset");
+console.log("PASS completion window is hard-locked to 24h in production and env-overridable only in non-production");
 
 console.log("PASS production guards reject unsafe live topology and providers without blocking demo/test");
