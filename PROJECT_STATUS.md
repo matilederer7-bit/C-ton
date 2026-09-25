@@ -557,19 +557,24 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 
 
 <!-- AGENT_STATUS:codex:START -->
-### Codex latest milestone — post-PR #87 cleanup
+### Codex latest milestone — post-PR #87 cleanup complete
 
 - UPDATED: 2026-09-25
-- BRANCH: `codex/post-pr87-cleanup` from merged master `6792037`.
+- MERGED: PR #88 into master as `e4136a8`.
 - COMPLETED:
-  - Removed the accidentally tracked root `node_modules` symlink; `.gitignore` already excludes `node_modules/`.
+  - Removed the accidentally tracked root `node_modules` symlink; `.gitignore` continues to exclude `node_modules/`.
   - Closed the repository-hygiene blind spot so both a root `node_modules` entry and files below `node_modules/` fail the hygiene gate.
-  - Root-caused PR #87's intermittent E2E failure to Chromium startup, not product behavior: attempt 1 passed 16/17 E2E files and failed only because CDP never became available; attempt 2 passed.
-  - Hardened every E2E Chromium launcher in the active browser suites: Chromium now asks the OS for a free debugging port, the launcher discovers it through `DevToolsActivePort`, waits under a bounded deadline, detects early browser exit, captures Chromium stderr on failure, and cleans the temporary profile. The shared launcher now also backs the legacy smoke and v1.1 browser suites instead of each choosing a random fixed port.
-- TESTED: forensic CI evidence from PR #87 is confirmed; implementation is complete. New-head CI is the remaining verification gate.
-- OPEN: CI and merge of this cleanup branch only. No product runtime, database, payment, money, state, API or UX behavior was changed. Open PRs #70, #71, #78 and #79 remain untouched parallel work.
-- PERCENTAGE: implementation 100%; closeout 80% pending green CI and merge.
-- NEXT STEP: open the cleanup PR, require the browser E2E gate to pass without a job rerun, then merge and mark this cleanup 100%.
+  - Root-caused PR #87's intermittent E2E failure to Chromium startup rather than product behavior.
+  - Hardened every active browser E2E Chromium launch path: OS-assigned debugging port, `DevToolsActivePort` discovery, bounded startup deadline, early-exit detection, Chromium stderr diagnostics and temporary-profile cleanup. Existing per-suite browser flags were preserved.
+- TESTED:
+  - PR #88: all 6 checks green on the final head.
+  - `backend-gates`: green without a rerun.
+  - E2E: `passed=17 failed=0` in 219814ms on the first run.
+  - TypeScript, lint, product contracts, migrations, unit, integration, DB, API, workers, payments, protected-route authorization, security, concurrency and failure suites all passed before E2E.
+  - Master verification after merge: root `node_modules` entry is absent.
+- OPEN: none from PR #87's two cleanup items. Open PRs #70, #71, #78 and #79 remain separate parallel work and were not modified by this cleanup.
+- PERCENTAGE: 100%.
+- NEXT STEP: no further action for this cleanup. Continue only with the independent open workstreams.
 <!-- AGENT_STATUS:codex:END -->
 
 <!-- AGENT_STATUS:cloud-manager:START -->
