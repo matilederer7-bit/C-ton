@@ -557,16 +557,19 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 
 
 <!-- AGENT_STATUS:codex:START -->
-### Codex latest milestone
+### Codex latest milestone — post-PR #87 cleanup
 
-- UPDATED: 2026-09-22
-- BRANCH: `codex/engineering-operating-system-v2`; Apex follow-up on PR #72 head `f38b269eb3e5ab6214d6ca31df9a407477110671` in an isolated checkout.
-- COMPLETED: added exceptional Apex / `gpt-6-astra` above Luna/Terra/Sol, with four enumerated escalation reasons, mandatory concrete evidence, critical-risk validation and no silent provider/model downgrade. Connected Issue form routing fields that previously were ignored. Explicit provider overrides cannot bypass Astra on an Apex run. Head synthesis stays Sol by default; four analyst models remain economical. Added per-model API metadata preflight and model/reason telemetry. Documented direct entry links, commands, owner-only issue-open trigger, GitHub-hosted execution with computer off, separate swarm dispatch, manual merge, concurrency limits, and the distinction between model availability and authenticated inference.
-- VERIFIED SUPPORT: official OpenAI model documentation and local app model catalog include Astra. Actual OpenAI codex-action v1 source at `86365089eb2b84e0a8fb0717b304f8bdcb13b20e` accepts model/effort/profile and passes the model directly to Codex. GitHub workflow API-key inference remains unverified.
-- TESTED: focused router/manager/access/wiring tests 24/24 PASS; JavaScript syntax PASS; TypeScript noEmit PASS; all three YAML files parse, dispatch inputs within the 10-input limit; git diff check PASS. Broad release-tools run: 65 PASS, 33 FAIL, 6 SKIP; all 33 failures reproduce on the original PR head in this Windows sandbox (spawn EPERM/null process exits), zero newly failing test names. Original baseline additionally has a CRLF-sensitive workflow-text assertion failure. Canonical verifier BLOCKED by Windows npm.cmd spawn EINVAL and no disposable DATABASE_URL. Previous remote head has all four CI workflows green; new-head CI must be checked after publication.
-- OPEN: final new-head CI and PR integration; repository secret inventory and authenticated cloud smoke could not be inspected/performed in this session. Browser is signed out and available GitHub connector has no secrets/dispatch endpoint. Do not infer missing secrets from that access limit. No real-money, Grow, product runtime or production changes.
-- PERCENTAGE: Apex code/docs implementation 100%; overall activation track 85%, pending CI/integration and successful authenticated managed-task/Astra smoke.
-- NEXT STEP: publish this tested follow-up to PR #72 without force-push, verify new-head CI, integrate through owner-controlled merge, then run one docs-only managed task and a justified read-only Apex synthesis with configured cloud credentials.
+- UPDATED: 2026-09-25
+- BRANCH: `codex/post-pr87-cleanup` from merged master `6792037`.
+- COMPLETED:
+  - Removed the accidentally tracked root `node_modules` symlink; `.gitignore` already excludes `node_modules/`.
+  - Closed the repository-hygiene blind spot so both a root `node_modules` entry and files below `node_modules/` fail the hygiene gate.
+  - Root-caused PR #87's intermittent E2E failure to Chromium startup, not product behavior: attempt 1 passed 16/17 E2E files and failed only because CDP never became available; attempt 2 passed.
+  - Hardened every E2E Chromium launcher in the active browser suites: Chromium now asks the OS for a free debugging port, the launcher discovers it through `DevToolsActivePort`, waits under a bounded deadline, detects early browser exit, captures Chromium stderr on failure, and cleans the temporary profile. The shared launcher now also backs the legacy smoke and v1.1 browser suites instead of each choosing a random fixed port.
+- TESTED: forensic CI evidence from PR #87 is confirmed; implementation is complete. New-head CI is the remaining verification gate.
+- OPEN: CI and merge of this cleanup branch only. No product runtime, database, payment, money, state, API or UX behavior was changed. Open PRs #70, #71, #78 and #79 remain untouched parallel work.
+- PERCENTAGE: implementation 100%; closeout 80% pending green CI and merge.
+- NEXT STEP: open the cleanup PR, require the browser E2E gate to pass without a job rerun, then merge and mark this cleanup 100%.
 <!-- AGENT_STATUS:codex:END -->
 
 <!-- AGENT_STATUS:cloud-manager:START -->

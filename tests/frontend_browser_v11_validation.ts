@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chromiumPath } from "./helpers/browser_cdp.js";
+import { chromiumPath, launchChromiumTarget } from "./helpers/browser_cdp.js";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -117,43 +117,10 @@ async function waitForHealth(getServerLog: () => string) {
 
 async function openCdpPage(path: string) {
   if (!existsSync(browserPath)) throw new Error(`browser executable not found at ${browserPath}`);
-  const profileDir = await mkdtemp(join(tmpdir(), "siton-v11-browser-"));
-  const remoteDebuggingPort = 35_000 + Math.floor(Math.random() * 2_000);
-  const browser = spawn(browserPath, [
-    "--headless=new",
-    "--disable-gpu",
-    // containerised runners have no user namespace and a tiny /dev/shm
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-background-networking",
-    "--disable-breakpad",
-    "--disable-component-update",
-    "--disable-crash-reporter",
-    "--disable-default-apps",
-    "--disable-domain-reliability",
-    "--disable-sync",
-    "--metrics-recording-only",
-    "--no-first-run",
-    "--no-default-browser-check",
-    "--no-pings",
-    `--remote-debugging-port=${remoteDebuggingPort}`,
-    `--user-data-dir=${profileDir}`,
-    `${baseUrl}${path}`
-  ], { stdio: ["ignore", "ignore", "ignore"], windowsHide: true });
-
-  for (let attempt = 0; attempt < 80; attempt += 1) {
-    try {
-      const response = await fetch(`http://127.0.0.1:${remoteDebuggingPort}/json/list`);
-      const pages = await response.json() as Array<{ url?: string; webSocketDebuggerUrl?: string }>;
-      const page = pages.find((entry) => entry.url?.startsWith(baseUrl)) || pages[0];
-      if (page?.webSocketDebuggerUrl) return { browser, profileDir, wsUrl: page.webSocketDebuggerUrl };
-    } catch {}
-    await wait(200);
-  }
-
-  browser.kill("SIGKILL");
-  await rm(profileDir, { recursive: true, force: true }).catch(() => undefined);
-  throw new Error("browser CDP page did not become available");
+  return launchChromiumTarget(`${baseUrl}${path}`, {
+    executable: browserPath,
+    label: "siton-v11-browser"
+  });
 }
 
 async function waitForProcessExit(child: ReturnType<typeof spawn>, timeoutMs: number) {
