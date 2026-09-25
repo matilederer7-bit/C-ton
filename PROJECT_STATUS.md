@@ -312,6 +312,29 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
+### Claude Code latest milestone — Full red-team engagement (security/money/DB/concurrency/supply-chain)
+
+- UPDATED: 2026-09-25
+- BRANCH: `claude/redteam-hardening-kx4e5a` from master `0a16515`. Owner: aggressive, systematic red team — find real failures and fix what is safe.
+- METHOD: 4 adversarial review tracks + a governance/source-of-truth map, then dynamic proof against a locally-booted copy of the exact app (web + worker) on a throwaway Postgres 16, plus the real DB-backed test harness. Full report: `RED_TEAM_FINAL_REPORT.md`.
+- COMPLETED (found):
+  - **No Critical/High in money, state machine, or DB integrity** — oversell and double-charge are closed at the DB layer (CHECK + FOR UPDATE + advisory lock + CAS transitions + partial-unique idempotency + settlement fence); proven, not assumed.
+  - **A1 (High): admin MFA second factor had no attempt cap** — the 6-digit code was brute-forceable in its 10-minute window (amplified by trustProxy XFF spoofing + Math.random codes). FIXED.
+  - **C1/B-2 (Medium): Completion Window honored a runtime override** contrary to canonical amendment 2026-09-16 §2. FIXED (hard-locked to 24h in production).
+  - **8% fee incl. shipping, excl. VAT and zero distributor commission — verified correct.**
+  - **Governance drift (owner refactor): a dormant legacy distributor/affiliate role subsystem is still shipped** (503 without the secret, not set in prod); the canonical amendment mandates removal. Documented, not ripped out (regression-prone, touches schema contract + a CI gate blind spot).
+- FIXED (with regression + negative tests):
+  - A1 admin MFA attempt cap: migration `074_admin_mfa_attempt_cap.sql` + verify-handler lock (429 after 5 wrong codes, Revoked); single live login challenge (no parallel accumulation). `tests/admin_mfa_auth_bruteforce_validation.ts`.
+  - A4: admin MFA codes now `crypto.randomInt` (CSPRNG), not Math.random.
+  - C1: `resolveCompletionWindowMinutes()` hard-locks 24h in production + boot guard rejects a non-canonical override. `tests/security_production_guards_validation.ts`.
+  - A6: HSTS on production-like hosts. `tests/security_hardening_validation.ts`.
+- DOCUMENTED (owner decision / precise remediation in the report): A2 trustProxy hop count (env-specific), A3 admin login lockout (residual bounded by A1; DoS tradeoff), distributor-role removal (C2/C3), C-1 tx-scoped audit/outbox, C-2 join lock throughput, B3/B4/B5 low money items, A5 untokenized tracking (prod-fenced), exceljs→uuid 2 moderate prod advisories.
+- TESTED (local Postgres 16, fix branch): unit 17/17, integration 47/47, db 8/8, payments 45/45, security 50/50 (incl. the new admin-MFA brute-force, completion-window guard, HSTS). Static gates (lint, architecture, secrets, hygiene, i18n, preflight:static, money-tax, legal, no-real-money, payment scan, seven-day-cap) PASS. workers/concurrency/failure/e2e in progress; CI runs the full matrix.
+- SECOND RED-TEAM PASS: on the A1 fix — the per-challenge cap plus unthrottled login means re-login yields a fresh budget; raised cost ~200,000x and closed parallel-challenge accumulation; complete issuance throttle documented as A2/A3.
+- OPEN: no Critical/High open. Medium/Low documented with remediation. PR + CI + merge + staging verification pending.
+- PERCENTAGE: 85% (findings proven, safe fixes done + tested, report written; full-matrix CI + merge + staging verify + owner-scoped distributor cleanup remain).
+- NEXT STEP: open the PR, drive CI green, merge, verify staging; owner to decide on A2/A3 and the distributor-subsystem removal.
+
 ### Claude Code latest milestone — "Graphite Mint" brand rollout on every surface (UI only)
 
 - UPDATED: 2026-09-25

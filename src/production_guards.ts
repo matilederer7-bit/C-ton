@@ -203,6 +203,14 @@ export function assertProductionRuntimeGuards(role: RuntimeRole, env: NodeJS.Pro
   if (String(env.DEBUG_SURFACES_ENABLED || "").trim() === "1") {
     failures.push("DEBUG_SURFACES_ENABLED=1 cannot run in production");
   }
+  // production_completion_window_override (canonical amendment 2026-09-16 §2):
+  // the Completion Window is exactly 24h and is NOT environment-configurable.
+  // The resolver already ignores the override in a production-like runtime, but
+  // the variable must not linger in a production console suggesting otherwise.
+  const completionWindowOverride = String(env.COMPLETION_WINDOW_MINUTES || "").trim();
+  if (completionWindowOverride && completionWindowOverride !== "1440") {
+    failures.push("COMPLETION_WINDOW_MINUTES cannot be set to a non-canonical value in production: the Completion Window is hard-locked to 24 hours (1440 minutes)");
+  }
   // production_otp_bypass: src/otp_rail.ts already ignores the bypass when
   // production-like, but "production mode" and "production-like" are two
   // different predicates - a configuration can satisfy one and not the other -

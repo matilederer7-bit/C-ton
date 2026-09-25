@@ -157,6 +157,7 @@ import {
   isConfiguredOwnerClaimEmail,
   parseCookieHeader,
   createAdminMfaCode,
+  ADMIN_MFA_MAX_ATTEMPTS,
   ensureAdminIdentityTables,
   hasAdminPermission,
   hasRecentMfa,
@@ -2713,10 +2714,15 @@ export function registerFrontendExperience(
     if (!email || !password) return reply.code(400).send({ ok: false, error: "admin_credentials_required" });
     return deps.withTx(async (c) => {
       const result = await c.query(
+        // FOR UPDATE serializes concurrent logins for the same admin so the
+        // revoke-prior-then-insert of the MFA challenge below cannot interleave
+        // and leave multiple Pending challenges (each with its own attempt
+        // budget) — the one-live-challenge guarantee (A1).
         `SELECT admin_user_id, email, display_name, role, status, password_hash, mfa_required, mfa_enabled
          FROM siton.admin_users
          WHERE lower(email)=lower($1)
-         LIMIT 1`,
+         LIMIT 1
+         FOR UPDATE`,
         [email]
       );
       const row = result.rows[0];
@@ -2724,6 +2730,11 @@ export function registerFrontendExperience(
         return reply.code(401).send({ ok: false, error: "admin_invalid_credentials" });
       }
       if (row.mfa_required || row.mfa_enabled) {
+        // Red-team hardening (A1): only ONE login challenge may be live at a
+        // time. Revoking prior Pending login challenges stops an attacker from
+        // accumulating many parallel challenges (each with its own attempt
+        // budget) to widen the brute-force surface against the second factor.
+        await c.query(`UPDATE siton.admin_mfa_challenges SET status='Revoked' WHERE admin_user_id=$1 AND purpose='login' AND status='Pending'`, [row.admin_user_id]);
         const code = createAdminMfaCode();
         const challenge = await c.query(
           `INSERT INTO siton.admin_mfa_challenges
@@ -2755,7 +2766,7 @@ export function registerFrontendExperience(
     if (!/^\d{6}$/.test(code)) return reply.code(400).send({ ok: false, error: "invalid_mfa_code" });
     return deps.withTx(async (c) => {
       const result = await c.query(
-        `SELECT ch.mfa_challenge_id, ch.admin_user_id, ch.code_hash, ch.status, ch.expires_at,
+        `SELECT ch.mfa_challenge_id, ch.admin_user_id, ch.code_hash, ch.status, ch.expires_at, ch.attempts,
                 u.email, u.display_name, u.role, u.status AS user_status
          FROM siton.admin_mfa_challenges ch
          JOIN siton.admin_users u ON u.admin_user_id=ch.admin_user_id
@@ -2771,7 +2782,18 @@ export function registerFrontendExperience(
         await c.query(`UPDATE siton.admin_mfa_challenges SET status='Expired' WHERE mfa_challenge_id=$1`, [challengeId]);
         return reply.code(401).send({ ok: false, error: "mfa_challenge_expired" });
       }
-      if (row.code_hash !== hashAdminOtp(code)) return reply.code(401).send({ ok: false, error: "mfa_code_invalid" });
+      // Red-team hardening (A1): cap wrong-code attempts on the second factor so
+      // the 6-digit code cannot be brute-forced within its window. The SELECT
+      // holds FOR UPDATE, so the increment and the lock decision are race-safe.
+      if (row.code_hash !== hashAdminOtp(code)) {
+        const nextAttempts = Number(row.attempts || 0) + 1;
+        if (nextAttempts >= ADMIN_MFA_MAX_ATTEMPTS) {
+          await c.query(`UPDATE siton.admin_mfa_challenges SET attempts=$2, status='Revoked' WHERE mfa_challenge_id=$1`, [challengeId, nextAttempts]);
+          return reply.code(429).send({ ok: false, error: "mfa_challenge_locked" });
+        }
+        await c.query(`UPDATE siton.admin_mfa_challenges SET attempts=$2 WHERE mfa_challenge_id=$1`, [challengeId, nextAttempts]);
+        return reply.code(401).send({ ok: false, error: "mfa_code_invalid", attempts_remaining: ADMIN_MFA_MAX_ATTEMPTS - nextAttempts });
+      }
       await c.query(`UPDATE siton.admin_mfa_challenges SET status='Verified', verified_at=now() WHERE mfa_challenge_id=$1`, [challengeId]);
       await c.query(
         `INSERT INTO siton.admin_mfa_factors (admin_user_id, factor_type, secret_hash, status, verified_at)

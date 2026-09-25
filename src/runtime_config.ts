@@ -16,8 +16,26 @@ export const DATABASE_URL = process.env.DATABASE_URL || DEFAULT_DATABASE_URL;
 
 export const PORT = readNumberEnv("PORT", 3000);
 export const HOST = process.env.HOST || "0.0.0.0";
-// Per spec (C6): completion window is 24 hours after Charging → CompletionWindow.
-export const COMPLETION_WINDOW_MINUTES = readNumberEnv("COMPLETION_WINDOW_MINUTES", 1440);
+// Per canonical amendment 2026-09-16 §2: the Completion Window is exactly 24
+// hours (1440 minutes) and is NOT environment-configurable product policy. In
+// any production-like runtime the value is hard-locked and the
+// COMPLETION_WINDOW_MINUTES override is ignored; a shortened window is honored
+// only in non-production test/dev runtimes (the blackbox/e2e harness sets it).
+export const CANONICAL_COMPLETION_WINDOW_MINUTES = 1440;
+export function resolveCompletionWindowMinutes(env: NodeJS.ProcessEnv = process.env): number {
+  // The window is exactly 24h and is not environment-configurable product
+  // policy. The COMPLETION_WINDOW_MINUTES override is honored ONLY in the
+  // automated test harness (NODE_ENV==='test'), where the blackbox/e2e suites
+  // shorten it; every other runtime — production, staging, or any local/manual
+  // deployment — is hard-locked to 1440, so a non-Render deploy cannot alter
+  // the buyer recovery window.
+  if (String(env.NODE_ENV || "") !== "test" || isProductionLikeEnv(env)) return CANONICAL_COMPLETION_WINDOW_MINUTES;
+  const raw = env.COMPLETION_WINDOW_MINUTES;
+  if (raw === undefined || raw === "") return CANONICAL_COMPLETION_WINDOW_MINUTES;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : CANONICAL_COMPLETION_WINDOW_MINUTES;
+}
+export const COMPLETION_WINDOW_MINUTES = resolveCompletionWindowMinutes();
 export const OUTBOX_POLL_MS = readNumberEnv("OUTBOX_POLL_MS", 1000);
 export const OUTBOX_MAX_ATTEMPTS = readNumberEnv("OUTBOX_MAX_ATTEMPTS", 4);
 

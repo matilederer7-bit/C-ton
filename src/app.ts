@@ -29,6 +29,7 @@ import { buildPaymentProvider, getPaymentProviderSummary, providerAmbiguityPolic
 import { buildPaymentAuthorizationBindings, PaymentBindingError } from "./payment_binding.js";
 import { assessAuthorizationUsability, isAuthorizationUnusableResult, reauthorizationIdentity } from "./authorization_lifecycle.js";
 import { computeCustomerChargeVat } from "./vat_authority.js";
+import { resolveCompletionWindowMinutes, isProductionLikeEnv } from "./runtime_config.js";
 import { buildNotificationService, getNotificationServiceSummary } from "./notification_service.js";
 import {
   enqueueNotification,
@@ -146,9 +147,12 @@ dotenv.config();
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = String(process.env.HOST || "0.0.0.0");
-// Per spec (C6): completion window is 24 hours (1440 minutes) — the time buyers have
-// to update a failed payment method after Charging → CompletionWindow.
-const COMPLETION_WINDOW_MINUTES = Number(process.env.COMPLETION_WINDOW_MINUTES || 1440);
+// Completion window is exactly 24 hours (1440 minutes) — the time buyers have
+// to update a failed payment method after Charging → CompletionWindow. Per
+// canonical amendment 2026-09-16 §2 it is hard-locked in production; the
+// COMPLETION_WINDOW_MINUTES override is honored only in non-production runtimes
+// (resolver in runtime_config, single source of truth).
+const COMPLETION_WINDOW_MINUTES = resolveCompletionWindowMinutes();
 const OUTBOX_POLL_MS = Number(process.env.OUTBOX_POLL_MS || 1000);
 const OUTBOX_MAX_ATTEMPTS = Number(process.env.OUTBOX_MAX_ATTEMPTS || 4);
 
@@ -5316,6 +5320,12 @@ function applySecurityHeaders(reply: any) {
   // available (docs/PHYSICAL_FULFILLMENT_PICKUP.md §6). Microphone/payment/
   // usb/serial stay off.
   reply.header("permissions-policy", "camera=(self), microphone=(), geolocation=(self), payment=(), usb=(), serial=()");
+  // Red-team hardening (A6): enforce HTTPS on production hostnames so a
+  // downgrade/SSL-strip cannot expose session cookies or payment traffic. Only
+  // emitted in production-like runtimes (never on plain-HTTP local dev).
+  if (isProductionLikeEnv()) {
+    reply.header("strict-transport-security", "max-age=31536000; includeSubDomains");
+  }
 }
 
 function isImmutableDealImageRoute(req: any) {
