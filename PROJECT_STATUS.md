@@ -1,6 +1,6 @@
 # SITON PROJECT STATUS
 
-Updated: 2026-09-22
+Updated: 2026-09-25
 Canonical branch: `master`
 Current merged baseline: `2e32f436d809a330c8a2189994362cc9f459b009` (PR #53)
 Render staging: LIVE on that SHA — web `dep-dame6v0u01pc738qrku0`, worker `dep-dame6v0u01pc738qrlb0`
@@ -312,6 +312,30 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
+### Claude Code latest milestone — "Graphite Mint" brand rollout on every surface (UI only)
+
+- UPDATED: 2026-09-25
+- BRANCH: `claude/festive-wright-kx4e5a` from master `db793fa`. Owner: lock the Graphite Mint brand and roll it out system-wide with zero behaviour change. Plan `docs/team-plans/2026-09-25-graphite-mint-brand.json` (TEAM_PLAN_FAIL accepted and recorded: only the stale PR #71 and two status-only branches overlap, none on shared lines). Contract: `docs/BRAND_GRAPHITE_MINT.md`.
+- COMPLETED:
+  - **One token layer** in `web/src/styles.css`: `--brand-graphite #0f172a`, `--brand-mint #2dd4bf` (+ readable `--brand-mint-ink #115e59`), `--brand-green #065f46`, `--brand-amber #f59e0b` (urgency only), `--bg #f8fafc`, `--surface #ffffff`, `--line/--border #e5e7eb`, `--brand-sand` reserved. The older role names (`--brand`, `--brand-hi`, `--brand-tint`, `--live*`, `--accent-cyan`, `--saffron*`, `--success*`) are aliases, so every `var(--…)` resolves; translucent brand tints go through `rgb(var(--brand-mint-rgb) / a)` / `rgb(var(--brand-rgb) / a)`, no brand literal outside `:root`.
+  - **States**: primary CTA graphite fill → hover graphite-hi → active graphite-deep; keyboard focus = white gap + mint-ink ring (`--focus-ring`, 7.6:1); one flat disabled state for every button (loading = `disabled` while a request is in flight). Collecting pill mint; target reached green; Completion Window amber (was red); urgency badge/facts amber with graphite text; saving badge and share-lead button brand green; nav active underline mint; selection cards graphite border + mint tint + graphite indicator.
+  - **Group meter** (`web/src/util.ts#progressColor`): graphite on the way, mint leading edge growing from 60 % of the target, brand green at the target. Inputs, widths and thresholds unchanged.
+  - **Logo**: `C-ton` in graphite with a short horizontal mint dash (232×104 in the 1024 mark, 50×17 in the wordmark: a little thinner than the stroke, never a hairline, never a dot) and a soft blurred glow (opacity ≤ .55). `assets/brand/*.svg` are the sources (distinct filter ids `mark-dash-glow` / `word-dash-glow`); `scripts/render_brand_assets.cjs` + `npm run mobile:assets` regenerate every web, PWA, iOS and Android raster under the same file names (wordmark PNG now 2x for retina). The dash reads as a bar down to 16 px.
+  - **Legacy `/app` shell** (builder B2, isolated worktree): same palette in `frontend/styles.css` (`--live-rgb`, `--dark-rgb`, `--warning-fill`, `--focus` added), manifest/offline chrome `#f8fafc`, service-worker cache `siton-shell-v4-graphite-mint`; server-rendered legal/share/pay presentation strings (the pay fallback still carried the pre-Daylight orange link) recoloured; `web/src/pages/admin.tsx` one inline style whose undefined `--amber` fallback rendered an invented amber now uses the urgency tokens.
+- REVIEW: independent read-only reviewer → REQUEST_CHANGES: (1) HIGH shared SVG filter id gave the wordmark the mark's blur in the composed splash/lockup rasters (a boxed smudge behind the dash) — fixed, re-rendered, pinned by two pixel drift samples that fail on the old render; (2) focus ring failed non-text contrast — now mint ink; (3) plan overlap decision incomplete + status missing — recorded; (4) amber primary-image star — mint ink; (5) scattered brand rgba literals — token triplets; (6-9) doc accuracy, stale comments, admin badge — fixed. Meter-edge contrast (mint vs grey track at ≥90 %) left as designed: the fill starts graphite, the mint edge is the brand signal.
+- TESTED (this container has no Postgres credentials, so DB-backed suites are CI's):
+  - `test:visual-brand` → `VISUAL_BRAND_CONSISTENCY_PASS` (tokens, WCAG AA for every text/ground pair, ordered states, semantic pills, dash geometry, glow restraint, glow-box drift, pixel samples on every icon and splash).
+  - `proof:ux-round2` with screenshots → **324/324** at 320/390/430/768/1280/1440, no console errors — identical **324/324** after the review fixes.
+  - `web` build (tsc + vite) PASS; `build:demo` PASS; `mobile:verify` → `MOBILE_GATE_PASS` with a clean tree; `test:mobile-readiness` → `MOBILE_TESTS_PASS`.
+  - Stylesheet-pinning suites PASS: product_surfaces_refinement, frontend_foundation_rtl_accessibility, admin_support_product_surfaces, admin_rtl_surface, product_catalog, pickup_navigation, buyer_tracking_refinement, frontend_foundation_buyer_polish, frontend_foundation_countdown_pickup.
+  - `lint`, `gate:architecture`, `scan:secrets`, `check:repo-hygiene`, `gate:i18n` PASS; `git diff --check` clean.
+  - NOT RUN locally (ECONNREFUSED 5432): `legal_html_shell_alignment`, `frontend_flow`, `frontend_browser_smoke` — CI. `r7r8`/`p0` browser proofs (Edge/Windows-oriented, need a demo runtime) — pins updated, NOT RUN.
+  - By eye: mark at 512/64/32/16, wordmark at 22 px, lockup, light/dark splash, adaptive foreground; landing, deal, seller dashboard, admin, wizard and selection surfaces at 1280 and 390 (no overflow, no old colour).
+- DELIBERATELY NOT CHANGED: no route, API, auth, state, payment, worker, schema, permission, i18n string, markup, prop, class or `data-testid`; `frontend/app.js` untouched.
+- OPEN: PR review (Codex), CI, merge, staging deploy verification — recorded below when done.
+- PERCENTAGE: 90% (code complete and verified locally; merge + deploy pending).
+- NEXT STEP: open the PR, drive CI to green, squash-merge, confirm `siton-staging-web` live on the merge SHA and check the logo/dash/favicon on staging by eye.
+
 ### Claude Code latest milestone — Daylight for the legacy /app shell, PWA icons and native app icons (PR #87)
 
 - UPDATED: 2026-09-25

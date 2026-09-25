@@ -35,7 +35,7 @@ const REQUIRED_SHELL = [
   /<footer class="footer">/,
   /href="\/preview\/#\/support">תמיכה ויצירת קשר</,
   /<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">/,
-  /<meta name="theme-color" content="#f6f7fb">/
+  /<meta name="theme-color" content="#f8fafc">/
 ];
 
 try {

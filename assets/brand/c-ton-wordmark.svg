@@ -1,10 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="-18 0 540 140" role="img" aria-labelledby="title">
   <title id="title">C-ton</title>
-  <g fill="none" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M112 31H57Q31 31 31 57V83Q31 109 57 109H112" stroke="#4a3aff"/>
-    <path d="M222 20V88Q222 109 243 109H258M200 56H258" stroke="#13142b"/>
-    <rect x="293" y="56" width="68" height="53" rx="24" stroke="#13142b"/>
-    <path d="M398 109V56M398 82Q398 56 424 56H446Q472 56 472 82V109" stroke="#13142b"/>
+  <defs>
+    <filter id="word-dash-glow" x="-40%" y="-120%" width="180%" height="340%">
+      <feGaussianBlur stdDeviation="4"/>
+    </filter>
+  </defs>
+  <g fill="none" stroke="#0f172a" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M112 31H57Q31 31 31 57V83Q31 109 57 109H112"/>
+    <path d="M222 20V88Q222 109 243 109H258M200 56H258"/>
+    <rect x="293" y="56" width="68" height="53" rx="24"/>
+    <path d="M398 109V56M398 82Q398 56 424 56H446Q472 56 472 82V109"/>
   </g>
-  <rect x="134" y="66" width="50" height="22" rx="4" fill="#ff5a36"/>
+  <rect x="134" y="68.5" width="50" height="17" rx="5" fill="#2dd4bf" fill-opacity=".5" filter="url(#word-dash-glow)"/>
+  <rect x="134" y="68.5" width="50" height="17" rx="5" fill="#2dd4bf"/>
 </svg>

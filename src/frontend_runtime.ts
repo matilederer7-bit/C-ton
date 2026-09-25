@@ -440,7 +440,7 @@ async function renderLegalHtmlPage(
   }
   const chips = LEGAL_HTML_NAV.map((key) =>
     `<a class="chip${key === slug ? " active" : ""}" href="/legal/${key}"${key === slug ? ' aria-current="page"' : ""}>${escapeHtml(ts(locale, LEGAL_NAV_LABEL_KEYS[key]))}</a>`).join("");
-  const fallbackCss = "<style>img{max-width:100%}body{background:#f6f7fb;color:#13142b;font-family:Arial,sans-serif;line-height:1.7;margin:0}a{color:#3b2bd9}.container{max-width:1000px;margin:auto;padding:20px 16px}.panel{padding:24px}.nav-links,.legal-nav,.topbar-inner{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.topbar-inner{padding:12px 16px}.brand{color:inherit;text-decoration:none}.footer{padding:24px 16px;text-align:center}.footer a{margin:0 8px}.lang-switch a{margin:0 6px;font-size:.85rem}</style>";
+  const fallbackCss = "<style>img{max-width:100%}body{background:#f8fafc;color:#0f172a;font-family:Arial,sans-serif;line-height:1.7;margin:0}a{color:#115e59}.container{max-width:1000px;margin:auto;padding:20px 16px}.panel{padding:24px}.nav-links,.legal-nav,.topbar-inner{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.topbar-inner{padding:12px 16px}.brand{color:inherit;text-decoration:none}.footer{padding:24px 16px;text-align:center}.footer a{margin:0 8px}.lang-switch a{margin:0 6px;font-size:.85rem}</style>";
   // The no-JS shell needs its own language switch: it is a server-rendered
   // page, so the choice travels as ?lang= and is persisted by the app when the
   // visitor returns to it.
@@ -453,7 +453,7 @@ async function renderLegalHtmlPage(
     : "";
   return `<!doctype html><html ${htmlAttrs(locale)}><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#f6f7fb">
+    <meta name="theme-color" content="#f8fafc">
     <title>C-ton | ${escapeHtml(page.title)}</title>
     <link rel="icon" href="/preview/brand/c-ton-mark-180.png">
     <link rel="alternate" hreflang="he" href="/legal/${slug}?lang=he">
@@ -2313,9 +2313,9 @@ export function registerFrontendExperience(
 <meta name="twitter:image" content="${safeImage}">
 <meta http-equiv="refresh" content="0;url=${safeSpa}">
 <script>window.location.replace(${JSON.stringify(spaPath)});</script>
-<style>body{background:#f6f7fb;color:#13142b;font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0}</style>
+<style>body{background:#f8fafc;color:#0f172a;font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0}</style>
 </head>
-<body><p><a style="color:#3b2bd9" href="${safeSpa}">${escapeHtml(ts(shareLocale, "deal.share.redirecting"))}</a></p></body>
+<body><p><a style="color:#115e59" href="${safeSpa}">${escapeHtml(ts(shareLocale, "deal.share.redirecting"))}</a></p></body>
 </html>`;
     return reply
       .header("cache-control", "public, max-age=300")
@@ -6335,10 +6335,10 @@ export function registerFrontendExperience(
       const message = escapeHtml(ts(locale, messageKey));
       return reply.type("text/html; charset=utf-8").send(
         `<!doctype html><html ${htmlAttrs(locale)}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title></head>` +
-        `<body style="font-family:system-ui,sans-serif;background:#eef0f3;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center">` +
+        `<body style="font-family:system-ui,sans-serif;background:#f8fafc;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center">` +
         `<main style="background:#fff;border-radius:12px;padding:32px;max-width:420px;text-align:center;box-shadow:0 2px 12px rgba(0,0,0,.08)">` +
-        `<h1 style="font-size:1.25rem;margin:0 0 12px">${title}</h1><p style="margin:0;color:#444">${message}</p>` +
-        `<p style="margin:16px 0 0"><a href="/app" style="color:#ec6608">${escapeHtml(ts(locale, "pay.back_to_siton"))}</a></p></main></body></html>`
+        `<h1 style="font-size:1.25rem;margin:0 0 12px">${title}</h1><p style="margin:0;color:#334155">${message}</p>` +
+        `<p style="margin:16px 0 0"><a href="/app" style="color:#115e59">${escapeHtml(ts(locale, "pay.back_to_siton"))}</a></p></main></body></html>`
       );
     });
   }

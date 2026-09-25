@@ -23,7 +23,7 @@
 .cms-item { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; display: grid; gap: 4px; min-width: 0; }
 .cms-item-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 4px; }
 .cms-add select { max-width: 100%; }
-.cms-preview-banner { position: sticky; top: 0; z-index: 30; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; padding: 8px 16px; background: var(--saffron-tint); color: var(--saffron); border-bottom: 1px solid rgba(164, 74, 4, .25); font-weight: 700; font-size: .9rem; }
+.cms-preview-banner { position: sticky; top: 0; z-index: 30; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; padding: 8px 16px; background: var(--saffron-tint); color: var(--saffron); border-bottom: 1px solid rgba(146, 64, 14, .25); font-weight: 700; font-size: .9rem; }
 .landing-image-text { display: grid; grid-template-columns: minmax(0, 300px) 1fr; gap: 20px; align-items: start; }
 .landing-image-text.image-end { grid-template-columns: 1fr minmax(0, 300px); }
 .landing-image-text.image-end .landing-image-text-img { order: 2; }

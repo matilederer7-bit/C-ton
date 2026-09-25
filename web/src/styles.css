@@ -1,92 +1,95 @@
 /* ─────────────────────────────────────────────────────────────────────────
-   C-TON — design system · "Daylight" (2026-09-24 visual refresh)
+   C-TON — design system · "Graphite Mint" (locked 2026-09-25)
    Hebrew-first, RTL, mobile-first group-commerce platform.
 
-   The product moved out of the graphite room into daylight. The owner asked
-   for Siton to feel alive, bright, clean, commercial and trustworthy, with the
-   deals themselves reading as something happening NOW — never a grey admin
-   system, never a heavy finance site, never toy-like.
-
    The language:
+   · graphite   — the brand's dark. Primary text, headings, navigation, the
+                  primary CTA fill and every dark brand element.
+   · mint       — the brand's light. The short dash in the logo, highlights,
+                  selected interactions, positive progress in motion, live
+                  dots, section-marker bars, the small details that give the
+                  system its character. Mint is never body text: mint TEXT
+                  uses the readable mint ink.
+   · green      — success only: target reached, completed, success buttons.
+   · amber      — urgency and attention only: few units left, time running
+                  out, the Completion Window, a warning that is not a failure.
+                  Never a brand colour.
+   · red        — real errors and danger only.
    · ground     — cool paper white; content sits on pure-white cards with a
-                  hairline border and a soft, low shadow (depth by light, not
-                  by darkness).
-   · brand      — Siton Indigo, one confident electric blue-violet. It carries
-                  trust and technology: primary actions, links, selection,
-                  focus, the group meter.
-   · live       — Siton Coral, the warm spark inherited from the old orange
-                  bar. Used sparingly and only for "happening now": live dots,
-                  the logo bar, urgency, the meter heating up near its target.
-   · semantics  — green / amber / red / blue are reserved for state (success,
-                  warning, error, info) and never used as decoration.
-   · type       — Rubik for display (headings, prices, counters: rounded,
-                  geometric, Hebrew-native), Assistant for reading text.
+                  hairline border and a soft, graphite-tinted shadow.
+   · type       — Rubik for display (headings, prices, counters), Assistant
+                  for reading text.
 
-   Every text pairing below is WCAG AA (≥ 4.5:1) on every surface it can land
-   on; pinned by tests/visual_brand_consistency_validation.ts.
+   ONE token layer. Components never carry a brand hex; they reference the
+   tokens below. Every text pairing is WCAG AA (≥ 4.5:1) on every surface it
+   can land on; pinned by tests/visual_brand_consistency_validation.ts.
    ───────────────────────────────────────────────────────────────────────── */
-
 :root {
-  /* ground — daylight surfaces, lightest last */
-  --bg: #f6f7fb;
-  --bg-deep: #eef0f6;       /* recessed wells: tracks, KPI cells, code plates */
+  /* ── brand primitives (the locked palette) ─────────────────────────── */
+  --brand-graphite: #0f172a;
+  --brand-graphite-hi: #1e293b;     /* hover of a graphite fill */
+  --brand-graphite-deep: #020617;   /* active / pressed */
+  --brand-mint: #2dd4bf;
+  --brand-mint-ink: #115e59;        /* mint as TEXT (7.6:1 on white) */
+  --brand-mint-rgb: 45 212 191;
+  --brand-green: #065f46;
+  --brand-green-hi: #047857;
+  --brand-amber: #f59e0b;
+  --brand-amber-ink: #92400e;
+  --brand-sand: #d6c7a7;            /* reserved: soft warm wash only */
+
+  /* ── ground & surfaces ─────────────────────────────────────────────── */
+  --bg: #f8fafc;
+  --bg-deep: #f1f5f9;       /* recessed wells: tracks, KPI cells, code plates */
   --surface: #ffffff;       /* cards, panels, sheets */
-  --surface-warm: #f3f4f9;  /* hover rows, secondary fills */
-  --line: #e3e6ef;
-  --line-strong: #cdd2df;
+  --surface-warm: #f3f5f9;  /* hover rows, secondary fills */
+  --line: #e5e7eb;          /* secondary grey: borders, dividers, tracks */
+  --line-strong: #cbd5e1;
+  --border: var(--line);
 
-  /* ink — a deep indigo-navy, never pure black. All three clear 4.5:1 on all
-     four grounds (faint: 5.42 bg · 5.09 deep · 5.80 surface · 5.28 warm). */
-  --ink: #13142b;
-  --ink-soft: #454a63;
-  --ink-faint: #5f6480;
+  /* ── ink ───────────────────────────────────────────────────────────── */
+  --ink: var(--brand-graphite);
+  --ink-soft: #334155;
+  --ink-faint: #475569;
 
-  /* brand — Siton Indigo.
-     --brand      the fill (white text on it: 6.29:1)
-     --brand-hi   brand-coloured TEXT and links on light grounds (7.7:1)
-     --brand-deep pressed / hover-dark fill */
-  --brand: #4a3aff;
-  --brand-hi: #3b2bd9;
-  --brand-deep: #2f22b3;
-  --brand-rgb: 74 58 255;
-  --brand-tint: rgba(74, 58, 255, 0.09);
-  --brand-glow: rgba(74, 58, 255, 0.28);
+  /* ── brand roles (components reference these) ──────────────────────── */
+  --brand: var(--brand-graphite);           /* primary CTA, nav, dark brand */
+  --brand-hi: var(--brand-mint-ink);        /* accent TEXT: links, prices, active tabs */
+  --brand-deep: var(--brand-graphite-deep);
+  --brand-rgb: 15 23 42;
+  --brand-tint: rgba(45, 212, 191, 0.14);   /* selected / highlighted surfaces */
+  --brand-glow: rgba(45, 212, 191, 0.55);   /* decorative mint halo (selected image, on-path nodes) */
+  --focus-ring: 0 0 0 2px var(--surface), 0 0 0 4px var(--brand-mint-ink); /* keyboard focus: readable mint ink */
   --on-brand: #ffffff;
 
-  /* live — Siton Coral: the "happening now" spark. Decorative fills use
-     --live; text or small badges on it use --live-strong (white 4.8:1) or
-     --live-ink on a light ground. */
-  --live: #ff5a36;
-  --live-strong: #cf3b18;
-  --live-ink: #c2371a;
-  --live-tint: #fff0eb;
+  /* ── live: the mint in motion ──────────────────────────────────────── */
+  --live: var(--brand-mint);
+  --live-ink: var(--brand-mint-ink);
+  --live-tint: #e6faf7;
 
-  /* semantic state colours. The legacy names stay (the product code and the
-     inline styles reference them); their values moved to daylight.
-     --accent-cyan was the dark theme's single positive accent — it now means
-     "positive / charged / ready" and resolves to the success green. */
-  --accent-cyan: #067a55;
-  --accent-cyan-soft: #e6f6ef;
+  /* ── semantic state (never decoration) ─────────────────────────────── */
+  --accent-cyan: var(--brand-green);        /* success text */
+  --accent-cyan-soft: #ecfdf5;              /* success tint */
   --accent-cyan-glow: 0 0 0 transparent;
-  --saffron: #a44a04;       /* warning text */
-  --saffron-fill: #f59e0b;
-  --saffron-tint: #fff3e0;
+  --success: var(--accent-cyan);
+  --success-fill: var(--brand-green);       /* success buttons, reached meter */
+  --success-tint: var(--accent-cyan-soft);
+  --saffron: var(--brand-amber-ink);        /* urgency / warning text */
+  --saffron-fill: var(--brand-amber);       /* urgency fill: graphite text on it */
+  --saffron-tint: #fef3c7;
   --pomegranate: #c8261a;   /* error / destructive text + fill (white 5.6:1) */
   --pomegranate-tint: #fdecea;
-  --success: var(--accent-cyan);
-  --success-fill: #12a26f;
-  --success-tint: var(--accent-cyan-soft);
   --sky: #1d5fd0;           /* informational / in-progress (charging) */
   --sky-tint: #e9f1ff;
 
   --radius: 14px;
   --radius-sm: 10px;
   --radius-lg: 20px;
-  /* light shadows: navy-tinted, low alpha, long and soft */
-  --shadow: 0 12px 32px -14px rgba(19, 20, 43, 0.18);
-  --shadow-soft: 0 6px 18px -10px rgba(19, 20, 43, 0.14);
-  --shadow-pop: 0 22px 48px -18px rgba(19, 20, 43, 0.26);
-  --shadow-brand: 0 10px 24px -10px rgba(74, 58, 255, 0.45);
+
+  --shadow: 0 12px 32px -14px rgba(15, 23, 42, 0.18);
+  --shadow-soft: 0 6px 18px -10px rgba(15, 23, 42, 0.14);
+  --shadow-pop: 0 22px 48px -18px rgba(15, 23, 42, 0.26);
+  --shadow-brand: 0 10px 24px -10px rgba(15, 23, 42, 0.45);
   --max: 1140px;
 
   --font-ui: "Assistant", "Segoe UI", system-ui, sans-serif;
@@ -100,8 +103,8 @@ html { scroll-behavior: smooth; background: var(--bg); }
 body {
   margin: 0;
   background:
-    radial-gradient(1200px 520px at 85% -12%, rgba(74, 58, 255, 0.07), transparent 62%),
-    radial-gradient(900px 480px at 0% -8%, rgba(255, 90, 54, 0.05), transparent 60%),
+    radial-gradient(1200px 520px at 85% -12%, rgb(var(--brand-mint-rgb) / 0.10), transparent 62%),
+    radial-gradient(900px 480px at 0% -8%, rgb(var(--brand-rgb) / 0.04), transparent 60%),
     var(--bg);
   background-repeat: no-repeat;
   color: var(--ink);
@@ -123,14 +126,14 @@ input, select, textarea {
   min-width: 0;
   transition: border-color .12s ease, box-shadow .12s ease;
 }
-input:hover, select:hover, textarea:hover { border-color: #b3b9ca; }
+input:hover, select:hover, textarea:hover { border-color: #94a3b8; }
 input:disabled, select:disabled, textarea:disabled { background: var(--surface-warm); color: var(--ink-faint); cursor: not-allowed; }
 input::placeholder, textarea::placeholder { color: var(--ink-faint); opacity: 1; }
 input:focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
-  outline: none; box-shadow: 0 0 0 3px var(--brand-glow); border-color: var(--brand);
+  outline: none; box-shadow: var(--focus-ring); border-color: var(--brand-mint-ink);
 }
 select { appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--ink-soft) 50%), linear-gradient(135deg, var(--ink-soft) 50%, transparent 50%); background-position: calc(14px) calc(50% + 1px), calc(14px + 5px) calc(50% + 1px); background-size: 5px 5px; background-repeat: no-repeat; padding-inline-start: 28px; }
-::selection { background: rgba(74, 58, 255, 0.18); }
+::selection { background: rgb(var(--brand-mint-rgb) / 0.35); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -143,7 +146,7 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
   backdrop-filter: saturate(1.4) blur(14px);
   -webkit-backdrop-filter: saturate(1.4) blur(14px);
   border-bottom: 1px solid var(--line);
-  box-shadow: 0 1px 0 rgba(19, 20, 43, 0.02), 0 8px 24px -20px rgba(19, 20, 43, 0.35);
+  box-shadow: 0 1px 0 rgb(var(--brand-rgb) / 0.02), 0 8px 24px -20px rgb(var(--brand-rgb) / 0.35);
   padding-top: env(safe-area-inset-top, 0);
 }
 .topbar-inner {
@@ -156,7 +159,7 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); min-width: 0; }
 .brand-mark-img {
   width: 38px; height: 38px; border-radius: 11px; flex: none;
-  box-shadow: 0 6px 14px -6px rgba(74, 58, 255, .55);
+  box-shadow: 0 6px 14px -6px rgb(var(--brand-rgb) / .45);
 }
 .brand-word { font-weight: 800; font-size: 1.3rem; letter-spacing: .015em; line-height: 1; display: inline-block; }
 .brand-word-c { color: var(--brand); }
@@ -171,7 +174,7 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
   border-bottom: 2px solid transparent;
 }
 .nav-link:hover { background: var(--surface-warm); color: var(--ink); }
-.nav-link.active { color: var(--brand-hi); background: var(--brand-tint); border-bottom-color: var(--brand); }
+.nav-link.active { color: var(--ink); background: var(--brand-tint); border-bottom-color: var(--brand-mint); }
 .container { max-width: var(--max); margin: 0 auto; padding: 20px 16px 56px; width: 100%; min-width: 0; }
 .footer {
   border-top: 1px solid var(--line); background: var(--surface); padding: 26px 16px calc(34px + env(safe-area-inset-bottom, 0)); margin-top: auto;
@@ -233,14 +236,14 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 .admin-dot.top { top: 0; }
 .admin-dot.bottom { bottom: 0; }
 
-/* ── branded loading (the C-ton mark breathing on the dark ground) ─────── */
+/* ── branded loading (the C-ton mark breathing on the paper ground) ────── */
 .brand-loader {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 14px; padding: 30px 16px; text-align: center;
 }
 .brand-loader-mark {
   width: 72px; height: 72px; border-radius: 20px;
-  box-shadow: 0 14px 30px -12px rgba(74, 58, 255, .5);
+  box-shadow: 0 14px 30px -12px rgb(var(--brand-rgb) / .45);
   animation: brand-breathe 1.9s ease-in-out infinite;
 }
 .brand-loader-bar {
@@ -268,7 +271,7 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 /* hero background-video capability (flag-gated; graphite fallback when off) */
 .hero-video { position: absolute; inset: 0; z-index: 0; }
 .hero-video video { width: 100%; height: 100%; object-fit: cover; }
-.hero-video-overlay { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(246,247,251,.74), rgba(246,247,251,.92)); }
+.hero-video-overlay { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(248,250,252,.74), rgba(248,250,252,.92)); }
 
 .landing-section { max-width: 900px; margin: 40px auto 0; padding: 0 4px; }
 .landing-section h2 { font-size: clamp(1.25rem, 3.4vw, 1.7rem); display: flex; align-items: center; gap: 10px; }
@@ -325,26 +328,35 @@ input.invalid, textarea.invalid, select.invalid { border-color: var(--pomegranat
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   border: none; border-radius: 12px; cursor: pointer;
   font-weight: 700; font-size: 1rem; padding: 10px 22px;
-  background: #eceef6; color: var(--ink);
+  background: var(--bg-deep); color: var(--ink);
   transition: transform .12s ease, box-shadow .12s ease, background .12s ease, border-color .12s ease, color .12s ease;
   text-decoration: none;
   min-height: 44px;
 }
-.btn:hover { transform: translateY(-1px); background: #e2e5ef; }
+.btn:hover { transform: translateY(-1px); background: var(--line); }
 .btn:active { transform: translateY(0); }
-.btn:disabled { opacity: .45; cursor: not-allowed; transform: none; box-shadow: none; }
-.btn-primary {
-  background: linear-gradient(180deg, #5a4bff 0%, var(--brand) 100%);
-  color: var(--on-brand); box-shadow: var(--shadow-brand), inset 0 1px 0 rgba(255, 255, 255, .18);
+/* one disabled state for every button: flat grey, faint ink, no lift. The
+   :hover / :active forms carry a higher specificity than any variant's own
+   hover rule (.btn-primary:hover), so a disabled control under the pointer —
+   a busy save/publish/login button — stays visibly disabled. */
+.btn:disabled, .btn:disabled:hover, .btn:disabled:active,
+.btn[aria-disabled="true"], .btn[aria-disabled="true"]:hover, .btn[aria-disabled="true"]:active {
+  background: var(--bg-deep); color: var(--ink-faint); cursor: not-allowed; transform: none; box-shadow: none; opacity: 1;
 }
-.btn-primary:hover { box-shadow: 0 14px 30px -12px rgba(74, 58, 255, .6), inset 0 1px 0 rgba(255, 255, 255, .18); background: linear-gradient(180deg, var(--brand) 0%, var(--brand-hi) 100%); }
+/* primary CTA: the graphite fill. hover lifts to graphite-hi, active presses
+   to graphite-deep, focus takes the mint-ink ring (global rule above) */
+.btn-primary {
+  background: linear-gradient(180deg, var(--brand-graphite-hi) 0%, var(--brand) 100%);
+  color: var(--on-brand); box-shadow: var(--shadow-brand), inset 0 1px 0 rgba(255, 255, 255, .10);
+}
+.btn-primary:hover { box-shadow: 0 14px 30px -12px rgb(var(--brand-rgb) / .55), inset 0 1px 0 rgba(255, 255, 255, .10); background: var(--brand-graphite-hi); }
 .btn-primary:active, .btn-join:active { background: var(--brand-deep); }
 .btn-join {
-  background: linear-gradient(180deg, #5a4bff 0%, var(--brand) 100%);
-  color: var(--on-brand); box-shadow: 0 14px 30px -12px rgba(74, 58, 255, .6), inset 0 1px 0 rgba(255, 255, 255, .18);
+  background: linear-gradient(180deg, var(--brand-graphite-hi) 0%, var(--brand) 100%);
+  color: var(--on-brand); box-shadow: 0 14px 30px -12px rgb(var(--brand-rgb) / .55), inset 0 1px 0 rgba(255, 255, 255, .10);
   font-size: 1.12rem; padding: 14px 28px; border-radius: 14px;
 }
-.btn-join:hover { background: linear-gradient(180deg, var(--brand) 0%, var(--brand-hi) 100%); }
+.btn-join:hover { background: var(--brand-graphite-hi); }
 .btn-ghost { background: var(--surface); border: 1.5px solid var(--line-strong); color: var(--ink); }
 .btn-ghost:hover { border-color: var(--brand); color: var(--brand-hi); background: var(--brand-tint); }
 .btn-danger { background: var(--pomegranate); color: #fff; }
@@ -366,22 +378,22 @@ input.invalid, textarea.invalid, select.invalid { border-color: var(--pomegranat
 .status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .status.Draft { background: var(--bg-deep); color: var(--ink-soft); }
 /* collecting a group right now — the one pill that breathes */
-.status.PendingTarget { background: var(--brand-tint); color: var(--brand-hi); }
-.status.PendingTarget::before { background: var(--live); box-shadow: 0 0 0 0 rgba(255, 90, 54, .5); animation: live-ring 1.8s ease-out infinite; }
+.status.PendingTarget { background: var(--live-tint); color: var(--live-ink); }
+.status.PendingTarget::before { background: var(--live); box-shadow: 0 0 0 0 rgb(var(--brand-mint-rgb) / .5); animation: live-ring 1.8s ease-out infinite; }
 .status.TargetReached { background: var(--success-tint); color: var(--success); }
 .status.ClosedForJoining { background: var(--bg-deep); color: var(--ink-soft); }
 .status.ReadyForCharging { background: var(--sky-tint); color: var(--sky); }
 .status.Charging { background: var(--sky-tint); color: var(--sky); }
-.status.CompletionWindow { background: var(--pomegranate-tint); color: var(--pomegranate); }
+.status.CompletionWindow { background: var(--saffron-tint); color: var(--saffron); }
 .status.Completed { background: var(--success-tint); color: var(--success); }
 .status.Failed { background: var(--pomegranate-tint); color: var(--pomegranate); }
 .status.Cancelled { background: var(--bg-deep); color: #9a3b33; }
 
-/* ── THE GROUP METER (signature element — the orange bar telling the story) */
+/* ── THE GROUP METER (signature element — graphite fill, mint leading edge, green at target) */
 .gm { position: relative; }
 .gm-track {
-  height: 14px; border-radius: 999px; background: #e7e9f2;
-  border: none; box-shadow: inset 0 1px 2px rgba(19, 20, 43, .08);
+  height: 14px; border-radius: 999px; background: var(--line);
+  border: none; box-shadow: inset 0 1px 2px rgb(var(--brand-rgb) / .08);
   overflow: hidden; position: relative;
 }
 .gm-track.gm-lg { height: 20px; }
@@ -444,8 +456,8 @@ input.invalid, textarea.invalid, select.invalid { border-color: var(--pomegranat
   border-radius: 999px; padding: 6px 14px; font-size: .88rem; color: var(--ink-soft);
   box-shadow: var(--shadow-soft);
 }
-.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--live); box-shadow: 0 0 0 0 rgba(255, 90, 54, .5); animation: live-ring 1.8s ease-out infinite; }
-@keyframes live-ring { 0% { box-shadow: 0 0 0 0 rgba(255, 90, 54, .55); } 70% { box-shadow: 0 0 0 7px rgba(255, 90, 54, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 90, 54, 0); } }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--live); box-shadow: 0 0 0 0 rgb(var(--brand-mint-rgb) / .5); animation: live-ring 1.8s ease-out infinite; }
+@keyframes live-ring { 0% { box-shadow: 0 0 0 0 rgb(var(--brand-mint-rgb) / .55); } 70% { box-shadow: 0 0 0 7px rgb(var(--brand-mint-rgb) / 0); } 100% { box-shadow: 0 0 0 0 rgb(var(--brand-mint-rgb) / 0); } }
 @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .45; transform: scale(.8); } }
 
 .filters { display: flex; gap: 8px; flex-wrap: wrap; margin: 18px 0; }
@@ -457,22 +469,22 @@ input.invalid, textarea.invalid, select.invalid { border-color: var(--pomegranat
   transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
   display: flex; flex-direction: column; text-decoration: none; color: inherit;
 }
-.card:hover { transform: translateY(-4px); box-shadow: var(--shadow-pop); border-color: rgba(74, 58, 255, .28); }
+.card:hover { transform: translateY(-4px); box-shadow: var(--shadow-pop); border-color: var(--line-strong); }
 .card-media { aspect-ratio: 16/10; background: var(--bg-deep); position: relative; overflow: hidden; }
 .card-media img { width: 100%; height: 100%; object-fit: cover; }
 .card-media .placeholder { position: absolute; inset: 0; display: grid; place-items: center; font-size: .82rem; font-weight: 700; letter-spacing: .04em; color: var(--ink-faint); }
 .card-type {
   position: absolute; top: 10px; inset-inline-start: 10px;
   background: rgba(255, 255, 255, .92); backdrop-filter: blur(4px);
-  border-radius: 999px; padding: 3px 12px; box-shadow: 0 2px 8px -2px rgba(19, 20, 43, .25);
+  border-radius: 999px; padding: 3px 12px; box-shadow: 0 2px 8px -2px rgb(var(--brand-rgb) / .25);
   font-size: .78rem; font-weight: 700; color: var(--ink);
 }
 .card-urgency {
   position: absolute; bottom: 10px; inset-inline-start: 10px;
-  background: rgba(19, 20, 43, .78); color: #fff; backdrop-filter: blur(4px);
+  background: rgb(var(--brand-rgb) / .78); color: #fff; backdrop-filter: blur(4px);
   border-radius: 999px; padding: 3px 12px; font-size: .78rem; font-weight: 700;
 }
-.card-urgency.hot { background: var(--live-strong); color: #fff; }
+.card-urgency.hot { background: var(--saffron-fill); color: var(--ink); }
 .card-body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 9px; flex: 1; }
 .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .card-title { font-size: 1.08rem; font-weight: 800; line-height: 1.25; }
@@ -548,7 +560,7 @@ input.invalid, textarea.invalid, select.invalid { border-color: var(--pomegranat
 .order-summary { border-top: 1px dashed var(--line-strong); margin-top: 14px; padding-top: 12px; display: grid; gap: 6px; font-size: .95rem; }
 .order-row { display: flex; justify-content: space-between; gap: 10px; }
 .order-row.total { font-weight: 800; font-size: 1.15rem; border-top: 1px solid var(--line); padding-top: 8px; margin-top: 4px; }
-.order-note { font-size: .84rem; color: var(--ink-soft); background: var(--brand-tint); border: 1px solid rgba(74, 58, 255, .2); border-radius: var(--radius-sm); padding: 10px 12px; line-height: 1.45; }
+.order-note { font-size: .84rem; color: var(--ink-soft); background: var(--brand-tint); border: 1px solid rgb(var(--brand-mint-rgb) / .45); border-radius: var(--radius-sm); padding: 10px 12px; line-height: 1.45; }
 
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; font-size: .95rem; }
 .kv .k { color: var(--ink-soft); }
@@ -601,7 +613,7 @@ input.invalid, textarea.invalid, select.invalid { border-color: var(--pomegranat
 .cd-unit { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; padding: 6px 2px; border-radius: var(--radius-sm); background: var(--surface); border: 1px solid var(--line); }
 .cd-label { font-size: .72rem; font-weight: 700; color: var(--ink-soft); white-space: nowrap; line-height: 1.2; }
 .cd-num { font-size: 1.6rem; font-weight: 700; line-height: 1.1; color: var(--ink); font-family: var(--font-display); direction: ltr; unicode-bidi: isolate; letter-spacing: .02em; }
-.live-countdown.final .cd-num { color: var(--live-ink); }
+.live-countdown.final .cd-num { color: var(--saffron); }
 .live-countdown.reached .cd-num { color: var(--ink-faint); }
 .live-countdown.compact { max-width: 300px; gap: 4px; }
 .live-countdown.compact .cd-unit { padding: 3px 2px; background: transparent; border: none; }
@@ -676,12 +688,12 @@ input.invalid, textarea.invalid, select.invalid { border-color: var(--pomegranat
 .img-star {
   position: absolute; top: 6px; inset-inline-start: 6px; z-index: 3;
   width: 32px; height: 32px; border-radius: 50%; border: none; cursor: pointer;
-  background: rgba(255, 255, 255, .92); color: var(--ink-faint); box-shadow: 0 2px 8px -2px rgba(19, 20, 43, .3);
+  background: rgba(255, 255, 255, .92); color: var(--ink-faint); box-shadow: 0 2px 8px -2px rgb(var(--brand-rgb) / .3);
   font-size: 1.15rem; line-height: 1; display: grid; place-items: center;
   transition: color .12s ease, transform .12s ease;
 }
 .img-star:hover { transform: scale(1.12); color: var(--brand-hi); }
-.img-star.active { color: var(--saffron-fill); }
+.img-star.active { color: var(--brand-mint-ink); }
 .img-star:disabled { opacity: .5; cursor: default; }
 
 /* joining paused banner (P0.3-14) */
@@ -815,7 +827,7 @@ input.invalid, textarea.invalid, select.invalid { border-color: var(--pomegranat
 .funnel-step { display: grid; grid-template-columns: 150px 1fr 52px; align-items: center; gap: 10px; }
 .funnel-label { font-size: .8rem; color: var(--ink-soft); font-weight: 600; }
 .funnel-bar-track { background: var(--bg-deep); border-radius: 999px; height: 16px; overflow: hidden; border: 1px solid var(--line); }
-.funnel-bar { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--brand), #7b6dff); }
+.funnel-bar { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--brand), var(--brand-mint)); }
 .funnel-value { font-weight: 800; font-size: .9rem; text-align: start; }
 @media (max-width: 560px) { .funnel-step { grid-template-columns: 110px 1fr 46px; } .funnel-label { font-size: .72rem; } }
 
@@ -875,7 +887,7 @@ input.invalid, textarea.invalid, select.invalid { border-color: var(--pomegranat
 .deadline-row { display: grid; grid-template-columns: 1.4fr 1fr; gap: 10px; }
 .deadline-confirm { color: var(--success); font-weight: 700; font-size: .9rem; }
 .btn-danger-ghost { border-color: rgba(200, 38, 26, .45) !important; color: var(--pomegranate) !important; }
-.btn-danger-ghost:hover { border-color: var(--pomegranate) !important; background: var(--pomegranate-tint) !important; }
+.btn-danger-ghost:hover:not(:disabled) { border-color: var(--pomegranate) !important; background: var(--pomegranate-tint) !important; }
 
 /* ── seller dashboard ──────────────────────────────────────────────────── */
 .dash-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
@@ -955,7 +967,7 @@ table.data tr.clickable { cursor: pointer; }
 td.num, th.num { text-align: end; font-variant-numeric: tabular-nums; }
 
 .gen-bars { display: flex; align-items: flex-end; gap: 6px; height: 90px; }
-.gen-bar { flex: 1; background: linear-gradient(180deg, #7b6dff, var(--brand)); border-radius: 6px 6px 0 0; min-width: 22px; position: relative; }
+.gen-bar { flex: 1; background: linear-gradient(180deg, var(--brand-mint), var(--brand)); border-radius: 6px 6px 0 0; min-width: 22px; position: relative; }
 .gen-bar .gen-lbl { position: absolute; bottom: -20px; width: 100%; text-align: center; font-size: .72rem; color: var(--ink-soft); }
 .gen-bar .gen-val { position: absolute; top: -18px; width: 100%; text-align: center; font-size: .74rem; font-weight: 700; }
 
@@ -1082,7 +1094,7 @@ td.num, th.num { text-align: end; font-variant-numeric: tabular-nums; }
 
 /* ── modal / mobile sheet ──────────────────────────────────────────────── */
 .modal-backdrop {
-  position: fixed; inset: 0; background: rgba(19, 20, 43, .42); backdrop-filter: blur(4px);
+  position: fixed; inset: 0; background: rgb(var(--brand-rgb) / .42); backdrop-filter: blur(4px);
   z-index: 80; display: grid; place-items: center; padding: 16px;
 }
 .modal {
@@ -1179,7 +1191,7 @@ td.num, th.num { text-align: end; font-variant-numeric: tabular-nums; }
 .img-upload-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #fff; padding: 8px; text-align: center; }
 .img-upload-overlay.err { background: rgba(120,20,20,.78); }
 .img-progress { width: 80%; height: 6px; border-radius: 999px; background: rgba(255,255,255,.3); overflow: hidden; }
-.img-progress > div { height: 100%; background: var(--brand-hi); border-radius: 999px; transition: width .2s; }
+.img-progress > div { height: 100%; background: var(--brand-mint); border-radius: 999px; transition: width .2s; }
 .img-strip { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
 .img-strip-thumb { position: relative; width: 84px; height: 63px; border-radius: 8px; overflow: hidden; border: 1.5px solid var(--line); }
 .img-strip-thumb.primary { border-color: var(--brand); }
@@ -1251,7 +1263,7 @@ tr.clickable:hover { background: var(--brand-tint); }
 /* LAUNCH MODE — regular price + saving badge (deal page hero, mall card) */
 .deal-saving { display: flex; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
 .price-was { color: var(--ink-faint); text-decoration: line-through; font-size: 1.05rem; }
-.saving-badge { display: inline-block; padding: 3px 10px; border-radius: 999px; background: var(--live-strong); color: #fff; font-weight: 700; font-size: 0.9rem; }
+.saving-badge { display: inline-block; padding: 3px 10px; border-radius: 999px; background: var(--success-fill); color: #fff; font-weight: 700; font-size: 0.9rem; }
 .card-price-row .price-was { font-size: 0.85rem; margin-inline-start: 6px; }
 
 /* ── LAUNCH POLISH (P3) — first-time seller journey strip ─────────────── */
@@ -1267,7 +1279,7 @@ tr.clickable:hover { background: var(--brand-tint); }
 .journey-step .j-b { font-size: .72rem; color: var(--ink-soft); line-height: 1.3; margin-top: 3px; }
 .journey-step.done { border-color: rgba(6, 122, 85, .3); }
 .journey-step.done .j-n { background: var(--success-tint); color: var(--success); }
-.journey-step.now { border-color: var(--brand); background: linear-gradient(160deg, rgba(74, 58, 255, .12), var(--surface) 80%); box-shadow: 0 0 0 1px var(--brand) inset; }
+.journey-step.now { border-color: var(--brand); background: linear-gradient(160deg, rgb(var(--brand-mint-rgb) / .16), var(--surface) 80%); box-shadow: 0 0 0 1px var(--brand) inset; }
 .journey-step.now .j-n { background: var(--brand); color: var(--on-brand); }
 .journey-step.now .j-t { color: var(--brand-hi); }
 .journey-foot { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-top: 10px; font-size: .82rem; color: var(--ink-soft); }
@@ -1328,8 +1340,8 @@ tr.clickable:hover { background: var(--brand-tint); }
 .deal-facts .fact { background: var(--bg-deep); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 6px; text-align: center; display: grid; gap: 2px; min-width: 0; }
 .deal-facts .fact-n { font-size: 1.35rem; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .deal-facts .fact-l { font-size: .74rem; color: var(--ink-soft); font-weight: 700; }
-.deal-facts .fact.hot { border-color: rgba(255, 90, 54, .4); background: var(--live-tint); }
-.deal-facts .fact.hot .fact-n { color: var(--live-ink); }
+.deal-facts .fact.hot { border-color: rgba(245, 158, 11, .5); background: var(--saffron-tint); }
+.deal-facts .fact.hot .fact-n { color: var(--saffron); }
 .deal-facts .fact.ok { border-color: rgba(6, 122, 85, .3); background: var(--success-tint); }
 .deal-facts .fact.ok .fact-n { color: var(--success); }
 .deal-deadline-abs { font-size: .8rem; color: var(--ink-soft); font-weight: 600; }
@@ -1353,7 +1365,7 @@ tr.clickable:hover { background: var(--brand-tint); }
     display: flex; align-items: center; gap: 12px;
     padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0));
     background: rgba(255, 255, 255, .95); backdrop-filter: saturate(1.4) blur(12px);
-    border-top: 1px solid var(--line); box-shadow: 0 -10px 28px -18px rgba(19, 20, 43, .35);
+    border-top: 1px solid var(--line); box-shadow: 0 -10px 28px -18px rgb(var(--brand-rgb) / .35);
     transform: translateY(110%); transition: transform .18s ease;
     pointer-events: none;
   }
@@ -1383,8 +1395,8 @@ tr.clickable:hover { background: var(--brand-tint); }
 .success-track { margin-top: 14px; display: grid; gap: 6px; }
 .success-share { margin-top: 16px; border-top: 1px dashed var(--line-strong); padding-top: 14px; }
 .success-moment .linklike { display: block; margin: 14px auto 0; }
-.btn-share-lead { background: #1d7a46; color: #fff; border: none; box-shadow: 0 10px 22px -12px rgba(29, 122, 70, .6); }
-.btn-share-lead:hover { background: #186a3c; color: #fff; }
+.btn-share-lead { background: var(--success-fill); color: #fff; border: none; box-shadow: 0 10px 22px -12px rgba(6, 95, 70, .6); }
+.btn-share-lead:hover { background: var(--brand-green-hi); color: #fff; }
 .btn-share-lead svg { display: inline-block; vertical-align: middle; }
 .share-loop { gap: 8px; }
 
@@ -1453,7 +1465,7 @@ tr.clickable:hover { background: var(--brand-tint); }
 .pickup-tab:focus-visible { outline: 2px solid var(--brand-hi); outline-offset: 2px; }
 .handoff-scan { position: relative; background: var(--bg-deep); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; aspect-ratio: 4 / 3; max-height: 60vh; }
 .handoff-video { width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
-.handoff-scan-overlay { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-weight: 700; background: rgba(19, 20, 43, .55); }
+.handoff-scan-overlay { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-weight: 700; background: rgb(var(--brand-rgb) / .55); }
 .pickup-input-wrap { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); padding: 0 10px; }
 .pickup-input-prefix { font-weight: 800; letter-spacing: .05em; color: var(--ink-soft); }
 .pickup-input { flex: 1; min-width: 0; border: none; background: transparent; color: var(--ink); font-size: 1.5rem; font-weight: 800; letter-spacing: .08em; padding: 10px 0; font-variant-numeric: tabular-nums; }
@@ -1502,7 +1514,7 @@ tr.clickable:hover { background: var(--brand-tint); }
 .seller-avatar { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; }
 .receipt-code { overflow-wrap: anywhere; font-size: 1.1rem; font-weight: 700; text-align: center; }
 
-/* ── DAYLIGHT (2026-09-24) — display type for the numbers that sell ─────────
+/* ── DISPLAY TYPE (2026-09-24) — display type for the numbers that sell ─────────
    Prices, counters, countdown digits and KPI values speak in the display face
    (Rubik) so money and momentum read at a glance; tabular figures keep them
    from jittering while they tick. */
@@ -1517,7 +1529,7 @@ tr.clickable:hover { background: var(--brand-tint); }
 .landing-hero {
   padding: 34px 16px 22px;
   background:
-    radial-gradient(520px 260px at 50% 0%, rgba(74, 58, 255, .10), transparent 70%),
+    radial-gradient(520px 260px at 50% 0%, rgb(var(--brand-mint-rgb) / .14), transparent 70%),
     linear-gradient(180deg, rgba(255, 255, 255, .9), rgba(255, 255, 255, 0));
   border: 1px solid rgba(255, 255, 255, .6);
 }
@@ -1525,7 +1537,7 @@ tr.clickable:hover { background: var(--brand-tint); }
 /* panels and cards on the paper ground: whiter than the page, hairline edge */
 .panel, .sd-card, .landing-col, .landing-step, .kpi-group, .journey { box-shadow: var(--shadow-soft); }
 .sd-card { transition: box-shadow .18s ease, border-color .18s ease; }
-.sd-card:hover { box-shadow: var(--shadow); border-color: rgba(74, 58, 255, .22); }
+.sd-card:hover { box-shadow: var(--shadow); border-color: var(--line-strong); }
 .sd-main:hover { background: var(--surface-warm); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1539,7 +1551,7 @@ tr.clickable:hover { background: var(--brand-tint); }
    information as a static ring, so nothing is carried by animation alone. */
 @keyframes siton-attention {
   0%, 100% { border-color: var(--pomegranate); box-shadow: 0 0 0 0 rgba(200, 38, 26, .28); }
-  50%      { border-color: var(--live);        box-shadow: 0 0 0 5px rgba(200, 38, 26, .10); }
+  50%      { border-color: var(--saffron-fill); box-shadow: 0 0 0 5px rgba(200, 38, 26, .10); }
 }
 .needs-attention {
   border: 1.5px solid var(--pomegranate) !important;
@@ -1558,8 +1570,8 @@ tr.clickable:hover { background: var(--brand-tint); }
 
 /* ── (UX-4) Siton selection controls ────────────────────────────────────────
    ONE selection card for every "pick an option" surface. Unselected is
-   neutral; selected is unmistakable: orange border, orange tint, and an
-   indicator whose INSIDE fills with the canonical Siton orange.
+   neutral; selected is unmistakable: graphite border, mint tint, and an
+   indicator whose INSIDE fills with the brand graphite.
    `.choice-box` is the square (multi-select) indicator, `.choice-dot` the
    round (single-select) one — the same card, the same fill, so the shape
    alone tells the buyer/seller whether one or many may be chosen. */

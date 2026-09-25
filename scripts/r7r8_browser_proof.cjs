@@ -68,14 +68,14 @@ async function main() {
       console.log(`  mall: ${snap.loaded}/${snap.total} imgs rendered, ${snap.supabase} from Supabase CDN`);
     });
 
-    await run("daylight design system is live (Siton Indigo brand token applied)", async () => {
+    await run("graphite mint design system is live (brand graphite token applied)", async () => {
       const ok = await cdp.evaluate(`(() => {
         const root = getComputedStyle(document.documentElement);
         const brand = (root.getPropertyValue('--brand') || '').trim().toLowerCase();
         const bg = (root.getPropertyValue('--bg') || '').trim().toLowerCase();
         return { brand, bg };
       })()`);
-      if (!/4a3aff/.test(ok.brand)) throw new Error(`brand token not Siton Indigo: ${ok.brand}`);
+      if (!/0f172a/.test(ok.brand)) throw new Error(`brand token not brand graphite: ${ok.brand}`);
       console.log(`  --brand=${ok.brand} --bg=${ok.bg}`);
     });
 
