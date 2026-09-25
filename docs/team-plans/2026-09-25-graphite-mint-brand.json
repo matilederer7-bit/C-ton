@@ -38,17 +38,18 @@
         "package.json",
         "docs/BRAND_GRAPHITE_MINT.md",
         "PROJECT_STATUS.md",
-        "docs/team-plans/2026-09-25-graphite-mint-brand.json"
+        "docs/team-plans/2026-09-25-graphite-mint-brand.json",
+        "web/src/pages/admin.tsx"
       ],
       "forbidden": [
         "src/",
         "supabase/",
         ".github/workflows/",
-        "web/src/pages/",
         "web/src/api.ts",
         "web/src/auth.tsx",
         "web/src/session.ts",
-        "frontend/app.js"
+        "frontend/app.js",
+        "web/src/pages/ (except the one inline colour style in admin.tsx)"
       ],
       "depends_on": [],
       "dod": [
@@ -96,10 +97,18 @@
       "agent": "claude-subagent",
       "role": "reviewer",
       "scope": "independent read-only review of the combined diff: presentation-only boundary, contrast, old-brand leftovers, logo dash (not a dot) and glow restraint, RTL/mobile layout",
-      "reviews": ["B1", "B2"],
-      "depends_on": ["B1", "B2"],
-      "dod": ["verdict with concrete failure scenarios"]
+      "reviews": [
+        "B1",
+        "B2"
+      ],
+      "depends_on": [
+        "B1",
+        "B2"
+      ],
+      "dod": [
+        "verdict with concrete failure scenarios"
+      ]
     }
   ],
-  "overlap_decision": "PR #71 (stale since 2026-09-21) appends one .footer-copyright rule at the END of web/src/styles.css using --ink-faint; that token name is kept and the end of the file is untouched, so #71 still merges. PROJECT_STATUS.md edits are confined to the claude slot."
+  "overlap_decision": "TEAM_PLAN_FAIL is expected and accepted, as for the Daylight plan: a whole-product restyle cannot avoid web/src/styles.css. origin/codex/senior-engineering-review-20260921 (PR #71, stale since 2026-09-21) appends one .footer-copyright rule at the END of web/src/styles.css using --ink-faint (token kept, end of file untouched), adds footer markup and a copyright test in src/frontend_runtime.ts and tests/legal_html_shell_alignment_validation.ts (this branch changes only colour strings in those files, no shared lines), and edits package.json scripts far from the mobile:assets line. origin/chatgpt/phone-team-gpt6-openai-only-20260923 (PR #78) and origin/codex/bootstrap-reconcile-20260924 (PR #79) touch only PROJECT_STATUS.md outside the claude slot. PROJECT_STATUS.md edits are confined to the claude slot. web/src/pages/admin.tsx: one inline style whose undefined --amber fallback rendered an invented amber; replaced by the urgency tokens, no logic change."
 }

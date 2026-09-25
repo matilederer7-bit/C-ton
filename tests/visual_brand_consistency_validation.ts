@@ -98,7 +98,10 @@ assert.equal(token("ink"), GRAPHITE, "primary text is graphite");
 assert.match(webCss, /color-scheme:\s*light/);
 assert.doesNotMatch(webCss, /color-scheme:\s*dark/, "no dark scheme left in the canonical web app");
 assert.ok(relativeLuminance(token("bg")) > 0.85 && relativeLuminance(token("surface")) > 0.85, "the grounds are light");
-assert.ok(alpha(token("brand-glow")) <= 0.6, `the mint focus ring stays restrained (≤0.6), saw ${token("brand-glow")}`);
+assert.ok(alpha(token("brand-glow")) <= 0.6, `the decorative mint halo stays restrained (≤0.6), saw ${token("brand-glow")}`);
+// keyboard focus is a READABLE ring (WCAG 1.4.11 non-text contrast): mint ink, never plain mint on white
+assert.match(token("focus-ring"), /var\(--brand-mint-ink\)/, "the focus ring is drawn in mint ink");
+assert.ok(contrast(token("brand-mint-ink"), token("surface")) >= 3 && contrast(token("brand-mint-ink"), token("bg")) >= 3, "the focus ring clears 3:1 on white and on the ground");
 assert.ok(alpha(token("brand-tint")) <= 0.2, `the mint selection tint stays soft (≤0.2), saw ${token("brand-tint")}`);
 assert.ok(alpha(token("shadow")) <= 0.25 && alpha(token("shadow-soft")) <= 0.2 && alpha(token("shadow-pop")) <= 0.3, "light-theme shadows stay soft");
 // the retired identities do not linger anywhere in the stylesheet
@@ -142,7 +145,10 @@ assert.match(webCss, /@media \(prefers-reduced-motion: reduce\)/, "motion stays 
 assert.match(webCss, /\.btn-primary:hover \{[^}]*var\(--brand-graphite-hi\)/, "primary hover lifts to graphite-hi");
 assert.match(webCss, /\.btn-primary:active, \.btn-join:active \{ background: var\(--brand-deep\); \}/, "primary active presses to graphite-deep");
 assert.match(webCss, /\.btn:disabled, \.btn\[aria-disabled="true"\] \{[^}]*var\(--bg-deep\)[^}]*var\(--ink-faint\)/, "one disabled state for every button");
-assert.match(webCss, /button:focus-visible[^{]*\{[^}]*var\(--brand-glow\)/, "focus takes the mint ring");
+assert.match(webCss, /button:focus-visible[^{]*\{[^}]*var\(--focus-ring\)/, "focus takes the mint-ink ring");
+// one token layer: no scattered brand rgba literals outside :root
+assert.doesNotMatch(webCss.slice(webCss.indexOf("--font-display")), /rgba\(45, ?212, ?191|rgba\(15, ?23, ?42/, "brand tints reference the token triplets, not literals");
+assert.doesNotMatch(webCss, /\.img-star\.active \{ color: var\(--saffron/, "amber is never a selected state");
 // semantics: collecting is mint, reached is green, the completion window is amber, failed is red
 assert.match(webCss, /\.status\.PendingTarget \{ background: var\(--live-tint\); color: var\(--live-ink\); \}/);
 assert.match(webCss, /\.status\.TargetReached \{ background: var\(--success-tint\); color: var\(--success\); \}/);
@@ -174,7 +180,7 @@ for (const [label, svg] of [["assets/brand/c-ton-mark.svg", markSvg], ["assets/l
   assert.ok(glow, `${label}: the glow copy uses the blur filter`);
   assert.ok(Number(/fill-opacity="([0-9.]+)"/.exec(glow![5]!)?.[1]) <= 0.6, `${label}: the glow is soft, not neon`);
   assert.match(svg, /<feGaussianBlur stdDeviation="(1[5-9]|2[0-9]|30)"\/>/, `${label}: a soft blur radius`);
-  assert.equal(svg === markSvg || svg === markSvg, true);
+  assert.match(svg, /id="mark-dash-glow"/, `${label}: the mark keeps its own filter id`);
 }
 {
   // the wordmark: graphite letters, the same mint dash (thinner than the 22 stroke), the same soft glow
@@ -188,6 +194,9 @@ for (const [label, svg] of [["assets/brand/c-ton-mark.svg", markSvg], ["assets/l
   }
   assert.ok(Number(/fill-opacity="([0-9.]+)"/.exec(dashes.find((d) => /filter=/.test(d[3]!))![3]!)?.[1]) <= 0.6, "wordmark glow is soft");
   assert.doesNotMatch(wordSvg, RETIRED);
+  // distinct filter ids: the renderer inlines both SVGs into one splash/lockup
+  // document, and a shared id would give the wordmark the mark's 22-unit blur
+  assert.match(wordSvg, /id="word-dash-glow"/); assert.doesNotMatch(wordSvg, /mark-dash-glow/);
 }
 console.log("PASS logo: the graphite mark with the short mint dash is the one source of truth");
 
@@ -212,7 +221,23 @@ for (const [file, size] of [["web/public/brand/c-ton-mark.png", 512], ["web/publ
   assert.ok(isGraphite(await pixel(bytes, 480, 120)), "wordmark letters are graphite");
   assert.ok(isClear(await pixel(bytes, 10, 10)), "wordmark is transparent around the letters");
 }
-console.log("PASS web rasters: mark, favicon and wordmark carry the graphite/white/mint identity");
+{
+  // the hero lockup (also the og:image): just inside where a leaked mark-size
+  // blur would paint a box around the wordmark dash (wordmark units (150,50):
+  // clear of the C's arm cap and the t crossbar cap → x 652, y 788 in the
+  // 1536x1024 render) the ground must match the ground above the letters (y 742)
+  const bytes = await readFile("web/public/brand/c-ton-logo.png");
+  // two samples: beside the dash (150,50) and below it (170,100); the leaked
+  // blur measured 9-10 units of drift there, the clean render 2-3
+  const above = await pixel(bytes, 652, 742);
+  for (const [x, y] of [[652, 788], [675, 845]] as const) {
+    const inBox = await pixel(bytes, x, y);
+    const drift = Math.max(...inBox.slice(0, 3).map((v, i) => Math.abs(v - above[i]!)));
+    assert.ok(drift <= 6, `lockup: no glow box around the wordmark dash at (${x},${y}) (drift ${drift})`);
+  }
+  assert.ok(above[0]! > 225, "lockup ground next to the wordmark dash stays light");
+}
+console.log("PASS web rasters: mark, favicon and wordmark carry the graphite/white/mint identity, no glow box");
 
 // ── Native: launcher/store icons and splash are the same mark ───────────────
 for (const [label, bytes] of [["iOS AppIcon 1024", iosIcon], ["Android xxxhdpi launcher", androidIcon], ["Android adaptive foreground", androidFg], ["iOS splash", splash], ["iOS splash dark", splashDark]] as const) {
@@ -251,6 +276,15 @@ for (const [label, bytes] of [["iOS AppIcon 1024", iosIcon], ["Android xxxhdpi l
     assert.equal(meta.width, 2732, `${label} is 2732px`);
     assert.ok(ground(await pixel(bytes, 60, 60)), `${label} corner is its ground`);
     assert.ok(isGraphite(await pixel(bytes, 1366 - 250, 1366 - 300)), `${label} carries the graphite mark in the middle`);
+    // just inside where a leaked mark-size blur would box the wordmark dash: the ground, not a tinted rectangle
+    // (the splash ground carries a wide mint radial wash, so compare with the
+    // same ground 95px higher, in the gap between the mark and the wordmark)
+    const above = await pixel(bytes, 1234, 1573);
+    for (const [x, y] of [[1234, 1668], [1260, 1733]] as const) {
+      const inBox = await pixel(bytes, x, y);
+      const drift = Math.max(...inBox.slice(0, 3).map((v, i) => Math.abs(v - above[i]!)));
+      assert.ok(drift <= 8, `${label}: no glow box around the wordmark dash at (${x},${y}) (drift ${drift})`);
+    }
   }
   const androidSplash = await readFile("android/app/src/main/res/drawable-port-xxxhdpi/splash.png");
   assert.ok(isPaper(await pixel(androidSplash, 20, 20)), "Android portrait splash is the paper ground");

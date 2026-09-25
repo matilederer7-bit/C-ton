@@ -29,7 +29,10 @@ const root = path.resolve(__dirname, "..");
 const src = (name) => fs.readFileSync(path.join(root, "assets/brand", name), "utf8");
 const out = (dir, name) => { fs.mkdirSync(path.join(root, dir), { recursive: true }); return path.join(root, dir, name); };
 
-// inner markup of an SVG file, for composing the lockup
+// inner markup of an SVG file, for composing the lockup and the splash. The two
+// sources keep DISTINCT filter ids (mark-dash-glow / word-dash-glow): when both
+// are inlined into one document a shared id would resolve to the first filter,
+// and the wordmark's dash would take the mark's much larger blur.
 function inner(svg) {
   return svg.replace(/^[\s\S]*?<svg[^>]*>/, "").replace(/<\/svg>\s*$/, "").replace(/<title[\s\S]*?<\/title>|<desc[\s\S]*?<\/desc>/g, "");
 }

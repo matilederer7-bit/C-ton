@@ -690,7 +690,7 @@ function SellersScreen({ navigate }: { navigate: (h: string) => void }) {
                   <span className={`status ${s.seller_status === "Active" ? "Completed" : "Failed"}`}>{s.seller_status}</span>
                   {s.supabase_bound ? <span className="tree-badge charged" style={{ marginInlineStart: 6 }}>Auth✓</span> : null}
                   {/* LAUNCH MODE — who is waiting for the owner's approval */}
-                  {s.verification_status === "pending" ? <span className="tree-badge" style={{ marginInlineStart: 6, background: "var(--amber, #d9931c)", color: "#1b1b1b" }}>{t("admin.awaiting_approval_2")}</span> : null}
+                  {s.verification_status === "pending" ? <span className="tree-badge" style={{ marginInlineStart: 6, background: "var(--saffron-tint)", color: "var(--saffron)" }}>{t("admin.awaiting_approval_2")}</span> : null}
                   {s.verification_status === "rejected" ? <span className="tree-badge" style={{ marginInlineStart: 6 }}>{t("admin.rejected")}</span> : null}
                 </td>
                 <td className="num">{num(s.deals_total)}</td>

@@ -243,11 +243,11 @@ export function utcIsoToIsraelParts(iso: string | null | undefined): { date: str
   return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${String(Number(parts.hour) % 24).padStart(2, "0")}:${parts.minute}` };
 }
 
-// Daylight progress story (2026-09-24 visual refresh): the group meter fills in
-// Siton Indigo while the group is forming, its LEADING EDGE warms into Siton
-// Coral as the group closes in on the target (the deal "heating up"), and it
-// turns success green once the target is reached. Presentation only — the
-// ratio it receives and the width it sits in are unchanged.
+// Progress story: the group meter fills in brand graphite while the group is
+// forming, its LEADING EDGE turns mint as the group closes in on the target
+// (the deal "heating up"), and it turns brand green once the target is
+// reached. Presentation only — the ratio it receives and the width it sits in
+// are unchanged.
 export function progressColor(ratioToTarget: number): string {
   const r = clamp(ratioToTarget, 0, 1);
   // Graphite Mint (2026-09-25): a graphite fill on the way to the target,
