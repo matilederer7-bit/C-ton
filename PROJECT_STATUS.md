@@ -324,9 +324,25 @@ Current invariants:
 - REVIEW: independent read-only reviewer → REQUEST_CHANGES on one delivery gap (service-worker cache) + one contrast note (redirect link), both fixed (`de51e54`, `b6d90d5`); Codex P2 (same cache finding) fixed and resolved.
 - TESTED: `visual_brand_consistency` PASS; `mobile:verify` → `MOBILE_GATE_PASS`; `test:mobile-readiness` → `MOBILE_TESTS_PASS`; `legal_html_shell_alignment`, `frontend_flow` (group runner), `frontend_foundation_rtl_accessibility`, `admin_rtl_surface`, `product_surfaces_refinement` PASS; `git diff --check` clean; `/app` home/seller/deal at 1280 and 390 reviewed by eye (no overflow); native art reviewed by eye (iOS icon, adaptive foreground, round launcher, PWA icon, light/dark iOS splash, Android portrait/landscape splash).
 - DELIBERATELY NOT CHANGED: no route, API, auth, state, payment, worker, schema or business rule; `frontend/app.js` untouched; `web/public/brand` bytes identical to master.
-- OPEN: `mobile:verify` in a checkout whose `node_modules` is a symlink rewrites `android/capacitor.settings.gradle` and `ios/App/CapApp-SPM/Package.swift` with absolute paths (environment artifact, reverted, not committed); the tracked `node_modules` symlink and the intermittent CI browser e2e files are queued as separate tasks.
-- PERCENTAGE: 95% — merge, deploy and by-eye check of `/app` on staging remain.
-- NEXT STEP: CI green → squash-merge #87 → Render deploy → verify `/app` and `/app/manifest.webmanifest` on staging.
+- MERGED + DEPLOYED: PR #87 squash-merged as `6792037`; Render `siton-staging-web` deploy `dep-dar19nu0tbcc73cih9i0` live on it. Verified by eye on staging: `/app` at 1280 and 390 in daylight (no overflow), manifest theme/background `#f6f7fb`, `/app/icons/icon-192.png` served, service-worker cache `siton-shell-v3-daylight`, `/legal/*` theme-color `#f6f7fb`.
+- OPEN: none for this track (closeout below).
+- PERCENTAGE: 100%.
+- NEXT STEP: the native icons reach the apps at their next store build (`npm run mobile:assets` output is committed).
+
+### Claude Code milestone — Daylight closeout: every item left open is closed
+
+- UPDATED: 2026-09-25
+- BRANCH: `claude/daylight-closeout` from master `e4136a8`. Owner: "fix everything that was left open."
+- COMPLETED:
+  - `proof:ux-round2` (`scripts/ux_polish_round2_browser_proof.cjs`): the 12 pre-existing UX-4 failures were the proof still asserting the retired single-method receipt contract; since Issue #39 item 3 `receipt_config` stores a SET (square multi-select, checkbox semantics, the last method cannot be switched off), and the proof now asserts that contract. **324/324** across 320/390/430/768/1280/1440.
+  - `scripts/normalize_capacitor_projects.cjs`: `cap sync` in a checkout whose `node_modules` is a symlink wrote realpath-climbed absolute paths into `android/capacitor.settings.gradle` and `ios/App/CapApp-SPM/Package.swift`; normalize now folds any such path (npm plugins under `node_modules/`, repository plugins under `mobile-plugins/`) back onto the project-relative root, so `mobile:verify` leaves both files byte-identical in every checkout. Proven: full `mobile:verify` in a symlinked worktree → `MOBILE_GATE_PASS`, `git status -- android ios` clean.
+  - `.gitignore`: `node_modules` without the trailing slash, so a symlinked `node_modules` is ignored too.
+  - `frontend/styles.css`: `.tracking-live-strip` moved from the success tint to the live (coral) tint to match its coral pulse dot (reviewer note on #87).
+  - Already closed on master by PR #88 (owner-started from the two queued task cards): the tracked `node_modules` symlink and the deterministic Chromium start-up for the browser suites. Both cards dismissed.
+- TESTED: `proof:ux-round2` 324/324; `visual_brand_consistency` PASS; `mobile:verify` PASS with a clean tree; `mobile_readiness` + `mobile_readiness_tests` PASS.
+- OPEN: none.
+- PERCENTAGE: 100%.
+- NEXT STEP: none in this track.
 
 ### Claude Code latest milestone — "Daylight" visual refresh of the web app (UI only)
 

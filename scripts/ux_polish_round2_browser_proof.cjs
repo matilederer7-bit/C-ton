@@ -624,7 +624,7 @@ async function main() {
       // ── UX-4 the receipt-method surface the owner named ──
       await show('receipt');
       await waitFor('!!document.querySelector(\'[data-testid="receipt-method-option"]\')');
-      await check(`UX-4 @${width}: "איך הקונה יקבל" uses the Siton selection card (round = one only)`, async () => {
+      await check(`UX-4 @${width}: "איך הקונה יקבל" uses the Siton selection card (square = several allowed)`, async () => {
         const snap = await ev(`(() => {
           const cards = [...document.querySelectorAll('[data-testid="receipt-method-option"]')];
           if (!cards.length) return null;
@@ -653,16 +653,18 @@ async function main() {
         eq(snap.sel.cardBorder, 'rgb(74,58,255)', 'selected card border must be Siton Indigo');
         assert(snap.un.cardBorder !== 'rgb(74,58,255)', 'unselected card border must stay neutral');
         assert(snap.sel.cardBg !== snap.un.cardBg, 'the selected card must also read as selected without the indicator');
-        eq(snap.sel.mode, 'one', 'the canonical contract stores exactly ONE receipt method');
-        eq(snap.sel.round, true, 'single-select therefore uses the round indicator, not a checkbox');
-        eq(snap.sel.inputType, 'radio', 'single-value contract must keep radio semantics');
+        // Issue #39 item 3: receipt_config stores a versioned SET of methods, so the
+        // card is the SQUARE multi-select and the native control is a checkbox.
+        eq(snap.sel.mode, 'many', 'the canonical contract stores a SET of receipt methods');
+        eq(snap.sel.round, false, 'multi-select therefore uses the square indicator, not the round dot');
+        eq(snap.sel.inputType, 'checkbox', 'set-valued contract must keep checkbox semantics');
         eq(snap.sel.help, true, 'each option keeps its explanatory line');
       });
 
-      await check(`UX-4 @${width}: choosing another option moves the indigo fill (and only one stays chosen)`, async () => {
+      await check(`UX-4 @${width}: choosing another option adds an indigo fill (several may stay chosen, never none)`, async () => {
+        const before = await ev(`[...document.querySelectorAll('[data-testid="receipt-method-option"]')].filter(c => c.dataset.selected === '1').length`);
         await ev(`document.querySelectorAll('[data-testid="receipt-method-option"] input')[3].click()`);
         // Wait for the actual CSS transition, including on a busy test host.
-        // The exact indigo and single-selection assertions below remain required.
         await waitFor(`(() => {
           const card = document.querySelectorAll('[data-testid="receipt-method-option"]')[3];
           return card?.dataset.selected === '1' && getComputedStyle(card.querySelector('.choice-ind')).backgroundColor.replace(/ /g, '') === 'rgb(74,58,255)';
@@ -671,13 +673,26 @@ async function main() {
           const cards = [...document.querySelectorAll('[data-testid="receipt-method-option"]')];
           return {
             selectedCount: cards.filter(c => c.dataset.selected === '1').length,
-            selectedIndex: cards.findIndex(c => c.dataset.selected === '1'),
+            fourthSelected: cards[3].dataset.selected,
             fill: getComputedStyle(cards[3].querySelector('.choice-ind')).backgroundColor.replace(/ /g, '')
           };
         })()`);
-        eq(snap.selectedCount, 1, 'exactly one receipt method may be selected');
-        eq(snap.selectedIndex, 3, 'the newly chosen option is the selected one');
+        eq(snap.selectedCount, before + 1, 'a set: the new method joins the ones already chosen');
+        eq(snap.fourthSelected, '1', 'the newly chosen option is selected');
         eq(snap.fill, 'rgb(74,58,255)', 'the indigo fill follows the choice');
+        // the last enabled method cannot be switched off (receiptContent.tsx toggle)
+        await ev(`(() => { const inputs = [...document.querySelectorAll('[data-testid="receipt-method-option"] input')]; inputs.forEach((i, n) => { if (n !== 3 && i.checked) i.click(); }); })()`);
+        await wait(300);
+        await ev(`document.querySelectorAll('[data-testid="receipt-method-option"] input')[3].click()`);
+        await wait(300);
+        const floor = await ev(`(() => {
+          const cards = [...document.querySelectorAll('[data-testid="receipt-method-option"]')];
+          return { count: cards.filter(c => c.dataset.selected === '1').length, fourth: cards[3].dataset.selected, fourthChecked: cards[3].querySelector('input').checked };
+        })()`);
+        eq(floor.count, 1, 'the last remaining receipt method stays on');
+        // and it is THAT method — not a default the set fell back to
+        eq(floor.fourth, '1', 'the fourth card is still the selected one');
+        eq(floor.fourthChecked, true, 'its checkbox is still checked');
       });
 
       if (width === 390 || width === 1280) await shot(`receipt-methods-${width}`);

@@ -344,7 +344,7 @@ strong { font-weight: 800; }
 .seller-card-thumb.placeholder { display: inline-flex; align-items: center; justify-content: center; color: var(--primary); font-weight: 800; font-size: 24px; background: var(--primary-soft); }
 .tracking-hero-top { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) 180px; }
 .tracking-hero-image { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 14px; border: 1px solid var(--border); }
-.tracking-live-strip { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding: 12px 14px; border-radius: 14px; border: 1px solid rgba(6, 122, 85, 0.22); background: var(--success-soft); }
+.tracking-live-strip { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding: 12px 14px; border-radius: 14px; border: 1px solid rgba(255, 90, 54, 0.28); background: var(--live-soft); }
 .live-dot { width: 10px; height: 10px; border-radius: 999px; background: var(--live); box-shadow: 0 0 0 0 rgba(255, 90, 54, .5); animation: siton-live-ring 1.8s ease-out infinite; }
 @keyframes siton-live-ring { 0% { box-shadow: 0 0 0 0 rgba(255, 90, 54, .55); } 70% { box-shadow: 0 0 0 7px rgba(255, 90, 54, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 90, 54, 0); } }
 .tracking-chart { width: 100%; min-height: 220px; overflow: visible; }
