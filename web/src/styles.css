@@ -335,8 +335,14 @@ input.invalid, textarea.invalid, select.invalid { border-color: var(--pomegranat
 }
 .btn:hover { transform: translateY(-1px); background: var(--line); }
 .btn:active { transform: translateY(0); }
-/* one disabled state for every button: flat grey, faint ink, no lift */
-.btn:disabled, .btn[aria-disabled="true"] { background: var(--bg-deep); color: var(--ink-faint); cursor: not-allowed; transform: none; box-shadow: none; opacity: 1; }
+/* one disabled state for every button: flat grey, faint ink, no lift. The
+   :hover / :active forms carry a higher specificity than any variant's own
+   hover rule (.btn-primary:hover), so a disabled control under the pointer —
+   a busy save/publish/login button — stays visibly disabled. */
+.btn:disabled, .btn:disabled:hover, .btn:disabled:active,
+.btn[aria-disabled="true"], .btn[aria-disabled="true"]:hover, .btn[aria-disabled="true"]:active {
+  background: var(--bg-deep); color: var(--ink-faint); cursor: not-allowed; transform: none; box-shadow: none; opacity: 1;
+}
 /* primary CTA: the graphite fill. hover lifts to graphite-hi, active presses
    to graphite-deep, focus takes the mint-ink ring (global rule above) */
 .btn-primary {
@@ -881,7 +887,7 @@ input.invalid, textarea.invalid, select.invalid { border-color: var(--pomegranat
 .deadline-row { display: grid; grid-template-columns: 1.4fr 1fr; gap: 10px; }
 .deadline-confirm { color: var(--success); font-weight: 700; font-size: .9rem; }
 .btn-danger-ghost { border-color: rgba(200, 38, 26, .45) !important; color: var(--pomegranate) !important; }
-.btn-danger-ghost:hover { border-color: var(--pomegranate) !important; background: var(--pomegranate-tint) !important; }
+.btn-danger-ghost:hover:not(:disabled) { border-color: var(--pomegranate) !important; background: var(--pomegranate-tint) !important; }
 
 /* ── seller dashboard ──────────────────────────────────────────────────── */
 .dash-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }

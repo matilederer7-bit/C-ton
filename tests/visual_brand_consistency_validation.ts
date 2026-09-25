@@ -144,7 +144,7 @@ assert.match(webCss, /@media \(prefers-reduced-motion: reduce\)/, "motion stays 
 // ordered button states: hover, active, focus, disabled
 assert.match(webCss, /\.btn-primary:hover \{[^}]*var\(--brand-graphite-hi\)/, "primary hover lifts to graphite-hi");
 assert.match(webCss, /\.btn-primary:active, \.btn-join:active \{ background: var\(--brand-deep\); \}/, "primary active presses to graphite-deep");
-assert.match(webCss, /\.btn:disabled, \.btn\[aria-disabled="true"\] \{[^}]*var\(--bg-deep\)[^}]*var\(--ink-faint\)/, "one disabled state for every button");
+assert.match(webCss, /\.btn:disabled, \.btn:disabled:hover, \.btn:disabled:active,\n\.btn\[aria-disabled="true"\], \.btn\[aria-disabled="true"\]:hover, \.btn\[aria-disabled="true"\]:active \{[^}]*var\(--bg-deep\)[^}]*var\(--ink-faint\)/, "one disabled state for every button, stable under the pointer");
 assert.match(webCss, /button:focus-visible[^{]*\{[^}]*var\(--focus-ring\)/, "focus takes the mint-ink ring");
 // one token layer: no scattered brand rgba literals outside :root
 assert.doesNotMatch(webCss.slice(webCss.indexOf("--font-display")), /rgba\(45, ?212, ?191|rgba\(15, ?23, ?42/, "brand tints reference the token triplets, not literals");
