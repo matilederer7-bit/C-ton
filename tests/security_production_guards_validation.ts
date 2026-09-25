@@ -99,8 +99,13 @@ assert.doesNotThrow(() => assertProductionRuntimeGuards("web", production()));
 assert.equal(resolveCompletionWindowMinutes({ NODE_ENV: "production", COMPLETION_WINDOW_MINUTES: "1" }), 1440, "production ignores the completion-window override");
 assert.equal(resolveCompletionWindowMinutes({ RENDER: "true", COMPLETION_WINDOW_MINUTES: "5" }), 1440, "a hosted runtime ignores the completion-window override");
 assert.equal(resolveCompletionWindowMinutes({ RENDER_EXTERNAL_URL: "https://x.onrender.com", COMPLETION_WINDOW_MINUTES: "5" }), 1440, "RENDER_EXTERNAL_URL is production-like");
-assert.equal(resolveCompletionWindowMinutes({ NODE_ENV: "test", COMPLETION_WINDOW_MINUTES: "30" }), 30, "non-production honors the override for the test harness");
-assert.equal(resolveCompletionWindowMinutes({ NODE_ENV: "test" }), 1440, "non-production defaults to 24h when unset");
+assert.equal(resolveCompletionWindowMinutes({ NODE_ENV: "test", COMPLETION_WINDOW_MINUTES: "30" }), 30, "the test harness (NODE_ENV=test) honors the override");
+assert.equal(resolveCompletionWindowMinutes({ NODE_ENV: "test" }), 1440, "the test harness defaults to 24h when unset");
+// A non-Render/non-production deployment that is NOT the test harness must also
+// ignore the override (Codex PR #92): only NODE_ENV=test may shorten the window.
+assert.equal(resolveCompletionWindowMinutes({ APP_DEPLOYMENT_MODE: "staging", COMPLETION_WINDOW_MINUTES: "5" }), 1440, "a non-test staging deploy ignores the override");
+assert.equal(resolveCompletionWindowMinutes({ NODE_ENV: "development", COMPLETION_WINDOW_MINUTES: "5" }), 1440, "a manual/local deploy that is not the test harness ignores the override");
+assert.equal(resolveCompletionWindowMinutes({ COMPLETION_WINDOW_MINUTES: "5" }), 1440, "an unset NODE_ENV ignores the override");
 console.log("PASS completion window is hard-locked to 24h in production and env-overridable only in non-production");
 
 console.log("PASS production guards reject unsafe live topology and providers without blocking demo/test");

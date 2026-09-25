@@ -2714,10 +2714,15 @@ export function registerFrontendExperience(
     if (!email || !password) return reply.code(400).send({ ok: false, error: "admin_credentials_required" });
     return deps.withTx(async (c) => {
       const result = await c.query(
+        // FOR UPDATE serializes concurrent logins for the same admin so the
+        // revoke-prior-then-insert of the MFA challenge below cannot interleave
+        // and leave multiple Pending challenges (each with its own attempt
+        // budget) — the one-live-challenge guarantee (A1).
         `SELECT admin_user_id, email, display_name, role, status, password_hash, mfa_required, mfa_enabled
          FROM siton.admin_users
          WHERE lower(email)=lower($1)
-         LIMIT 1`,
+         LIMIT 1
+         FOR UPDATE`,
         [email]
       );
       const row = result.rows[0];

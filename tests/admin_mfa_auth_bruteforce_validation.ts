@@ -179,6 +179,22 @@ await run("re-login revokes the prior Pending login challenge (no parallel-chall
       [email]
     );
     assert.equal(pending.rows[0].n, 1, "only one Pending login challenge remains");
+
+    // Concurrent logins for the same admin must not race the revoke-then-insert
+    // into multiple Pending challenges (Codex PR #92 P1). The admin row is
+    // locked FOR UPDATE, so the replacements serialize.
+    await Promise.all([
+      app.inject({ method: "POST", url: "/api/admin/auth/login", payload: { email, password: "NamedAdminPassword123!" } }),
+      app.inject({ method: "POST", url: "/api/admin/auth/login", payload: { email, password: "NamedAdminPassword123!" } }),
+      app.inject({ method: "POST", url: "/api/admin/auth/login", payload: { email, password: "NamedAdminPassword123!" } })
+    ]);
+    const afterConcurrent = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM siton.admin_mfa_challenges c
+         JOIN siton.admin_users u ON u.admin_user_id=c.admin_user_id
+        WHERE u.email=$1 AND c.purpose='login' AND c.status='Pending'`,
+      [email]
+    );
+    assert.equal(afterConcurrent.rows[0].n, 1, "concurrent logins still leave exactly one Pending login challenge");
   } finally {
     await pool.end();
   }
