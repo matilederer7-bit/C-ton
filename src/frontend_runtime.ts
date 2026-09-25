@@ -440,7 +440,7 @@ async function renderLegalHtmlPage(
   }
   const chips = LEGAL_HTML_NAV.map((key) =>
     `<a class="chip${key === slug ? " active" : ""}" href="/legal/${key}"${key === slug ? ' aria-current="page"' : ""}>${escapeHtml(ts(locale, LEGAL_NAV_LABEL_KEYS[key]))}</a>`).join("");
-  const fallbackCss = "<style>img{max-width:100%}body{background:#17181b;color:#f0f0f0;font-family:Arial,sans-serif;line-height:1.7;margin:0}a{color:#ff8a25}.container{max-width:1000px;margin:auto;padding:20px 16px}.panel{padding:24px}.nav-links,.legal-nav,.topbar-inner{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.topbar-inner{padding:12px 16px}.brand{color:inherit;text-decoration:none}.footer{padding:24px 16px;text-align:center}.footer a{margin:0 8px}.lang-switch a{margin:0 6px;font-size:.85rem}</style>";
+  const fallbackCss = "<style>img{max-width:100%}body{background:#f6f7fb;color:#13142b;font-family:Arial,sans-serif;line-height:1.7;margin:0}a{color:#3b2bd9}.container{max-width:1000px;margin:auto;padding:20px 16px}.panel{padding:24px}.nav-links,.legal-nav,.topbar-inner{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.topbar-inner{padding:12px 16px}.brand{color:inherit;text-decoration:none}.footer{padding:24px 16px;text-align:center}.footer a{margin:0 8px}.lang-switch a{margin:0 6px;font-size:.85rem}</style>";
   // The no-JS shell needs its own language switch: it is a server-rendered
   // page, so the choice travels as ?lang= and is persisted by the app when the
   // visitor returns to it.
@@ -453,7 +453,7 @@ async function renderLegalHtmlPage(
     : "";
   return `<!doctype html><html ${htmlAttrs(locale)}><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#17181b">
+    <meta name="theme-color" content="#f6f7fb">
     <title>C-ton | ${escapeHtml(page.title)}</title>
     <link rel="icon" href="/preview/brand/c-ton-mark-180.png">
     <link rel="alternate" hreflang="he" href="/legal/${slug}?lang=he">
@@ -2313,7 +2313,7 @@ export function registerFrontendExperience(
 <meta name="twitter:image" content="${safeImage}">
 <meta http-equiv="refresh" content="0;url=${safeSpa}">
 <script>window.location.replace(${JSON.stringify(spaPath)});</script>
-<style>body{background:#17181b;color:#eef0f4;font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0}</style>
+<style>body{background:#f6f7fb;color:#13142b;font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0}</style>
 </head>
 <body><p><a style="color:#ff8a2e" href="${safeSpa}">${escapeHtml(ts(shareLocale, "deal.share.redirecting"))}</a></p></body>
 </html>`;

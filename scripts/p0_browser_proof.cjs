@@ -122,7 +122,7 @@ async function main() {
       })()`, 30000, "landing with loaded logo + mark");
       if (!/\/brand\/c-ton-logo/.test(snap.logoSrc)) throw new Error(`hero logo is not the canonical asset: ${snap.logoSrc}`);
       if (!/\/brand\/c-ton-mark/.test(snap.markSrc)) throw new Error(`topbar mark is not the canonical asset: ${snap.markSrc}`);
-      if (snap.bg !== "#17181b") throw new Error(`ground is not C-ton graphite: ${snap.bg}`);
+      if (snap.bg !== "#f6f7fb") throw new Error(`ground is not the C-ton daylight ground: ${snap.bg}`);
     });
     await run("Mall is hidden: no mall copy, no mall nav, no deal grid on root", async () => {
       const snap = await cdp.evaluate(`(() => ({
