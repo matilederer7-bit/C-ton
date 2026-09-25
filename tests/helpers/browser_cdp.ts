@@ -50,7 +50,7 @@ export type ChromiumTarget = {
 
 export async function launchChromiumTarget(
   startUrl: string,
-  options: { executable?: string; timeoutMs?: number; label?: string } = {}
+  options: { executable?: string; timeoutMs?: number; label?: string; extraArgs?: string[] } = {}
 ): Promise<ChromiumTarget> {
   const executable = options.executable || chromiumPath();
   if (!executable) throw new Error(`no Chromium found; tried ${CHROMIUM_CANDIDATES.join(", ")}`);
@@ -62,7 +62,8 @@ export async function launchChromiumTarget(
   const browser: ChildProcess = spawn(executable, [
     "--headless=new", "--disable-gpu", "--disable-dev-shm-usage", "--no-sandbox",
     "--disable-breakpad", "--disable-crash-reporter", "--no-first-run",
-    "--no-default-browser-check", "--hide-scrollbars",
+    "--no-default-browser-check",
+    ...(options.extraArgs || []),
     "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=0",
     `--user-data-dir=${profileDir}`, startUrl
   ], { stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
@@ -124,7 +125,7 @@ export async function launchChromiumTarget(
 export async function launchPage(startUrl: string): Promise<BrowserPage> {
   const executable = chromiumPath();
   if (!executable) throw new Error(`no Chromium found; tried ${CHROMIUM_CANDIDATES.join(", ")}`);
-  const { browser, profileDir, wsUrl } = await launchChromiumTarget(startUrl, { executable });
+  const { browser, profileDir, wsUrl } = await launchChromiumTarget(startUrl, { executable, extraArgs: ["--hide-scrollbars"] });
   const ws = new WebSocket(wsUrl);
   let seq = 0;
   const pending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void }>();
