@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // Renders every raster brand file from the two vector sources.
 //
-// 2026-09-24 visual refresh ("Daylight"): the brand is drawn as vectors in
-// assets/brand/ (c-ton-mark.svg, c-ton-wordmark.svg). Everything below is
-// derived from them, so a change to the mark is one edit, then:
+// 2026-09-25 "Graphite Mint": the brand is drawn as vectors in assets/brand/
+// (c-ton-mark.svg: a white C on a graphite tile with the short mint dash in
+// its opening; c-ton-wordmark.svg: graphite C-ton with the same mint dash).
+// Everything below is derived from them, so a change to the mark is one edit,
+// then:
 //
 //   node scripts/render_brand_assets.cjs      # web + PWA icons + native inputs
 //   npm run mobile:assets                     # native icon/splash catalogs
@@ -32,10 +34,12 @@ function inner(svg) {
   return svg.replace(/^[\s\S]*?<svg[^>]*>/, "").replace(/<\/svg>\s*$/, "").replace(/<title[\s\S]*?<\/title>|<desc[\s\S]*?<\/desc>/g, "");
 }
 
-// the mark's tile (gradient + sheen) and glyph (white C + coral bar), separately
+// the locked palette (docs/BRAND_GRAPHITE_MINT.md)
+const GRAPHITE = "#0f172a", GRAPHITE_DEEP = "#020617", MINT = "#2dd4bf", SAND = "#d6c7a7", GROUND = "#f8fafc";
+// the mark's tile (flat graphite) and glyph (white C + mint dash with its glow), separately
 const MARK_DEFS = inner(src("c-ton-mark.svg")).match(/<defs>[\s\S]*?<\/defs>/)[0];
 const MARK_GLYPH = inner(src("c-ton-mark.svg")).replace(/<defs>[\s\S]*?<\/defs>/, "").replace(/<rect width="1024" height="1024"[^>]*\/>/g, "");
-const TILE = (rx) => `<rect width="1024" height="1024" rx="${rx}" fill="url(#tile)"/><rect width="1024" height="1024" rx="${rx}" fill="url(#sheen)"/>`;
+const TILE = (rx) => `<rect width="1024" height="1024" rx="${rx}" fill="${GRAPHITE}"/>`;
 const svgDoc = (w, h, body) => Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${body}</svg>`);
 
 // full-bleed square mark: what an OS masks itself (iOS AppIcon, PWA maskable,
@@ -52,16 +56,17 @@ function splash(dark) {
   const S = 2732, cx = S / 2;
   const markSize = 560, wordW = 700, wordH = Math.round(wordW * 140 / 540), gap = 96;
   const total = markSize + gap + wordH, top = (S - total) / 2;
-  const word = dark ? inner(src("c-ton-wordmark.svg")).replace(/#13142b/gi, "#ffffff") : inner(src("c-ton-wordmark.svg"));
-  const glow = `<radialGradient id="g" cx=".5" cy=".42" r=".5"><stop offset="0" stop-color="#4a3aff" stop-opacity="${dark ? ".28" : ".12"}"/><stop offset="1" stop-color="#4a3aff" stop-opacity="0"/></radialGradient>`;
-  const bg = `<rect width="100%" height="100%" fill="${dark ? "#13142b" : "#f6f7fb"}"/>${glow}<rect width="100%" height="100%" fill="url(#g)"/>`;
+  // on the dark splash the graphite letters turn white; the mint dash stays
+  const word = dark ? inner(src("c-ton-wordmark.svg")).replace(/#0f172a/gi, "#ffffff") : inner(src("c-ton-wordmark.svg"));
+  const glow = `<radialGradient id="g" cx=".5" cy=".42" r=".5"><stop offset="0" stop-color="${MINT}" stop-opacity="${dark ? ".22" : ".14"}"/><stop offset="1" stop-color="${MINT}" stop-opacity="0"/></radialGradient>`;
+  const bg = `<rect width="100%" height="100%" fill="${dark ? GRAPHITE_DEEP : GROUND}"/>${glow}<rect width="100%" height="100%" fill="url(#g)"/>`;
   return svgDoc(S, S, `${bg}
   <svg x="${cx - markSize / 2}" y="${top}" width="${markSize}" height="${markSize}" viewBox="0 0 1024 1024">${inner(src("c-ton-mark.svg"))}</svg>
   <svg x="${cx - wordW / 2}" y="${top + markSize + gap}" width="${wordW}" height="${wordH}" viewBox="-18 0 540 140">${word}</svg>`);
 }
 
-// The lockup: the mark over the wordmark on a daylight card, circled by a ring
-// of "participants" — some joined (indigo), the newest arriving (coral), the
+// The lockup: the mark over the wordmark on the paper ground, circled by a ring
+// of "participants" — some joined (graphite), the newest arriving (mint), the
 // rest still open (hairline). It is the group-buying idea without a word.
 function lockup(width, height) {
   const cx = width / 2;
@@ -83,21 +88,21 @@ function lockup(width, height) {
     const joined = i < 11;
     const arriving = i === 11 || i === 12;
     const r = arriving ? markSize * 0.045 : markSize * 0.035;
-    const fill = joined ? "#4a3aff" : arriving ? "#ff5a36" : "#ffffff";
-    const stroke = joined || arriving ? "none" : "#cdd2df";
+    const fill = joined ? GRAPHITE : arriving ? MINT : "#ffffff";
+    const stroke = joined || arriving ? "none" : "#cbd5e1";
     const op = joined ? (0.35 + 0.65 * (i / 10)).toFixed(2) : "1";
     dots.push(`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="${fill}" fill-opacity="${op}" stroke="${stroke}" stroke-width="${(markSize * 0.012).toFixed(1)}"/>`);
   }
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#f1f2fb"/></linearGradient>
-    <radialGradient id="glow" cx=".5" cy=".3" r=".55"><stop offset="0" stop-color="#4a3aff" stop-opacity=".16"/><stop offset="1" stop-color="#4a3aff" stop-opacity="0"/></radialGradient>
-    <radialGradient id="warm" cx=".85" cy="1" r=".6"><stop offset="0" stop-color="#ff5a36" stop-opacity=".10"/><stop offset="1" stop-color="#ff5a36" stop-opacity="0"/></radialGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#f1f5f9"/></linearGradient>
+    <radialGradient id="glow" cx=".5" cy=".3" r=".55"><stop offset="0" stop-color="${MINT}" stop-opacity=".16"/><stop offset="1" stop-color="${MINT}" stop-opacity="0"/></radialGradient>
+    <radialGradient id="warm" cx=".85" cy="1" r=".6"><stop offset="0" stop-color="${SAND}" stop-opacity=".22"/><stop offset="1" stop-color="${SAND}" stop-opacity="0"/></radialGradient>
   </defs>
   <rect width="100%" height="100%" fill="url(#bg)"/>
   <rect width="100%" height="100%" fill="url(#glow)"/>
   <rect width="100%" height="100%" fill="url(#warm)"/>
-  <circle cx="${cx}" cy="${ringCy}" r="${ringR.toFixed(1)}" fill="none" stroke="#e3e6ef" stroke-width="${(markSize * 0.01).toFixed(1)}"/>
+  <circle cx="${cx}" cy="${ringCy}" r="${ringR.toFixed(1)}" fill="none" stroke="#e5e7eb" stroke-width="${(markSize * 0.01).toFixed(1)}"/>
   ${dots.join("\n  ")}
   <svg x="${cx - markSize / 2}" y="${markY}" width="${markSize}" height="${markSize}" viewBox="0 0 1024 1024">${inner(src("c-ton-mark.svg"))}</svg>
   <svg x="${cx - wordW / 2}" y="${wordY}" width="${wordW}" height="${wordH}" viewBox="-18 0 540 140">${inner(src("c-ton-wordmark.svg"))}</svg>
@@ -116,7 +121,7 @@ async function renderAdaptiveLayers() {
     const dir = `android/app/src/main/res/mipmap-${bucket}`;
     if (!fs.existsSync(path.join(root, dir))) continue;
     await sharp(adaptiveForeground(), { density: 144 }).resize(size, size).png({ compressionLevel: 9 }).toFile(out(dir, "ic_launcher_foreground.png"));
-    await sharp(adaptiveBackground(), { density: 144 }).resize(size, size).flatten({ background: "#4a3aff" }).png({ compressionLevel: 9 }).toFile(out(dir, "ic_launcher_background.png"));
+    await sharp(adaptiveBackground(), { density: 144 }).resize(size, size).flatten({ background: GRAPHITE }).png({ compressionLevel: 9 }).toFile(out(dir, "ic_launcher_background.png"));
     console.log(`BRAND_ASSET ${dir}/ic_launcher_{foreground,background}.png ${size}x${size}`);
   }
 }
@@ -131,17 +136,17 @@ async function main() {
     ["web/public/brand", "c-ton-mark.png", png(mark, 512, 144)],
     ["web/public/brand", "c-ton-mark-180.png", png(mark, 180, 72)],
     ["web/public/brand", "favicon-64.png", png(mark, 64, 72)],
-    ["web/public/brand", "c-ton-wordmark.png", sharp(word, { density: 144 }).resize(540, 140).png({ compressionLevel: 9 })],
+    ["web/public/brand", "c-ton-wordmark.png", sharp(word, { density: 288 }).resize(1080, 280).png({ compressionLevel: 9 })],
     ["web/public/brand", "c-ton-logo-1024.jpg", sharp(Buffer.from(lockup(1024, 683))).flatten({ background: "#ffffff" }).jpeg({ quality: 90, chromaSubsampling: "4:4:4" })],
     ["web/public/brand", "c-ton-logo.png", sharp(Buffer.from(lockup(1536, 1024))).png({ compressionLevel: 9 })],
     // legacy /app PWA icon set (manifest: "any maskable")
     ...[48, 72, 96, 128, 192, 256, 512].map((size) => ["frontend/icons", `icon-${size}.png`, png(squareMark(), size, size >= 256 ? 144 : 72)]),
     // @capacitor/assets custom-mode inputs
-    ["assets/native", "icon-only.png", sharp(squareMark(), { density: 144 }).resize(1024, 1024).flatten({ background: "#4a3aff" }).png({ compressionLevel: 9 })],
+    ["assets/native", "icon-only.png", sharp(squareMark(), { density: 144 }).resize(1024, 1024).flatten({ background: GRAPHITE }).png({ compressionLevel: 9 })],
     ["assets/native", "icon-foreground.png", png(adaptiveForeground(), 1024, 144)],
-    ["assets/native", "icon-background.png", sharp(adaptiveBackground(), { density: 144 }).resize(1024, 1024).flatten({ background: "#4a3aff" }).png({ compressionLevel: 9 })],
-    ["assets/native", "splash.png", sharp(splash(false), { density: 96 }).resize(2732, 2732).flatten({ background: "#f6f7fb" }).png({ compressionLevel: 9 })],
-    ["assets/native", "splash-dark.png", sharp(splash(true), { density: 96 }).resize(2732, 2732).flatten({ background: "#13142b" }).png({ compressionLevel: 9 })]
+    ["assets/native", "icon-background.png", sharp(adaptiveBackground(), { density: 144 }).resize(1024, 1024).flatten({ background: GRAPHITE }).png({ compressionLevel: 9 })],
+    ["assets/native", "splash.png", sharp(splash(false), { density: 96 }).resize(2732, 2732).flatten({ background: GROUND }).png({ compressionLevel: 9 })],
+    ["assets/native", "splash-dark.png", sharp(splash(true), { density: 96 }).resize(2732, 2732).flatten({ background: GRAPHITE_DEEP }).png({ compressionLevel: 9 })]
   ];
   for (const [dir, name, pipeline] of jobs) {
     const file = out(dir, name);

@@ -13,7 +13,7 @@
 //         option group the moment an option is chosen
 //   UX-3  no decorative glyph next to any section/subsection heading
 //   UX-4  selection controls: neutral unselected; selected = canonical Siton
-//         indigo INSIDE the indicator + indigo card; square for multi-select,
+//         graphite INSIDE the indicator + mint-tinted card; square for multi-select,
 //         round for single-select
 //   UX-5  seller public profile (logo, display name, About, safe stats) is
 //         visible where the buyer decides
@@ -419,7 +419,7 @@ async function main() {
         eq(snap, [], 'headings still carry decorative glyphs');
       });
 
-      await check(`UX-4 @${width}: buyer receipt-method selection is neutral unselected, Siton Indigo when selected`, async () => {
+      await check(`UX-4 @${width}: buyer receipt-method selection is neutral unselected, brand graphite when selected`, async () => {
         const snap = await ev(`(() => {
           const cards = [...document.querySelectorAll('[data-testid="delivery-option"]')];
           if (cards.length < 2) return null;
@@ -440,10 +440,10 @@ async function main() {
         const sel = snap.find((c) => c.selected === '1');
         const un = snap.find((c) => c.selected === '0');
         assert(sel && un, 'expected one selected and one unselected card');
-        eq(sel.indBg, 'rgb(74,58,255)', 'selected indicator inside must be the canonical Siton Indigo');
-        assert(un.indBg !== 'rgb(74,58,255)', 'unselected indicator must stay neutral');
-        eq(sel.cardBorder, 'rgb(74,58,255)', 'selected card border must be Siton Indigo');
-        assert(un.cardBorder !== 'rgb(74,58,255)', 'unselected card border must stay neutral');
+        eq(sel.indBg, 'rgb(15,23,42)', 'selected indicator inside must be the canonical brand graphite');
+        assert(un.indBg !== 'rgb(15,23,42)', 'unselected indicator must stay neutral');
+        eq(sel.cardBorder, 'rgb(15,23,42)', 'selected card border must be brand graphite');
+        assert(un.cardBorder !== 'rgb(15,23,42)', 'unselected card border must stay neutral');
         eq(sel.round, true, 'the buyer picks exactly one receipt method: round indicator');
         eq(sel.inputHidden, true, 'the native input must be visually replaced');
       });
@@ -493,7 +493,7 @@ async function main() {
         eq(snap.panel, true, 'legal document must use the Siton document shell');
         assert(snap.navChips >= 3, `legal chip strip missing (${snap.navChips})`);
         eq(snap.activeChip, 1, 'the current legal document must be the active chip');
-        eq(snap.markerBefore, 'rgb(255,90,54)', 'section markers must be the Siton Coral bar');
+        eq(snap.markerBefore, 'rgb(45,212,191)', 'section markers must be the brand mint dash');
         eq(snap.h1, 'תקנון ותנאי שימוש', 'legal title');
         assert(!snap.overflow, 'legal page overflows horizontally');
       });
@@ -648,10 +648,10 @@ async function main() {
         assert(snap, 'receipt-method cards missing');
         eq(snap.legend, 'איך הקונה יקבל את מה ששילם עליו?', 'the owner-named section');
         eq(snap.count, 5, 'all five receipt methods must render as cards');
-        eq(snap.sel.indBg, 'rgb(74,58,255)', 'selected indicator INSIDE must be the canonical Siton Indigo');
-        assert(snap.un.indBg !== 'rgb(74,58,255)', 'unselected indicator must stay neutral');
-        eq(snap.sel.cardBorder, 'rgb(74,58,255)', 'selected card border must be Siton Indigo');
-        assert(snap.un.cardBorder !== 'rgb(74,58,255)', 'unselected card border must stay neutral');
+        eq(snap.sel.indBg, 'rgb(15,23,42)', 'selected indicator INSIDE must be the canonical brand graphite');
+        assert(snap.un.indBg !== 'rgb(15,23,42)', 'unselected indicator must stay neutral');
+        eq(snap.sel.cardBorder, 'rgb(15,23,42)', 'selected card border must be brand graphite');
+        assert(snap.un.cardBorder !== 'rgb(15,23,42)', 'unselected card border must stay neutral');
         assert(snap.sel.cardBg !== snap.un.cardBg, 'the selected card must also read as selected without the indicator');
         // Issue #39 item 3: receipt_config stores a versioned SET of methods, so the
         // card is the SQUARE multi-select and the native control is a checkbox.
@@ -661,13 +661,13 @@ async function main() {
         eq(snap.sel.help, true, 'each option keeps its explanatory line');
       });
 
-      await check(`UX-4 @${width}: choosing another option adds an indigo fill (several may stay chosen, never none)`, async () => {
+      await check(`UX-4 @${width}: choosing another option adds a graphite fill (several may stay chosen, never none)`, async () => {
         const before = await ev(`[...document.querySelectorAll('[data-testid="receipt-method-option"]')].filter(c => c.dataset.selected === '1').length`);
         await ev(`document.querySelectorAll('[data-testid="receipt-method-option"] input')[3].click()`);
         // Wait for the actual CSS transition, including on a busy test host.
         await waitFor(`(() => {
           const card = document.querySelectorAll('[data-testid="receipt-method-option"]')[3];
-          return card?.dataset.selected === '1' && getComputedStyle(card.querySelector('.choice-ind')).backgroundColor.replace(/ /g, '') === 'rgb(74,58,255)';
+          return card?.dataset.selected === '1' && getComputedStyle(card.querySelector('.choice-ind')).backgroundColor.replace(/ /g, '') === 'rgb(15,23,42)';
         })()`);
         const snap = await ev(`(() => {
           const cards = [...document.querySelectorAll('[data-testid="receipt-method-option"]')];
@@ -679,7 +679,7 @@ async function main() {
         })()`);
         eq(snap.selectedCount, before + 1, 'a set: the new method joins the ones already chosen');
         eq(snap.fourthSelected, '1', 'the newly chosen option is selected');
-        eq(snap.fill, 'rgb(74,58,255)', 'the indigo fill follows the choice');
+        eq(snap.fill, 'rgb(15,23,42)', 'the graphite fill follows the choice');
         // the last enabled method cannot be switched off (receiptContent.tsx toggle)
         await ev(`(() => { const inputs = [...document.querySelectorAll('[data-testid="receipt-method-option"] input')]; inputs.forEach((i, n) => { if (n !== 3 && i.checked) i.click(); }); })()`);
         await wait(300);
@@ -700,7 +700,7 @@ async function main() {
       // ── UX-4 the SQUARE indicator, on the real multi-select control ──
       await show('entitlement');
       await waitFor('!!document.querySelector(\'[data-testid="public-name-opt-in"]\')');
-      await check(`UX-4 @${width}: an independent opt-in uses the SQUARE indicator and fills indigo`, async () => {
+      await check(`UX-4 @${width}: an independent opt-in uses the SQUARE indicator and fills graphite`, async () => {
         const before = await ev(`(() => {
           const c = document.querySelector('[data-testid="public-name-opt-in"]');
           const ind = c.querySelector('.choice-ind');
@@ -710,7 +710,7 @@ async function main() {
         eq(before.square, true, 'multi-select must use the SQUARE checkbox indicator');
         eq(before.type, 'checkbox', 'multi-select must keep checkbox semantics');
         eq(before.selected, '0', 'the opt-in starts unchecked');
-        assert(before.bg !== 'rgb(74,58,255)', 'unchecked square must stay neutral');
+        assert(before.bg !== 'rgb(15,23,42)', 'unchecked square must stay neutral');
         await ev(`document.querySelector('[data-testid="public-name-opt-in"] input').click()`);
         await wait(300);
         const after = await ev(`(() => {
@@ -719,7 +719,7 @@ async function main() {
           return { selected: c.dataset.selected, bg: getComputedStyle(ind).backgroundColor.replace(/ /g, ''), check: getComputedStyle(ind.querySelector('svg')).display };
         })()`);
         eq(after.selected, '1', 'the opt-in became checked');
-        eq(after.bg, 'rgb(74,58,255)', 'the checked square fills with the canonical Siton Indigo');
+        eq(after.bg, 'rgb(15,23,42)', 'the checked square fills with the canonical brand graphite');
         eq(after.check, 'block', 'the check mark shows inside the filled square');
       });
 

@@ -124,7 +124,7 @@
     "mobile:build": "node scripts/build_mobile_bundle.cjs",
     "mobile:normalize": "node scripts/normalize_capacitor_projects.cjs",
     "mobile:sync": "npm run mobile:build && npx cap sync && npm run mobile:normalize",
-    "mobile:assets": "npx @capacitor/assets generate --android --assetPath assets/native --iconBackgroundColor \"#4a3aff\" --iconBackgroundColorDark \"#2f22b3\" --splashBackgroundColor \"#f6f7fb\" --splashBackgroundColorDark \"#13142b\" && npx @capacitor/assets generate --ios --assetPath assets/native --iconBackgroundColor \"#4a3aff\" --iconBackgroundColorDark \"#2f22b3\" --splashBackgroundColor \"#f6f7fb\" --splashBackgroundColorDark \"#13142b\" && node scripts/render_brand_assets.cjs --native-layers",
+    "mobile:assets": "npx @capacitor/assets generate --android --assetPath assets/native --iconBackgroundColor \"#0f172a\" --iconBackgroundColorDark \"#020617\" --splashBackgroundColor \"#f8fafc\" --splashBackgroundColorDark \"#020617\" && npx @capacitor/assets generate --ios --assetPath assets/native --iconBackgroundColor \"#0f172a\" --iconBackgroundColorDark \"#020617\" --splashBackgroundColor \"#f8fafc\" --splashBackgroundColorDark \"#020617\" && node scripts/render_brand_assets.cjs --native-layers",
     "mobile:gate": "node scripts/mobile_release_gate.cjs",
     "mobile:verify": "npm run mobile:sync && npm run mobile:gate",
     "rehearsal:no-network": "node scripts/no_network_launch_rehearsal.cjs",

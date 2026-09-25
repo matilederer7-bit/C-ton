@@ -3,11 +3,11 @@ import { BRAND_MARK_URL, BRAND_NAME } from "./config";
 import { t } from "./i18n/index.js";
 
 // ── C-ton brand primitives ──────────────────────────────────────────────────
-// The C-ton logo is drawn as vectors in assets/brand/ (2026-09-24 "Daylight"
-// refresh: a white C on a Siton Indigo tile with the Siton Coral bar) and
-// rendered to the raster files under web/public/brand/ by
-// scripts/render_brand_assets.cjs. BrandMark renders the square C+bar emblem;
-// BrandWordmark renders the approved wordmark image.
+// The C-ton logo is drawn as vectors in assets/brand/ (2026-09-25 "Graphite
+// Mint": a white C on a graphite tile, the short mint dash in its opening —
+// never a dot — with a soft mint glow) and rendered to the raster files under
+// web/public/brand/ by scripts/render_brand_assets.cjs. BrandMark renders the
+// square C+dash emblem; BrandWordmark renders the approved wordmark image.
 
 export function BrandMark({ size = 38 }: { size?: number }) {
   return (
@@ -46,7 +46,7 @@ export function BrandWordmark() {
 
 // ── branded loading state ───────────────────────────────────────────────────
 // Reusable C-ton loading surface: the real brand emblem breathing on the
-// daylight ground. Reduced-motion users get a static mark. minHeight prevents layout
+// paper ground. Reduced-motion users get a static mark. minHeight prevents layout
 // jump when the loaded content replaces the loader.
 // LAUNCH POLISH (P8) — a wait that outlives SLOW_HINT_MS gets ONE honest extra
 // line (the hosted runtime can take up to ~30 s to wake after idle). It never

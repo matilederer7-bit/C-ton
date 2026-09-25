@@ -1,0 +1,105 @@
+{
+  "task": "Graphite Mint brand rollout: one token layer (brand-graphite / brand-mint / brand-green / brand-amber / surface / border), the C-ton logo with the short mint dash (no dot) and a soft glow, every brand surface recoloured — presentation only, zero behaviour change",
+  "lead": "claude-lead",
+  "base": "origin/master",
+  "open_branches": [
+    "origin/codex/senior-engineering-review-20260921",
+    "origin/codex/bootstrap-reconcile-20260924",
+    "origin/chatgpt/phone-team-gpt6-openai-only-20260923",
+    "origin/chatgpt/render-rate-limit-hardening-20260920"
+  ],
+  "interface_contract": {
+    "palette": "graphite #0f172a (hover #1e293b, active #020617) · mint #2dd4bf (readable ink #115e59, tint rgba(45,212,191,.14)) · green #065f46 (hover #047857, tint #ecfdf5) · amber fill #f59e0b / ink #92400e / tint #fef3c7 (urgency only) · red unchanged · bg #f8fafc · surface #ffffff · border #e5e7eb (strong #cbd5e1) · ink #0f172a / #334155 / #475569 · sand #d6c7a7 reserved"
+  },
+  "assignments": [
+    {
+      "id": "B1",
+      "agent": "claude-lead",
+      "role": "builder",
+      "scope": "canonical web app tokens + states, progress meter colours, brand vectors (mark, wordmark, lockup, splash) and every rendered raster, brand pins in tests/proofs, status and brand doc",
+      "allowed": [
+        "web/src/styles.css",
+        "web/src/cms.css",
+        "web/src/util.ts",
+        "web/src/brand.tsx",
+        "web/index.html",
+        "web/public/brand/",
+        "assets/logo.svg",
+        "assets/brand/",
+        "assets/native/",
+        "frontend/icons/",
+        "android/app/src/main/res/",
+        "ios/App/App/Assets.xcassets/",
+        "scripts/render_brand_assets.cjs",
+        "scripts/ux_polish_round2_browser_proof.cjs",
+        "scripts/r7r8_browser_proof.cjs",
+        "scripts/p0_browser_proof.cjs",
+        "tests/visual_brand_consistency_validation.ts",
+        "package.json",
+        "docs/BRAND_GRAPHITE_MINT.md",
+        "PROJECT_STATUS.md",
+        "docs/team-plans/2026-09-25-graphite-mint-brand.json"
+      ],
+      "forbidden": [
+        "src/",
+        "supabase/",
+        ".github/workflows/",
+        "web/src/pages/",
+        "web/src/api.ts",
+        "web/src/auth.tsx",
+        "web/src/session.ts",
+        "frontend/app.js"
+      ],
+      "depends_on": [],
+      "dod": [
+        "every text token >= 4.5:1 on every ground",
+        "no class/testid/prop/logic change",
+        "web build green",
+        "style-pinning suites green",
+        "visual_brand_consistency green on the new pins"
+      ]
+    },
+    {
+      "id": "B2",
+      "agent": "claude-subagent",
+      "role": "builder",
+      "scope": "legacy /app PWA shell tokens and hard-coded colours, manifest and offline chrome, service-worker cache bump, the presentation-only colour strings in the server-rendered legal/share/pay shells, and the tests that pin those exact values",
+      "allowed": [
+        "frontend/styles.css",
+        "frontend/index.html",
+        "frontend/offline.html",
+        "frontend/manifest.webmanifest",
+        "frontend/service-worker.js",
+        "src/frontend_runtime.ts",
+        "tests/frontend_browser_smoke_validation.ts",
+        "tests/legal_html_shell_alignment_validation.ts"
+      ],
+      "forbidden": [
+        "frontend/app.js",
+        "web/",
+        "assets/",
+        "supabase/",
+        "src/migrations/",
+        ".github/workflows/",
+        "PROJECT_STATUS.md"
+      ],
+      "depends_on": [],
+      "dod": [
+        "only colour/shadow values change in src/frontend_runtime.ts (no markup, route, header or logic edit)",
+        "legacy shell tokens carry the same palette as the contract",
+        "no indigo/coral/navy value left in frontend/ (except app.js, out of scope)",
+        "legal_html_shell_alignment + frontend_browser_smoke static checks green"
+      ]
+    },
+    {
+      "id": "R1",
+      "agent": "claude-subagent",
+      "role": "reviewer",
+      "scope": "independent read-only review of the combined diff: presentation-only boundary, contrast, old-brand leftovers, logo dash (not a dot) and glow restraint, RTL/mobile layout",
+      "reviews": ["B1", "B2"],
+      "depends_on": ["B1", "B2"],
+      "dod": ["verdict with concrete failure scenarios"]
+    }
+  ],
+  "overlap_decision": "PR #71 (stale since 2026-09-21) appends one .footer-copyright rule at the END of web/src/styles.css using --ink-faint; that token name is kept and the end of the file is untouched, so #71 still merges. PROJECT_STATUS.md edits are confined to the claude slot."
+}

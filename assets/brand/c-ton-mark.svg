@@ -1,23 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title description">
   <title id="title">C-ton</title>
-  <desc id="description">Daylight C-ton mark: a white C on a Siton Indigo tile with the Siton Coral bar</desc>
+  <desc id="description">Graphite Mint C-ton mark: a white C on a graphite tile with the short mint dash in its opening</desc>
   <defs>
-    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#6353ff"/>
-      <stop offset=".55" stop-color="#4a3aff"/>
-      <stop offset="1" stop-color="#3322d6"/>
-    </linearGradient>
-    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffffff" stop-opacity=".16"/>
-      <stop offset=".5" stop-color="#ffffff" stop-opacity="0"/>
-    </linearGradient>
-    <linearGradient id="coral" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ff7a52"/>
-      <stop offset="1" stop-color="#ff5a36"/>
-    </linearGradient>
+    <filter id="dash-glow" x="-40%" y="-120%" width="180%" height="340%">
+      <feGaussianBlur stdDeviation="22"/>
+    </filter>
   </defs>
-  <rect width="1024" height="1024" rx="232" fill="url(#tile)"/>
-  <rect width="1024" height="1024" rx="232" fill="url(#sheen)"/>
+  <rect width="1024" height="1024" rx="232" fill="#0f172a"/>
   <path d="M720 310c-56-54-127-82-213-82-161 0-288 123-288 288s127 288 288 288c88 0 162-29 220-86L623 614c-30 29-67 43-112 43-80 0-141-59-141-141s61-141 141-141c43 0 79 14 109 40z" fill="#ffffff"/>
-  <rect x="590" y="446" width="232" height="132" rx="14" fill="url(#coral)"/>
+  <rect x="590" y="460" width="232" height="104" rx="20" fill="#2dd4bf" fill-opacity=".55" filter="url(#dash-glow)"/>
+  <rect x="590" y="460" width="232" height="104" rx="20" fill="#2dd4bf"/>
 </svg>

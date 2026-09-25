@@ -250,10 +250,13 @@ export function utcIsoToIsraelParts(iso: string | null | undefined): { date: str
 // ratio it receives and the width it sits in are unchanged.
 export function progressColor(ratioToTarget: number): string {
   const r = clamp(ratioToTarget, 0, 1);
-  if (r >= 1) return "linear-gradient(90deg, #0e9467, #19b27c)";
-  if (r < 0.6) return "linear-gradient(90deg, #4a3aff, #6d5dff)";
-  // 0.6 → 1: the coral share of the leading edge GROWS with the ratio — the
-  // violet stop recedes from 95% to 55%, so coral spans 5% → 45% of the fill
+  // Graphite Mint (2026-09-25): a graphite fill on the way to the target,
+  // the mint leading edge growing as the group gets close, brand green once
+  // the target is reached. Same inputs, widths and thresholds as before.
+  if (r >= 1) return "linear-gradient(90deg, #065f46, #047857)";
+  if (r < 0.6) return "linear-gradient(90deg, #0f172a, #334155)";
+  // 0.6 → 1: the mint share of the leading edge GROWS with the ratio — the
+  // graphite stop recedes from 95% to 55%, so mint spans 5% → 45% of the fill
   const warm = Math.round(95 - (r - 0.6) * 100); // 95% → 55%
-  return `linear-gradient(90deg, #4a3aff, #7b5cff ${warm}%, #ff5a36)`;
+  return `linear-gradient(90deg, #0f172a, #334155 ${warm}%, #2dd4bf)`;
 }
