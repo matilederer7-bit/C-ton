@@ -29,7 +29,7 @@ import { buildPaymentProvider, getPaymentProviderSummary, providerAmbiguityPolic
 import { buildPaymentAuthorizationBindings, PaymentBindingError } from "./payment_binding.js";
 import { assessAuthorizationUsability, isAuthorizationUnusableResult, reauthorizationIdentity } from "./authorization_lifecycle.js";
 import { computeCustomerChargeVat } from "./vat_authority.js";
-import { resolveCompletionWindowMinutes } from "./runtime_config.js";
+import { resolveCompletionWindowMinutes, isProductionLikeEnv } from "./runtime_config.js";
 import { buildNotificationService, getNotificationServiceSummary } from "./notification_service.js";
 import {
   enqueueNotification,
@@ -5320,6 +5320,12 @@ function applySecurityHeaders(reply: any) {
   // available (docs/PHYSICAL_FULFILLMENT_PICKUP.md §6). Microphone/payment/
   // usb/serial stay off.
   reply.header("permissions-policy", "camera=(self), microphone=(), geolocation=(self), payment=(), usb=(), serial=()");
+  // Red-team hardening (A6): enforce HTTPS on production hostnames so a
+  // downgrade/SSL-strip cannot expose session cookies or payment traffic. Only
+  // emitted in production-like runtimes (never on plain-HTTP local dev).
+  if (isProductionLikeEnv()) {
+    reply.header("strict-transport-security", "max-age=31536000; includeSubDomains");
+  }
 }
 
 function isImmutableDealImageRoute(req: any) {

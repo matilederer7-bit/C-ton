@@ -59,6 +59,9 @@ await runTest("security_headers_validation", async () => {
   assert.match(app, /nosniff/);
   assert.match(app, /no-referrer/);
   assert.match(app, /DENY/);
+  // Red-team hardening (A6): HSTS is emitted on production-like hosts (only),
+  // so a downgrade/SSL-strip cannot expose session cookies or payment traffic.
+  assert.match(app, /if \(isProductionLikeEnv\(\)\) \{\s*reply\.header\("strict-transport-security", "max-age=31536000; includeSubDomains"\);/);
 });
 
 await runTest("security_api_no_store_validation", async () => {
