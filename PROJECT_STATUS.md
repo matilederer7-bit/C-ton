@@ -340,9 +340,37 @@ Current invariants:
     - All 12 failures are UX-4 "exactly one receipt method" checks. Master `fc437e5` fails the identical 12, so they are pre-existing product-contract drift in the proof, not this change.
     - Its colour pins, and one in `r7r8_browser_proof.cjs`, were updated from orange to the new canonical colours.
   - Screenshots of the landing, deal, wizard, seller dashboard and every sweep surface were reviewed on phone and desktop.
-- OPEN: the legacy `/app` shell, native icons/splash and the legal-page theme-color are still graphite (see above).
-- PERCENTAGE: 90% until merged, deployed and verified on staging.
-- NEXT STEP: PR → CI → merge → Render deploy → visual verification on `https://siton-staging-web.onrender.com`.
+- REVIEW:
+  - An independent read-only reviewer returned APPROVE. Its two minor notes were fixed in `54fde27`: the placeholder ink is now at full strength, and the language-switch hover is visible on white.
+  - Codex P2 was fixed in `24b5643`: the coral share of the meter now GROWS toward the target, as intended. The thread was answered and resolved.
+- CANONICAL VERIFIER (local Postgres 16), all green:
+  - `migrations-isolated` PASS
+  - `route-authorization` PASS
+  - `repository-tests` PASS (full `npm test`, about 14 min)
+  - `release:preflight:static` PASS (17 pass, 0 fail, 3 warnings). Its first run failed `supply-chain` only because of a local stray `node_modules/node_modules` self-link, which comes from the tracked `node_modules` symlink in git. After removing the link it passed.
+- CI on `24b5643`: 7/7 green.
+  - The first `backend-gates` run failed one e2e browser test (`frontend_browser_i18n_validation`), while master's own latest run fails a sibling browser test (`frontend_browser_locale_draft`).
+  - Checks on the failing test: it passes 11/11 locally, and with Rubik loaded all 13 surfaces it visits measure no overflow at 390px in HE/EN.
+  - A single re-run passed.
+- MERGED: PR #85 was squash-merged as `ba4eb89`.
+- DEPLOYED: Render `siton-staging-web` deploy `dep-daqpvajrjlhs73cplh9g` is **live on `ba4eb89`**. The worker was correctly not redeployed, since there is no worker change.
+- VERIFIED BY EYE ON STAGING (hosted browser, 2026-09-25):
+  - `/readiness` returns `ok`, `database: connected`, `runtime_role: siton_web_runtime`.
+  - `/preview/` serves the new stylesheet: `--brand #4a3aff`, `--bg #f6f7fb`, `theme-color #f6f7fb`, and Rubik loaded.
+  - The landing page renders in daylight with the new mark and wordmark, the lockup hero, the indigo primary CTA, and the owner's CMS headline.
+  - The live public deal `6e35c4f3…` renders with:
+    - the coral "live" pill ("עוד 7 יחידות כדי שהעסקה תצא לפועל")
+    - the indigo join CTA
+    - the display-type price
+    - the coral urgency tile
+    - the indigo meter
+  - On a 390px phone the live deal has no horizontal overflow (`scrollWidth` 390 = viewport).
+- OPEN, deliberately out of scope:
+  - The legacy `/app` shell, the native icons/splash, and the legal-page `theme-color` in `src/frontend_runtime.ts` are still graphite.
+  - The tracked `node_modules` symlink in git should be removed (a repo-hygiene follow-up).
+  - The master e2e browser tests are intermittent in CI (`locale_draft` on master, `i18n` on this PR's first run).
+- PERCENTAGE: 100% for the web-app visual refresh. The legacy shell and native art are separate follow-ups.
+- NEXT STEP: owner review of the look on staging. If approved, bring the legacy `/app` shell and the native icons/splash onto the Daylight identity.
 
 ### Claude Code milestone — Claude Code as permanent team lead (PR #82)
 
