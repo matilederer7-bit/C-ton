@@ -2,8 +2,8 @@
 
 Updated: 2026-09-25
 Canonical branch: `master`
-Current merged baseline: `2e32f436d809a330c8a2189994362cc9f459b009` (PR #53)
-Render staging: LIVE on that SHA — web `dep-dame6v0u01pc738qrku0`, worker `dep-dame6v0u01pc738qrlb0`
+Current merged baseline: `2703d7944b1eb1d4f003241c00fa4ed6143e3f63` (PR #90, Graphite Mint brand)
+Render staging: LIVE on that SHA — web `dep-dar732o473hc73ct6730`
 Supabase staging: migration high-water **072**, grants through `staging_026`
 
 ## CURRENT SNAPSHOT
@@ -325,16 +325,25 @@ Current invariants:
 - REVIEW: independent read-only reviewer → REQUEST_CHANGES: (1) HIGH shared SVG filter id gave the wordmark the mark's blur in the composed splash/lockup rasters (a boxed smudge behind the dash) — fixed, re-rendered, pinned by two pixel drift samples that fail on the old render; (2) focus ring failed non-text contrast — now mint ink; (3) plan overlap decision incomplete + status missing — recorded; (4) amber primary-image star — mint ink; (5) scattered brand rgba literals — token triplets; (6-9) doc accuracy, stale comments, admin badge — fixed. Meter-edge contrast (mint vs grey track at ≥90 %) left as designed: the fill starts graphite, the mint edge is the brand signal.
 - TESTED (this container has no Postgres credentials, so DB-backed suites are CI's):
   - `test:visual-brand` → `VISUAL_BRAND_CONSISTENCY_PASS` (tokens, WCAG AA for every text/ground pair, ordered states, semantic pills, dash geometry, glow restraint, glow-box drift, pixel samples on every icon and splash).
-  - `proof:ux-round2` with screenshots → **324/324** at 320/390/430/768/1280/1440, no console errors — identical **324/324** after the review fixes.
+  - `proof:ux-round2` with screenshots → **324/324** at 320/390/430/768/1280/1440, no console errors — identical **324/324** after the review fixes and after the Codex fix.
   - `web` build (tsc + vite) PASS; `build:demo` PASS; `mobile:verify` → `MOBILE_GATE_PASS` with a clean tree; `test:mobile-readiness` → `MOBILE_TESTS_PASS`.
   - Stylesheet-pinning suites PASS: product_surfaces_refinement, frontend_foundation_rtl_accessibility, admin_support_product_surfaces, admin_rtl_surface, product_catalog, pickup_navigation, buyer_tracking_refinement, frontend_foundation_buyer_polish, frontend_foundation_countdown_pickup.
   - `lint`, `gate:architecture`, `scan:secrets`, `check:repo-hygiene`, `gate:i18n` PASS; `git diff --check` clean.
   - NOT RUN locally (ECONNREFUSED 5432): `legal_html_shell_alignment`, `frontend_flow`, `frontend_browser_smoke` — CI. `r7r8`/`p0` browser proofs (Edge/Windows-oriented, need a demo runtime) — pins updated, NOT RUN.
   - By eye: mark at 512/64/32/16, wordmark at 22 px, lockup, light/dark splash, adaptive foreground; landing, deal, seller dashboard, admin, wizard and selection surfaces at 1280 and 390 (no overflow, no old colour).
 - DELIBERATELY NOT CHANGED: no route, API, auth, state, payment, worker, schema, permission, i18n string, markup, prop, class or `data-testid`; `frontend/app.js` untouched.
-- OPEN: PR review (Codex), CI, merge, staging deploy verification — recorded below when done.
-- PERCENTAGE: 90% (code complete and verified locally; merge + deploy pending).
-- NEXT STEP: open the PR, drive CI to green, squash-merge, confirm `siton-staging-web` live on the merge SHA and check the logo/dash/favicon on staging by eye.
+- CODEX: one P2 on PR #90 (a disabled button under the pointer inherited the variant hover fill, equal specificity) — fixed in `7c33441` (`.btn:disabled:hover` / `:active` out-rank every variant hover; pinned by the brand test), thread answered and resolved.
+- CI: 7/7 green on head `7c33441` (backend-gates, web-runtime-core, web-runtime-resilience, preflight-static, preflight-database, docker-release-lab, static-readiness); the DB-backed suites that could not run in the session container passed there.
+- MERGED + DEPLOYED: PR #90 squash-merged as `2703d79` (2026-09-25 13:05 UTC). Render `siton-staging-web` deploy `dep-dar732o473hc73ct6730` **live on `2703d79`** (build 13:05 → live 13:06). The worker was correctly not redeployed (no worker change).
+- VERIFIED BY EYE ON STAGING (hosted browser, 2026-09-25 13:14 UTC):
+  - `/readiness` → `ok`, `database: connected`, `runtime_role: siton_web_runtime`.
+  - `/preview/` serves the new token layer: `--brand #0f172a`, `--brand-mint #2dd4bf`, `--bg #f8fafc`, `--live #2dd4bf`, `--success-fill #065f46`, `--saffron-fill #f59e0b`, `--focus-ring` in mint ink; `theme-color #f8fafc`; section markers `rgb(45, 212, 191)`; the primary CTA is the graphite gradient with white text.
+  - `/preview/brand/favicon-64.png` 200; the wordmark PNG is the 2x 1080×280 render laid out at 22 px.
+  - `/app/assets/styles.css` carries `--primary #0f172a` and `--bg #f8fafc` with no indigo left; `/app/manifest.webmanifest` theme `#f8fafc`; service-worker cache `siton-shell-v4-graphite-mint`; `/legal/terms` theme-color `#f8fafc`.
+  - No horizontal overflow at 390 on the landing (`scrollWidth` 375 ≤ 390); the public deal page was not opened on staging (no deal link on the landing at that moment) — it is covered by the local proof at six widths.
+- OPEN: none.
+- PERCENTAGE: 100%.
+- NEXT STEP: none in this track. The native icons reach the apps at their next store build (`npm run mobile:assets` output is committed). Owner to eyeball staging and request fine-tuning if any.
 
 ### Claude Code latest milestone — Daylight for the legacy /app shell, PWA icons and native app icons (PR #87)
 
