@@ -119,7 +119,16 @@ async function openCdpPage(path: string) {
   if (!existsSync(browserPath)) throw new Error(`browser executable not found at ${browserPath}`);
   return launchChromiumTarget(`${baseUrl}${path}`, {
     executable: browserPath,
-    label: "siton-v11-browser"
+    label: "siton-v11-browser",
+    extraArgs: [
+      "--disable-background-networking",
+      "--disable-component-update",
+      "--disable-default-apps",
+      "--disable-domain-reliability",
+      "--disable-sync",
+      "--metrics-recording-only",
+      "--no-pings"
+    ]
   });
 }
 
