@@ -24,7 +24,7 @@ function main() {
 
   // Generated / temporary / review artefacts must never be tracked. Binary
   // assets (canonical .docx specs, gradle wrapper jar, icons) are legitimate.
-  const junkDir = new RegExp("(^|/)(" + [...policy.EXCLUDED_DIR_NAMES].filter((name) => ![".claude", ".vscode", ".idea", ".cursor", "archive", "backups", "tmp", "temp", "logs", "uploads", "build", "dist", "Pods", ".gradle", "DerivedData", ".cache", ".nyc_output", ".sixth"].includes(name)).map((name) => name.replace(/\./g, "\\.")).join("|") + ")/");
+  const junkDir = new RegExp("(^|/)(" + [...policy.EXCLUDED_DIR_NAMES].filter((name) => ![".claude", ".vscode", ".idea", ".cursor", "archive", "backups", "tmp", "temp", "logs", "uploads", "build", "dist", "Pods", ".gradle", "DerivedData", ".cache", ".nyc_output", ".sixth"].includes(name)).map((name) => name.replace(/\./g, "\\.")).join("|") + ")(?:/|$)");
   const junkPrefix = /(^|\/)(\.tmp|\.worktree|\.review|\.scratch)[^/]*\//;
   const junkFile = /(\.log|\.dump|\.bak|\.tmp|\.orig|\.rej|\.swp)$|(^|\/)review-[^/]*\.(log|txt|json)$/i;
   const junk = tracked.filter((file) => junkDir.test(file) || junkPrefix.test(file) || junkFile.test(file));
@@ -50,8 +50,8 @@ function main() {
   const status = git(["status", "--porcelain", "--untracked-files=all"]).stdout.split(/\r?\n/).filter(Boolean);
   (status.length ? report.warn : report.pass).call(report, "working tree", status.length ? status.length + " uncommitted/untracked entries (a release manifest will record dirty=true)" : "clean", { detail: status.slice(0, 30).join("\n") || undefined });
 
-  const nested = tracked.filter((file) => /^\.worktrees\//.test(file) || /(^|\/)node_modules\//.test(file));
-  (nested.length ? report.fail : report.pass).call(report, "nested checkouts", nested.length ? nested.length + " tracked files under .worktrees/ or node_modules/" : "no tracked files under .worktrees/ or node_modules/");
+  const nested = tracked.filter((file) => /^\.worktrees(?:\/|$)/.test(file) || /(^|\/)node_modules(?:\/|$)/.test(file));
+  (nested.length ? report.fail : report.pass).call(report, "nested checkouts", nested.length ? nested.length + " tracked entries under .worktrees or node_modules" : "no tracked entries under .worktrees or node_modules");
 
   report.printSummary({ detailLines: 40 });
   report.writeArtifacts(artifactsDir(root), "repository-hygiene");

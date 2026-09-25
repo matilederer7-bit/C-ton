@@ -7,7 +7,7 @@
 // measurements and screenshots.
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -42,35 +42,90 @@ export interface BrowserPage {
   close(): Promise<void>;
 }
 
-export async function launchPage(startUrl: string): Promise<BrowserPage> {
-  const executable = chromiumPath();
+export type ChromiumTarget = {
+  browser: ChildProcess;
+  profileDir: string;
+  wsUrl: string;
+};
+
+export async function launchChromiumTarget(
+  startUrl: string,
+  options: { executable?: string; timeoutMs?: number; label?: string; extraArgs?: string[] } = {}
+): Promise<ChromiumTarget> {
+  const executable = options.executable || chromiumPath();
   if (!executable) throw new Error(`no Chromium found; tried ${CHROMIUM_CANDIDATES.join(", ")}`);
-  const profileDir = join(tmpdir(), `siton-cdp-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`);
-  await mkdir(profileDir, { recursive: true });
-  const port = 34_000 + Math.floor(Math.random() * 1_500);
+
+  const label = String(options.label || "siton-cdp").replace(/[^a-z0-9_-]/gi, "-");
+  const profileDir = await mkdtemp(join(tmpdir(), `${label}-`));
+  let stderr = "";
+  let spawnErrorMessage = "";
   const browser: ChildProcess = spawn(executable, [
     "--headless=new", "--disable-gpu", "--disable-dev-shm-usage", "--no-sandbox",
     "--disable-breakpad", "--disable-crash-reporter", "--no-first-run",
-    "--no-default-browser-check", "--hide-scrollbars",
-    `--remote-debugging-port=${port}`, `--user-data-dir=${profileDir}`, startUrl
-  ], { stdio: ["ignore", "ignore", "ignore"] });
+    "--no-default-browser-check",
+    ...(options.extraArgs || []),
+    "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=0",
+    `--user-data-dir=${profileDir}`, startUrl
+  ], { stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
 
+  browser.stderr?.on("data", (chunk) => {
+    stderr = (stderr + String(chunk)).slice(-8_000);
+  });
+  browser.once("error", (error) => { spawnErrorMessage = error instanceof Error ? error.message : String(error); });
+
+  const timeoutMs = options.timeoutMs ?? (process.env.CI ? 60_000 : 35_000);
+  const deadline = Date.now() + timeoutMs;
+  let debugPort = 0;
   let wsUrl = "";
-  for (let attempt = 0; attempt < 80 && !wsUrl; attempt += 1) {
-    try {
-      const response = await fetch(`http://127.0.0.1:${port}/json/list`);
-      const pages = await response.json() as Array<{ type?: string; webSocketDebuggerUrl?: string }>;
-      const page = pages.find((item) => item.type === "page" && item.webSocketDebuggerUrl);
-      if (page?.webSocketDebuggerUrl) wsUrl = page.webSocketDebuggerUrl;
-    } catch { /* not up yet */ }
-    if (!wsUrl) await wait(250);
-  }
-  if (!wsUrl) {
-    browser.kill("SIGKILL");
-    await rm(profileDir, { recursive: true, force: true }).catch(() => undefined);
-    throw new Error("Chromium CDP did not become available");
+
+  while (Date.now() < deadline && !wsUrl) {
+    if (spawnErrorMessage) break;
+    if (browser.exitCode !== null || browser.signalCode !== null) break;
+
+    if (!debugPort) {
+      try {
+        const activePort = await readFile(join(profileDir, "DevToolsActivePort"), "utf8");
+        const parsed = Number.parseInt(activePort.split(/\r?\n/, 1)[0] || "", 10);
+        if (Number.isInteger(parsed) && parsed > 0 && parsed <= 65_535) debugPort = parsed;
+      } catch { /* Chromium has not published the OS-assigned port yet */ }
+    }
+
+    if (debugPort) {
+      try {
+        const response = await fetch(`http://127.0.0.1:${debugPort}/json/list`);
+        if (response.ok) {
+          const pages = await response.json() as Array<{ type?: string; webSocketDebuggerUrl?: string }>;
+          const page = pages.find((item) => item.type === "page" && item.webSocketDebuggerUrl)
+            || pages.find((item) => item.webSocketDebuggerUrl);
+          if (page?.webSocketDebuggerUrl) wsUrl = page.webSocketDebuggerUrl;
+        }
+      } catch { /* CDP HTTP endpoint is not accepting connections yet */ }
+    }
+
+    if (!wsUrl) await wait(150);
   }
 
+  if (!wsUrl) {
+    const exit = spawnErrorMessage
+      ? `spawn error: ${spawnErrorMessage}`
+      : `exitCode=${browser.exitCode ?? "running"} signal=${browser.signalCode ?? "none"}`;
+    if (browser.exitCode === null) browser.kill("SIGKILL");
+    await wait(200);
+    await rm(profileDir, { recursive: true, force: true }).catch(() => undefined);
+    const diagnostics = stderr.trim();
+    throw new Error(
+      `Chromium CDP did not become available within ${timeoutMs}ms (${exit})`
+      + (diagnostics ? `\nChromium stderr:\n${diagnostics}` : "")
+    );
+  }
+
+  return { browser, profileDir, wsUrl };
+}
+
+export async function launchPage(startUrl: string): Promise<BrowserPage> {
+  const executable = chromiumPath();
+  if (!executable) throw new Error(`no Chromium found; tried ${CHROMIUM_CANDIDATES.join(", ")}`);
+  const { browser, profileDir, wsUrl } = await launchChromiumTarget(startUrl, { executable, extraArgs: ["--hide-scrollbars"] });
   const ws = new WebSocket(wsUrl);
   let seq = 0;
   const pending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void }>();

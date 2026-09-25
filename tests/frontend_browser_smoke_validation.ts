@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
-import { chromiumPath } from "./helpers/browser_cdp.js";
+import { chromiumPath, launchChromiumTarget } from "./helpers/browser_cdp.js";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { cp, mkdir, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import dotenv from "dotenv";
 import { fileURLToPath } from "node:url";
@@ -128,38 +127,10 @@ async function openCdpPage(path: string) {
   if (!existsSync(edgePath)) {
     throw new Error(`Edge executable not found at ${edgePath}`);
   }
-  const profileDir = join(tmpdir(), `siton-cdp-smoke-${Date.now()}`);
-  await mkdir(profileDir, { recursive: true });
-  const remoteDebuggingPort = 33_500 + Math.floor(Math.random() * 1_000);
-  const browser = spawn(edgePath, [
-    "--headless=new",
-    "--disable-gpu",
-    // containerised runners have no user namespace and a tiny /dev/shm
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-breakpad",
-    "--disable-crash-reporter",
-    "--no-first-run",
-    "--no-default-browser-check",
-    `--remote-debugging-port=${remoteDebuggingPort}`,
-    `--user-data-dir=${profileDir}`,
-    `${baseUrl}${path}`
-  ], { stdio: ["ignore", "ignore", "ignore"], windowsHide: true });
-
-  for (let attempt = 0; attempt < 60; attempt += 1) {
-    try {
-      const response = await fetch(`http://127.0.0.1:${remoteDebuggingPort}/json/list`);
-      const pages = await response.json() as Array<{ url?: string; webSocketDebuggerUrl?: string }>;
-      const page = pages.find((item) => item.url?.includes(path));
-      if (page?.webSocketDebuggerUrl) {
-        return { browser, profileDir, wsUrl: page.webSocketDebuggerUrl };
-      }
-    } catch {}
-    await wait(250);
-  }
-  browser.kill("SIGKILL");
-  await rm(profileDir, { recursive: true, force: true }).catch(() => undefined);
-  throw new Error("Edge CDP page did not become available");
+  return launchChromiumTarget(`${baseUrl}${path}`, {
+    executable: edgePath,
+    label: "siton-cdp-smoke"
+  });
 }
 
 async function waitForProcessExit(child: ReturnType<typeof spawn>, timeoutMs: number) {
