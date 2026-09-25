@@ -3,7 +3,7 @@
 Updated: 2026-09-25
 Canonical branch: `master`
 Current merged baseline: `2703d7944b1eb1d4f003241c00fa4ed6143e3f63` (PR #90, Graphite Mint brand)
-Render staging: LIVE on that SHA — web `dep-dar732o473hc73ct6730`
+Render staging: LIVE on that SHA — web `dep-dar732o473hc73ct6730`, worker `dep-dar732o473hc73ct67gg` (both services auto-deploy every master commit; this docs-only merge redeploys both again)
 Supabase staging: migration high-water **072**, grants through `staging_026`
 
 ## CURRENT SNAPSHOT
@@ -334,7 +334,7 @@ Current invariants:
 - DELIBERATELY NOT CHANGED: no route, API, auth, state, payment, worker, schema, permission, i18n string, markup, prop, class or `data-testid`; `frontend/app.js` untouched.
 - CODEX: one P2 on PR #90 (a disabled button under the pointer inherited the variant hover fill, equal specificity) — fixed in `7c33441` (`.btn:disabled:hover` / `:active` out-rank every variant hover; pinned by the brand test), thread answered and resolved.
 - CI: 7/7 green on head `7c33441` (backend-gates, web-runtime-core, web-runtime-resilience, preflight-static, preflight-database, docker-release-lab, static-readiness); the DB-backed suites that could not run in the session container passed there.
-- MERGED + DEPLOYED: PR #90 squash-merged as `2703d79` (2026-09-25 13:05 UTC). Render `siton-staging-web` deploy `dep-dar732o473hc73ct6730` **live on `2703d79`** (build 13:05 → live 13:06). The worker was correctly not redeployed (no worker change).
+- MERGED + DEPLOYED: PR #90 squash-merged as `2703d79` (2026-09-25 13:05 UTC). Render `siton-staging-web` deploy `dep-dar732o473hc73ct6730` **live on `2703d79`** (build 13:05 → live 13:06) and `siton-staging-worker` deploy `dep-dar732o473hc73ct67gg` **live on `2703d79`** (13:05 → 13:06): per `render.yaml` both services auto-deploy every master commit, so the worker was rebuilt too (no worker code changed). This docs-only follow-up commit redeploys both services once more.
 - VERIFIED BY EYE ON STAGING (hosted browser, 2026-09-25 13:14 UTC):
   - `/readiness` → `ok`, `database: connected`, `runtime_role: siton_web_runtime`.
   - `/preview/` serves the new token layer: `--brand #0f172a`, `--brand-mint #2dd4bf`, `--bg #f8fafc`, `--live #2dd4bf`, `--success-fill #065f46`, `--saffron-fill #f59e0b`, `--focus-ring` in mint ink; `theme-color #f8fafc`; section markers `rgb(45, 212, 191)`; the primary CTA is the graphite gradient with white text.
