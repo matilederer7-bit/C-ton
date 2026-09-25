@@ -1,7 +1,7 @@
 // Bumped for the Daylight visual refresh (2026-09-25): the manifest, icons and
 // offline page keep their URLs, so only a new cache name makes installed PWAs
 // drop the graphite copies (the activate handler deletes every other cache).
-const CACHE_VERSION = "siton-shell-v3-daylight";
+const CACHE_VERSION = "siton-shell-v4-graphite-mint";
 const SHELL = [
   "/app/offline",
   "/app/assets/styles.css",

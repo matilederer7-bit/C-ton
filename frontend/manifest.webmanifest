@@ -8,8 +8,8 @@
   "scope": "/app",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#f6f7fb",
-  "theme_color": "#f6f7fb",
+  "background_color": "#f8fafc",
+  "theme_color": "#f8fafc",
   "categories": [
     "shopping",
     "business"

@@ -408,7 +408,7 @@ async function assertFrontendAssetsHealthy() {
   const checks = [
     { path: "/app", contentType: "text/html", expect: ["charset=utf-8", "<title>C-ton | קניון עסקאות קבוצתיות</title>", "/app/assets/app.js", "/app/assets/styles.css"] },
     { path: "/app/assets/app.js", contentType: "application/javascript", expect: ["charset=utf-8", "renderProgressBlock", "הקניון של C-ton", "C-ton"] },
-    { path: "/app/assets/styles.css", contentType: "text/css", expect: ["charset=utf-8", "Assistant", "#4a3aff", "#f6f7fb"] }
+    { path: "/app/assets/styles.css", contentType: "text/css", expect: ["charset=utf-8", "Assistant", "#0f172a", "#f8fafc"] }
   ];
 
   for (const check of checks) {
