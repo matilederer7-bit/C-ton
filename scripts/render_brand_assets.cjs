@@ -1,22 +1,63 @@
 #!/usr/bin/env node
-// Renders the C-ton raster brand files from their vector sources.
+// Renders every raster brand file from the two vector sources.
 //
-// 2026-09-24 visual refresh ("Daylight"): the brand is now drawn as vectors in
-// assets/brand/ (c-ton-mark.svg, c-ton-wordmark.svg). The web app still loads
-// the same raster file NAMES under web/public/brand/, so no code path, cache
-// rule or share-preview URL changed — only the pixels. Re-run after editing an
-// SVG source:   node scripts/render_brand_assets.cjs
+// 2026-09-24 visual refresh ("Daylight"): the brand is drawn as vectors in
+// assets/brand/ (c-ton-mark.svg, c-ton-wordmark.svg). Everything below is
+// derived from them, so a change to the mark is one edit, then:
+//
+//   node scripts/render_brand_assets.cjs      # web + PWA icons + native inputs
+//   npm run mobile:assets                     # native icon/splash catalogs
+//
+// Outputs (same file NAMES as before, so no URL, cache rule, manifest entry,
+// share-preview path or Xcode/Gradle reference changes):
+//   web/public/brand/   c-ton-mark.png, c-ton-mark-180.png, favicon-64.png,
+//                       c-ton-wordmark.png, c-ton-logo-1024.jpg, c-ton-logo.png
+//   frontend/icons/     icon-{48,72,96,128,192,256,512}.png  (legacy /app PWA;
+//                       full-bleed squares because the manifest declares them
+//                       "any maskable" and the OS applies its own mask)
+//   assets/native/      icon-only.png, icon-foreground.png, icon-background.png,
+//                       splash.png, splash-dark.png — the "custom mode" inputs
+//                       @capacitor/assets turns into the iOS AppIcon + Splash
+//                       catalogs and the Android launcher + splash resources.
 const fs = require("node:fs");
 const path = require("node:path");
 const sharp = require("sharp");
 
 const root = path.resolve(__dirname, "..");
 const src = (name) => fs.readFileSync(path.join(root, "assets/brand", name), "utf8");
-const out = (name) => path.join(root, "web/public/brand", name);
+const out = (dir, name) => { fs.mkdirSync(path.join(root, dir), { recursive: true }); return path.join(root, dir, name); };
 
 // inner markup of an SVG file, for composing the lockup
 function inner(svg) {
   return svg.replace(/^[\s\S]*?<svg[^>]*>/, "").replace(/<\/svg>\s*$/, "").replace(/<title[\s\S]*?<\/title>|<desc[\s\S]*?<\/desc>/g, "");
+}
+
+// the mark's tile (gradient + sheen) and glyph (white C + coral bar), separately
+const MARK_DEFS = inner(src("c-ton-mark.svg")).match(/<defs>[\s\S]*?<\/defs>/)[0];
+const MARK_GLYPH = inner(src("c-ton-mark.svg")).replace(/<defs>[\s\S]*?<\/defs>/, "").replace(/<rect width="1024" height="1024"[^>]*\/>/g, "");
+const TILE = (rx) => `<rect width="1024" height="1024" rx="${rx}" fill="url(#tile)"/><rect width="1024" height="1024" rx="${rx}" fill="url(#sheen)"/>`;
+const svgDoc = (w, h, body) => Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${body}</svg>`);
+
+// full-bleed square mark: what an OS masks itself (iOS AppIcon, PWA maskable,
+// Android legacy launcher)
+const squareMark = () => svgDoc(1024, 1024, `${MARK_DEFS}${TILE(0)}${MARK_GLYPH}`);
+// Android adaptive foreground: glyph only, enlarged about the centre so that
+// after the launcher's 16.7% inset it still fills the 66% safe zone well
+const adaptiveForeground = () => svgDoc(1024, 1024, `${MARK_DEFS}<g transform="translate(512 512) scale(1.28) translate(-512 -512)">${MARK_GLYPH}</g>`);
+const adaptiveBackground = () => svgDoc(1024, 1024, `${MARK_DEFS}${TILE(0)}`);
+
+// splash: the rounded mark over the wordmark, centred, inside the middle 40%
+// so Android's centre-crop at every aspect ratio keeps it whole
+function splash(dark) {
+  const S = 2732, cx = S / 2;
+  const markSize = 560, wordW = 700, wordH = Math.round(wordW * 140 / 540), gap = 96;
+  const total = markSize + gap + wordH, top = (S - total) / 2;
+  const word = dark ? inner(src("c-ton-wordmark.svg")).replace(/#13142b/gi, "#ffffff") : inner(src("c-ton-wordmark.svg"));
+  const glow = `<radialGradient id="g" cx=".5" cy=".42" r=".5"><stop offset="0" stop-color="#4a3aff" stop-opacity="${dark ? ".28" : ".12"}"/><stop offset="1" stop-color="#4a3aff" stop-opacity="0"/></radialGradient>`;
+  const bg = `<rect width="100%" height="100%" fill="${dark ? "#13142b" : "#f6f7fb"}"/>${glow}<rect width="100%" height="100%" fill="url(#g)"/>`;
+  return svgDoc(S, S, `${bg}
+  <svg x="${cx - markSize / 2}" y="${top}" width="${markSize}" height="${markSize}" viewBox="0 0 1024 1024">${inner(src("c-ton-mark.svg"))}</svg>
+  <svg x="${cx - wordW / 2}" y="${top + markSize + gap}" width="${wordW}" height="${wordH}" viewBox="-18 0 540 140">${word}</svg>`);
 }
 
 // The lockup: the mark over the wordmark on a daylight card, circled by a ring
@@ -63,21 +104,54 @@ function lockup(width, height) {
 </svg>`;
 }
 
+// Android adaptive-icon layers are 108dp drawables. @capacitor/assets writes
+// them at the 48dp launcher sizes (192px at xxxhdpi), which Android then
+// upscales; this renders them at their native 108dp sizes instead, so the
+// launcher icon stays crisp. `npm run mobile:assets` runs this after the tool.
+const ADAPTIVE_DP = 108;
+const ANDROID_DENSITIES = { ldpi: 0.75, mdpi: 1, hdpi: 1.5, xhdpi: 2, xxhdpi: 3, xxxhdpi: 4 };
+async function renderAdaptiveLayers() {
+  for (const [bucket, scale] of Object.entries(ANDROID_DENSITIES)) {
+    const size = Math.round(ADAPTIVE_DP * scale);
+    const dir = `android/app/src/main/res/mipmap-${bucket}`;
+    if (!fs.existsSync(path.join(root, dir))) continue;
+    await sharp(adaptiveForeground(), { density: 144 }).resize(size, size).png({ compressionLevel: 9 }).toFile(out(dir, "ic_launcher_foreground.png"));
+    await sharp(adaptiveBackground(), { density: 144 }).resize(size, size).flatten({ background: "#4a3aff" }).png({ compressionLevel: 9 }).toFile(out(dir, "ic_launcher_background.png"));
+    console.log(`BRAND_ASSET ${dir}/ic_launcher_{foreground,background}.png ${size}x${size}`);
+  }
+}
+
 async function main() {
+  if (process.argv.includes("--native-layers")) return renderAdaptiveLayers();
   const mark = Buffer.from(src("c-ton-mark.svg"));
   const word = Buffer.from(src("c-ton-wordmark.svg"));
+  const png = (input, size, density) => sharp(input, { density }).resize(size, size).png({ compressionLevel: 9 });
   const jobs = [
-    ["c-ton-mark.png", sharp(mark, { density: 144 }).resize(512, 512).png({ compressionLevel: 9 })],
-    ["c-ton-mark-180.png", sharp(mark, { density: 72 }).resize(180, 180).png({ compressionLevel: 9 })],
-    ["favicon-64.png", sharp(mark, { density: 72 }).resize(64, 64).png({ compressionLevel: 9 })],
-    ["c-ton-wordmark.png", sharp(word, { density: 144 }).resize(540, 140).png({ compressionLevel: 9 })],
-    ["c-ton-logo-1024.jpg", sharp(Buffer.from(lockup(1024, 683))).flatten({ background: "#ffffff" }).jpeg({ quality: 90, chromaSubsampling: "4:4:4" })],
-    ["c-ton-logo.png", sharp(Buffer.from(lockup(1536, 1024))).png({ compressionLevel: 9 })]
+    // web app
+    ["web/public/brand", "c-ton-mark.png", png(mark, 512, 144)],
+    ["web/public/brand", "c-ton-mark-180.png", png(mark, 180, 72)],
+    ["web/public/brand", "favicon-64.png", png(mark, 64, 72)],
+    ["web/public/brand", "c-ton-wordmark.png", sharp(word, { density: 144 }).resize(540, 140).png({ compressionLevel: 9 })],
+    ["web/public/brand", "c-ton-logo-1024.jpg", sharp(Buffer.from(lockup(1024, 683))).flatten({ background: "#ffffff" }).jpeg({ quality: 90, chromaSubsampling: "4:4:4" })],
+    ["web/public/brand", "c-ton-logo.png", sharp(Buffer.from(lockup(1536, 1024))).png({ compressionLevel: 9 })],
+    // legacy /app PWA icon set (manifest: "any maskable")
+    ...[48, 72, 96, 128, 192, 256, 512].map((size) => ["frontend/icons", `icon-${size}.png`, png(squareMark(), size, size >= 256 ? 144 : 72)]),
+    // @capacitor/assets custom-mode inputs
+    ["assets/native", "icon-only.png", sharp(squareMark(), { density: 144 }).resize(1024, 1024).flatten({ background: "#4a3aff" }).png({ compressionLevel: 9 })],
+    ["assets/native", "icon-foreground.png", png(adaptiveForeground(), 1024, 144)],
+    ["assets/native", "icon-background.png", sharp(adaptiveBackground(), { density: 144 }).resize(1024, 1024).flatten({ background: "#4a3aff" }).png({ compressionLevel: 9 })],
+    ["assets/native", "splash.png", sharp(splash(false), { density: 96 }).resize(2732, 2732).flatten({ background: "#f6f7fb" }).png({ compressionLevel: 9 })],
+    ["assets/native", "splash-dark.png", sharp(splash(true), { density: 96 }).resize(2732, 2732).flatten({ background: "#13142b" }).png({ compressionLevel: 9 })]
   ];
-  for (const [name, pipeline] of jobs) {
-    await pipeline.toFile(out(name));
-    const meta = await sharp(out(name)).metadata();
-    console.log(`BRAND_ASSET ${name} ${meta.width}x${meta.height} ${fs.statSync(out(name)).size}B`);
+  for (const [dir, name, pipeline] of jobs) {
+    const file = out(dir, name);
+    await pipeline.toFile(file);
+    const meta = await sharp(file).metadata();
+    console.log(`BRAND_ASSET ${dir}/${name} ${meta.width}x${meta.height} ${fs.statSync(file).size}B`);
   }
+  // the legacy shell's favicon and the logo source of truth are the same vector
+  fs.copyFileSync(path.join(root, "assets/brand/c-ton-mark.svg"), path.join(root, "frontend/icons/logo.svg"));
+  fs.copyFileSync(path.join(root, "assets/brand/c-ton-mark.svg"), path.join(root, "assets/logo.svg"));
+  console.log("BRAND_ASSET frontend/icons/logo.svg + assets/logo.svg = assets/brand/c-ton-mark.svg");
 }
 main().catch((error) => { console.error(error); process.exit(1); });
