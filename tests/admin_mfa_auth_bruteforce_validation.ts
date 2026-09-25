@@ -159,4 +159,29 @@ await run("admin MFA happy path still verifies with the correct code within the 
   }
 });
 
-console.log("PASS admin MFA second factor is brute-force-bounded (attempt cap + lock)");
+await run("re-login revokes the prior Pending login challenge (no parallel-challenge accumulation)", async () => {
+  const { app, pool } = await buildRuntimeApp("admin-mfa-parallel");
+  try {
+    const email = await seedAdmin(pool);
+    const first = await startLogin(app, email);
+    // A second login for the same admin must revoke the first challenge, so an
+    // attacker cannot hold N live challenges each worth ADMIN_MFA_MAX_ATTEMPTS.
+    const second = await startLogin(app, email);
+    assert.notEqual(first.challengeId, second.challengeId);
+    const firstNow = await verify(app, first.challengeId, first.devCode, "203.0.113.77");
+    assert.equal(firstNow.statusCode, 401, firstNow.body);
+    assert.equal(firstNow.json().error, "mfa_challenge_invalid", "the superseded challenge is no longer usable");
+    // At most one Pending login challenge exists for the admin.
+    const pending = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM siton.admin_mfa_challenges c
+         JOIN siton.admin_users u ON u.admin_user_id=c.admin_user_id
+        WHERE u.email=$1 AND c.purpose='login' AND c.status='Pending'`,
+      [email]
+    );
+    assert.equal(pending.rows[0].n, 1, "only one Pending login challenge remains");
+  } finally {
+    await pool.end();
+  }
+});
+
+console.log("PASS admin MFA second factor is brute-force-bounded (attempt cap + lock + single live challenge)");

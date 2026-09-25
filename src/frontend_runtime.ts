@@ -2725,6 +2725,11 @@ export function registerFrontendExperience(
         return reply.code(401).send({ ok: false, error: "admin_invalid_credentials" });
       }
       if (row.mfa_required || row.mfa_enabled) {
+        // Red-team hardening (A1): only ONE login challenge may be live at a
+        // time. Revoking prior Pending login challenges stops an attacker from
+        // accumulating many parallel challenges (each with its own attempt
+        // budget) to widen the brute-force surface against the second factor.
+        await c.query(`UPDATE siton.admin_mfa_challenges SET status='Revoked' WHERE admin_user_id=$1 AND purpose='login' AND status='Pending'`, [row.admin_user_id]);
         const code = createAdminMfaCode();
         const challenge = await c.query(
           `INSERT INTO siton.admin_mfa_challenges
