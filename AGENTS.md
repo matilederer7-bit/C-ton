@@ -93,7 +93,7 @@ When reviewing another agent, review the actual diff and tests rather than trust
 
 When Codex reviews a Pull Request and the writer pushes any follow-up commit, the previous review is stale for merge purposes. The updated PR head must be reviewed again.
 
-For non-draft Pull Requests, `.github/workflows/codex-rereview.yml` automatically comments `@codex review` on every `synchronize` event, deduplicated by head SHA. Do not suppress or bypass that re-review merely because earlier findings were addressed.
+For non-draft same-repository Pull Requests, `.github/workflows/codex-rereview.yml` automatically comments `@codex review` on every `synchronize` event and `ready_for_review` transition, deduplicated by head SHA. Fork PRs do not trigger automatic Codex spend; they require an explicit trusted review request. Do not suppress or bypass re-review merely because earlier findings were addressed.
 
 Claude may fix Codex findings, but completion requires independent review of the fixed head when Codex is available.
 
