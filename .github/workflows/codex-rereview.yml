@@ -18,7 +18,7 @@ concurrency:
 jobs:
   request-codex-rereview:
     name: Request Codex re-review
-    if: ${{ github.event.pull_request.draft == false }}
+    if: ${{ github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     steps:
       - name: Ask Codex to review the new head
