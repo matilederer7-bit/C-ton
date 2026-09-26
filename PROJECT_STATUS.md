@@ -1,10 +1,10 @@
 # SITON PROJECT STATUS
 
-Updated: 2026-09-25
+Updated: 2026-09-26
 Canonical branch: `master`
-Current merged baseline: `2703d7944b1eb1d4f003241c00fa4ed6143e3f63` (PR #90, Graphite Mint brand)
-Render staging: LIVE on that SHA — web `dep-dar732o473hc73ct6730`, worker `dep-dar732o473hc73ct67gg` (both services auto-deploy every master commit; this docs-only merge redeploys both again)
-Supabase staging: migration high-water **072**, grants through `staging_026`
+Current merged baseline: `6d2d09e4a1aeb2931951bd7f7070b09ba67fa984` (PR #92, red-team hardening)
+Render staging: LIVE on that SHA — web `dep-dar9bnrbc2fs738rbjr0` (verified 2026-09-25: readiness ok, HSTS live); worker redeploys on the same commit.
+Supabase staging: code migration high-water is **074**. The app connects as a least-privilege role and does NOT auto-apply DDL, so pending migrations must be applied in ledger order via the owner's Supabase process. The applied high-water on staging is not verifiable from this session's role; the owner must confirm it and apply anything through 074 — see the red-team closeout note below.
 
 ## CURRENT SNAPSHOT
 
@@ -331,13 +331,15 @@ Current invariants:
 - DOCUMENTED (owner decision / precise remediation in the report): A2 trustProxy hop count (env-specific), A3 admin login lockout (residual bounded by A1; DoS tradeoff), distributor-role removal (C2/C3), C-1 tx-scoped audit/outbox, C-2 join lock throughput, B3/B4/B5 low money items, A5 untokenized tracking (prod-fenced), exceljs→uuid 2 moderate prod advisories.
 - TESTED (local Postgres 16, fix branch): unit 17/17, integration 47/47, db 8/8, payments 45/45, security 50/50 (incl. the new admin-MFA brute-force, completion-window guard, HSTS). Static gates (lint, architecture, secrets, hygiene, i18n, preflight:static, money-tax, legal, no-real-money, payment scan, seven-day-cap) PASS. workers/concurrency/failure/e2e in progress; CI runs the full matrix.
 - SECOND RED-TEAM PASS: on the A1 fix — the per-challenge cap plus unthrottled login means re-login yields a fresh budget; raised cost ~200,000x and closed parallel-challenge accumulation; complete issuance throttle documented as A2/A3.
-- OPEN: no Critical/High open. Medium/Low documented with remediation. PR + CI + merge + staging verification pending.
 - MERGED + DEPLOYED: PR #92 squash-merged as `6d2d09e`; CI 6/6 green on the head. Render `siton-staging-web` deploy `dep-dar9bnrbc2fs738rbjr0` **live on `6d2d09e`** (build 15:40 -> live 15:41 UTC); the worker redeploys on the same commit.
 - VERIFIED ON STAGING (hosted browser, 2026-09-25): `/readiness` ok + database connected; **HSTS now live** (`Strict-Transport-Security: max-age=31536000; includeSubDomains`) on `/readiness` and `/preview/` (A6 confirmed deployed); `x-frame-options: DENY`, theme `#f8fafc` (no regression); `/api/admin/overview` fail-closed 401; `/api/admin/auth/login` bad creds -> 401 (admin auth module with the FOR UPDATE change loads, no 500).
-- OPERATIONAL NOTE (owner action): migration `074_admin_mfa_attempt_cap.sql` (the `admin_mfa_challenges.attempts` column) must be applied to the staging/production Supabase DB via the owner's out-of-band Supabase migration process for the A1 attempt-cap to be ACTIVE there — the app connects as a least-privilege role and does not auto-apply DDL (Supabase high-water was 072; 073 and 074 are pending that apply). Blast radius until applied is limited to `/api/admin/auth/mfa/verify`; no buyer/seller/public/boot path is affected. The A4 (CSPRNG), C1 (completion-window hard-lock) and A6 (HSTS) fixes are code-only and already active on staging.
-- OPEN: no Critical/High. Owner decisions: A2 trustProxy hop count, A3 admin login lockout, distributor-subsystem removal (C2/C3), exceljs bump; DB hardening C-1/C-2. Apply migration 074 to staging Supabase.
-- PERCENTAGE: 100% for the red-team hardening track (findings proven, safe fixes merged + CI green + staging verified; documented items are explicit owner decisions).
-- NEXT STEP: owner to apply migration 074 to staging Supabase and decide on A2/A3 + distributor cleanup; `RED_TEAM_FINAL_REPORT.md` holds the full findings-vs-fixes ledger.
+- OPERATIONAL NOTE (owner action — pending migrations must be applied in ledger order): the app connects as a least-privilege role and does NOT auto-apply DDL, and this session's role cannot read the staging DB's applied migration high-water, so the exact lag is not verifiable here. The code high-water is 074; every migration through 074 that staging has not yet applied must be applied via the owner's Supabase process. Blast radius if the DB is behind:
+    - migration `074_admin_mfa_attempt_cap.sql` (`admin_mfa_challenges.attempts`): until applied, `POST /api/admin/auth/mfa/verify` errors (`undefined_column`), so the A1 attempt-cap is NOT active AND admin MFA verify is broken. Admin-only path.
+    - migration `073_payment_authorization_create_idempotency.sql` (`payment_authorizations.provider_payment_url`, RETURNed by `createBinding`): if 073 is also unapplied, `POST /api/payments/authorize[-mock]` errors (`undefined_column`) — the synthetic BUYER authorize path. (Flagged by Codex on PR #93; 073 predates this track.)
+  - The A4 (CSPRNG), C1 (completion-window hard-lock) and A6 (HSTS) fixes are code-only and already active on staging (HSTS verified live).
+- OPEN: no Critical/High in code. Blocking for the track to reach 100%: apply pending migrations (through 074) to staging/production Supabase so A1 is active and the payment/admin paths are healthy. Owner decisions (documented, not blocking): A2 trustProxy hop count, A3 admin login lockout, distributor-subsystem removal (C2/C3), exceljs bump; DB hardening C-1/C-2.
+- PERCENTAGE: 95% — findings proven, safe fixes merged, CI green, code-only fixes (A4/C1/A6) verified live on staging; the A1 attempt-cap stays INACTIVE until migration 074 is applied to the staging/production Supabase DB, so the track is not 100% until that migration is applied and the MFA-verify path re-verified.
+- NEXT STEP: owner applies the pending migrations (through 074) to staging/production Supabase, then A1 is re-verified live; owner decides on A2/A3 + distributor cleanup. `RED_TEAM_FINAL_REPORT.md` holds the full findings-vs-fixes ledger.
 
 ### Claude Code latest milestone — "Graphite Mint" brand rollout on every surface (UI only)
 
