@@ -35,7 +35,13 @@ jobs:
               per_page: 100,
             });
 
-            if (comments.some((comment) => (comment.body || "").includes(marker))) {
+            const alreadyRequested = comments.some(
+              (comment) =>
+                comment.user?.login === "github-actions[bot]" &&
+                (comment.body || "").includes(marker),
+            );
+
+            if (alreadyRequested) {
               core.info(`Codex re-review already requested for ${sha}`);
               return;
             }
