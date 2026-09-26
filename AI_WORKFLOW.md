@@ -152,7 +152,7 @@ A review is not a rewrite contest. Do not replace correct code merely because an
 
 A review applies to the commit it inspected, not indefinitely to the Pull Request.
 
-If the writer pushes new commits after Codex has reviewed the PR, the current head must receive a fresh Codex review before the review loop is considered closed. The repository workflow `.github/workflows/codex-rereview.yml` requests this automatically on each non-draft PR `synchronize` event and deduplicates requests by head SHA.
+If the writer pushes new commits after Codex has reviewed the PR, the current head must receive a fresh Codex review before the review loop is considered closed. The repository workflow `.github/workflows/codex-rereview.yml` requests this automatically on each non-draft same-repository PR `synchronize` event and `ready_for_review` transition, and deduplicates requests by head SHA. Fork PRs require an explicit trusted request so an external contributor cannot trigger unbounded Codex spend.
 
 The normal loop is therefore: builder pushes, Codex reviews, builder fixes, Codex re-reviews the fixed head.
 
