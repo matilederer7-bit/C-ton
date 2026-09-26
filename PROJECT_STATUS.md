@@ -616,15 +616,15 @@ Prior rounds (retained for history — the fields below describe earlier milesto
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
 
 <!-- AGENT_STATUS:chatgpt:START -->
-### ChatGPT latest milestone
+### ChatGPT latest milestone — automatic Codex re-review on every updated PR head
 
-- UPDATED: 2026-09-18
-- BRANCH: `chatgpt/payment-activation-source-of-truth-20260918`
-- COMPLETED: payment-provider documentation reconciled so the repository has one current activation source of truth. `docs/PAYMENT_ACTIVATION_SOURCE_OF_TRUTH.md` now records Grow / Meshulam as the intended next payment provider candidate, keeps Stripe as an isolated historical adapter/proof surface, preserves `REAL_MONEY_ALLOWED=false`, and defines the exact external Grow facts, Sandbox proof sequence, controlled real-money sequence and authoritative files. The two Stripe-first readiness documents are explicitly marked historical rather than silently rewritten.
-- TESTED: documentation-only scope; no runtime, database, Render, Supabase, Grow credentials, payment state or release-governance flag changed. Commercial invariant remains Siton 8% of the full collected purchase amount including delivery and other applicable purchase charges, excluding VAT; distributor commission remains zero.
-- OPEN: obtain Grow Sandbox `userId` / `pageCode` and provisioned J4/J5 contract facts, then execute the existing hosted Grow Sandbox runbook. Adversarial financial review and explicit owner production activation remain required before real money.
-- PERCENTAGE: internal payment activation documentation/preparation 100%; external provider activation 0% until Grow credentials and contract confirmation exist.
-- NEXT STEP: run the Grow Sandbox proof against the exact deployed release once credentials are available; do not enable real money before the governance blockers are cleared.
+- UPDATED: 2026-09-26
+- BRANCH: `chatgpt/codex-rereview-latest-head-20260926`
+- COMPLETED: added `.github/workflows/codex-rereview.yml`. Every non-draft Pull Request `synchronize` event requests `@codex review` for the exact new head SHA, with per-SHA deduplication. `AGENTS.md` and `AI_WORKFLOW.md` now state that a review attached only to an older commit is stale after fixes are pushed.
+- TESTED: the workflow is permission-minimal and does not checkout or execute PR code: `contents: read`, `pull-requests: read`, `issues: write` only. The request is keyed by an HTML marker containing the exact head SHA, and deduplication trusts only markers authored by `github-actions[bot]`, so a PR author cannot forge the marker to suppress review.
+- OPEN: the workflow becomes active only after merge to `master`. One live post-merge `synchronize` event is still required to prove that the Codex GitHub App responds to a GitHub-Actions-authored `@codex review` comment.
+- PERCENTAGE: 90% until merged and one live trigger is observed.
+- NEXT STEP: open and review the PR, merge after applicable checks, then observe the first subsequent updated PR and confirm Codex reviews its latest SHA.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 

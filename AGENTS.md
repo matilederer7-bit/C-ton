@@ -89,6 +89,14 @@ Never reset, clean, stash, checkout over, amend, or force-push another agent's w
 
 When reviewing another agent, review the actual diff and tests rather than trusting the summary.
 
+### Latest-head re-review rule
+
+When Codex reviews a Pull Request and the writer pushes any follow-up commit, the previous review is stale for merge purposes. The updated PR head must be reviewed again.
+
+For non-draft Pull Requests, `.github/workflows/codex-rereview.yml` automatically comments `@codex review` on every `synchronize` event, deduplicated by head SHA. Do not suppress or bypass that re-review merely because earlier findings were addressed.
+
+Claude may fix Codex findings, but completion requires independent review of the fixed head when Codex is available.
+
 ## Git workflow
 
 For normal local agent work, meaningful tasks use a task branch and Pull Request rather than direct work on `master`.
