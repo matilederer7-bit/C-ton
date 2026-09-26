@@ -621,7 +621,7 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 - UPDATED: 2026-09-26
 - BRANCH: `chatgpt/codex-rereview-latest-head-20260926`
 - COMPLETED: added `.github/workflows/codex-rereview.yml`. Every non-draft Pull Request `synchronize` event requests `@codex review` for the exact new head SHA, with per-SHA deduplication. `AGENTS.md` and `AI_WORKFLOW.md` now state that a review attached only to an older commit is stale after fixes are pushed.
-- TESTED: the workflow is permission-minimal and does not checkout or execute PR code: `contents: read`, `pull-requests: read`, `issues: write` only. The request is keyed by an HTML marker containing the exact head SHA, preventing duplicate comments for the same head.
+- TESTED: the workflow is permission-minimal and does not checkout or execute PR code: `contents: read`, `pull-requests: read`, `issues: write` only. The request is keyed by an HTML marker containing the exact head SHA, and deduplication trusts only markers authored by `github-actions[bot]`, so a PR author cannot forge the marker to suppress review.
 - OPEN: the workflow becomes active only after merge to `master`. One live post-merge `synchronize` event is still required to prove that the Codex GitHub App responds to a GitHub-Actions-authored `@codex review` comment.
 - PERCENTAGE: 90% until merged and one live trigger is observed.
 - NEXT STEP: open and review the PR, merge after applicable checks, then observe the first subsequent updated PR and confirm Codex reviews its latest SHA.
