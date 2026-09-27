@@ -3,7 +3,7 @@ import { registerDistributionHubRoutes } from "./distribution_hub.js";
 import { readContent } from "./site_content.js";
 import { assertRequiredTables } from "./schema_contract.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { readFile } from "fs/promises";
 import { dirname, join } from "path";
 import { PassThrough } from "stream";
@@ -14,6 +14,7 @@ import { buildOperationalReadinessSummary } from "./operational_readiness.js";
 import { getPaymentProviderSummary, type PaymentProvider } from "./payment_provider.js";
 import { buildPaymentAuthorizationBindings, PaymentBindingError } from "./payment_binding.js";
 import { computeCustomerChargeVat } from "./vat_authority.js";
+import { registerTrustedInlineScripts, registerTrustedInlineScript } from "./content_security_policy.js";
 import { buildPayoutProvider, getPayoutProviderSummary, type PayoutProvider } from "./payout_provider.js";
 import type { InvoiceProvider } from "./invoice_dispatch.js";
 import {
@@ -57,14 +58,28 @@ import { calculatePlatformFeeMoney, SITON_PLATFORM_FEE_RATE } from "./platform_f
 // — otherwise a seller sees a flat 8% of gross that never matches the
 // platform_fee_actual the money events later record. Product and delivery
 // gross are projected separately because their VAT rates are separate inputs.
-function projectPlatformFeeTotal(productGross: number, deliveryGross: number): number {
-  const product = Math.max(0, Number(productGross || 0));
-  const delivery = Math.max(0, Number(deliveryGross || 0));
-  const grossAmount = product + delivery;
-  if (!(grossAmount > 0)) return 0;
-  const vat = computeCustomerChargeVat({ productGrossAmount: product, deliveryGrossAmount: delivery });
-  return calculatePlatformFeeMoney({ grossAmount, vatAmount: vat.vat_amount }).platform_fee_total_amount;
+// Computed PER PARTICIPANT and summed — the ledger rounds each participant's
+// charge separately (Codex on PR #97), so an aggregate-then-round projection
+// would still not reconcile with platform_fee_actual under many small charges.
+function projectPlatformFeeTotalForParticipants(rows: Array<{ product_gross: unknown; delivery_cost: unknown }>): number {
+  let total = 0;
+  for (const row of rows) {
+    const product = Math.max(0, Number(row.product_gross || 0));
+    const delivery = Math.max(0, Number(row.delivery_cost || 0));
+    const grossAmount = product + delivery;
+    if (!(grossAmount > 0)) continue;
+    const vat = computeCustomerChargeVat({ productGrossAmount: product, deliveryGrossAmount: delivery });
+    total += calculatePlatformFeeMoney({ grossAmount, vatAmount: vat.vat_amount }).platform_fee_total_amount;
+  }
+  return roundMoney(total);
 }
+// Per-participant rows behind a projection: the SAME active-participant
+// population the potential_gross aggregates use.
+const PROJECTION_PARTICIPANT_ROWS_SQL = `
+  SELECT d.seller_id, (p.qty * d.price_per_unit)::numeric(14,2) AS product_gross, p.delivery_cost
+  FROM siton.participants p
+  JOIN siton.deals d ON d.deal_id = p.deal_id
+  WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')`;
 import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
 import { ensurePayoutRailTables } from "./payout_rail.js";
@@ -321,6 +336,18 @@ const previewDirCandidates = [
 ];
 const previewDir =
   previewDirCandidates.find((candidate) => existsSync(join(candidate, "index.html"))) || "";
+
+// CSP trusted inline scripts: the shell templates are static files shipped
+// with the build, so their inline <script> blocks are registered ONCE here,
+// at startup. The share redirect below uses a constant snippet (its target
+// travels in a data attribute), registered the same way. Nothing at request
+// time ever widens this list.
+export const SHARE_REDIRECT_INLINE_SCRIPT = 'location.replace(document.documentElement.getAttribute("data-spa"));';
+for (const dir of [previewDir, frontendDir]) {
+  if (!dir) continue;
+  try { registerTrustedInlineScripts(readFileSync(join(dir, "index.html"), "utf8")); } catch { /* template absent: nothing to trust */ }
+}
+registerTrustedInlineScript(SHARE_REDIRECT_INLINE_SCRIPT);
 const PREVIEW_MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -2229,7 +2256,7 @@ export function registerFrontendExperience(
     const safeUrl = escapeHtml(`${origin}/d/${dealId}`);
     const safeSpa = escapeHtml(spaPath);
     const html = `<!doctype html>
-<html ${htmlAttrs(shareLocale)}>
+<html ${htmlAttrs(shareLocale)} data-spa="${safeSpa}">
 <head>
 <meta charset="utf-8">
 <title>${safeTitle}</title>
@@ -2246,7 +2273,7 @@ export function registerFrontendExperience(
 <meta name="twitter:description" content="${safeDescription}">
 <meta name="twitter:image" content="${safeImage}">
 <meta http-equiv="refresh" content="0;url=${safeSpa}">
-<script>window.location.replace(${JSON.stringify(spaPath)});</script>
+<script>${SHARE_REDIRECT_INLINE_SCRIPT}</script>
 <style>body{background:#f8fafc;color:#0f172a;font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0}</style>
 </head>
 <body><p><a style="color:#115e59" href="${safeSpa}">${escapeHtml(ts(shareLocale, "deal.share.redirecting"))}</a></p></body>
@@ -8732,7 +8759,10 @@ export function registerFrontendExperience(
     const subjectId = String(req.params.subjectId || "").trim();
     const decision = String(req.body?.decision || "").trim();
     const adminNote = String(req.body?.admin_note || "").trim();
-    if (!["seller", "affiliate"].includes(subjectType)) {
+    // The affiliate/distributor KYC lifecycle was RETIRED with the distributor
+    // identity (canonical amendment 2026-09-16 §4; Codex on PR #97): only the
+    // seller subject remains an admin-verifiable identity.
+    if (subjectType !== "seller") {
       const err: any = new Error("subject_type is invalid");
       err.statusCode = 400;
       throw err;
@@ -8742,39 +8772,19 @@ export function registerFrontendExperience(
       err.statusCode = 400;
       throw err;
     }
-    if (subjectType === "affiliate") {
-      requireUuid(subjectId, "affiliate_id");
-    }
 
     await ensureProductSurfaces();
     return deps.withTx(async (c) => {
       const nextStatus = decision === "approve" ? "approved" : "rejected";
-      if (subjectType === "seller") {
-        const updated = await c.query(
-          `UPDATE siton.seller_accounts
-           SET verification_status = $2, admin_note = $3, updated_at = now()
-           WHERE seller_id = $1
-           RETURNING seller_id AS subject_id, verification_status AS status, admin_note`,
-          [subjectId, nextStatus, adminNote]
-        );
-        if (!updated.rowCount) {
-          const err: any = new Error("seller profile not found");
-          err.statusCode = 404;
-          throw err;
-        }
-        return { ok: true, subject_type: subjectType, result: updated.rows[0] };
-      }
-
-      const affiliateNextStatus = decision === "approve" ? "verified" : "rejected";
       const updated = await c.query(
-        `UPDATE siton.affiliate_accounts
+        `UPDATE siton.seller_accounts
          SET verification_status = $2, admin_note = $3, updated_at = now()
-         WHERE affiliate_id = $1
-         RETURNING affiliate_id AS subject_id, verification_status AS status, admin_note`,
-        [subjectId, affiliateNextStatus, adminNote]
+         WHERE seller_id = $1
+         RETURNING seller_id AS subject_id, verification_status AS status, admin_note`,
+        [subjectId, nextStatus, adminNote]
       );
       if (!updated.rowCount) {
-        const err: any = new Error("affiliate profile not found");
+        const err: any = new Error("seller profile not found");
         err.statusCode = 404;
         throw err;
       }
@@ -11442,15 +11452,12 @@ export function registerFrontendExperience(
         `SELECT
            COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
              FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')), 0)::numeric(14,2) AS potential_gross,
-           COALESCE(SUM(p.qty * d.price_per_unit)
-             FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')), 0)::numeric(14,2) AS potential_product_gross,
-           COALESCE(SUM(p.delivery_cost)
-             FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')), 0)::numeric(14,2) AS potential_delivery_gross,
            COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
              FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')), 0)::numeric(14,2) AS charged_gross
          FROM siton.participants p
          JOIN siton.deals d ON d.deal_id = p.deal_id`
       );
+      const projectionRows = await c.query(PROJECTION_PARTICIPANT_ROWS_SQL);
       const feeActual = await c.query(
         `SELECT COALESCE(SUM(platform_fee_total_amount),0)::numeric(14,2) AS fee_actual
          FROM siton.platform_fee_money_events`
@@ -11520,7 +11527,7 @@ export function registerFrontendExperience(
           // Red-team B3: the projection follows the authoritative ledger formula
           // (8% of the VAT-exclusive base + VAT on the fee), so it reconciles
           // with platform_fee_actual instead of a flat 8% of gross.
-          platform_fee_projection: projectPlatformFeeTotal(Number(m.potential_product_gross || 0), Number(m.potential_delivery_gross || 0)),
+          platform_fee_projection: projectPlatformFeeTotalForParticipants(projectionRows.rows),
           // Actual: successful charges only (ChargedSuccess/RecoveredCharge).
           charged_gross_volume: Number(m.charged_gross || 0),
           platform_fee_actual: Number(feeActual.rows[0].fee_actual || 0)
@@ -11606,10 +11613,6 @@ export function registerFrontendExperience(
                 COALESCE(SUM(p.qty) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::int AS charged_units,
                 COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
                   FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::numeric(14,2) AS potential_gross,
-                COALESCE(SUM(p.qty * d.price_per_unit)
-                  FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::numeric(14,2) AS potential_product_gross,
-                COALESCE(SUM(p.delivery_cost)
-                  FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::numeric(14,2) AS potential_delivery_gross,
                 COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
                   FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::numeric(14,2) AS charged_gross,
                 MAX(GREATEST(d.updated_at, p.updated_at)) AS last_activity_at
@@ -11626,17 +11629,21 @@ export function registerFrontendExperience(
          FROM siton.platform_fee_money_events GROUP BY seller_id`
       );
       const feeMap = new Map(feeBySeller.rows.map((r: any) => [String(r.seller_id), Number(r.fee_actual)]));
+      const projectionRows = await c.query(PROJECTION_PARTICIPANT_ROWS_SQL);
+      const projectionBySeller = new Map<string, Array<{ product_gross: unknown; delivery_cost: unknown }>>();
+      for (const row of projectionRows.rows as any[]) {
+        const key = String(row.seller_id || "");
+        if (!projectionBySeller.has(key)) projectionBySeller.set(key, []);
+        projectionBySeller.get(key)!.push(row);
+      }
       return {
         ok: true,
-        sellers: rows.rows.map((r: any) => {
-          const { potential_product_gross, potential_delivery_gross, ...rest } = r;
-          return {
-            ...rest,
-            platform_fee_actual: feeMap.get(String(r.seller_id)) || 0,
-            // Red-team B3: ledger-aligned projection (VAT-exclusive base, fee + fee-VAT).
-            platform_fee_projection: projectPlatformFeeTotal(Number(potential_product_gross || 0), Number(potential_delivery_gross || 0))
-          };
-        })
+        sellers: rows.rows.map((r: any) => ({
+          ...r,
+          platform_fee_actual: feeMap.get(String(r.seller_id)) || 0,
+          // Red-team B3: ledger-aligned projection, computed per participant.
+          platform_fee_projection: projectPlatformFeeTotalForParticipants(projectionBySeller.get(String(r.seller_id)) || [])
+        }))
       };
     });
   });

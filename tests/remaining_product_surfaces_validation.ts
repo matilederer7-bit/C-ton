@@ -216,6 +216,8 @@ async function main() {
     );
     const affiliateId = String(affiliateResult.rows[0].affiliate_id);
 
+    // Red-team GOV (Codex on PR #97): the affiliate KYC lifecycle is retired
+    // with the distributor identity — the subject type is refused outright.
     const approve = await app.inject({
       method: "POST",
       url: `/api/admin/kyc/affiliate/${affiliateId}/decision`,
@@ -225,7 +227,7 @@ async function main() {
         admin_note: "Approved for internal closure validation"
       }
     });
-    assert.equal(approve.statusCode, 200);
+    assert.equal(approve.statusCode, 400);
 
   });
 

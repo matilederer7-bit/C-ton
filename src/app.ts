@@ -30,7 +30,7 @@ import { buildPaymentAuthorizationBindings, PaymentBindingError } from "./paymen
 import { assessAuthorizationUsability, isAuthorizationUnusableResult, reauthorizationIdentity } from "./authorization_lifecycle.js";
 import { computeCustomerChargeVat } from "./vat_authority.js";
 import { resolveCompletionWindowMinutes, isProductionLikeEnv, resolveTrustProxyHops } from "./runtime_config.js";
-import { contentSecurityPolicyFor, isHtmlContentType } from "./content_security_policy.js";
+import { contentSecurityPolicy, isHtmlContentType } from "./content_security_policy.js";
 import { buildNotificationService, getNotificationServiceSummary } from "./notification_service.js";
 import {
   enqueueNotification,
@@ -5396,14 +5396,15 @@ app.addHook("onRequest", (req: any, reply: any, done) => {
   }
   done();
 });
-// Content-Security-Policy on every HTML document (red-team residual): the
-// policy is derived from the document itself (hashes of its inline scripts),
-// so no HTML surface can be served without one and no 'unsafe-inline' script
-// allowance is ever needed. Non-HTML responses (JSON, assets) are untouched.
+// Content-Security-Policy on every HTML document (red-team residual): ONE
+// fixed policy whose script allow-list holds only the inline blocks registered
+// at startup from the shipped shell templates — never derived from the
+// outgoing response, so an injected <script> is blocked rather than blessed.
+// Non-HTML responses (JSON, assets) are untouched.
 app.addHook("onSend", (_req: any, reply: any, payload: unknown, done) => {
   try {
-    if (typeof payload === "string" && isHtmlContentType(reply.getHeader("content-type")) && !reply.getHeader("content-security-policy")) {
-      reply.header("content-security-policy", contentSecurityPolicyFor(payload));
+    if (isHtmlContentType(reply.getHeader("content-type")) && !reply.getHeader("content-security-policy")) {
+      reply.header("content-security-policy", contentSecurityPolicy());
     }
   } catch {
     // never let a policy computation failure break the response

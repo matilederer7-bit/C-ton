@@ -4,11 +4,14 @@
 // pages, payment return pages) can ship without it.
 //
 // Policy shape:
-//   * scripts: same-origin files only, plus the SHA-256 of each inline
-//     <script> block actually present in THIS document (the SPA shells carry a
-//     small pre-hydration language script; the share redirect carries a
-//     location.replace). No 'unsafe-inline', no 'unsafe-eval', no third-party
-//     script hosts.
+//   * scripts: same-origin files only, plus the SHA-256 of each KNOWN, TRUSTED
+//     inline <script> block — registered at startup from the shipped shell
+//     templates (web/dist/index.html, frontend/index.html) and the constant
+//     share-redirect snippet. The policy is NEVER derived from the outgoing
+//     response (Codex on PR #97): a stored/reflected injection that reached an
+//     HTML template as <script>…</script> would otherwise be hashed and
+//     blessed by its own response. An unregistered inline script is blocked.
+//     No 'unsafe-inline', no 'unsafe-eval', no third-party script hosts.
 //   * styles: same-origin + Google Fonts stylesheet + inline styles (React
 //     style props / pre-hydration <style>); fonts from Google Fonts.
 //   * images: same-origin, data:/blob: (uploads, QR), and https: (product
@@ -22,14 +25,40 @@ import { createHash } from "node:crypto";
 
 const INLINE_SCRIPT_RE = /<script(?![^>]*\bsrc\s*=)[^>]*>([\s\S]*?)<\/script>/gi;
 
+export function inlineScriptHash(body: string): string {
+  return `'sha256-${createHash("sha256").update(body, "utf8").digest("base64")}'`;
+}
+
 export function inlineScriptHashes(html: string): string[] {
   const hashes: string[] = [];
   for (const match of String(html || "").matchAll(INLINE_SCRIPT_RE)) {
     const body = match[1] ?? "";
     if (!body.trim()) continue;
-    hashes.push(`'sha256-${createHash("sha256").update(body, "utf8").digest("base64")}'`);
+    hashes.push(inlineScriptHash(body));
   }
   return hashes;
+}
+
+// The fixed allow-list of trusted inline scripts. Populated ONLY at startup by
+// the code that owns the shell templates (registerTrustedInlineScripts /
+// registerTrustedInlineScript); request handling never adds to it.
+const trustedInlineScriptHashes = new Set<string>();
+
+export function registerTrustedInlineScript(body: string) {
+  if (String(body || "").trim()) trustedInlineScriptHashes.add(inlineScriptHash(body));
+  invalidatePolicyCache();
+}
+
+export function registerTrustedInlineScripts(html: string) {
+  for (const match of String(html || "").matchAll(INLINE_SCRIPT_RE)) {
+    const body = match[1] ?? "";
+    if (body.trim()) trustedInlineScriptHashes.add(inlineScriptHash(body));
+  }
+  invalidatePolicyCache();
+}
+
+export function trustedInlineScriptHashList(): string[] {
+  return [...trustedInlineScriptHashes];
 }
 
 function supabaseConnectSources(env: NodeJS.ProcessEnv): string[] {
@@ -49,8 +78,7 @@ function supabaseConnectSources(env: NodeJS.ProcessEnv): string[] {
 
 const PAYMENT_HOSTS = ["https://secure.meshulam.co.il", "https://sandbox.meshulam.co.il", "https://*.stripe.com"];
 
-export function buildContentSecurityPolicy(html: string, env: NodeJS.ProcessEnv = process.env): string {
-  const scriptHashes = inlineScriptHashes(html);
+export function buildContentSecurityPolicy(env: NodeJS.ProcessEnv = process.env, scriptHashes: string[] = trustedInlineScriptHashList()): string {
   const directives: Array<[string, string[]]> = [
     ["default-src", ["'self'"]],
     ["base-uri", ["'self'"]],
@@ -70,18 +98,16 @@ export function buildContentSecurityPolicy(html: string, env: NodeJS.ProcessEnv 
   return directives.map(([name, values]) => `${name} ${values.join(" ")}`).join("; ");
 }
 
-// Bounded per-document cache: the SPA shells are a handful of distinct
-// documents; hashing them once per process is enough.
-const cache = new Map<string, string>();
-const CACHE_LIMIT = 64;
+let cachedPolicy: { key: string; value: string } | null = null;
+function invalidatePolicyCache() { cachedPolicy = null; }
 
-export function contentSecurityPolicyFor(html: string, env: NodeJS.ProcessEnv = process.env): string {
-  const key = createHash("sha256").update(html, "utf8").digest("hex") + "|" + String(env.SUPABASE_URL || "");
-  const hit = cache.get(key);
-  if (hit) return hit;
-  const value = buildContentSecurityPolicy(html, env);
-  if (cache.size >= CACHE_LIMIT) cache.delete(cache.keys().next().value as string);
-  cache.set(key, value);
+// The one policy every HTML response carries (per SUPABASE_URL). It depends
+// only on startup-registered hashes and env, never on the response body.
+export function contentSecurityPolicy(env: NodeJS.ProcessEnv = process.env): string {
+  const key = String(env.SUPABASE_URL || "");
+  if (cachedPolicy && cachedPolicy.key === key) return cachedPolicy.value;
+  const value = buildContentSecurityPolicy(env);
+  cachedPolicy = { key, value };
   return value;
 }
 

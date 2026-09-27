@@ -183,7 +183,7 @@ async function main() {
     assert.equal(issueWithoutNote.statusCode, 404);
   });
 
-  await runTest("affiliate remains attribution-only while verification stays operational", async () => {
+  await runTest("affiliate remains attribution-only: the distributor KYC lifecycle is retired", async () => {
     const affiliate = await pool.query(
       `SELECT affiliate_id::text AS affiliate_id
        FROM siton.affiliate_accounts
@@ -192,6 +192,8 @@ async function main() {
     );
     const affiliateId = String(affiliate.rows[0].affiliate_id);
 
+    // Red-team GOV (Codex on PR #97): no admin verification lifecycle exists for
+    // affiliates any more — the subject type is refused, nothing is written.
     const approve = await app.inject({
       method: "POST",
       url: `/api/admin/kyc/affiliate/${affiliateId}/decision`,
@@ -201,7 +203,9 @@ async function main() {
         admin_note: "master depth approval"
       }
     });
-    assert.equal(approve.statusCode, 200);
+    assert.equal(approve.statusCode, 400);
+    const after = await pool.query(`SELECT verification_status FROM siton.affiliate_accounts WHERE affiliate_id=$1`, [affiliateId]);
+    assert.notEqual(String(after.rows[0]?.verification_status || ""), "verified");
   });
 }
 

@@ -44,7 +44,10 @@ const IDENTITY_TOKENS = [
   '/app/affiliate',
   '/app/distributor-terms',
   '/api/affiliate/overview',
-  'distributor-auth'
+  'distributor-auth',
+  // an admin lifecycle over affiliate accounts is an identity, not analytics
+  'UPDATE siton.affiliate_accounts',
+  'kyc/affiliate'
 ];
 const LEGACY_CLEANUP_MIGRATION = path.normalize(
   path.join('src', 'migrations', '020_drop_affiliate_legacy_columns.sql')
