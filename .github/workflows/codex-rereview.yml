@@ -9,7 +9,10 @@ on:
 permissions:
   contents: read
   issues: write
-  pull-requests: read
+  # Creating a comment on a pull request's issue thread is accepted with
+  # `pull_requests=write` (GitHub's x-accepted-github-permissions); with only
+  # issues:write the call answered 403 "Resource not accessible by integration".
+  pull-requests: write
 
 concurrency:
   group: codex-rereview-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
