@@ -1,0 +1,209 @@
+name: Off-site database backup
+
+# Daily encrypted off-site copy of the canonical Siton database (schemas
+# siton + siton_inventory), independent of the database host's own backups.
+#
+# SECRETS-GATED: until the owner provisions every required secret the job
+# prints `OFFSITE_BACKUP_SKIPPED missing <names>` and exits 0 — it never goes
+# red merely because it has not been set up yet.
+#
+# Required secrets:
+#   OFFSITE_BACKUP_DATABASE_URL          connection URL of a DEDICATED READ-ONLY
+#                                        role (SELECT on the app schemas only)
+#   OFFSITE_BACKUP_ENCRYPTION_PUBLIC_KEY age recipient (age1...). PUBLIC key only:
+#                                        the runner can encrypt but never decrypt;
+#                                        the identity (private key) stays offline
+#                                        with the owner.
+#   OFFSITE_BACKUP_S3_BUCKET             S3-compatible bucket name
+#   OFFSITE_BACKUP_S3_ACCESS_KEY_ID      write-only (PutObject/GetObject on the
+#   OFFSITE_BACKUP_S3_SECRET_ACCESS_KEY  prefix) storage credential
+# Optional secrets:
+#   OFFSITE_BACKUP_S3_ENDPOINT           endpoint URL for non-AWS S3 (R2, B2, ...)
+#   OFFSITE_BACKUP_S3_REGION             default us-east-1
+#   OFFSITE_BACKUP_S3_PREFIX             key prefix, default "siton-db/"
+# Optional repository variable:
+#   OFFSITE_BACKUP_PG_MAJOR              pg_dump major version (>= server major), default 16
+#
+# Verification without the private key: the UNENCRYPTED custom-format dump is
+# checked with `pg_restore --list` (TOC must list the money tables) BEFORE it is
+# encrypted; the sha256 of the plaintext dump and of the encrypted object are
+# recorded in a manifest next to the backup; the encrypted object is then
+# downloaded back and its sha256 must match. The plaintext never leaves the
+# runner and is deleted right after encryption. Nothing is uploaded as a
+# workflow artifact. A full restore rehearsal with the private key is an
+# owner-side runbook step (npm run db:backup-restore-rehearsal proves the
+# restore path on disposable databases).
+#
+# Actions: this workflow uses no third-party or marketplace actions (plain
+# shell on the runner image), so there is nothing to pin by commit SHA.
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: offsite-db-backup
+  cancel-in-progress: false
+
+jobs:
+  offsite-backup:
+    name: offsite-backup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Gate on provisioned secrets
+        id: gate
+        env:
+          OFFSITE_BACKUP_DATABASE_URL: ${{ secrets.OFFSITE_BACKUP_DATABASE_URL }}
+          OFFSITE_BACKUP_ENCRYPTION_PUBLIC_KEY: ${{ secrets.OFFSITE_BACKUP_ENCRYPTION_PUBLIC_KEY }}
+          OFFSITE_BACKUP_S3_BUCKET: ${{ secrets.OFFSITE_BACKUP_S3_BUCKET }}
+          OFFSITE_BACKUP_S3_ACCESS_KEY_ID: ${{ secrets.OFFSITE_BACKUP_S3_ACCESS_KEY_ID }}
+          OFFSITE_BACKUP_S3_SECRET_ACCESS_KEY: ${{ secrets.OFFSITE_BACKUP_S3_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in OFFSITE_BACKUP_DATABASE_URL OFFSITE_BACKUP_ENCRYPTION_PUBLIC_KEY OFFSITE_BACKUP_S3_BUCKET OFFSITE_BACKUP_S3_ACCESS_KEY_ID OFFSITE_BACKUP_S3_SECRET_ACCESS_KEY; do
+            if [ -z "${!name:-}" ]; then missing+=("$name"); fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "OFFSITE_BACKUP_SKIPPED missing ${missing[*]}"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          case "$OFFSITE_BACKUP_ENCRYPTION_PUBLIC_KEY" in
+            age1*) ;;
+            *) echo "OFFSITE_BACKUP_ENCRYPTION_PUBLIC_KEY is not an age public recipient (age1...); refusing: a private identity must never be given to the runner" >&2; exit 1 ;;
+          esac
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Install pg_dump / pg_restore and age
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          PG_MAJOR: ${{ vars.OFFSITE_BACKUP_PG_MAJOR || '16' }}
+        run: |
+          set -euo pipefail
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq "postgresql-client-${PG_MAJOR}" age
+          echo "/usr/lib/postgresql/${PG_MAJOR}/bin" >> "$GITHUB_PATH"
+          "/usr/lib/postgresql/${PG_MAJOR}/bin/pg_dump" --version
+          age --version
+          aws --version
+
+      - name: Dump (read-only role, custom format)
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          OFFSITE_BACKUP_DATABASE_URL: ${{ secrets.OFFSITE_BACKUP_DATABASE_URL }}
+          PGOPTIONS: "-c default_transaction_read_only=on"
+          PGCONNECT_TIMEOUT: "20"
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/offsite"
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          echo "BACKUP_STAMP=$stamp" >> "$GITHUB_ENV"
+          pg_dump --format=custom --compress=9 --no-owner --no-privileges \
+            --schema=siton --schema=siton_inventory \
+            --file="$RUNNER_TEMP/offsite/siton.dump" \
+            --dbname="$OFFSITE_BACKUP_DATABASE_URL"
+          echo "dump size: $(stat -c %s "$RUNNER_TEMP/offsite/siton.dump") bytes"
+
+      - name: Verify dump with pg_restore --list (before encryption)
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/offsite"
+          pg_restore --list siton.dump > siton.toc
+          entries="$(grep -cv '^;' siton.toc || true)"
+          echo "TOC entries: $entries"
+          for table in migration_ledger deals participants platform_fee_money_events payment_attempts audit_log seller_settlements; do
+            if ! grep -Eq "TABLE DATA siton ${table} " siton.toc; then
+              echo "OFFSITE_BACKUP_VERIFY_FAIL pg_restore --list has no TABLE DATA for siton.${table}" >&2
+              exit 1
+            fi
+          done
+          sha256sum siton.dump | cut -d' ' -f1 > siton.dump.sha256
+          echo "PLAIN_SHA256=$(cat siton.dump.sha256)" >> "$GITHUB_ENV"
+          echo "TOC_ENTRIES=$entries" >> "$GITHUB_ENV"
+          echo "OFFSITE_BACKUP_VERIFY_PASS pg_restore --list ok (${entries} entries), plaintext sha256 $(cat siton.dump.sha256)"
+
+      - name: Encrypt with the age public key (runner cannot decrypt)
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          OFFSITE_BACKUP_ENCRYPTION_PUBLIC_KEY: ${{ secrets.OFFSITE_BACKUP_ENCRYPTION_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/offsite"
+          age --encrypt --recipient "$OFFSITE_BACKUP_ENCRYPTION_PUBLIC_KEY" --output siton.dump.age siton.dump
+          head -c 21 siton.dump.age | grep -q '^age-encryption.org/v1' || { echo "encrypted file has no age header" >&2; exit 1; }
+          shred -u siton.dump || rm -f siton.dump
+          enc_sha="$(sha256sum siton.dump.age | cut -d' ' -f1)"
+          echo "ENCRYPTED_SHA256=$enc_sha" >> "$GITHUB_ENV"
+          jq -n \
+            --arg created_at "$BACKUP_STAMP" \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg commit "$GITHUB_SHA" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --arg pg_dump "$(pg_dump --version)" \
+            --arg plain_sha256 "$PLAIN_SHA256" \
+            --arg encrypted_sha256 "$enc_sha" \
+            --arg encrypted_bytes "$(stat -c %s siton.dump.age)" \
+            --arg toc_entries "$TOC_ENTRIES" \
+            '{format:"pg_dump custom, age-encrypted", schemas:["siton","siton_inventory"], privileges:"not included (--no-privileges): re-apply supabase/staging grant files after restore", created_at:$created_at, repository:$repository, commit:$commit, run_id:$run_id, pg_dump:$pg_dump, plain_sha256:$plain_sha256, encrypted_sha256:$encrypted_sha256, encrypted_bytes:($encrypted_bytes|tonumber), toc_entries:($toc_entries|tonumber), verified:"pg_restore --list before encryption"}' > manifest.json
+          cat manifest.json
+
+      - name: Upload to off-site S3-compatible storage
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.OFFSITE_BACKUP_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.OFFSITE_BACKUP_S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.OFFSITE_BACKUP_S3_REGION || 'us-east-1' }}
+          OFFSITE_BACKUP_S3_BUCKET: ${{ secrets.OFFSITE_BACKUP_S3_BUCKET }}
+          OFFSITE_BACKUP_S3_ENDPOINT: ${{ secrets.OFFSITE_BACKUP_S3_ENDPOINT }}
+          OFFSITE_BACKUP_S3_PREFIX: ${{ secrets.OFFSITE_BACKUP_S3_PREFIX || 'siton-db/' }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/offsite"
+          endpoint=()
+          if [ -n "${OFFSITE_BACKUP_S3_ENDPOINT:-}" ]; then endpoint=(--endpoint-url "$OFFSITE_BACKUP_S3_ENDPOINT"); fi
+          key="${OFFSITE_BACKUP_S3_PREFIX}${BACKUP_STAMP:0:4}/${BACKUP_STAMP:4:2}/siton-${BACKUP_STAMP}"
+          echo "OBJECT_KEY=$key" >> "$GITHUB_ENV"
+          aws s3 cp "${endpoint[@]}" --only-show-errors siton.dump.age "s3://${OFFSITE_BACKUP_S3_BUCKET}/${key}.dump.age"
+          aws s3 cp "${endpoint[@]}" --only-show-errors manifest.json "s3://${OFFSITE_BACKUP_S3_BUCKET}/${key}.manifest.json"
+          echo "uploaded ${key}.dump.age and ${key}.manifest.json"
+
+      - name: Restore-verify the stored object (download + sha256)
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.OFFSITE_BACKUP_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.OFFSITE_BACKUP_S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.OFFSITE_BACKUP_S3_REGION || 'us-east-1' }}
+          OFFSITE_BACKUP_S3_BUCKET: ${{ secrets.OFFSITE_BACKUP_S3_BUCKET }}
+          OFFSITE_BACKUP_S3_ENDPOINT: ${{ secrets.OFFSITE_BACKUP_S3_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/offsite"
+          endpoint=()
+          if [ -n "${OFFSITE_BACKUP_S3_ENDPOINT:-}" ]; then endpoint=(--endpoint-url "$OFFSITE_BACKUP_S3_ENDPOINT"); fi
+          aws s3 cp "${endpoint[@]}" --only-show-errors "s3://${OFFSITE_BACKUP_S3_BUCKET}/${OBJECT_KEY}.dump.age" downloaded.dump.age
+          got="$(sha256sum downloaded.dump.age | cut -d' ' -f1)"
+          if [ "$got" != "$ENCRYPTED_SHA256" ]; then
+            echo "OFFSITE_BACKUP_VERIFY_FAIL downloaded object sha256 $got != uploaded $ENCRYPTED_SHA256" >&2
+            exit 1
+          fi
+          head -c 21 downloaded.dump.age | grep -q '^age-encryption.org/v1'
+          echo "OFFSITE_BACKUP_PASS object=${OBJECT_KEY}.dump.age plain_sha256=${PLAIN_SHA256} encrypted_sha256=${ENCRYPTED_SHA256}"
+
+      - name: Remove local backup files
+        if: always()
+        run: |
+          if [ -d "$RUNNER_TEMP/offsite" ]; then
+            find "$RUNNER_TEMP/offsite" -type f -exec shred -u {} + 2>/dev/null || true
+            rm -rf "$RUNNER_TEMP/offsite"
+          fi
