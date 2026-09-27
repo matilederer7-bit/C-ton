@@ -1487,7 +1487,7 @@ export function registerFrontendExperience(
         status: "processed" | "ignored" | "failed";
         reason: string;
       };
-    }) => Promise<void>;
+    }) => Promise<{ held: true; reason: string } | void>;
   }
 ) {
   const computeManager = new SupabaseComputeManager();
@@ -6135,8 +6135,9 @@ export function registerFrontendExperience(
         });
       }
 
+      let finalClassification: { status: "processed" | "ignored" | "failed"; reason: string } = classification;
       if (classification.status === "processed" && deps.applyPaymentWebhookClassification) {
-        await deps.applyPaymentWebhookClassification({
+        const applied = await deps.applyPaymentWebhookClassification({
           event: {
             provider,
             event_id: eventId,
@@ -6150,16 +6151,19 @@ export function registerFrontendExperience(
           target,
           classification
         });
+        // Black-Sky A-F8 — a capture event whose declared amount/currency does
+        // not match the obligation is held for review, never applied.
+        if (applied && applied.held) finalClassification = { status: "ignored", reason: applied.reason };
       }
 
-      await webhookIngestion.markEvent(provider, eventId, classification.status, classification.reason);
+      await webhookIngestion.markEvent(provider, eventId, finalClassification.status, finalClassification.reason);
 
       return reply.code(200).send({
         ok: true,
         duplicate: Boolean(ingested.duplicate),
         event_id: eventId,
-        status: classification.status,
-        reason: classification.reason
+        status: finalClassification.status,
+        reason: finalClassification.reason
       });
     } catch (error) {
       const failureReason = String((error as Error)?.message || error || "webhook_processing_failed").slice(0, 240);

@@ -1251,10 +1251,36 @@ async function applyPaymentWebhookClassification(args: {
     status: "processed" | "ignored" | "failed";
     reason: string;
   };
-}) {
+}): Promise<{ held: true; reason: string } | void> {
   if (args.classification.status !== "processed" || !args.target) return;
   const target = args.target; // narrowed once; closures below cannot re-narrow args.target
   await ensurePlatformFeeMoneyTables(withTx);
+
+  // Black-Sky A-F8 — a provider capture event that DECLARES an amount or a
+  // currency must match the obligation it would settle. A mismatch is not a
+  // success: no state, no ledger, no attempt verdict is written (the identity
+  // stays as it is and the reconcile rail / an operator owns the truth) and a
+  // payment-mismatch case is opened. Events that declare no amount (the
+  // worker's own provider-answer ingests, providers whose events carry none)
+  // are unaffected.
+  if (args.event.event_type === "charge_captured" || args.event.event_type === "recovery_captured") {
+    const declared = declaredEventMoney(args.event.payload);
+    if (declared.amount_minor !== null || declared.currency !== null || declared.malformed) {
+      const expected = await expectedCaptureObligation(target.participant_id, target.deal_id);
+      const amountMismatch = declared.amount_minor !== null && (expected.amount_minor === null || declared.amount_minor !== expected.amount_minor);
+      const currencyMismatch = declared.currency !== null && declared.currency !== expected.currency;
+      const malformed = declared.malformed;
+      if (amountMismatch || currencyMismatch || malformed) {
+        await openPaymentOperationalCase({
+          autoKey: `payment-capture-event-amount-mismatch:${target.participant_id}:${args.event.provider}:${args.event.event_id}`.slice(0, 200),
+          subject: `Capture event amount/currency mismatch for participant ${target.participant_id}`,
+          description: `Provider ${args.event.provider} event ${args.event.event_id} (${args.event.event_type}, reference ${args.event.provider_reference || "n/a"}, correlation ${args.event.correlation_id || target.correlation_id || "n/a"}) declares ${declared.raw_amount ?? "n/a"} ${declared.raw_currency ?? "n/a"}; the obligation is ${expected.amount_minor ?? "n/a"} ${expected.currency}. The event was NOT applied: no success, no state change, no ledger entry; the capture identity stays unresolved for reconciliation. Verify at the provider.`,
+          correlationId: args.event.correlation_id || target.correlation_id || null
+        });
+        return { held: true, reason: "capture_amount_mismatch_held_for_review" };
+      }
+    }
+  }
 
   // R9C — the operation's durable outcome commits in the SAME transaction as
   // the canonical state (and ledger). A negative outcome cannot be written
@@ -1509,6 +1535,56 @@ async function applyPaymentWebhookClassification(args: {
   }
 }
 
+function declaredEventMoney(payload: Record<string, unknown> | undefined): {
+  amount_minor: number | null;
+  currency: string | null;
+  malformed: boolean;
+  raw_amount: string | null;
+  raw_currency: string | null;
+} {
+  const source = (payload && typeof payload === "object" ? payload : {}) as Record<string, unknown>;
+  const rawAmount = source.amount_minor ?? source.amount_received ?? null;
+  const rawCurrency = source.currency ?? null;
+  let amount: number | null = null;
+  let malformed = false;
+  if (rawAmount !== null && rawAmount !== undefined && rawAmount !== "") {
+    const parsed = typeof rawAmount === "number" ? rawAmount : Number(String(rawAmount).trim());
+    if (Number.isInteger(parsed) && parsed >= 0) amount = parsed;
+    else malformed = true;
+  }
+  let currency: string | null = null;
+  if (rawCurrency !== null && rawCurrency !== undefined && String(rawCurrency).trim() !== "") {
+    currency = String(rawCurrency).trim().toUpperCase();
+  }
+  return {
+    amount_minor: amount,
+    currency,
+    malformed,
+    raw_amount: rawAmount === null || rawAmount === undefined ? null : String(rawAmount).slice(0, 40),
+    raw_currency: rawCurrency === null || rawCurrency === undefined ? null : String(rawCurrency).slice(0, 10)
+  };
+}
+
+/** The authoritative capture obligation: the consumed binding's amount, else the participant's server-side amount. */
+async function expectedCaptureObligation(participantId: string, dealId: string): Promise<{ amount_minor: number | null; currency: string }> {
+  return withTx(async (c) => {
+    const r = await c.query(
+      `SELECT p.qty, p.delivery_cost, d.price_per_unit, pab.amount_minor AS binding_amount_minor, pab.currency AS binding_currency
+       FROM siton.participants p
+       JOIN siton.deals d ON d.deal_id = p.deal_id
+       LEFT JOIN siton.payment_authorization_bindings pab ON pab.consumed_by_participant_id = p.participant_id
+       WHERE p.participant_id=$1 AND p.deal_id=$2`,
+      [participantId, dealId]
+    );
+    const row = r.rows[0];
+    if (!row) return { amount_minor: null, currency: "ILS" };
+    const amount = row.binding_amount_minor !== null && row.binding_amount_minor !== undefined
+      ? Number(row.binding_amount_minor)
+      : paymentMinorAmount({ qty: Number(row.qty || 0), pricePerUnit: Number(row.price_per_unit || 0), deliveryCost: Number(row.delivery_cost || 0) });
+    return { amount_minor: amount, currency: String(row.binding_currency || "ILS").toUpperCase() };
+  });
+}
+
 async function ingestAndProcessPaymentEvent(args: {
   provider: string;
   event_id: string;
@@ -1565,8 +1641,9 @@ async function ingestAndProcessPaymentEvent(args: {
       });
     }
 
+    let finalClassification: { status: "processed" | "ignored" | "failed"; reason: string } = classification;
     if (classification.status === "processed") {
-      await applyPaymentWebhookClassification({
+      const applied = await applyPaymentWebhookClassification({
         event: {
           provider: args.provider,
           event_id: args.event_id,
@@ -1580,13 +1657,14 @@ async function ingestAndProcessPaymentEvent(args: {
         target,
         classification
       });
+      if (applied && applied.held) finalClassification = { status: "ignored", reason: applied.reason };
     }
 
-    await webhookIngestion.markEvent(args.provider, args.event_id, classification.status, classification.reason);
+    await webhookIngestion.markEvent(args.provider, args.event_id, finalClassification.status, finalClassification.reason);
     return {
       duplicate: Boolean(ingested.duplicate),
-      status: classification.status,
-      reason: classification.reason
+      status: finalClassification.status,
+      reason: finalClassification.reason
     };
   } catch (error) {
     const failureReason = String(error instanceof Error ? error.message : error || "webhook_processing_failed").slice(0, 240);
