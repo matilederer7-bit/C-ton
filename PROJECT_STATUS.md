@@ -312,7 +312,23 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
-### Claude Code latest milestone — Red-team CLOSURE: every documented item fixed to the end (100%, merged + staging verified)
+### Claude Code latest milestone — Black-Sky: multi-failure resilience, money gates, DB integrity, DR tooling (PR #99, in review)
+
+- UPDATED: 2026-09-27
+- BRANCH: `claude/festive-wright-kx4e5a` from master `d186153`; PR [#99](https://github.com/matilederer7-bit/C-ton/pull/99). Full ledger, combination scenarios, owner actions and "What can still kill Siton?": `BLACK_SKY_FINAL_REPORT.md`.
+- COMPLETED (code + regression tests; failing-before observed for each):
+  - **Money gates:** deadline/threshold enforced for paused deals (A-F1, new ClosedForJoining→Failed edge), no join/authorize after the deadline (A-F5), recovery window gate + locked finalize (A-F2), stale webhook reclaim (A-F3), payment-method ownership (A-F4), refund negates the charge row (A-F6), capture amount check (A-F8), refund only on a failed deal (A-F9), unknown-correlation webhooks can never move money (BSC-1, found by the chaos suite).
+  - **Payout rail:** per-deal lock, forward-only status, unknown dispatch → lookup-only + case, operator attestation action (dual approval + MFA).
+  - **DB:** migrations **077** (ClosedForJoining→Failed, payout forward-only triggers, monotonic settlement, amount CHECKs), **078** (RESTRICT money FKs + deal-delete guard keeping untouched deals deletable, `test.%` gated to test DBs, outbox requirement by transition, frozen money fields, issued-invoice immutability, schema contract checks disabled triggers and runtime DELETE/TRUNCATE), **079** (payout attestation action type). Migration runner: advisory lock, atomic ledger, lock/statement timeouts, doctor verdicts, `--clear-running` repair.
+  - **Web/DoS/auth:** multipart ReDoS, nested-pool deadlock, rate-limit bypasses, identity-keyed seller-mutation budget (owner decision C: 90/min per seller + 150/min per IP), seller-login per-account serialization (race found by CI), login oracles, per-IP support/inquiry/feedback caps, payments/status binding check, owner-claim hardening, OTP token binding, share-page origin, upload quotas.
+  - **Resilience:** Grow unknown-outcome semantics + keyring rotation, per-class jittered outbox retries, pushed worker alerts, watchdog, per-job deadline, cached readiness with transient grace, JWKS stale-while-revalidate, security counters, invoice unknown handling.
+  - **DR / ops:** read-only money invariants CLI (37 invariants), 18-step backup/restore rehearsal with content hashes and grant diff, secrets-gated encrypted off-site backup workflow, destructive-target guard, 7 combined-failure chaos suites + `chaos:recovery-proof`, runbooks (disaster recovery, incident response, credential compromise matrix, payment reconciliation, backup/restore) + threat model + config inventory; supply chain (digest-pinned image, prod-only deps, npm audit gate, Dependabot, checks-gated deploys, hook-free agent commits).
+- TESTED (so far): on the integrated branch before the last integration fixes, every group green except 3 payments files + 1 integration file; those were root-caused (fixture interactions with 078, a boot-guard import that broke the isolated no-real-money fixture, a shared build-directory race) and each re-run green individually; release tools 199/199; `RECOVERY_PROOF_PASS`, `DB_BACKUP_RESTORE_REHEARSAL_PASS`, `MIGRATION_PREFLIGHT_PASS high_water=079`; static gates PASS. A clean full pass on the final head is in progress and this line is updated when it completes. Independent Codex review: **BLOCKED** (the re-review job reports `skipped` on every head).
+- OPEN: owner actions in `BLACK_SKY_FINAL_REPORT.md` §7 — above all apply **077, 078, 079 + `supabase/staging/027`** to staging before the merged code deploys (schema contract fails closed), confirm `SUPABASE_MANAGEMENT_API_TOKEN` is absent on Render, provision off-site backup secrets, `OTP_TOKEN_SECRET` + `SITON_OWNER_AUTH_USER_ID` for production-mode runtimes.
+- PERCENTAGE: **85%** — code, tests, chaos/recovery proof, runbooks and CI done; remaining: staging migration apply, merge, staging deploy + smoke.
+- NEXT STEP: apply 077–079 + 027 to `siton-staging` (connector, ledger-consistent), merge PR #99, verify the staging deploy (readiness as `siton_web_runtime`, seller mutation budget, deal-delete guard), then mark 100%.
+
+### Claude Code milestone — Red-team CLOSURE: every documented item fixed to the end (100%, merged + staging verified)
 
 - UPDATED: 2026-09-27
 - BRANCH: `claude/festive-wright-kx4e5a` from master `1a641ad`. Owner instruction: nothing stays on the shelf — every item the red-team report left as "documented / owner decision" is implemented, tested and merged.
