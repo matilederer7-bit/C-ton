@@ -471,7 +471,15 @@ async function main() {
       method: "GET",
       url: "/api/participants/00000000-0000-0000-0000-000000000000/tracking"
     });
-    assert.equal(missingTracking.statusCode, 404);
+    // Credential-first: an unknown id without a tracking credential answers the
+    // same 401 as a known one (no existence oracle); with a credential, 404.
+    assert.equal(missingTracking.statusCode, 401);
+    const missingTrackingWithCredential = await app.inject({
+      method: "GET",
+      url: "/api/participants/00000000-0000-0000-0000-000000000000/tracking",
+      headers: { authorization: "Bearer some-token" }
+    });
+    assert.equal(missingTrackingWithCredential.statusCode, 404);
 
     const missingOtp = await app.inject({
       method: "POST",

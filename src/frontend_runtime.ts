@@ -9411,6 +9411,16 @@ export function registerFrontendExperience(
     await ensureParticipantTracking();
     await ensureDealTypeTables(deps.withTx);
 
+    // A5: the credential is required BEFORE any lookup, so a caller without
+    // one cannot learn whether a participant id exists (401 for everyone
+    // without a token; 404 only for a credentialed caller).
+    const trackingToken = extractTrackingToken(req);
+    if (!trackingToken) {
+      const err: any = new Error("tracking_token_required");
+      err.statusCode = 401;
+      throw err;
+    }
+
     return deps.withTx(async (c) => {
       const participantResult = await c.query(
         `SELECT
@@ -9473,18 +9483,12 @@ export function registerFrontendExperience(
         ? (row.deal_type as DealType)
         : "physical_product");
       // Red-team hardening (A5): the tracking credential is mandatory in every
-      // runtime. A bare participant UUID (guessable-by-leak) never unlocks the
-      // buyer's tracking view; the untokenized legacy path is retired.
-      const accessToken = extractTrackingToken(req);
-      if (!accessToken) {
-        const err: any = new Error("tracking_token_required");
-        err.statusCode = 401;
-        throw err;
-      }
+      // runtime (presence checked above, before the lookup). A bare participant
+      // UUID never unlocks the buyer's tracking view.
       const access = await verifyParticipantTrackingAccess(c, {
         participant_id: participantId,
         deal_id: row.deal_id,
-        token: accessToken,
+        token: trackingToken,
         purposes: ["tracking", "recovery", "support"]
       });
       if (!access.ok) {
@@ -10741,6 +10745,13 @@ export function registerFrontendExperience(
     const participantId = String(req.params.participantId || "");
     requireUuid(participantId, "participant_id");
     await ensureParticipantTrackingTables(deps.withTx);
+    // Credential presence before any lookup (no existence oracle).
+    const accessToken = extractTrackingToken(req);
+    if (!accessToken) {
+      const err: any = new Error("tracking_token_required");
+      err.statusCode = 401;
+      throw err;
+    }
     return deps.withTx(async (c) => {
       const row = await c.query(
         `SELECT participant_id, deal_id FROM siton.participants WHERE participant_id=$1 LIMIT 1`,
@@ -10749,12 +10760,6 @@ export function registerFrontendExperience(
       if (!row.rowCount) {
         const err: any = new Error("participant not found");
         err.statusCode = 404;
-        throw err;
-      }
-      const accessToken = extractTrackingToken(req);
-      if (!accessToken) {
-        const err: any = new Error("tracking_token_required");
-        err.statusCode = 401;
         throw err;
       }
       const access = await verifyParticipantTrackingAccess(c, {
