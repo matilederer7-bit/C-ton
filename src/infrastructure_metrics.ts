@@ -173,6 +173,7 @@ export class InfrastructureMetricsCollector {
           (SELECT COUNT(*)::int FROM siton.worker_heartbeats WHERE heartbeat_at > now() - interval '45 seconds' AND status='ready') AS fresh_workers,
           (SELECT COUNT(*)::int FROM siton.webhook_events WHERE received_at >= now() - interval '15 minutes') AS webhooks_total,
           (SELECT COUNT(*)::int FROM siton.webhook_events WHERE received_at >= now() - interval '15 minutes' AND status='failed') AS webhooks_failed,
+          (SELECT COUNT(*)::int FROM siton.payment_webhook_security_events WHERE created_at >= now() - interval '15 minutes') AS webhooks_rejected,
           (SELECT COUNT(*)::int FROM siton.payment_attempts WHERE created_at >= now() - interval '15 minutes') AS payments_total,
           (SELECT COUNT(*)::int FROM siton.payment_attempts WHERE created_at >= now() - interval '15 minutes' AND result_class IN ('temporary_fail','permanent_fail','unknown')) AS payments_failed,
           (SELECT COUNT(*)::int FROM siton.deals WHERE state='CompletionWindow' AND completion_window_until < now()) AS completion_window_stuck,
@@ -211,9 +212,14 @@ export class InfrastructureMetricsCollector {
         : availableMetric(Number(row.worker_heartbeat_age_seconds), "seconds", "siton.worker_heartbeats");
       metrics.worker_lag_seconds = metrics.oldest_queued_job_seconds;
       metrics.dlq_size = availableMetric(Number(row.dlq_size), "count", "siton.outbox_dlq");
-      const webhooksTotal = Number(row.webhooks_total || 0);
+      // Black-Sky F-M6: webhooks refused before ingestion (bad signature,
+      // structurally invalid, unmatched binding) never reach webhook_events,
+      // so the rate excluded exactly the forged/garbled traffic. They count as
+      // both a request and a failure now.
+      const webhooksRejected = Number(row.webhooks_rejected || 0);
+      const webhooksTotal = Number(row.webhooks_total || 0) + webhooksRejected;
       metrics.webhook_failure_rate = webhooksTotal
-        ? availableMetric(Number(row.webhooks_failed || 0) / webhooksTotal, "ratio", "siton.webhook_events")
+        ? availableMetric((Number(row.webhooks_failed || 0) + webhooksRejected) / webhooksTotal, "ratio", "siton.webhook_events+payment_webhook_security_events")
         : unavailableMetric("ratio", "siton.webhook_events", "no_webhook_requests_in_window");
       const paymentsTotal = Number(row.payments_total || 0);
       metrics.payment_error_rate = paymentsTotal

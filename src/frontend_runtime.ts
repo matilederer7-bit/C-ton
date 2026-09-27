@@ -241,6 +241,7 @@ import { htmlAttrs, localeFromRequest, ogLocale, ts, type Locale } from "./serve
 import { isBuyerVerificationRequired, buyerVerificationPolicySummary } from "./buyer_verification_policy.js";
 import { buildSupabaseVerifier } from "./supabase_auth.js";
 import { publicWriteCaps } from "./public_write_caps.js";
+import { incrementRuntimeCounter, runtimeCountersSnapshot } from "./runtime_counters.js";
 import { resolveSupabaseCapabilities, bearerToken } from "./actor_resolver.js";
 import {
   recordViralFunnelEvent,
@@ -1601,6 +1602,9 @@ export function registerFrontendExperience(
   const ensureInvoiceWebhookTables = memoizeSchemaCheck(() => deps.withTx(async c=>assertRequiredTables(c,["invoice_webhook_events","invoice_webhook_security_events"])));
   const ensureLegalAcceptanceTables = memoizeSchemaCheck(() => deps.withTx(async c=>assertRequiredTables(c,["legal_acceptances"])));
   const recordInvoiceWebhookSecurityFailure = async (args: { provider: string; event_id?: string | null; failure_reason: string; remote_hint?: string }) => {
+    // Black-Sky F-M6: counted in-process before the durable write, so the
+    // signal survives even when the database write fails.
+    if (/signature/.test(args.failure_reason)) incrementRuntimeCounter("invoice_webhook_signature_failed_total");
     await ensureInvoiceWebhookTables();
     await deps.withTx(async (c) => {
       await c.query(
@@ -1612,6 +1616,8 @@ export function registerFrontendExperience(
   };
   const ensurePaymentOpsTables = memoizeSchemaCheck(() => deps.withTx(async c=>assertRequiredTables(c,["payment_webhook_security_events","buyer_payment_methods"])));
   const recordWebhookSecurityFailure = async (args: { provider: string; event_id?: string | null; failure_reason: string; remote_hint?: string }) => {
+    incrementRuntimeCounter("webhook_rejected_total");
+    if (/signature/.test(args.failure_reason)) incrementRuntimeCounter("webhook_signature_failed_total");
     await ensurePaymentOpsTables();
     await deps.withTx(async (c) => {
       await c.query(
@@ -2683,6 +2689,18 @@ export function registerFrontendExperience(
       const adminVerifiable = Boolean(!locked && row && row.status === "Active");
       const adminPasswordOk = await verifyAdminPassword(password, adminVerifiable ? row.password_hash : await adminLoginDummyHash());
       if (!adminVerifiable || !adminPasswordOk) {
+        // Black-Sky F-M6: every failed admin login is a security event: counted
+        // in-process and logged with a keyed-free hash of the presented e-mail
+        // (never the e-mail, never the password), the outcome class and the
+        // request id. The HTTP answer is unchanged (same 401 for every case).
+        const outcome = locked ? "locked" : !row ? "unknown_account" : row.status !== "Active" ? "inactive_account" : "bad_password";
+        incrementRuntimeCounter("admin_login_failed_total");
+        req.log?.warn?.({
+          security_event: "admin.login.failed",
+          outcome,
+          email_hash: createHash("sha256").update(`admin-login:${email}`).digest("hex").slice(0, 24),
+          request_id: String(req.id || "")
+        }, "admin_login_failed");
         if (locked) {
           return reply.code(401).send({ ok: false, error: "admin_invalid_credentials" });
         }
@@ -2692,6 +2710,8 @@ export function registerFrontendExperience(
           const windowFresh = Number.isFinite(windowStartedAt) && Date.now() - windowStartedAt < ADMIN_LOGIN_FAILURE_WINDOW_MINUTES * 60_000;
           const failures = (windowFresh ? Number(row.failed_login_count || 0) : 0) + 1;
           if (failures >= ADMIN_LOGIN_MAX_FAILURES) {
+            incrementRuntimeCounter("admin_login_locked_total");
+            req.log?.warn?.({ security_event: "admin.login.locked", admin_user_id: row.admin_user_id, request_id: String(req.id || "") }, "admin_login_locked");
             await c.query(
               `UPDATE siton.admin_users
                SET failed_login_count=0, failed_login_window_started_at=NULL,
@@ -2777,6 +2797,8 @@ export function registerFrontendExperience(
       // the 6-digit code cannot be brute-forced within its window. The SELECT
       // holds FOR UPDATE, so the increment and the lock decision are race-safe.
       if (row.code_hash !== hashAdminOtp(code)) {
+        incrementRuntimeCounter("admin_mfa_failed_total");
+        req.log?.warn?.({ security_event: "admin.mfa.failed", admin_user_id: row.admin_user_id, request_id: String(req.id || "") }, "admin_mfa_failed");
         const nextAttempts = Number(row.attempts || 0) + 1;
         if (nextAttempts >= ADMIN_MFA_MAX_ATTEMPTS) {
           await c.query(`UPDATE siton.admin_mfa_challenges SET attempts=$2, status='Revoked' WHERE mfa_challenge_id=$1`, [challengeId, nextAttempts]);
@@ -7831,6 +7853,10 @@ export function registerFrontendExperience(
           app_health: {
             ok: true
           },
+          // Black-Sky F-M6: in-process security / reliability counters of THIS
+          // web instance (401/403/429, admin login + MFA failures, webhook
+          // signature rejections, swallowed outbox row errors).
+          security_counters: runtimeCountersSnapshot(),
           deployment: {
             mode: deps.deploymentMode,
             is_demo_preview: deps.isDemoPreview
