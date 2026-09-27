@@ -1,6 +1,8 @@
 import { assertRequiredTables } from "./schema_contract.js";
 import { randomUUID } from "crypto";
 import { createAdminControlFlag, releaseAdminControlFlag, isAdminFlagScopeType, type AdminFlagScopeType } from "./admin_intervention.js";
+import { outboxEffectiveMaxAttempts } from "./outbox_worker_helpers.js";
+import { resolveOutboxRetryPolicyConfig } from "./runtime_config.js";
 
 export const ADMIN_SAFE_ACTION_TYPES = [
   "trigger_reconcile",
@@ -66,10 +68,14 @@ const FORBIDDEN_ACTIONS = new Set([
   "edit_product_eligibility"
 ]);
 
-const parsedAdminOutboxMaxAttempts = Number(process.env.OUTBOX_MAX_ATTEMPTS || 4);
-const ADMIN_OUTBOX_MAX_ATTEMPTS = Number.isSafeInteger(parsedAdminOutboxMaxAttempts) && parsedAdminOutboxMaxAttempts >= 1
-  ? parsedAdminOutboxMaxAttempts
-  : 4;
+// Black-Sky follow-up: an admin requeue is bounded by the SAME attempt ceiling
+// the worker applies (lane budget per retry class, or the legacy LEAST). It
+// used LEAST(max_attempts, OUTBOX_MAX_ATTEMPTS || 4), so a money event past
+// attempt 4 but still inside its 8-attempt lane budget could not be requeued.
+// Resolved per call so a test/runtime env change is honoured.
+function adminRequeueCeiling(eventType: string, rowMaxAttempts: unknown) {
+  return outboxEffectiveMaxAttempts(eventType, rowMaxAttempts, resolveOutboxRetryPolicyConfig());
+}
 
 type Queryable = {
   query: (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number }>;
@@ -201,6 +207,13 @@ export async function executeAdminAction(c: Queryable, actionId: string, context
   let completed = false;
 
   if (action.action_type === "requeue_outbox_event") {
+    const target = await c.query(
+      `SELECT event_type, max_attempts FROM siton.outbox_events WHERE event_uuid::text=$1 FOR UPDATE`,
+      [action.target_id]
+    );
+    const ceiling = target.rowCount
+      ? adminRequeueCeiling(String(target.rows[0].event_type), target.rows[0].max_attempts)
+      : 0;
     const upd = await c.query(
       `WITH eligible AS (
          SELECT event_uuid, status AS from_status, attempt_count, lease_generation
@@ -208,7 +221,7 @@ export async function executeAdminAction(c: Queryable, actionId: string, context
          WHERE event_uuid::text=$1
            AND status IN ('pending','failed')
            AND sent=false AND sent_at IS NULL
-           AND attempt_count < LEAST(max_attempts,$6)
+           AND attempt_count < $6::int
          FOR UPDATE
        ), requeued AS (
          UPDATE siton.outbox_events o
@@ -238,7 +251,7 @@ export async function executeAdminAction(c: Queryable, actionId: string, context
         context.request_id,
         "admin:" + context.admin_id,
         "admin-action:" + actionId + ":outbox-retry",
-        ADMIN_OUTBOX_MAX_ATTEMPTS
+        ceiling
       ]
     );
     completed = (upd.rowCount ?? 0) > 0;

@@ -1736,7 +1736,11 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
            EXTRACT(EPOCH FROM (now() - MIN(available_at) FILTER (WHERE status='pending'))) AS oldest_pending_age_seconds,
            EXTRACT(EPOCH FROM (now() - MIN(updated_at) FILTER (WHERE status='failed'))) AS oldest_failed_age_seconds,
            COUNT(*) FILTER (WHERE status='processing' AND COALESCE(processing_started_at, updated_at, created_at) < now() - interval '5 minutes')::int AS stuck_processing,
-           COUNT(*) FILTER (WHERE attempt_count >= 4)::int AS over_max_attempts
+           -- Black-Sky follow-up: exhausted = the ROW's own ceiling (lane mode
+           -- raises max_attempts per retry class at claim), not a hardcoded 4;
+           -- and only for live rows: an event that succeeded on its last
+           -- allowed attempt is not an anomaly.
+           COUNT(*) FILTER (WHERE status IN ('pending','processing','failed') AND attempt_count >= max_attempts)::int AS over_max_attempts
          FROM siton.outbox_events`
       )).rows[0] || {}
     : {};

@@ -104,6 +104,25 @@ function requireLeaseGeneration(value: unknown) {
   return generation;
 }
 
+/**
+ * The attempt ceiling the worker applies to one event (same rule as the
+ * worker's effectiveMaxAttempts below): lane mode uses the event's retry-class
+ * budget, legacy mode LEAST(row max_attempts, class budget). Exposed so admin
+ * tooling judges "exhausted" exactly as the worker does.
+ */
+export function outboxEffectiveMaxAttempts(eventType: string, rowMaxAttempts: unknown, policy: OutboxRetryPolicySet): number {
+  const clamp = (value: unknown, fallback: number) => {
+    const n = Math.floor(Number(value));
+    return Number.isFinite(n) ? Math.min(50, Math.max(1, n)) : fallback;
+  };
+  const classPolicy = policy.policies[outboxRetryClass(String(eventType || ""))] || policy.policies.default;
+  const classMaximum = clamp(classPolicy.maxAttempts, 4);
+  if (policy.raiseRowMaxAttempts) return classMaximum;
+  const candidate = Number(rowMaxAttempts);
+  const eventMaximum = Number.isSafeInteger(candidate) && candidate >= 1 ? candidate : classMaximum;
+  return Math.min(eventMaximum, classMaximum);
+}
+
 export function buildOutboxWorkerHelpers(deps: {
   withTx: WithTx;
   outboxPollMs: number;
