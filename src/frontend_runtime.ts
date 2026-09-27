@@ -6270,6 +6270,11 @@ export function registerFrontendExperience(
     // durable sealed reference. Pending bindings may flip to authorized ONLY
     // through this lookup (amount contradiction fails the binding closed).
     let lookupOutcome: string = "not_required";
+    // F-M5 — a lookup that proved nothing (transport loss, non-2xx, a
+    // not-yet-final state) must not consume the callback: the event is stored
+    // as 'failed' (re-claimable by the provider's redelivery) and the worker
+    // maintenance sweep re-reads every pending binding on its own.
+    let lookupRetryable = false;
     if (binding.status === "pending_provider_confirmation" && deps.paymentProvider.status) {
       try {
         const status = await deps.paymentProvider.status({
@@ -6278,6 +6283,10 @@ export function registerFrontendExperience(
           correlation_id: `grow-callback:${event.event_id.slice(0, 48)}`
         });
         lookupOutcome = `provider_state_${status.state}`;
+        if (status.state !== "authorized" && !status.final) {
+          lookupRetryable = true;
+          lookupOutcome = `provider_state_${status.state}_not_final${status.error_code ? `:${status.error_code}` : ""}`;
+        }
         if (status.state === "authorized") {
           await paymentBindings.confirmBindingAuthorized({
             provider_code: deps.paymentProvider.providerCode,
@@ -6288,6 +6297,7 @@ export function registerFrontendExperience(
         }
       } catch (error) {
         lookupOutcome = error instanceof PaymentBindingError ? `binding_${error.code}` : "authoritative_lookup_failed";
+        if (!(error instanceof PaymentBindingError)) lookupRetryable = true;
       }
     } else if (binding.status !== "pending_provider_confirmation") {
       // Post-authorization callbacks (capture/late/duplicate hints) stay
@@ -6295,11 +6305,13 @@ export function registerFrontendExperience(
       lookupOutcome = `binding_${binding.status}_evidence_only`;
     }
 
-    await webhookIngestion.markEvent("grow", event.event_id, "processed", `callback_hint:${lookupOutcome}`.slice(0, 240));
+    const callbackStatus = lookupRetryable ? "failed" as const : "processed" as const;
+    await webhookIngestion.markEvent("grow", event.event_id, callbackStatus, `callback_hint:${lookupOutcome}`.slice(0, 240));
     return reply.code(200).send({
       ok: true,
-      status: "processed",
+      status: callbackStatus,
       reason: lookupOutcome,
+      retryable: lookupRetryable,
       money_from_callback: false,
       authoritative_source: "server_status_lookup"
     });

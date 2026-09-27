@@ -5412,6 +5412,64 @@ export async function processStorageCleanupBatch(limit = 10, leaseMs = 60_000) {
   }
   return processed;
 }
+/**
+ * F-M5 — a hosted (Grow) authorization binding stays 'pending_provider_confirmation'
+ * until an authoritative server-side status lookup confirms it. A callback whose
+ * lookup failed, or a callback that never arrived, used to leave it pending for
+ * ever. This bounded sweep re-reads pending bindings (READ-ONLY provider status,
+ * never a money call) and confirms them through the same amount-checked path as
+ * the callback / status route. A create intent still unresolved (no provider
+ * reference yet) and an expired hold are never touched; each binding is re-read
+ * at most once per backoff interval (its updated_at is bumped before the read).
+ */
+export async function reconcilePendingAuthorizationBindings(limit = 20, backoffMs = 60_000, minAgeMs = 30_000): Promise<{ examined: number; confirmed: number }> {
+  if (paymentProvider.providerCode !== "grow" || !paymentProvider.status) return { examined: 0, confirmed: 0 };
+  const due = await withTx(async (c) => {
+    const r = await c.query(
+      `UPDATE siton.payment_authorization_bindings b
+       SET updated_at = clock_timestamp()
+       WHERE b.binding_id IN (
+         SELECT binding_id FROM siton.payment_authorization_bindings
+         WHERE provider_code=$1
+           AND status='pending_provider_confirmation'
+           AND authorization_id NOT LIKE 'siton_create_pending:%'
+           AND (expires_at IS NULL OR expires_at > clock_timestamp())
+           AND created_at <= clock_timestamp() - ($3::text || ' milliseconds')::interval
+           AND updated_at <= clock_timestamp() - ($4::text || ' milliseconds')::interval
+         ORDER BY updated_at ASC
+         LIMIT $2
+         FOR UPDATE SKIP LOCKED
+       )
+       RETURNING b.authorization_id, b.provider_reference`,
+      [paymentProvider.providerCode, Math.max(1, Math.floor(limit)), String(Math.max(0, Math.floor(minAgeMs))), String(Math.max(0, Math.floor(backoffMs)))]
+    );
+    return r.rows as Array<{ authorization_id: string; provider_reference: string | null }>;
+  });
+  let confirmed = 0;
+  for (const row of due) {
+    try {
+      const status = await paymentProvider.status!({
+        provider_reference: row.provider_reference || row.authorization_id,
+        operation: "authorization",
+        correlation_id: `binding-sweep:${row.authorization_id.slice(0, 40)}`
+      });
+      if (status.state !== "authorized") continue; // not proven: try again after the backoff
+      const result = await paymentBindings.confirmBindingAuthorized({
+        provider_code: paymentProvider.providerCode,
+        authorization_id: row.authorization_id,
+        provider_amount_minor: status.amount_minor,
+        provider_reference: status.provider_reference
+      });
+      if (result?.status === "authorized") confirmed += 1;
+    } catch (error) {
+      // an amount contradiction already failed the binding closed; anything
+      // else is retried after the backoff
+      if (!(error instanceof PaymentBindingError)) app.log.warn({ authorization_id: row.authorization_id, err: error }, "pending binding sweep: status lookup failed");
+    }
+  }
+  return { examined: due.length, confirmed };
+}
+
 export async function runWorkerMaintenance() {
   // F-4 — no UNKNOWN money identity may stay without a live reconcile.
   await reconcileOrphanedUnknownIdentities().catch(() => 0);
@@ -5420,6 +5478,8 @@ export async function runWorkerMaintenance() {
   // Black-Sky A-F3 — a webhook claim whose processor died is returned to
   // 'pending' (bounded, idempotent) so the provider's replay is not swallowed.
   await webhookIngestion.reclaimStaleProcessing().catch(() => 0);
+  // F-M5 — pending hosted authorizations are re-read (status only) until proven.
+  await reconcilePendingAuthorizationBindings().catch(() => ({ examined: 0, confirmed: 0 }));
   // Crash recovery for the notification rail: stranded 'processing' rows are
   // reclaimed with a bounded attempt budget before the next flush.
   await reclaimStrandedNotifications(pool, Number(process.env.NOTIFICATION_STUCK_TIMEOUT_MS || 5 * 60_000)).catch(() => 0);
