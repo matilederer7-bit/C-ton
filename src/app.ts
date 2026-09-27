@@ -29,7 +29,14 @@ import { buildPaymentProvider, getPaymentProviderSummary, providerAmbiguityPolic
 import { buildPaymentAuthorizationBindings, PaymentBindingError } from "./payment_binding.js";
 import { assessAuthorizationUsability, isAuthorizationUnusableResult, reauthorizationIdentity } from "./authorization_lifecycle.js";
 import { computeCustomerChargeVat } from "./vat_authority.js";
-import { resolveCompletionWindowMinutes, isProductionLikeEnv, resolveTrustProxyHops } from "./runtime_config.js";
+import {
+  resolveCompletionWindowMinutes,
+  isProductionLikeEnv,
+  resolveTrustProxyHops,
+  resolveOutboxRetryPolicyConfig,
+  resolveUnknownOutboxEventDeferMs,
+  resolveWorkerEventTimeoutMs
+} from "./runtime_config.js";
 import { contentSecurityPolicy, isHtmlContentType } from "./content_security_policy.js";
 import { buildNotificationService, getNotificationServiceSummary } from "./notification_service.js";
 import {
@@ -155,6 +162,10 @@ const HOST = String(process.env.HOST || "0.0.0.0");
 const COMPLETION_WINDOW_MINUTES = resolveCompletionWindowMinutes();
 const OUTBOX_POLL_MS = Number(process.env.OUTBOX_POLL_MS || 1000);
 const OUTBOX_MAX_ATTEMPTS = Number(process.env.OUTBOX_MAX_ATTEMPTS || 4);
+// Per-retry-class outbox policy (money/reconcile/invoice/payout: long jittered
+// budget; others modest). Automated tests (NODE_ENV=test) keep the legacy
+// OUTBOX_POLL_MS/OUTBOX_MAX_ATTEMPTS policy — see resolveOutboxRetryPolicyConfig.
+const OUTBOX_RETRY_POLICY = resolveOutboxRetryPolicyConfig();
 
 // Deal deadline bounds come from ONE policy module (src/deadline_policy.ts):
 // a 2-hour product minimum and a technical sanity ceiling. There is no
@@ -671,6 +682,7 @@ const {
   withTx,
   outboxPollMs: OUTBOX_POLL_MS,
   outboxMaxAttempts: OUTBOX_MAX_ATTEMPTS,
+  retryPolicy: OUTBOX_RETRY_POLICY,
   workerId: process.env.WORKER_ID || `siton-worker-${process.pid}-${randomUUID()}`,
   leaseMs: Number(process.env.WORKER_LEASE_MS || 60_000),
   PermanentFailErrorCtor: PermanentFailError,
@@ -4987,7 +4999,13 @@ async function workerProcessEvent(event: {
     return;
   }
 
-  throw new PermanentFailError(`unsupported outbox event type: ${event.event_type}`);
+  // An event type this build does not know is most likely produced by a newer
+  // deploy that is still rolling out: defer it (bounded by the attempt budget,
+  // after which it lands in the DLQ) instead of dead-lettering it immediately.
+  throw new DeferredEventError(
+    `unsupported_outbox_event_type_deferred: ${event.event_type}`,
+    new Date(Date.now() + resolveUnknownOutboxEventDeferMs())
+  );
 }
 
 export async function processNextPendingOutboxEvent(limit = 1) {
@@ -5002,19 +5020,77 @@ export async function claimPendingOutboxBatch(limit: number) {
   return claimOutboxBatch(limit);
 }
 
+// A fault injected at worker.after_claim keeps its historical semantics (it
+// propagates to the caller without marking the event failed).
+class WorkerPreHandlerFault {
+  constructor(readonly error: unknown) {}
+}
+
+let abandonedWorkerJobsInFlight = 0;
+/** Jobs whose handler outlived the per-job deadline and is still running detached. */
+export function workerAbandonedJobsInFlight() {
+  return abandonedWorkerJobsInFlight;
+}
+
 export async function processClaimedOutboxEvent(event: Awaited<ReturnType<typeof claimOutboxBatch>>[number]) {
-  await hitTestFault("worker.after_claim");
   let ownershipLost = false;
+  let abandoned = false;
   let heartbeatInFlight = Promise.resolve();
   const heartbeat = setInterval(() => {
+    if (abandoned) return;
     heartbeatInFlight = heartbeatInFlight.then(async () => {
       const renewed = await heartbeatOutboxLease(event.event_uuid, event.lease_generation).catch(() => false);
       if (!renewed) ownershipLost = true;
     });
   }, Math.max(1_000, Math.floor(Number(process.env.WORKER_LEASE_MS || 60_000) / 3)));
   heartbeat.unref();
-  try {
+  // Per-job deadline (WORKER_EVENT_TIMEOUT_MS). On expiry the worker stops
+  // WAITING; it never acks the job sent or failed, because a money handler may
+  // already have dispatched a provider call and a JS timeout is not evidence
+  // of failure. The lease stops being renewed, so it expires and the
+  // lease-expiry reclaim hands the job to a new lease generation; the detached
+  // run can no longer ack (markOutboxSent/markOutboxFailed are never called for
+  // it) and its provider I/O is fenced by assertLeaseForProviderIo.
+  const deadlineMs = resolveWorkerEventTimeoutMs();
+  let deadlineTimer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<"deadline">((resolveDeadline) => {
+    deadlineTimer = setTimeout(() => resolveDeadline("deadline"), deadlineMs);
+    deadlineTimer.unref();
+  });
+  const work = (async () => {
+    try {
+      await hitTestFault("worker.after_claim");
+    } catch (error) {
+      throw new WorkerPreHandlerFault(error);
+    }
     await workerProcessEvent(event);
+    return "done" as const;
+  })();
+  try {
+    const outcome = await Promise.race([work, deadline]);
+    if (outcome === "deadline") {
+      abandoned = true;
+      clearInterval(heartbeat);
+      abandonedWorkerJobsInFlight += 1;
+      app.log.error({
+        event_uuid: event.event_uuid,
+        event_type: event.event_type,
+        lease_generation: event.lease_generation,
+        deadline_ms: deadlineMs
+      }, "worker_event_deadline_exceeded");
+      work.then(
+        () => app.log.warn({ event_uuid: event.event_uuid, event_type: event.event_type, lease_generation: event.lease_generation }, "worker_abandoned_event_completed_late_not_acked"),
+        (error) => app.log.warn({ event_uuid: event.event_uuid, event_type: event.event_type, lease_generation: event.lease_generation, err: error instanceof WorkerPreHandlerFault ? error.error : error }, "worker_abandoned_event_failed_late_not_acked")
+      ).finally(() => {
+        abandonedWorkerJobsInFlight = Math.max(0, abandonedWorkerJobsInFlight - 1);
+      });
+      return {
+        event_uuid: event.event_uuid,
+        event_type: event.event_type,
+        status: "deadline_exceeded" as const,
+        error: "worker_event_deadline_exceeded"
+      };
+    }
     await heartbeatInFlight;
     if (ownershipLost) throw new OutboxLeaseLostError(event.event_uuid);
     await hitTestFault("worker.before_ack");
@@ -5025,6 +5101,7 @@ export async function processClaimedOutboxEvent(event: Awaited<ReturnType<typeof
       status: "sent" as const
     };
   } catch (error) {
+    if (error instanceof WorkerPreHandlerFault) throw error.error;
     if (ownershipLost || error instanceof OutboxLeaseLostError) {
       return {
         event_uuid: event.event_uuid,
@@ -5053,6 +5130,7 @@ export async function processClaimedOutboxEvent(event: Awaited<ReturnType<typeof
       error: String(error instanceof Error ? error.message : error)
     };
   } finally {
+    if (deadlineTimer) clearTimeout(deadlineTimer);
     clearInterval(heartbeat);
     await heartbeatInFlight.catch(() => undefined);
   }
@@ -5063,10 +5141,10 @@ export async function processOutboxEventById(eventId: string) {
   if (!claimed) return null;
   return processClaimedOutboxEvent(claimed);
 }
-const WORKER_EVENT_TIMEOUT_MS = 30_000;
-// Events stuck in 'processing' longer than this are recycled back to 'pending'.
-// Set to 2× WORKER_EVENT_TIMEOUT_MS so a legitimately-slow event can finish
-// before the reclaim window opens.
+// The per-job deadline is WORKER_EVENT_TIMEOUT_MS (resolveWorkerEventTimeoutMs,
+// enforced in processClaimedOutboxEvent). Stuck 'processing' rows are
+// recycled by LEASE EXPIRY (reclaimStuckProcessing), not by this age value,
+// which is kept for the invoice-document reclaim.
 const WORKER_STUCK_TIMEOUT_MS = Number(process.env.WORKER_STUCK_TIMEOUT_MS || 60_000);
 export async function reclaimWorkerJobs(timeoutMs = WORKER_STUCK_TIMEOUT_MS) {
   const outbox = await reclaimStuckProcessing(timeoutMs);
