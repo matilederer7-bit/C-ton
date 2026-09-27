@@ -29,3 +29,20 @@ test("the contract checks the 076 evidence table, its triggers and the 075/076 l
     "row_xmin_is_current_tx(p_xmin xid)"
   ]) assert.ok(source.includes(needle), `schema contract must check ${needle}`);
 });
+
+test("the contract checks the 078 objects, trigger enablement and the runtime DELETE/TRUNCATE boundary", () => {
+  assert.ok(tsArray("REQUIRED_MIGRATION_IDS").includes("078"));
+  assert.ok(tsArray("REQUIRED_TABLES").includes("fixture_purge_audit"));
+  for (const needle of [
+    "tgenabled",
+    "trg_payment_attempts_lifecycle_guard",
+    "trg_payment_attempts_settlement_horizon",
+    "trg_deals_before_delete_guard",
+    "trg_invoice_documents_issued_immutable",
+    "trg_payment_attempts_identity_immutable",
+    "siton.allow_test_actions",
+    "confdeltype",
+    "RUNTIME_PROTECTED_TABLES",
+    "TRUNCATE"
+  ]) assert.ok(source.includes(needle), `schema contract must check ${needle}`);
+});

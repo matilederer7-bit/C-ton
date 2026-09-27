@@ -200,7 +200,7 @@ const STAGING_GRANT_FILES = [
   "020_p0_4_field_change_audit.sql", "021_p0_5_support_messages.sql",
   "022_p0_7_seller_inquiries.sql", "023_receipt_content_grants.sql",
   "024_r9c_payment_lifecycle_grants.sql", "025_product_catalog_grants.sql",
-  "026_distribution_link_viewer_grants.sql"
+  "026_distribution_link_viewer_grants.sql", "027_black_sky_db_integrity_grants.sql"
 ];
 const RUNTIME_ROLES = ["siton_web_runtime", "siton_worker_runtime"];
 const GRANT_RUNBOOK_STEP = "after pg_restore --no-privileges, as the database owner apply supabase/staging/{" + STAGING_GRANT_FILES.map((f) => f.slice(0, 3)).join(",") + "}*.sql in order (psql -v ON_ERROR_STOP=1 -f <file>), then run supabase/staging/verify_r1_foundation.sql (read-only) — docs/DATABASE_INCIDENT_RUNBOOK.md section 7";

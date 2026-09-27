@@ -2159,6 +2159,11 @@ export function registerFrontendExperience(
     const sellerId = selfSignupSellerId(email, caps.sub);
     const displayName = normalizeSellerDisplayName(email.split("@")[0], sellerId);
     if (SELLER_SELF_SIGNUP_HOURLY_CAP > 0) {
+      // Black-Sky D12: serialize count-then-insert. Under READ COMMITTED every
+      // concurrent first login otherwise counts the same committed rows and a
+      // burst of N identities binds N sellers regardless of the cap. The lock
+      // is transaction-scoped and taken only on the self-signup branch.
+      await c.query(`SELECT pg_advisory_xact_lock(hashtextextended('siton:seller-self-signup-cap', 0))`);
       // counted from the append-only audit rail, not from admin_note (the
       // approval decision rewrites admin_note, which must not reset the cap)
       const recent = await c.query(

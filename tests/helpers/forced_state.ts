@@ -27,6 +27,17 @@ const OUTBOX_REQUIRED_DEAL_ACTIONS = new Map<string, string>([
   ["deal.cancel", "cancel_refund"]
 ]);
 
+// Transition → the outbox job the DB requires for it whatever the action name
+// (migration 078, Black-Sky D3: the requirement is keyed by the target state
+// that must enqueue work, not only by the action).
+const OUTBOX_REQUIRED_DEAL_TRANSITIONS = new Map<string, string>([
+  ["Draft->PendingTarget", "deadline_check"],
+  ["ReadyForCharging->Charging", "charge_deal"],
+  ["Charging->CompletionWindow", "finalize_deal"],
+  ["CompletionWindow->Failed", "refund_issue"],
+  ["Draft->Cancelled", "cancel_refund"]
+]);
+
 let fixtureSeq = 0;
 function fixtureRequestId(prefix: string) {
   fixtureSeq += 1;
@@ -67,8 +78,11 @@ export async function forcedDealStep(
      VALUES ('deal',$1,$1,'deal_state',$2,$3,$4,$5,$5,$6,'{"fixture":true}'::jsonb)`,
     [dealId, fromState, toState, actionName, requestId, options.idempotencyKey || `fixture:${dealId}:${toState}:${requestId}`]
   );
-  const requiredEventType = OUTBOX_REQUIRED_DEAL_ACTIONS.get(actionName);
-  if (requiredEventType) {
+  const requiredEventTypes = new Set(
+    [OUTBOX_REQUIRED_DEAL_ACTIONS.get(actionName), OUTBOX_REQUIRED_DEAL_TRANSITIONS.get(`${fromState}->${toState}`)]
+      .filter((value): value is string => Boolean(value))
+  );
+  for (const requiredEventType of requiredEventTypes) {
     // The DB requires a RUNNABLE (pending, unsent) job of the required type
     // for THIS deal, inserted in this transaction. Fixtures schedule it far
     // in the future so the outbox worker never picks it up.

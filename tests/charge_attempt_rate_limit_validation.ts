@@ -69,7 +69,8 @@ async function insertAttempt(
   participantId: string,
   dealId: string,
   attemptType: "charge_start" | "recovery",
-  correlationId: string
+  correlationId: string,
+  createdAtSql = "now()"
 ) {
   await client.query(
     // R9C (migration 067): a NEW identity may only be minted once the prior one is
@@ -80,8 +81,8 @@ async function insertAttempt(
     // (NULL evidence / no authority) fences the next recovery identity until an
     // operator records exact evidence — that fence is proven elsewhere; here the
     // rolling cap is the only constraint under test.
-    `INSERT INTO siton.payment_attempts(participant_id,deal_id,attempt_type,result_class,correlation_id,failure_evidence)
-     VALUES ($1,$2,$3,'permanent_fail',$4,'dispatch_response')
+    `INSERT INTO siton.payment_attempts(participant_id,deal_id,attempt_type,result_class,correlation_id,failure_evidence,created_at)
+     VALUES ($1,$2,$3,'permanent_fail',$4,'dispatch_response',${createdAtSql})
      ON CONFLICT (participant_id,deal_id,attempt_type,correlation_id) DO NOTHING`,
     [participantId, dealId, attemptType, correlationId]
   );
@@ -180,14 +181,21 @@ await runTest("attempt after 30-minute window expiry is permitted", async () => 
   const { dealId, seller } = await seedFixture("rl-e");
   fixtures.push(seller);
   const p = await addParticipant(dealId, "buyerA");
-  await insertAttempt(pool, p, dealId, "charge_start", "e-c1");
-  await insertAttempt(pool, p, dealId, "charge_start", "e-c2");
-  await insertAttempt(pool, p, dealId, "charge_start", "e-c3");
-  // Age the three attempts past the window.
-  await pool.query(
-    `UPDATE siton.payment_attempts SET created_at = now() - interval '31 minutes' WHERE participant_id=$1 AND deal_id=$2`,
+  // Three attempts that were made 31 minutes ago (past the window). They are
+  // seeded with that age: payment_attempts.created_at — the evidence the
+  // rolling window counts — is immutable since migration 078, so aging rows
+  // in place is no longer possible for anyone.
+  await insertAttempt(pool, p, dealId, "charge_start", "e-c1", "now() - interval '31 minutes'");
+  await insertAttempt(pool, p, dealId, "charge_start", "e-c2", "now() - interval '31 minutes'");
+  await insertAttempt(pool, p, dealId, "charge_start", "e-c3", "now() - interval '31 minutes'");
+  // The seeded rows really are outside the window (the in-window cap itself is
+  // proven by the first case of this file).
+  const inWindow = await pool.query(
+    `SELECT count(*)::int AS n FROM siton.payment_attempts
+     WHERE participant_id=$1 AND deal_id=$2 AND attempt_type='charge_start' AND created_at > now() - interval '30 minutes'`,
     [p, dealId]
   );
+  assert.equal(inWindow.rows[0].n, 0, "the seeded attempts are outside the window");
   let permitted = true;
   try {
     await insertAttempt(pool, p, dealId, "charge_start", "e-c4-after");

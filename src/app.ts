@@ -7255,6 +7255,10 @@ app.delete("/api/seller/deals/:dealId/images/:imageId", async (req: any, reply: 
 //     attempts, authorization bindings, fee-ledger rows, webhook evidence)
 //   * Draft always qualifies; a published deal qualifies only while completely
 //     untouched
+//   * Black-Sky D2 (migration 078): the DB re-checks this with a BEFORE DELETE
+//     guard (untouched Draft / Cancelled / PendingTarget only; money FKs are
+//     ON DELETE RESTRICT). A refusal there (deal_delete_refused, SQLSTATE
+//     23001) is answered as the same clean 409 as the checks below.
 // Anything with history uses the canonical cancellation path instead.
 // audit_log / legal_acceptances / operational_cases rows are deliberately
 // KEPT (soft references — the compliance trail survives the deal row).
@@ -7330,8 +7334,21 @@ app.delete("/api/seller/deals/:dealId", async (req: any, reply: any) => {
       ]
     );
     // The deal row itself — FKs cascade the content tables (images, options,
-    // terms, chat, viral rows); nothing financial exists by the guard above.
-    await c.query(`DELETE FROM siton.deals WHERE deal_id=$1`, [dealId]);
+    // terms, chat, viral rows); nothing financial exists by the guard above
+    // (money FKs are ON DELETE RESTRICT since migration 078).
+    try {
+      await c.query(`DELETE FROM siton.deals WHERE deal_id=$1`, [dealId]);
+    } catch (error: any) {
+      // migration 078 delete guard / RESTRICT FKs: the deal is past open
+      // joining or carries money history — a conflict, not a fault
+      if (error?.code === "23001" || error?.code === "23503") {
+        throw Object.assign(new Error("deal has participation or financial history and cannot be deleted"), {
+          statusCode: 409,
+          code: "deal_delete_not_allowed"
+        });
+      }
+      throw error;
+    }
     return { ok: true, deleted: true, deal_id: dealId, previous_state: state };
   }, true);
   return reply.send(result);

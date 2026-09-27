@@ -273,7 +273,6 @@ async function establishAuthHeld(prefix: string, qty = 2, pricePerUnit = 10) {
 }
 
 async function enqueueChargeDeal(dealId: string) {
-  const eventId = randomUUID();
   // DB state-transition enforcement allows test-seeded transitions only under
   // an explicit test.% action name (migration 053 contract), and the per-row
   // audit enforcement (migration 076) requires an audit row per forced step.
@@ -291,12 +290,19 @@ async function enqueueChargeDeal(dealId: string) {
       await forcedDealStep(client, dealId, dealState, ACTION);
     }
   });
-  await pool.query(
-    `INSERT INTO siton.outbox_events (event_uuid, event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at)
-     VALUES ($1,'charge_deal','deal',$2,$3,'pending',0, now())`,
-    [eventId, dealId, JSON.stringify({ deal_id: dealId })]
+  // Migration 078 (Black-Sky D3): ReadyForCharging -> Charging must enqueue its
+  // charge_deal job in the SAME transaction whatever the action name, so the
+  // forced step above already enqueued it (parked far in the future). Release
+  // THAT job to the worker instead of inserting a second one — exactly what
+  // charging.start does in production.
+  const released = await pool.query(
+    `UPDATE siton.outbox_events SET payload=$2, available_at=now()
+     WHERE aggregate_type='deal' AND aggregate_id=$1 AND event_type='charge_deal' AND status='pending'
+     RETURNING event_uuid`,
+    [dealId, JSON.stringify({ deal_id: dealId })]
   );
-  return eventId;
+  if (released.rowCount !== 1) throw new Error(`expected exactly one pending charge_deal job for deal ${dealId}, got ${released.rowCount}`);
+  return String(released.rows[0].event_uuid);
 }
 
 async function pendingOutboxEvent(eventType: string, aggregateId: string) {
