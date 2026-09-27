@@ -185,14 +185,14 @@ Clean full pass on the final code (local PostgreSQL 16, nothing else running):
 | unit | 17 | 0 |
 | db | 13 | 0 |
 | workers | 19 | 0 |
-| failure (incl. 7 Black-Sky combination suites) | 16 | 0 |
+| failure (incl. 7 Black-Sky combination suites + BSC-3 ack-after-commit) | 17 | 0 |
 | payments | 57 | 0 |
 | concurrency | 10 | 0 |
 | api | 53 | 0 |
 | security | 61 | 0 |
 | e2e | 17 | 0 |
 | integration | 50 | 0 |
-| **total** | **313** | **0** |
+| **total** | **314** | **0** |
 
 - Release-tool tests: **199/199**.
 - `npm run chaos:recovery-proof` → `RECOVERY_PROOF_PASS invariants=PASS pass=34 fail=0`.
