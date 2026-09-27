@@ -10575,11 +10575,37 @@ export function registerFrontendExperience(
     if (!deps.paymentProvider.status) return reply.code(501).send({ ok: false, error: "payment_status_not_supported" });
     const body = req.body || {};
     const providerReference = String(body.provider_reference || "").trim();
-    const correlationId = String(body.correlation_id || req.headers?.["x-request-id"] || req.id || "").trim();
+    const presentedCorrelationId = String(body.correlation_id || "").trim();
     const operation = String(body.operation || "authorization") as "authorization" | "capture" | "release" | "refund";
     if (!providerReference || providerReference.length > 4096 || !["authorization", "capture", "release", "refund"].includes(operation)) {
       return reply.code(400).send({ ok: false, error: "payment_status_request_invalid" });
     }
+    // Black-Sky C8: this route is unauthenticated, and each call is an
+    // outbound provider request. It was a provider amplifier: any caller could
+    // make the server query ANY provider reference. The caller must now
+    // present the server-issued binding handle it received from authorize
+    // (correlation_id), and the provider reference must belong to THAT
+    // binding of THIS provider, before any provider call. Unknown handle,
+    // foreign reference and wrong provider are one indistinguishable 404.
+    if (!presentedCorrelationId || presentedCorrelationId.length > 200) {
+      return reply.code(400).send({ ok: false, error: "payment_status_binding_required" });
+    }
+    const binding = await paymentBindings.getBindingByCorrelation(presentedCorrelationId);
+    const bindingMatches = Boolean(
+      binding &&
+      binding.provider_code === deps.paymentProvider.providerCode &&
+      (binding.authorization_id === providerReference || binding.provider_reference === providerReference)
+    );
+    if (!binding || !bindingMatches) {
+      return reply.code(404).send({ ok: false, error: "payment_status_binding_not_found" });
+    }
+    // An authorization lookup only has a purpose while the binding still waits
+    // for (or holds) provider confirmation; terminal bindings are answered
+    // locally without a provider call.
+    if (operation === "authorization" && !["pending_provider_confirmation", "authorized"].includes(binding.status)) {
+      return reply.code(409).send({ ok: false, error: "payment_status_binding_not_pending", binding_status: binding.status });
+    }
+    const correlationId = binding.correlation_id;
     const result = await deps.paymentProvider.status({ provider_reference: providerReference, correlation_id: correlationId, operation });
 
     // Hosted-payment completion is asynchronous and server-authoritative: a
