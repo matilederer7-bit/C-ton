@@ -26,6 +26,10 @@
 -- future-dated row would satisfy every later transaction. Row identity has
 -- neither hole: a row is visible to this transaction AND its xid is still "in
 -- progress" only when this transaction (or one of its savepoints) wrote it.
+-- For audit_log that is insertion evidence outright (append-only by trigger);
+-- for outbox jobs the probe reads an insert-only evidence table fed by an
+-- AFTER INSERT trigger, since an UPDATE of an old job would also carry the
+-- current xmin.
 --
 -- The flag checks are kept (defence in depth; their error texts are relied on
 -- by existing tests). The function bodies below are the 022 (deals) / 008
@@ -99,9 +103,82 @@ AS $$
   )
 $$;
 
--- The outbox row must be for THIS deal AND carry the event type the action
--- requires (a same-deal row of any other type, e.g. a sent deadline_check,
--- must not let a deal enter Charging without its charge_deal job).
+-- INSERTION evidence for outbox jobs. xmin alone cannot tell an INSERT from
+-- an UPDATE: touching an old, already-sent job of the required type would
+-- give that row version the current transaction's xmin and let a transition
+-- pass with no runnable job (Codex on PR #97). audit_log needs no such table
+-- because it is append-only by trigger (008): a current-xmin audit row can
+-- only be an insert. outbox_events rows are legitimately updated by the
+-- worker, so every INSERT into it is recorded here by an AFTER INSERT trigger
+-- that runs as the definer; the runtime roles cannot write this table, and
+-- UPDATE is refused outright, so a current-xmin evidence row proves an
+-- insert of that job in this transaction. Rows older than 30 days are pruned
+-- by the same trigger (the evidence is only ever needed inside the
+-- transaction that wrote it).
+CREATE TABLE IF NOT EXISTS siton.outbox_enqueue_evidence (
+  evidence_id BIGSERIAL PRIMARY KEY,
+  event_uuid UUID NOT NULL,
+  aggregate_type TEXT NOT NULL,
+  aggregate_id UUID NOT NULL,
+  event_type TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_outbox_enqueue_evidence_aggregate
+  ON siton.outbox_enqueue_evidence (aggregate_id, event_type);
+CREATE INDEX IF NOT EXISTS ix_outbox_enqueue_evidence_created
+  ON siton.outbox_enqueue_evidence (created_at);
+
+CREATE OR REPLACE FUNCTION siton.outbox_enqueue_evidence_no_update()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RAISE EXCEPTION 'outbox_enqueue_evidence is insert-only';
+END
+$$;
+DROP TRIGGER IF EXISTS trg_outbox_enqueue_evidence_no_update ON siton.outbox_enqueue_evidence;
+CREATE TRIGGER trg_outbox_enqueue_evidence_no_update
+BEFORE UPDATE ON siton.outbox_enqueue_evidence
+FOR EACH ROW EXECUTE FUNCTION siton.outbox_enqueue_evidence_no_update();
+
+CREATE OR REPLACE FUNCTION siton.outbox_events_record_enqueue()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  INSERT INTO siton.outbox_enqueue_evidence (event_uuid, aggregate_type, aggregate_id, event_type)
+  VALUES (NEW.event_uuid, NEW.aggregate_type, NEW.aggregate_id, NEW.event_type);
+  DELETE FROM siton.outbox_enqueue_evidence
+  WHERE created_at < pg_catalog.now() - interval '30 days';
+  RETURN NULL;
+END
+$$;
+DROP TRIGGER IF EXISTS trg_outbox_events_record_enqueue ON siton.outbox_events;
+CREATE TRIGGER trg_outbox_events_record_enqueue
+AFTER INSERT ON siton.outbox_events
+FOR EACH ROW EXECUTE FUNCTION siton.outbox_events_record_enqueue();
+
+REVOKE ALL ON TABLE siton.outbox_enqueue_evidence FROM PUBLIC;
+REVOKE ALL ON SEQUENCE siton.outbox_enqueue_evidence_evidence_id_seq FROM PUBLIC;
+DO $evidence_grants$
+DECLARE
+  v_role text;
+BEGIN
+  FOREACH v_role IN ARRAY ARRAY['anon', 'authenticated', 'siton_web_runtime', 'siton_worker_runtime'] LOOP
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = v_role) THEN
+      EXECUTE format('REVOKE ALL ON TABLE siton.outbox_enqueue_evidence FROM %I', v_role);
+      EXECUTE format('REVOKE ALL ON SEQUENCE siton.outbox_enqueue_evidence_evidence_id_seq FROM %I', v_role);
+    END IF;
+  END LOOP;
+END
+$evidence_grants$;
+
+-- The outbox job must have been INSERTED in this transaction, for THIS deal,
+-- with the event type the action requires (a same-deal row of any other
+-- type, e.g. a sent deadline_check, must not let a deal enter Charging
+-- without its charge_deal job).
 CREATE OR REPLACE FUNCTION siton.outbox_row_written_in_tx(
   p_aggregate_type text,
   p_aggregate_id uuid,
@@ -115,11 +192,11 @@ SET search_path = ''
 AS $$
   SELECT EXISTS (
     SELECT 1
-    FROM siton.outbox_events o
-    WHERE o.aggregate_id = p_aggregate_id
-      AND o.aggregate_type = p_aggregate_type
-      AND o.event_type = p_event_type
-      AND siton.row_xmin_is_current_tx(o.xmin)
+    FROM siton.outbox_enqueue_evidence e
+    WHERE e.aggregate_id = p_aggregate_id
+      AND e.aggregate_type = p_aggregate_type
+      AND e.event_type = p_event_type
+      AND siton.row_xmin_is_current_tx(e.xmin)
   )
 $$;
 

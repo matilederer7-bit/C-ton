@@ -121,6 +121,22 @@ test("a secret is reported at its FIRST appearance even when later commits keep 
   assert.equal(result.findings[0].commit, first);
 });
 
+test("a Luhn-valid card number committed and later deleted is found (real-card-pan detector is part of the history scan)", () => {
+  const dir = tempRepo();
+  const file = path.join(dir, "notes.md");
+  fs.writeFileSync(file, "customer card: 4539" + " 1488 0343 6467\n");
+  git(dir, "add", "-A");
+  git(dir, "commit", "-q", "-m", "leak");
+  fs.writeFileSync(file, "customer card: redacted\n");
+  git(dir, "add", "-A");
+  git(dir, "commit", "-q", "-m", "fix");
+  const result = scan.run({ root: dir, allowList: [] });
+  const pan = result.findings.find((f) => f.detector === "real-card-pan");
+  assert.ok(pan, `expected the PAN to be found in history: ${JSON.stringify(result.findings)}`);
+  assert.equal(pan.line, 1);
+  assert.equal(pan.match, "453914******6467", "the PAN is reported masked");
+});
+
 test("allow-listed synthetic values are ignored", () => {
   const dir = tempRepo();
   fs.writeFileSync(path.join(dir, "fixture.js"), "const key = 'AKIA" + "ABCDEFGHIJKLMNOP';\n");

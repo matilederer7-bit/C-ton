@@ -84,7 +84,7 @@ const DETECTORS = [
     // Visa/Mastercard/Amex/Discover PAN, pass Luhn, and are not a documented
     // test PAN or a repeated digit. Timestamps (13 digits, leading 1) and
     // hex ids never qualify.
-    run: (text) => matches(text, /(?<!\d)(?:\d[ -]?){15,16}(?!\d)/g).map((hit) => ({ ...hit, digits: hit.match.replace(/\D/g, "") })).filter((hit) => (hit.digits.length === 15 || hit.digits.length === 16) && /^[3456]/.test(hit.digits) && luhn(hit.digits) && !KNOWN_TEST_PANS.has(hit.digits) && !/^(\d)\1+$/.test(hit.digits)).map((hit) => ({ ...hit, match: hit.digits.slice(0, 6) + "******" + hit.digits.slice(-4) }))
+    run: (text) => matches(text, /(?<!\d)(?:\d[ -]?){15,16}(?!\d)/g).map((hit) => ({ ...hit, digits: hit.match.replace(/\D/g, "") })).filter((hit) => (hit.digits.length === 15 || hit.digits.length === 16) && /^[3456]/.test(hit.digits) && luhn(hit.digits) && !KNOWN_TEST_PANS.has(hit.digits) && !/^(\d)\1+$/.test(hit.digits) && !insideUuid(text, hit)).map((hit) => ({ ...hit, match: hit.digits.slice(0, 6) + "******" + hit.digits.slice(-4) }))
   },
   {
     id: "pii-in-runtime", severity: "WARNING", scope: "runtime",
@@ -96,6 +96,21 @@ const DETECTORS = [
     ]
   }
 ];
+
+// A digit run that is part of a UUID-shaped token (8-4-4-4-12 hex groups,
+// e.g. the "4444-555555555555" tail of a synthetic id) is not a card number
+// even when it happens to pass Luhn.
+const UUID_SHAPE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+function insideUuid(text, hit) {
+  const start = Math.max(0, hit.index - 40);
+  const window = text.slice(start, hit.index + hit.match.length + 40);
+  for (const uuid of window.matchAll(UUID_SHAPE)) {
+    const from = start + uuid.index;
+    const to = from + uuid[0].length;
+    if (hit.index >= from && hit.index + hit.match.length <= to) return true;
+  }
+  return false;
+}
 
 function matches(text, regex) {
   const out = [];

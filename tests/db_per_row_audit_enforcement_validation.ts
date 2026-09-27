@@ -263,6 +263,64 @@ await runTest("outbox: an outbox-required deal action needs an outbox row for TH
   assert.equal(ok, null, String(ok));
 });
 
+await runTest("outbox: UPDATING an old, already-sent job of the required type is not insertion evidence", async () => {
+  const dealId = await seedDeal("ReadyForCharging");
+  // A sent charge_deal job from an earlier transaction exists for this deal.
+  const old = await pool.query(
+    `INSERT INTO siton.outbox_events (event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at, sent, sent_at)
+     VALUES ('charge_deal','deal',$1,'{"old":true}','sent',1,now() - interval '1 day',true,now() - interval '1 day') RETURNING event_uuid`,
+    [dealId]
+  );
+  const touched = await inTx(async (c) => {
+    await arm(c, "charging.start");
+    await auditRow(c, { entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", from: "ReadyForCharging", to: "Charging", action: "charging.start" });
+    // Touch the old row: its new version now carries THIS transaction's xmin.
+    await c.query(`UPDATE siton.outbox_events SET updated_at=now() WHERE event_uuid=$1`, [old.rows[0].event_uuid]);
+    await c.query(`UPDATE siton.deals SET state='Charging' WHERE deal_id=$1`, [dealId]);
+  });
+  assert.match(String(touched), /requires a charge_deal outbox_events row for this deal/);
+  // Even re-arming it as pending is not an insert.
+  const rearmed = await inTx(async (c) => {
+    await arm(c, "charging.start");
+    await auditRow(c, { entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", from: "ReadyForCharging", to: "Charging", action: "charging.start" });
+    await c.query(`UPDATE siton.outbox_events SET status='pending', sent=false, sent_at=NULL, attempt_count=0, available_at=now() WHERE event_uuid=$1`, [old.rows[0].event_uuid]);
+    await c.query(`UPDATE siton.deals SET state='Charging' WHERE deal_id=$1`, [dealId]);
+  });
+  assert.match(String(rearmed), /requires a charge_deal outbox_events row for this deal/);
+  // The evidence table refuses UPDATE for everyone, and the runtime roles
+  // (when they exist on this cluster) hold no privilege on it at all.
+  const evidenceUpdate = await inTx(async (c) => {
+    await c.query(`UPDATE siton.outbox_enqueue_evidence SET event_type='deadline_check' WHERE aggregate_id=$1`, [dealId]);
+  });
+  assert.match(String(evidenceUpdate), /insert-only/);
+  const privileges = await pool.query(
+    `SELECT r.rolname,
+            has_table_privilege(r.rolname, 'siton.outbox_enqueue_evidence', 'INSERT') AS can_insert,
+            has_table_privilege(r.rolname, 'siton.outbox_enqueue_evidence', 'UPDATE') AS can_update,
+            has_table_privilege(r.rolname, 'siton.outbox_enqueue_evidence', 'DELETE') AS can_delete
+     FROM pg_roles r WHERE r.rolname IN ('siton_web_runtime','siton_worker_runtime','anon','authenticated')`
+  );
+  for (const row of privileges.rows) {
+    assert.equal(row.can_insert, false, `${row.rolname} must not insert evidence`);
+    assert.equal(row.can_update, false, `${row.rolname} must not update evidence`);
+    assert.equal(row.can_delete, false, `${row.rolname} must not delete evidence`);
+  }
+  const me = await pool.query(`SELECT rolsuper FROM pg_roles WHERE rolname = current_user`);
+  if (!me.rows[0]?.rolsuper) {
+    const forgedEvidence = await inTx(async (c) => {
+      await c.query(`INSERT INTO siton.outbox_enqueue_evidence (event_uuid, aggregate_type, aggregate_id, event_type) VALUES (gen_random_uuid(),'deal',$1,'charge_deal')`, [dealId]);
+    });
+    assert.match(String(forgedEvidence), /permission denied/);
+  }
+  const ok = await inTx(async (c) => {
+    await arm(c, "charging.start");
+    await auditRow(c, { entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", from: "ReadyForCharging", to: "Charging", action: "charging.start" });
+    await outboxRow(c, dealId, "charge_deal");
+    await c.query(`UPDATE siton.deals SET state='Charging' WHERE deal_id=$1`, [dealId]);
+  });
+  assert.equal(ok, null, String(ok));
+});
+
 await runTest("outbox: every outbox-required action is bound to its own job type", async () => {
   const cases: Array<[string, string, string, string]> = [
     ["deal.publish", "Draft", "PendingTarget", "deadline_check"],

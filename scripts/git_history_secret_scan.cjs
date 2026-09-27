@@ -37,7 +37,8 @@ const HISTORY_DETECTOR_IDS = new Set([
   "twilio-auth-token",
   "supabase-service-role-jwt",
   "database-url-credential",
-  "grow-credential"
+  "grow-credential",
+  "real-card-pan"
 ]);
 
 // Snapshots above this size are not scanned (lockfiles, bundles, binaries);
