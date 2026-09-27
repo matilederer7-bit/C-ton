@@ -9,6 +9,8 @@ export type ReconciliationTarget = {
   correlation_id: string | null;
   buyer_state: string;
   money_state: string;
+  // BSC-1: the event named a correlation id that matches no Siton operation.
+  correlation_unverified?: boolean;
 };
 
 export type ProviderWebhookEvent = {
@@ -35,6 +37,7 @@ function isMoneyOperationEvent(eventType: string) {
 
 export function buildPaymentReconciliation(deps: { withTx: WithTx }) {
   async function resolveTarget(event: ProviderWebhookEvent): Promise<ReconciliationTarget | null> {
+    let correlationUnverified = false;
     if (event.correlation_id) {
       const fromAttempt = await deps.withTx(async (c) => {
         const attempt = await c.query(
@@ -68,13 +71,15 @@ export function buildPaymentReconciliation(deps: { withTx: WithTx }) {
       // proof about any operation of ours: before, it fell through to the
       // participant_id lookup below and a validly signed charge_captured for an
       // unknown identity marked the participant ChargedSuccess (fee row
-      // written) while the provider held no capture. Such an event now has no
-      // target ("failed: missing_correlation_target"); the real operation is
+      // written) while the provider held no capture. The participant is still
+      // resolved (so a late event on a settled/terminal participant stays the
+      // ordinary "ignored"), but the target is marked unverified and
+      // classifyEvent refuses to MOVE money on it. The real operation is
       // settled only by its own identity (webhook or authoritative status).
       // A correlation that DID resolve to one of our operations of another
       // family keeps the F-5b participant-level fallback.
       if (!fromAttempt && isMoneyOperationEvent(String(event.event_type || ""))) {
-        return null;
+        correlationUnverified = true;
       }
     }
 
@@ -125,12 +130,22 @@ export function buildPaymentReconciliation(deps: { withTx: WithTx }) {
         attempt_type: (latestAttempt.rows[0]?.attempt_type as ReconciliationTarget["attempt_type"] | undefined) ?? inferredAttemptType,
         correlation_id: event.correlation_id ?? latestAttempt.rows[0]?.correlation_id ?? null,
         buyer_state: row.buyer_state,
-        money_state: row.money_state
+        money_state: row.money_state,
+        ...(correlationUnverified ? { correlation_unverified: true } : {})
       } satisfies ReconciliationTarget;
     });
   }
 
   function classifyEvent(eventType: string, target: ReconciliationTarget | null) {
+    const verdict = classifyEventUnchecked(eventType, target);
+    // BSC-1: an unverified correlation may be ignored or fail, never move money.
+    if (verdict.status === "processed" && target?.correlation_unverified && isMoneyOperationEvent(eventType)) {
+      return { status: "failed" as const, reason: "unverified_correlation" };
+    }
+    return verdict;
+  }
+
+  function classifyEventUnchecked(eventType: string, target: ReconciliationTarget | null) {
     if (eventType === "payment_authorized" || eventType === "payment_failed") {
       return { status: "processed" as const, reason: "authorization_event_recorded" };
     }
