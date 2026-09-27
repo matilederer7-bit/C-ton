@@ -270,7 +270,7 @@ WITH mall_page AS (
          d.updated_at AS source_updated_at, d.seller_id
     FROM siton.deals d
    WHERE d.published_at IS NOT NULL
-     AND d.state::text = ANY($1::text[])
+     AND d.state = ANY($1::siton.deal_state[])
      AND ($2::text IS NULL OR d.deal_type = $2::text)
    ORDER BY d.published_at ${direction}, d.deal_id ${direction}
    LIMIT $3::int OFFSET $4::int

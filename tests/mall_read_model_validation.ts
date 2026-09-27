@@ -71,6 +71,11 @@ assert.ok(!built.text.includes("ticket"), "deal type must stay in a bind value")
 assert.match(built.text, /LIMIT \$3::int OFFSET \$4::int/);
 assert.match(built.text, /ORDER BY d\.published_at ASC, d\.deal_id ASC/);
 assert.match(built.text, /d\.published_at IS NOT NULL/);
+// Black-Sky C14: the state filter compares the enum column to an enum array.
+// `d.state::text = ANY($1::text[])` hid the column behind a cast, so neither
+// state index could be used and every published deal was filtered row by row.
+assert.match(built.text, /AND d\.state = ANY\(\$1::siton\.deal_state\[\]\)/);
+assert.doesNotMatch(built.text, /WHERE[\s\S]*d\.state::text\s*=\s*ANY/);
 assert.doesNotMatch(built.text, /SELECT\s+\*/i);
 assert.match(built.text, /NULLIF\(btrim\(sa\.business_name\), ''\).*NULLIF\(btrim\(sa\.display_name\), ''\)/);
 assert.match(built.text, /participants_count/);
