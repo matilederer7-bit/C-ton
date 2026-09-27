@@ -57,7 +57,9 @@ export function normalizeOrderCodeInput(input: unknown): string | null {
   let text = String(input ?? "").trim();
   if (!text || text.length > 512) return null;
   const urlMatch = text.match(/[?&]code=([^&#\s]+)/i);
-  if (urlMatch && urlMatch[1]) text = decodeURIComponent(urlMatch[1]);
+  if (urlMatch && urlMatch[1]) {
+    try { text = decodeURIComponent(urlMatch[1]); } catch { return null; }
+  }
   const stripped = text.replace(/^\s*ct[\s-]*/i, "").replace(/[\s-]/g, "");
   if (!/^\d{8}$/.test(stripped)) return null;
   return stripped;

@@ -143,11 +143,17 @@ await run("seller login locks per-account after too many failures and ignores X-
     }
 
     // Next attempt is locked out — even with the CORRECT password and yet
-    // another fresh IP. This response code cannot occur without the fix.
+    // another fresh IP: the correct password is refused (without the lockout it
+    // would answer 200). Black-Sky B4: the refusal is the SAME 401 body an
+    // unknown identifier gets, so exhausting the counter is not an
+    // account-existence oracle (formerly a distinct 429).
     const lockedCorrect = await login(app, alpha, "alpha-correct-pass-123", "198.51.100.7");
-    assert.equal(lockedCorrect.statusCode, 429, `locked account should 429, got ${lockedCorrect.statusCode} ${lockedCorrect.body}`);
-    assert.equal(lockedCorrect.json().error, "seller_auth_rate_limited");
+    assert.equal(lockedCorrect.statusCode, 401, `locked account must be refused with the generic 401, got ${lockedCorrect.statusCode} ${lockedCorrect.body}`);
+    assert.equal(lockedCorrect.json().error, "seller_auth_invalid_credentials");
     assert.equal(String(lockedCorrect.headers["set-cookie"] || ""), "", "a locked login must not mint a session cookie");
+    const unknownIdentifier = await login(app, "nobody-" + Date.now(), "alpha-correct-pass-123", "198.51.100.7");
+    assert.equal(unknownIdentifier.statusCode, lockedCorrect.statusCode);
+    assert.deepEqual(unknownIdentifier.json(), lockedCorrect.json(), "locked and unknown accounts must answer identically");
 
     // Isolation: a different seller is unaffected and still logs in.
     const betaOk = await login(app, beta, "beta-correct-pass-123", "203.0.113.1");

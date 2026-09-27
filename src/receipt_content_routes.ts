@@ -205,7 +205,8 @@ export function registerReceiptContentRoutes(app: FastifyInstance, deps: Deps) {
       return { ok: true, sections: await readContent(c) };
     });
   });
-  app.post("/api/seller/content-assets", async (req: any, reply: any) => {
+  // Explicit limit: the global body limit is 1 MiB (Black-Sky C9).
+  app.post("/api/seller/content-assets", { bodyLimit: 8 * 1024 * 1024 }, async (req: any, reply: any) => {
     const owner = await deps.withTx(c => deps.requireSeller(req, reply, c));
     if (!owner) return reply;
     const ref = owner.seller_id;

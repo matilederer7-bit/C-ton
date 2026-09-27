@@ -5252,6 +5252,8 @@ export function redactUrlForLogs(rawUrl: unknown): string {
 }
 
 const TRUST_PROXY_HOPS = resolveTrustProxyHops();
+export const GLOBAL_BODY_LIMIT_BYTES = 1024 * 1024;
+export const IMAGE_UPLOAD_BODY_LIMIT_BYTES = 8 * 1024 * 1024;
 const app = Fastify({
   logger: {
     serializers: {
@@ -5300,8 +5302,19 @@ const app = Fastify({
   // exactly TRUST_PROXY_HOPS hops are trusted, identical to Fastify's numeric
   // form but typed for this Fastify major.
   trustProxy: ((_address: string, hop: number) => hop < TRUST_PROXY_HOPS),
-  bodyLimit: 8 * 1024 * 1024,
+  // Black-Sky C9 (availability): 1 MiB global body limit. JSON API bodies are
+  // small; the JSON preParsing hook buffers the raw body and Fastify parses it
+  // again, so an 8 MiB global limit let ~20 concurrent requests allocate
+  // ~800 MB on a 512 MB instance. Image upload routes raise it explicitly.
+  bodyLimit: GLOBAL_BODY_LIMIT_BYTES,
+  // Slow-body (slowloris) protection: a request that has not finished
+  // arriving within 60 s is aborted (Fastify 5 disables Node's default).
+  requestTimeout: 60_000,
   rewriteUrl(req) {
+    // The rate limiter classifies on BOTH the caller's original URL and the
+    // rewritten one (Black-Sky C4/B3): the alias rewrite used to move
+    // /api/deals/:id/join out of every per-IP budget before onRequest ran.
+    (req as any).sitonOriginalUrl = String(req.url || "/");
     return rewriteCanonicalApiAlias(String(req.url || "/"));
   }
 });
@@ -5456,7 +5469,29 @@ export const RATE_LIMIT_SCALE_MODE = process.env.RATE_LIMIT_SCALE_MODE || "singl
 // MFA verify) shares the tight per-IP mutation budget now that the client IP
 // is spoof-proof (A2); the per-account lockout in frontend_runtime is the
 // IP-independent backstop.
-const SENSITIVE_PATHS = ["/api/otp", "/api/deals/join", "/api/deals", "/api/support", "/api/admin/auth"];
+// Black-Sky C3/C4/B3: payment authorize/status (unauthenticated provider
+// calls), seller and link-viewer password login, participant recovery, and the
+// bare /deals seller lifecycle mutations join the tight per-IP budget.
+const SENSITIVE_PATHS = [
+  "/api/otp",
+  "/api/deals",
+  "/deals",
+  "/api/support",
+  "/api/admin/auth",
+  "/api/payments",
+  "/api/seller/session",
+  "/api/link-viewer/session",
+  "/api/participants"
+];
+// Unauthenticated analytics writers: each request inserts rows. Their own
+// per-IP budget bounds row growth without starving the mutation bucket.
+const ANALYTICS_PATHS = ["/api/mall/events", "/api/viral/events", "/api/affiliate/links/visit"];
+// Buyer join gets its OWN per-IP budget, looser than the sensitive one: a
+// shared NAT (school, office, mobile carrier CGNAT) is one IP for many real
+// buyers on a hot deal. Before, join had no per-IP budget at all.
+const JOIN_PATH_RE = /^\/(?:api\/)?deals\/[^/]+\/join$/;
+const RATE_LIMIT_JOIN_MAX = Number(process.env.RATE_LIMIT_JOIN_MAX ?? 60);
+const RATE_LIMIT_ANALYTICS_MAX = Number(process.env.RATE_LIMIT_ANALYTICS_MAX ?? 60);
 
 type RateLimitEntry = { count: number; resetAt: number };
 interface RateLimiterStore {
@@ -5495,15 +5530,59 @@ const rateLimitPurge = setInterval(() => {
 }, 5 * 60_000);
 rateLimitPurge.unref();
 
-function isSensitivePath(url: string): boolean {
-  return SENSITIVE_PATHS.some((p) => url === p || url.startsWith(p + "/") || url.startsWith(p + "?"));
+// Classification works on a NORMALISED path: query stripped, percent-escapes
+// decoded once (the router decodes, so /api/%6Ftp/request IS /api/otp/request),
+// and repeated slashes collapsed. Before, the raw encoded URL was compared and
+// /api/%6Ftp/request escaped the budget while routing to the OTP handler.
+export function normalizeRateLimitPath(url: string): string {
+  let path = String(url || "/");
+  const q = path.search(/[?#]/);
+  if (q !== -1) path = path.slice(0, q);
+  try { path = decodeURIComponent(path); } catch { /* malformed escape: classify the raw form */ }
+  path = path.replace(/\/{2,}/g, "/");
+  return path || "/";
 }
 
-// The sensitive bucket is for MUTATIONS (OTP, join, create, inquiry, support);
-// a read-only method on the same prefix is public read polling.
-export function rateLimitBucketFor(method: string, url: string): "sensitive" | "read" | "none" {
-  if (!isSensitivePath(url)) return "none";
-  return READ_ONLY_METHODS.has(String(method || "").toUpperCase()) ? "read" : "sensitive";
+function matchesPrefix(path: string, prefixes: string[]): boolean {
+  return prefixes.some((p) => path === p || path.startsWith(p + "/"));
+}
+
+type RateLimitBucket = "sensitive" | "join" | "analytics" | "read" | "none";
+
+// The sensitive bucket is for MUTATIONS (OTP, create, inquiry, support,
+// payments, logins); a read-only method on the same prefix is public read
+// polling. Join and analytics writers have their own budgets.
+export function rateLimitBucketFor(method: string, url: string): RateLimitBucket {
+  const path = normalizeRateLimitPath(url);
+  const readOnly = READ_ONLY_METHODS.has(String(method || "").toUpperCase());
+  if (!readOnly && JOIN_PATH_RE.test(path)) return "join";
+  if (!readOnly && matchesPrefix(path, ANALYTICS_PATHS)) return "analytics";
+  if (!matchesPrefix(path, SENSITIVE_PATHS)) return "none";
+  return readOnly ? "read" : "sensitive";
+}
+
+const BUCKET_STRICTNESS: Record<RateLimitBucket, number> = { sensitive: 4, join: 3, analytics: 2, read: 1, none: 0 };
+
+// Classify the request as BOTH the caller sent it and as it is served after the
+// alias rewrite, and apply the stricter bucket.
+export function rateLimitBucketForRequest(method: string, originalUrl: string, servedUrl: string): RateLimitBucket {
+  const a = rateLimitBucketFor(method, originalUrl);
+  const b = rateLimitBucketFor(method, servedUrl);
+  return BUCKET_STRICTNESS[a] >= BUCKET_STRICTNESS[b] ? a : b;
+}
+
+// IPv6 clients are keyed by their /64: one allocation holds 2^64 addresses,
+// so a per-address key gave a single host unlimited budgets.
+export function rateLimitClientKey(ip: string): string {
+  const value = String(ip || "unknown").trim().toLowerCase();
+  if (!value.includes(":") || value.startsWith("::ffff:")) return value.replace(/^::ffff:/, "");
+  const head = value.split("%")[0] ?? value;
+  const parts = head.split("::");
+  const left = parts[0] ? parts[0].split(":") : [];
+  const right = parts.length > 1 && parts[1] ? parts[1].split(":") : [];
+  const missing = Math.max(0, 8 - left.length - right.length);
+  const full = [...left, ...Array(missing).fill("0"), ...right].slice(0, 8);
+  return full.slice(0, 4).map((h) => h || "0").join(":") + "::/64";
 }
 
 if (RATE_LIMIT_MAX > 0) {
@@ -5511,8 +5590,9 @@ if (RATE_LIMIT_MAX > 0) {
     // req.ip is the client address resolved through the configured trusted
     // proxy hop count (A2): the value the outermost trusted proxy appended to
     // X-Forwarded-For, never a caller-supplied prefix.
-    const ip = req.ip || "unknown";
+    const ip = rateLimitClientKey(req.ip || "unknown");
     const url = req.url || "";
+    const originalUrl = String((req as any).sitonOriginalUrl || url);
     const now = Date.now();
 
     // Global limit bucket
@@ -5529,8 +5609,19 @@ if (RATE_LIMIT_MAX > 0) {
 
     // Sensitive-endpoint stricter bucket (mutations only) — read-only requests
     // on the same prefixes use their own bounded read budget (P0.7C).
-    const bucket = rateLimitBucketFor(String(req.method || "GET"), url);
-    if (bucket === "sensitive" && RATE_LIMIT_SENSITIVE_MAX > 0) {
+    const bucket = rateLimitBucketForRequest(String(req.method || "GET"), originalUrl, url);
+    const extraBudget = bucket === "join" ? RATE_LIMIT_JOIN_MAX : bucket === "analytics" ? RATE_LIMIT_ANALYTICS_MAX : 0;
+    if ((bucket === "join" || bucket === "analytics") && extraBudget > 0) {
+      const extraKey = `${bucket === "join" ? "j" : "a"}:${ip}`;
+      const extraEntry = rateLimitStore.hit(extraKey, now, RATE_LIMIT_WINDOW_MS);
+      if (extraEntry.count > extraBudget) {
+        const retryAfterSecs = Math.ceil((extraEntry.resetAt - now) / 1000);
+        void reply
+          .code(429)
+          .header("Retry-After", String(retryAfterSecs))
+          .send({ ok: false, error: "rate_limit_exceeded", retry_after: retryAfterSecs });
+      }
+    } else if (bucket === "sensitive" && RATE_LIMIT_SENSITIVE_MAX > 0) {
       const sensitiveKey = `s:${ip}`;
       const sensitiveEntry = rateLimitStore.hit(sensitiveKey, now, RATE_LIMIT_WINDOW_MS);
       if (sensitiveEntry.count > RATE_LIMIT_SENSITIVE_MAX) {
@@ -6678,7 +6769,7 @@ app.post("/api/seller/deals/:dealId/duplicate", async (req: any) => {
   });
 });
 
-app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
+app.post("/api/seller/deals/:dealId/images", { bodyLimit: IMAGE_UPLOAD_BODY_LIMIT_BYTES }, async (req: any, reply: any) => {
   await ensureRemainingProductSurfaceTables(withTx);
   const dealId = String(req.params.dealId || "");
 

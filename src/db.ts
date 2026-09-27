@@ -5,6 +5,14 @@ if (!/^[a-z_][a-z0-9_]*$/.test(DB_SCHEMA)) {
   throw new Error("DB_SCHEMA must be a valid PostgreSQL identifier");
 }
 
+// Pool size is explicit and bounded (PG_POOL_MAX, 2..50, default 10 = the pg
+// default it replaces) so capacity planning and chaos tests can pin it.
+export function resolvePoolMax(raw: string | undefined = process.env.PG_POOL_MAX): number {
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed)) return 10;
+  return Math.min(50, Math.max(2, parsed));
+}
+
 export function createRuntimePool(kind: "web" | "worker" = "web", max?: number) {
   const runtimePool = new Pool({
     connectionString: DATABASE_URL,
@@ -13,7 +21,12 @@ export function createRuntimePool(kind: "web" | "worker" = "web", max?: number) 
     idleTimeoutMillis: process.env.NODE_ENV === "test" ? 100 : 30_000,
     statement_timeout: 30_000,
     query_timeout: 30_000,
-    ...(max ? { max } : {})
+    // Black-Sky: a session left idle INSIDE an open transaction (a crashed
+    // handler, a hung await between BEGIN and COMMIT) holds its row locks and
+    // its pool slot forever. The server now terminates it after 60 s; the
+    // transaction rolls back and the locks are released.
+    idle_in_transaction_session_timeout: 60_000,
+    max: max ?? resolvePoolMax()
   });
 
   runtimePool.on("connect", (client: any) => {

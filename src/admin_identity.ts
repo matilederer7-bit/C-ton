@@ -103,7 +103,9 @@ export function parseCookieHeader(raw: unknown) {
   for (const part of String(raw || "").split(";")) {
     const idx = part.indexOf("=");
     if (idx <= 0) continue;
-    out[part.slice(0, idx).trim()] = decodeURIComponent(part.slice(idx + 1).trim());
+    const rawValue = part.slice(idx + 1).trim();
+    // Total: a malformed escape must not turn admin routes into a 500.
+    try { out[part.slice(0, idx).trim()] = decodeURIComponent(rawValue); } catch { out[part.slice(0, idx).trim()] = rawValue; }
   }
   return out;
 }
@@ -138,6 +140,14 @@ export async function hashAdminPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
   const derived = (await scrypt(password, salt, 64)) as Buffer;
   return `scrypt$${salt}$${derived.toString("hex")}`;
+}
+
+// Black-Sky B5: a real scrypt hash of a random secret, verified on the paths
+// that previously skipped scrypt (missing / inactive / locked account).
+let dummyAdminHash: Promise<string> | null = null;
+export function adminLoginDummyHash(): Promise<string> {
+  if (!dummyAdminHash) dummyAdminHash = hashAdminPassword(randomBytes(24).toString("hex"));
+  return dummyAdminHash;
 }
 
 export async function verifyAdminPassword(password: string, storedHash: string | null | undefined) {

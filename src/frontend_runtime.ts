@@ -125,8 +125,7 @@ import {
   sellerAuthFailurePayload,
   serializeExpiredSellerSessionCookie,
   serializeSellerSessionCookie,
-  verifySellerAccessSecret
-} from "./seller_auth.js";
+  verifySellerAccessSecret, verifySellerAccessSecretAsync, sellerLoginDummyHash } from "./seller_auth.js";
 import {
   BUYER_SESSION_TTL_SECONDS,
   buyerSessionConfigured,
@@ -192,8 +191,7 @@ import {
   safeAdminId,
   serializeAdminSessionCookie,
   serializeExpiredAdminSessionCookie,
-  verifyAdminPassword
-} from "./admin_identity.js";
+  verifyAdminPassword, adminLoginDummyHash } from "./admin_identity.js";
 import {
   ensureParticipantTrackingTables,
   extractTrackingToken,
@@ -1381,6 +1379,37 @@ function buildTrackingActivityFeed(args: {
     .slice(0, 12);
 }
 
+// Linear-time multipart field parser (field parts only; file parts ignored).
+// Each part's header block is the text before the first blank line; only that
+// bounded block is inspected, line by line, with indexOf — no regex runs over
+// attacker-sized input.
+export function parseMultipartFields(contentType: string, body: string): Record<string, string> {
+  const fields: Record<string, string> = {};
+  const boundaryMatch = /boundary="?([^";]{1,200})"?/i.exec(contentType.slice(0, 1024));
+  if (!boundaryMatch) return fields;
+  const delimiter = `--${boundaryMatch[1]}`;
+  for (const part of body.split(delimiter)) {
+    const headerEnd = part.indexOf("\r\n\r\n");
+    if (headerEnd === -1 || headerEnd > 4096) continue;
+    const headerBlock = part.slice(0, headerEnd);
+    let name: string | null = null;
+    let isFile = false;
+    for (const line of headerBlock.split("\r\n")) {
+      if (!line.toLowerCase().startsWith("content-disposition:")) continue;
+      const lower = line.toLowerCase();
+      if (lower.includes("filename=")) isFile = true;
+      const at = lower.indexOf('name="');
+      if (at === -1) continue;
+      const valueStart = at + 6;
+      const valueEnd = line.indexOf('"', valueStart);
+      if (valueEnd > valueStart) name = line.slice(valueStart, valueEnd);
+    }
+    if (!name || isFile) continue;
+    fields[name] = part.slice(headerEnd + 4).replace(/\r\n--\s*$/, "").replace(/\r\n$/, "").trim();
+  }
+  return fields;
+}
+
 export function registerFrontendExperience(
   app: FastifyInstance,
   deps: {
@@ -1472,7 +1501,25 @@ export function registerFrontendExperience(
   // createPaymentProcess, no JSON). Parse form bodies into plain objects while
   // preserving the raw body for structural verification. Field-only parsing:
   // file parts are ignored, bounded by Fastify's body limit.
-  app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, (request: any, body: string, done: (err: Error | null, result?: unknown) => void) => {
+  // Black-Sky (availability): form bodies are accepted ONLY on the Grow
+  // notifyUrl callback, capped at FORM_BODY_LIMIT_BYTES, and parsed in linear
+  // time. Before, both parsers were global (every POST/PUT, anonymous ones
+  // included) under the 8 MB body limit, and the multipart field-name regex
+  // `content-disposition:[^\n]*name="..."` backtracked quadratically: one
+  // crafted 8 MB request blocked the single event loop for minutes.
+  const FORM_BODY_ROUTES = new Set(["/webhooks/payments/grow"]);
+  const FORM_BODY_LIMIT_BYTES = 64 * 1024;
+  const refuseFormBody = (request: any): Error | null => {
+    const route = String(request.routeOptions?.url || "");
+    if (FORM_BODY_ROUTES.has(route)) return null;
+    const err: any = new Error("unsupported_media_type");
+    err.statusCode = 415;
+    err.code = "FST_ERR_CTP_INVALID_MEDIA_TYPE";
+    return err;
+  };
+  app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string", bodyLimit: FORM_BODY_LIMIT_BYTES }, (request: any, body: string, done: (err: Error | null, result?: unknown) => void) => {
+    const refused = refuseFormBody(request);
+    if (refused) return done(refused);
     request.rawBody = String(body || "");
     try {
       done(null, Object.fromEntries(new URLSearchParams(String(body || ""))));
@@ -1480,22 +1527,12 @@ export function registerFrontendExperience(
       done(error as Error);
     }
   });
-  app.addContentTypeParser("multipart/form-data", { parseAs: "string" }, (request: any, body: string, done: (err: Error | null, result?: unknown) => void) => {
+  app.addContentTypeParser("multipart/form-data", { parseAs: "string", bodyLimit: FORM_BODY_LIMIT_BYTES }, (request: any, body: string, done: (err: Error | null, result?: unknown) => void) => {
+    const refused = refuseFormBody(request);
+    if (refused) return done(refused);
     request.rawBody = String(body || "");
     try {
-      const contentType = String(request.headers?.["content-type"] || "");
-      const boundaryMatch = contentType.match(/boundary="?([^";]+)"?/i);
-      const fields: Record<string, string> = {};
-      if (boundaryMatch) {
-        for (const part of String(body || "").split(`--${boundaryMatch[1]}`)) {
-          const nameMatch = part.match(/content-disposition:[^\n]*name="([^"]+)"/i);
-          if (!nameMatch || /filename=/i.test(part)) continue;
-          const valueStart = part.indexOf("\r\n\r\n");
-          if (valueStart === -1) continue;
-          fields[String(nameMatch[1])] = part.slice(valueStart + 4).replace(/\r\n--\s*$/, "").replace(/\r\n$/, "").trim();
-        }
-      }
-      done(null, fields);
+      done(null, parseMultipartFields(String(request.headers?.["content-type"] || ""), String(body || "")));
     } catch (error) {
       done(error as Error);
     }
@@ -1520,13 +1557,32 @@ export function registerFrontendExperience(
     done(null, pass);
   });
 
-  const ensureProductSurfaces = () => ensureRemainingProductSurfaceTables(deps.withTx);
-  const ensurePayoutTables = () => ensurePayoutRailTables(deps.withTx);
-  const ensureNotificationTables = () => ensureNotificationRailTables(deps.withTx);
-  const ensureOtpTables = () => ensureOtpRailTables(deps.withTx);
-  const ensureAdminControlPlane = () => ensureAdminControlPlaneTables(deps.withTx);
-  const ensureAdminIdentity = () => ensureAdminIdentityTables(deps.withTx);
-  const ensureParticipantTracking = () => ensureParticipantTrackingTables(deps.withTx);
+  // Black-Sky C2 (availability): every ensure*Tables() is a catalog check that
+  // takes its OWN pool connection. Called per request — and in several routes
+  // from INSIDE a transaction that already holds a connection — ~10
+  // concurrent requests exhausted the 10-connection web pool and deadlocked it
+  // (each holding one connection, all waiting for an 11th). Each check now runs
+  // at most once per process after it first succeeds (a failure is not cached,
+  // so a missing table keeps failing closed), and the in-transaction call sites
+  // were hoisted before the transaction.
+  const memoizeSchemaCheck = <T>(check: () => Promise<T>) => {
+    let verified = false;
+    let inflight: Promise<void> | null = null;
+    return async (): Promise<void> => {
+      if (verified) return;
+      if (!inflight) {
+        inflight = check().then(() => { verified = true; }).finally(() => { inflight = null; });
+      }
+      return inflight;
+    };
+  };
+  const ensureProductSurfaces = memoizeSchemaCheck(() => ensureRemainingProductSurfaceTables(deps.withTx));
+  const ensurePayoutTables = memoizeSchemaCheck(() => ensurePayoutRailTables(deps.withTx));
+  const ensureNotificationTables = memoizeSchemaCheck(() => ensureNotificationRailTables(deps.withTx));
+  const ensureOtpTables = memoizeSchemaCheck(() => ensureOtpRailTables(deps.withTx));
+  const ensureAdminControlPlane = memoizeSchemaCheck(() => ensureAdminControlPlaneTables(deps.withTx));
+  const ensureAdminIdentity = memoizeSchemaCheck(() => ensureAdminIdentityTables(deps.withTx));
+  const ensureParticipantTracking = memoizeSchemaCheck(() => ensureParticipantTrackingTables(deps.withTx));
   const otpProvider: OtpProvider = buildOtpProvider();
   // Legacy compatibility: the old /api/otp/start → /api/otp/verify pair returns
   // { buyer_id: <phone digits> } in verify, which existing tests and the
@@ -1541,12 +1597,8 @@ export function registerFrontendExperience(
     }
   };
   setInterval(purgeLegacy, 5 * 60_000).unref();
-  const ensureInvoiceWebhookTables = async () => {
-  await deps.withTx(async c=>assertRequiredTables(c,["invoice_webhook_events","invoice_webhook_security_events"]));
-};
-  const ensureLegalAcceptanceTables = async () => {
-  await deps.withTx(async c=>assertRequiredTables(c,["legal_acceptances"]));
-};
+  const ensureInvoiceWebhookTables = memoizeSchemaCheck(() => deps.withTx(async c=>assertRequiredTables(c,["invoice_webhook_events","invoice_webhook_security_events"])));
+  const ensureLegalAcceptanceTables = memoizeSchemaCheck(() => deps.withTx(async c=>assertRequiredTables(c,["legal_acceptances"])));
   const recordInvoiceWebhookSecurityFailure = async (args: { provider: string; event_id?: string | null; failure_reason: string; remote_hint?: string }) => {
     await ensureInvoiceWebhookTables();
     await deps.withTx(async (c) => {
@@ -1557,9 +1609,7 @@ export function registerFrontendExperience(
       );
     });
   };
-  const ensurePaymentOpsTables = async () => {
-  await deps.withTx(async c=>assertRequiredTables(c,["payment_webhook_security_events","buyer_payment_methods"]));
-};
+  const ensurePaymentOpsTables = memoizeSchemaCheck(() => deps.withTx(async c=>assertRequiredTables(c,["payment_webhook_security_events","buyer_payment_methods"])));
   const recordWebhookSecurityFailure = async (args: { provider: string; event_id?: string | null; failure_reason: string; remote_hint?: string }) => {
     await ensurePaymentOpsTables();
     await deps.withTx(async (c) => {
@@ -2161,8 +2211,8 @@ export function registerFrontendExperience(
     if (!verifier || !bearerToken(req)) {
       return reply.code(401).send({ ok: false, error: "authentication_required" });
     }
+    await ensureProductSurfaces();  // Black-Sky C2: schema check BEFORE taking the transaction's connection
     return deps.withTx(async (c) => {
-      await ensureProductSurfaces();
       let caps: Awaited<ReturnType<typeof resolveSupabaseCapabilities>> = null;
       try { caps = await resolveSupabaseCapabilities(req, c, verifier); } catch { caps = null; }
       if (!caps) return reply.code(401).send({ ok: false, error: "invalid_token" });
@@ -2325,8 +2375,8 @@ export function registerFrontendExperience(
   }));
 
   app.get("/api/seller/session", async (req: any, reply: any) => {
+    await ensureProductSurfaces();  // Black-Sky C2: schema check BEFORE taking the transaction's connection
     return deps.withTx(async (c) => {
-      await ensureProductSurfaces();
       const sellerContext = await resolveOptionalSellerContext(req, c, { autoCreate: true });
       if (!deps.isDemoPreview && !SELLER_AUTH_CONFIGURED) {
         return rejectSellerAuthUnavailable(reply, req);
@@ -2358,8 +2408,8 @@ export function registerFrontendExperience(
       return rejectSellerAuthUnavailable(reply, req);
     }
 
+    await ensureProductSurfaces();  // Black-Sky C2: schema check BEFORE taking the transaction's connection
     return deps.withTx(async (c) => {
-      await ensureProductSurfaces();
       const identifier = String(req.body?.identifier || req.body?.seller_id || req.body?.login_email || "").trim();
       const accessCode = String(req.body?.access_code || req.body?.password || "").trim();
       const sellerAccount = await findSellerLoginAccount(c, identifier);
@@ -2370,23 +2420,25 @@ export function registerFrontendExperience(
       // account — the same 401 below still answers a missing account, so this
       // adds no account-existence oracle the credential check did not already
       // carry.
+      // Black-Sky B4/B5: a locked account answers the SAME 401 as a wrong
+      // password or an unknown identifier (the distinct 429 was an
+      // account-existence oracle, exactly the one closed for admins in A3),
+      // and the password hash runs on every path — against a fixed dummy hash
+      // when the account is missing, disabled or locked — so response timing
+      // does not reveal account existence or lock state either.
+      let locked = false;
       if (sellerAccount && sellerAccount.auth_enabled) {
         const failures = await recentSellerLoginFailures(c, String(sellerAccount.seller_id));
-        if (failures >= SELLER_LOGIN_MAX_FAILURES) {
-          return reply.code(429).send({
-            ok: false,
-            error: "seller_auth_rate_limited",
-            code: "SELLER_AUTH_RATE_LIMITED",
-            message: "too many failed login attempts for this account; try again later"
-          });
-        }
+        locked = failures >= SELLER_LOGIN_MAX_FAILURES;
       }
+      const verifiable = Boolean(sellerAccount && sellerAccount.auth_enabled && !locked);
+      const passwordOk = await verifySellerAccessSecretAsync(accessCode, verifiable ? sellerAccount!.auth_secret_hash : sellerLoginDummyHash());
 
-      if (!sellerAccount || !sellerAccount.auth_enabled || !verifySellerAccessSecret(accessCode, sellerAccount.auth_secret_hash)) {
+      if (!verifiable || !passwordOk) {
         // Record the failure against a real account so repeated guessing trips
         // the lockout above. A missing or auth-disabled account has no row to
         // write to (and needs none — there is nothing to brute-force).
-        if (sellerAccount && sellerAccount.auth_enabled) {
+        if (sellerAccount && sellerAccount.auth_enabled && !locked) {
           await recordSellerLoginFailure(c, String(sellerAccount.seller_id), req);
         }
         return reply.code(401).send({
@@ -2425,8 +2477,8 @@ export function registerFrontendExperience(
 
   app.post("/api/seller/session/logout", async (req: any, reply: any) => {
     if (!deps.isDemoPreview && SELLER_AUTH_CONFIGURED) {
+      await ensureProductSurfaces();  // Black-Sky C2: schema check BEFORE taking the transaction's connection
       await deps.withTx(async (c) => {
-        await ensureProductSurfaces();
         await revokeSellerSession(c, req, "logout");
       });
     }
@@ -2625,7 +2677,11 @@ export function registerFrontendExperience(
       // account exists. The password is not even verified while locked, so a
       // correct guess during the window grants nothing and leaks nothing.
       const locked = Boolean(row && row.status === "Active" && row.login_locked_until && Date.parse(String(row.login_locked_until)) > Date.now());
-      if (locked || !row || row.status !== "Active" || !(await verifyAdminPassword(password, row.password_hash))) {
+      // Black-Sky B5: always pay for one scrypt (a fixed dummy hash when the
+      // account is missing, inactive or locked) so timing matches a wrong password.
+      const adminVerifiable = Boolean(!locked && row && row.status === "Active");
+      const adminPasswordOk = await verifyAdminPassword(password, adminVerifiable ? row.password_hash : await adminLoginDummyHash());
+      if (!adminVerifiable || !adminPasswordOk) {
         if (locked) {
           return reply.code(401).send({ ok: false, error: "admin_invalid_credentials" });
         }
@@ -2906,8 +2962,8 @@ export function registerFrontendExperience(
   });
 
   app.get("/api/site/home", async (req: any) => {
+    await ensureProductSurfaces();  // Black-Sky C2: schema check BEFORE taking the transaction's connection
     return deps.withTx(async (c) => {
-      await ensureProductSurfaces();
       const sellerContext = await resolveOptionalSellerContext(req, c, { autoCreate: true });
       const totals = await c.query(
         `SELECT
@@ -3274,7 +3330,7 @@ export function registerFrontendExperience(
   // product, the DEAL determines the seller (no browser-supplied seller id), the
   // thread is the authoritative conversation, and the seller merely receives a
   // pointer notification through the canonical rail (src/seller_inquiries.ts).
-  const ensureInquiryTables = () => ensureSellerInquiryTables(deps.withTx);
+  const ensureInquiryTables = memoizeSchemaCheck(() => ensureSellerInquiryTables(deps.withTx));
 
   type InquiryThreadRow = {
     thread_id: string;
@@ -3596,8 +3652,8 @@ export function registerFrontendExperience(
     const rawLimit = Number(req.query?.limit ?? 50);
     const limit = Math.max(1, Math.min(100, Number.isFinite(rawLimit) ? Math.floor(rawLimit) : 50));
 
+    await ensureProductSurfaces();  // Black-Sky C2: schema check BEFORE taking the transaction's connection
     return deps.withTx(async (c) => {
-      await ensureProductSurfaces();
       const dealResult = await c.query(`SELECT deal_id, state FROM siton.deals WHERE deal_id=$1`, [dealId]);
       if (!dealResult.rowCount) {
         const err: any = new Error("deal not found");
@@ -3675,8 +3731,8 @@ export function registerFrontendExperience(
       return reply.code(400).send({ ok: false, error: "body must be 500 characters or fewer", code: "invalid_input" });
     }
 
+    await ensureProductSurfaces();  // Black-Sky C2: schema check BEFORE taking the transaction's connection
     return deps.withTx(async (c) => {
-      await ensureProductSurfaces();
       const dealResult = await c.query(`SELECT deal_id, state FROM siton.deals WHERE deal_id=$1`, [dealId]);
       if (!dealResult.rowCount) {
         const err: any = new Error("deal not found");
@@ -3739,8 +3795,8 @@ export function registerFrontendExperience(
       return reply.code(400).send({ ok: false, error: "visitor identity required", code: "reaction_identity_required" });
     }
 
+    await ensureProductSurfaces();  // Black-Sky C2: schema check BEFORE taking the transaction's connection
     return deps.withTx(async (c) => {
-      await ensureProductSurfaces();
       const message = await c.query(
         `SELECT m.message_id, d.state
          FROM siton.deal_chat_messages m
@@ -10810,9 +10866,9 @@ export function registerFrontendExperience(
     const daysRaw = Number(req.query?.days);
     const days = Number.isFinite(daysRaw) && daysRaw > 0 ? Math.min(365, Math.floor(daysRaw)) : 30;
     const since = `now() - ($1::int * interval '1 day')`;
+    await ensureProductSurfaces();  // Black-Sky C2: schema check BEFORE taking the transaction's connection
+    await ensureInquiryTables();
     return deps.withTx(async (c) => {
-      await ensureProductSurfaces();
-      await ensureInquiryTables();
       const [sellers, deals, events, joins, inquiries, feedbackByCategory, feedbackRecent, perSeller] = await Promise.all([
         c.query(
           `WITH s AS (
