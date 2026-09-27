@@ -8,6 +8,8 @@
 //   checksum classification per row: match, line_ending_only_mismatch,
 //   real_content_mismatch, filename_mismatch, position_mismatch
 //   dirty rows (running/failed), duplicate ids, ordering anomalies
+//   for rows stuck at 'running': the read-only object fingerprint verdict
+//   (applied/absent/partial/undetermined) used by migrations:repair --clear-running
 //
 // Never writes. A hosted database (non-local host) is refused unless
 // --allow-hosted is passed; even then the doctor only SELECTs. Repair lives
@@ -84,6 +86,21 @@ async function main() {
     ordering_anomalies: orderingAnomalies,
     rows: compared.rows
   };
+  // Rows stuck at 'running': a runner died between a self-transacting file's
+  // COMMIT and the ledger update. The object fingerprint (read-only) tells the
+  // operator which migrations:repair --clear-running choice applies.
+  out.database.running_verification = [];
+  for (const row of compared.dirty.filter((item) => item.status === "running")) {
+    const file = analysis.files.find((item) => item.id === row.migration_id);
+    if (!file) continue;
+    try {
+      const body = fs.readFileSync(path.join(tools.loadManifest(root).dir, file.filename), "utf8");
+      const verification = await tools.verifyMigrationObjects(databaseUrl, body);
+      out.database.running_verification.push({ migration_id: row.migration_id, verdict: verification.verdict, present: verification.present, total: verification.total, absent: verification.objects.filter((o) => !o.present).map(tools.describeObject) });
+    } catch (error) {
+      out.database.running_verification.push({ migration_id: row.migration_id, verdict: "error", error: error.message });
+    }
+  }
   const blocking = out.database.real_content_mismatch.length + out.database.filename_or_position_mismatch.length + out.database.dirty.length + out.database.extra.length + duplicatePositions.length + orderingAnomalies.length + analysis.findings.filter((f) => f.severity === "FAIL").length;
   if (ledger === null) out.verdict = "EMPTY_DATABASE";
   else if (blocking) out.verdict = "BLOCKED";
@@ -108,6 +125,7 @@ function print(out, analysis, compared) {
   console.log("  real content mismatch: " + (out.database.real_content_mismatch.length ? out.database.real_content_mismatch.map((m) => m.migration_id).join(", ") + " (BLOCKING: a migration file changed after it was applied)" : "none"));
   console.log("  filename/position mismatch: " + (out.database.filename_or_position_mismatch.length ? out.database.filename_or_position_mismatch.map((m) => m.migration_id).join(", ") : "none"));
   console.log("  dirty rows: " + (out.database.dirty.length ? out.database.dirty.map((m) => m.migration_id + ":" + m.status).join(", ") : "none"));
+  for (const item of out.database.running_verification || []) console.log("  stale running " + item.migration_id + ": fingerprint verdict=" + item.verdict + (item.total !== undefined ? " present=" + item.present + "/" + item.total : "") + " (resolve with migrations:repair --clear-running " + item.migration_id + ")");
   console.log("  duplicate positions: " + (out.database.duplicate_positions.length ? out.database.duplicate_positions.join(", ") : "none"));
   console.log("  ordering anomalies: " + (out.database.ordering_anomalies.length ? out.database.ordering_anomalies.join("; ") : "none"));
 }
