@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import pg from "pg";
+import { countLinkClicks, seedAffiliateLink } from "./helpers/seed_affiliate_link.js";
 
 process.env.APP_DEPLOYMENT_MODE = "demo-preview";
 process.env.DISABLE_OUTBOX_WORKER = "1";
 process.env.ADMIN_API_KEY = "stage32c-product-surface-admin-key";
 
 const ADMIN_HEADERS = { "x-admin-key": "stage32c-product-surface-admin-key" };
+const { Pool } = pg;
+const pool = new Pool({ connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton" });
 const { app } = await import("../src/app.js");
 
 async function run(name: string, fn: () => Promise<void> | void) {
@@ -57,19 +61,6 @@ async function createPublishedDeal() {
   return dealId;
 }
 
-function collectKeys(value: unknown, into = new Set<string>()) {
-  if (!value || typeof value !== "object") return into;
-  if (Array.isArray(value)) {
-    for (const item of value) collectKeys(item, into);
-    return into;
-  }
-  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    into.add(key);
-    collectKeys(child, into);
-  }
-  return into;
-}
-
 async function main() {
   const frontend = await readFile(join(process.cwd(), "frontend", "app.js"), "utf8");
   const styles = await readFile(join(process.cwd(), "frontend", "styles.css"), "utf8");
@@ -102,29 +93,12 @@ async function main() {
     assert.match(migration, /event_type IN \('click','entry'\)/);
     const ddlWithoutComments = migration.replace(/--.*$/gm, "");
     assert.doesNotMatch(ddlWithoutComments, /commission|wallet|withdrawal|payout|balance|invoice/i);
-    assert.match(runtime, /app\.post\("\/api\/affiliate\/links"/);
     assert.match(runtime, /app\.post\("\/api\/affiliate\/links\/visit"/);
-    assert.match(runtime, /resolveDistributorContext\(req, c, deps\.isDemoPreview\)/);
-    assert.match(runtime, /client_distributor_identity_forbidden/);
-    assert.match(runtime, /distributor_auth_required/);
-    assert.match(frontend, /payload\.capabilities\?\.named_link_creation/);
   });
 
   const dealId = await createPublishedDeal();
-  let sourceCode = "";
-
-  await run("distributor can create a named unique link for an allowed deal", async () => {
-    const response = await app.inject({
-      method: "POST",
-      url: "/api/affiliate/links",
-      payload: { deal_id: dealId, internal_name: "קבוצת בדיקת Stage 32C" }
-    });
-    assert.equal(response.statusCode, 201, response.body);
-    const body = response.json() as any;
-    sourceCode = String(body.link.source_code);
-    assert.ok(sourceCode.length >= 8);
-    assert.match(body.link.share_link, new RegExp(`/app/deal/${dealId}\\?ref=`));
-  });
+  const sourceCode = `stage32c-${Date.now().toString(36)}`;
+  await seedAffiliateLink(pool, dealId, sourceCode, "קבוצת בדיקת Stage 32C");
 
   await run("anonymous visit measurement deduplicates entries without collecting PII", async () => {
     for (const clickId of ["click-stage32c-0001", "click-stage32c-0002"]) {
@@ -141,24 +115,14 @@ async function main() {
       assert.equal(response.statusCode, 202, response.body);
       assert.equal((response.json() as any).recorded, true);
     }
-  });
-
-  await run("distributor dashboard returns all four product areas and no financial entitlement keys", async () => {
-    const response = await app.inject({ method: "GET", url: "/api/affiliate/overview" });
-    assert.equal(response.statusCode, 200, response.body);
-    const surface = (response.json() as any).affiliate_surface;
-    const link = surface.links.find((item: any) => item.source_code === sourceCode);
-    const campaign = surface.campaigns.find((item: any) => item.deal_id === dealId);
-    assert.equal(link.clicks, 2);
-    assert.equal(link.entries, 1);
-    assert.equal(link.conversion_rate, 0);
-    assert.equal(typeof surface.totals.attributed_gross, "number");
-    assert.equal(campaign.description, "Seller-provided marketing copy for the distributor asset surface.");
-    assert.deepEqual(campaign.delivery_labels, ["משלוח עד הבית"]);
-    const keys = collectKeys(surface);
-    for (const forbidden of ["commission", "balance", "wallet", "withdrawal", "payout", "invoice", "financial_entitlement"]) {
-      assert.equal(keys.has(forbidden), false, `forbidden distributor key present: ${forbidden}`);
-    }
+    assert.equal(await countLinkClicks(pool, sourceCode), 2);
+    const entries = await pool.query(
+      `SELECT count(*)::int AS entries FROM siton.affiliate_link_events e
+       JOIN siton.affiliate_links l ON l.link_id = e.link_id
+       WHERE l.source_code = $1 AND e.event_type = 'entry'`,
+      [sourceCode]
+    );
+    assert.equal(Number(entries.rows[0].entries), 1);
   });
 
   await run("admin overview omnisearch keeps heterogeneous states text-safe", async () => {
@@ -173,9 +137,9 @@ async function main() {
     assert.ok(body.admin_surface.search_results.some((item: any) => item.entity_type === "deal" && item.entity_id === dealId));
   });
 
-  await run("frontend closes distributor navigation, performance, assets and admin hierarchy", () => {
-    for (const marker of ["affiliate-dashboard", "affiliate-links", "affiliate-performance", "affiliate-assets", "marketing-assets-grid"]) {
-      assert.match(frontend, new RegExp(marker));
+  await run("frontend closes the admin hierarchy and carries no distributor workspace", () => {
+    for (const marker of ["affiliate-dashboard", "affiliate-link-create", "distributor-login", "/app/affiliate"]) {
+      assert.doesNotMatch(frontend, new RegExp(marker));
     }
     for (const marker of ["admin-urgent", "admin-search", "admin-kyc", "admin-support", "admin-system"]) {
       assert.match(frontend, new RegExp(marker));
@@ -187,9 +151,13 @@ async function main() {
 }
 
 main()
-  .then(() => app.close())
+  .then(async () => {
+    await app.close();
+    await pool.end();
+  })
   .catch(async (error) => {
     console.error(error);
     await app.close().catch(() => undefined);
+    await pool.end().catch(() => undefined);
     process.exit(1);
   });

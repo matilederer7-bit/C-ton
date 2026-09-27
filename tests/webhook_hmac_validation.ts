@@ -112,6 +112,33 @@ await run("webhook with valid HMAC signature is accepted (proceeds past auth)", 
   assert.notEqual(res.statusCode, 401, "valid signature must not return 401");
 });
 
+await run("B4: a validly signed body WITHOUT a timestamp is refused once timestamps are required (production-like or opt-in)", async () => {
+  // Signature over the bare body (the pre-fix "no timestamp → no replay window" path).
+  const bareSig = "sha256=" + createHmac("sha256", TEST_WEBHOOK_SECRET).update(VALID_PAYLOAD).digest("hex");
+  process.env.PAYMENT_WEBHOOK_REQUIRE_TIMESTAMP = "1";
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/webhooks/payments",
+      payload: VALID_PAYLOAD,
+      headers: { "content-type": "application/json", "x-webhook-signature": bareSig }
+    });
+    assert.equal(res.statusCode, 401, res.body);
+    assert.equal((res.json() as any).error, "invalid_webhook_signature");
+  } finally {
+    delete process.env.PAYMENT_WEBHOOK_REQUIRE_TIMESTAMP;
+  }
+  // Without the requirement (demo/test harness) the legacy bare signature is
+  // still verified normally (DB unavailable here → 503, but NOT 401).
+  const legacy = await app.inject({
+    method: "POST",
+    url: "/webhooks/payments",
+    payload: VALID_PAYLOAD,
+    headers: { "content-type": "application/json", "x-webhook-signature": bareSig }
+  });
+  assert.notEqual(legacy.statusCode, 401, legacy.body);
+});
+
 await run("webhook with missing signature header returns 401", async () => {
   const ts = nowSeconds();
   const res = await app.inject({

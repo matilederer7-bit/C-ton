@@ -140,6 +140,10 @@ assert.equal(paymentProviderSummary.refund_path, "/refund");
 assert.equal(paymentProviderSummary.refund_transport_live, true);
 
 const { app, processOutboxEventById } = await import(`../src/app.js?refund-worker-${Date.now()}`);
+const { issueParticipantTrackingToken } = await import("../src/participant_tracking_security.js");
+// Red-team fix A5: tracking reads always require the participant's tracking
+// credential; DB-seeded participants get one issued at seed time.
+const trackingTokens = new Map<string, string>();
 const { Pool } = pg;
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton"
@@ -237,15 +241,23 @@ async function createRefundParticipant(args: {
     [outboxEventId, "refund_issue", "deal", dealId, JSON.stringify({ deal_id: dealId })]
   );
 
+  const issuedTracking = await issueParticipantTrackingToken(pool as any, {
+    participant_id: participantId,
+    deal_id: dealId,
+    purpose: "tracking",
+    issued_via: "test_seed"
+  });
+  trackingTokens.set(participantId, issuedTracking.token);
+
   return { dealId, participantId, outboxEventId };
 }
 
 async function readTracking(participantId: string) {
   const tracking = await app.inject({
     method: "GET",
-    url: `/api/participants/${participantId}/tracking`
+    url: `/api/participants/${participantId}/tracking?t=${encodeURIComponent(trackingTokens.get(participantId) || "")}`
   });
-  assert.equal(tracking.statusCode, 200);
+  assert.equal(tracking.statusCode, 200, tracking.body);
   return tracking.json() as any;
 }
 

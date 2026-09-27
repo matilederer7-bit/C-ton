@@ -137,7 +137,8 @@ async function buildChargingParticipant(suffix: string, buyerId: string) {
 
   return {
     deal_id: created.deal_id,
-    participant_id: joinJson.participant_id as string
+    participant_id: joinJson.participant_id as string,
+    tracking_access_token: String(joinJson.tracking_access_token || "")
   };
 }
 
@@ -238,7 +239,7 @@ async function main() {
 
     const tracking = await app.inject({
       method: "GET",
-      url: `/api/participants/${joinJson.participant_id}/tracking`
+      url: `/api/participants/${joinJson.participant_id}/tracking?t=${encodeURIComponent(joinJson.tracking_access_token)}`
     });
     assert.equal(tracking.statusCode, 200);
     const trackingJson = tracking.json() as any;
@@ -376,7 +377,7 @@ async function main() {
     assert.equal(chargedWebhook.statusCode, 200);
     const chargedTracking = await app.inject({
       method: "GET",
-      url: `/api/participants/${charged.participant_id}/tracking`
+      url: `/api/participants/${charged.participant_id}/tracking?t=${encodeURIComponent(charged.tracking_access_token)}`
     });
     assert.equal(chargedTracking.statusCode, 200);
     const chargedJson = chargedTracking.json() as any;
@@ -390,7 +391,7 @@ async function main() {
     assert.equal(recoveredWebhook.statusCode, 200);
     const recoveredTracking = await app.inject({
       method: "GET",
-      url: `/api/participants/${recovered.participant_id}/tracking`
+      url: `/api/participants/${recovered.participant_id}/tracking?t=${encodeURIComponent(recovered.tracking_access_token)}`
     });
     assert.equal(recoveredTracking.statusCode, 200);
     const recoveredJson = recoveredTracking.json() as any;
@@ -404,7 +405,7 @@ async function main() {
     assert.equal(droppedWebhook.statusCode, 200);
     const droppedTracking = await app.inject({
       method: "GET",
-      url: `/api/participants/${dropped.participant_id}/tracking`
+      url: `/api/participants/${dropped.participant_id}/tracking?t=${encodeURIComponent(dropped.tracking_access_token)}`
     });
     assert.equal(droppedTracking.statusCode, 200);
     const droppedJson = droppedTracking.json() as any;

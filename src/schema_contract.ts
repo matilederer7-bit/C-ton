@@ -22,7 +22,7 @@ async function queryRequiredTables(db: Db, tables: readonly string[]) {
 export const REQUIRED_TABLES = [
   "deals", "participants", "audit_log", "idempotency_log", "outbox_events", "outbox_dlq",
   "payment_attempts", "webhook_events", "seller_accounts", "seller_sessions",
-  "affiliate_accounts", "affiliate_attributions", "affiliate_links", "affiliate_link_events", "distributor_sessions", "support_tickets", "deal_delivery_options",
+  "affiliate_accounts", "affiliate_attributions", "affiliate_links", "affiliate_link_events", "support_tickets", "deal_delivery_options",
   "deal_images", "deal_chat_messages", "notification_events", "notification_attempts",
   "legal_acceptances", "otp_challenges", "otp_delivery_attempts", "invoice_documents",
   "invoice_document_attempts", "invoice_reconciliation_cases", "platform_fee_money_events",
@@ -35,13 +35,25 @@ export const REQUIRED_TABLES = [
   "storage_cleanup_tasks", "operational_recovery_audit", "buyer_sessions", "buyer_resume_contexts",
   "discovery_events", "viral_attributions", "viral_events", "viral_metrics_cache", "content_assets", "site_content",
   "distribution_link_viewers", "distribution_link_viewer_grants", "distribution_link_viewer_sessions",
-  "distribution_link_viewer_login_attempts", "products", "product_images"
+  "distribution_link_viewer_login_attempts", "products", "product_images",
+  "outbox_enqueue_evidence"
 ] as const;
 
+// EVERY migration in scripts/migration_manifest.cjs. Readiness fails closed
+// when any of them is missing from the ledger, so a deployment can never
+// precede the schema it relies on (Codex on PR #97: 075 adds the admin login
+// lockout columns, 076 the per-row audit/outbox enforcement — a runtime that
+// reported ready on a 074 database would answer admin logins with
+// undefined_column and keep the vulnerable pre-076 trigger bodies).
+// tests/release_tools/schema_contract_manifest.test.cjs pins this list to the
+// manifest, so adding a migration without extending it fails the release tools.
 export const REQUIRED_MIGRATION_IDS = [
-  "014", "007", "008", "009", "010", "011", "012", "013", "014a", "015a", "015b",
-  "016", "017", "018", "019", "020", "021", "022", "023", "024", "025", "026",
-  "027", "028", "029", "030", "031", "032", "033", "034", "035", "036", "037", "038", "039", "040", "041", "042", "043", "044", "045", "046", "047", "048", "049", "050", "051"
+  "014", "007", "008", "009", "010", "011", "012", "013", "014a", "015a", "015b", "016",
+  "017", "018", "019", "020", "021", "022", "023", "024", "025", "026", "027", "028",
+  "029", "030", "031", "032", "033", "034", "035", "036", "037", "038", "039", "040",
+  "041", "042", "043", "044", "045", "046", "047", "048", "049", "050", "051", "052",
+  "053", "054", "055", "056", "057", "058", "059", "060", "061", "065", "066", "067",
+  "068", "069", "070", "071", "072", "073", "074", "075", "076"
 ] as const;
 
 export async function assertDatabaseSchema(db: Db): Promise<void> {
@@ -88,7 +100,10 @@ export async function assertDatabaseSchema(db: Db): Promise<void> {
     "trg_outbox_fencing_cutover_update",
     "trg_outbox_fencing_cutover_delete",
     "trg_deals_outbox_enforce",
-    "trg_payment_attempts_charge_rate_limit"
+    "trg_payment_attempts_charge_rate_limit",
+    // migration 076 (red-team C-1): outbox insertion evidence
+    "trg_outbox_events_record_enqueue",
+    "trg_outbox_enqueue_evidence_no_update"
   ];
   const triggers = await db.query(
     `SELECT tgname FROM pg_trigger t
@@ -100,6 +115,39 @@ export async function assertDatabaseSchema(db: Db): Promise<void> {
   const missingTriggers = requiredTriggers.filter((name) => !triggerSet.has(name));
   if (missingTriggers.length) {
     throw new Error(`database schema drift: missing triggers ${missingTriggers.join(", ")}`);
+  }
+
+  // Migration 075 (admin login lockout) columns and the 076 per-row helpers
+  // must be live, not merely recorded: 076 replaces trigger BODIES without
+  // renaming the triggers, so the trigger-name check above cannot tell the
+  // hardened bodies from the pre-076 ones.
+  // pg_attribute, not information_schema.columns: the latter hides columns
+  // the connected role has no privilege on, and the worker role must still be
+  // able to verify the schema it depends on.
+  const lockoutColumns = await db.query(
+    `SELECT a.attname FROM pg_attribute a
+     JOIN pg_class c ON c.oid=a.attrelid
+     JOIN pg_namespace n ON n.oid=c.relnamespace
+     WHERE n.nspname='siton' AND c.relname='admin_users' AND a.attnum > 0 AND NOT a.attisdropped
+       AND a.attname IN ('failed_login_count','failed_login_window_started_at','login_locked_until')`
+  );
+  if (lockoutColumns.rows.length !== 3) {
+    throw new Error("database schema drift: admin_users login lockout columns (migration 075) are missing");
+  }
+  const perRowHelpers = await db.query(
+    `SELECT p.proname, pg_get_function_identity_arguments(p.oid) AS args
+     FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+     WHERE n.nspname='siton' AND p.proname IN ('audit_row_written_in_tx','outbox_row_written_in_tx','row_xmin_is_current_tx')`
+  );
+  const helperSignatures = new Set(perRowHelpers.rows.map((row: any) => `${row.proname}(${String(row.args).replace(/\s+/g, " ")})`));
+  for (const required of [
+    "audit_row_written_in_tx(p_entity_type text, p_entity_id uuid, p_state_type text, p_from_state text, p_to_state text, p_action_name text)",
+    "outbox_row_written_in_tx(p_aggregate_type text, p_aggregate_id uuid, p_event_type text)",
+    "row_xmin_is_current_tx(p_xmin xid)"
+  ]) {
+    if (!helperSignatures.has(required)) {
+      throw new Error(`database schema drift: per-row enforcement helper ${required} (migration 076) is missing`);
+    }
   }
 
   const constraints = await db.query(

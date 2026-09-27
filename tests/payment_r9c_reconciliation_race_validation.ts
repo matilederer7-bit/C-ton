@@ -221,7 +221,7 @@ try {
     assert.equal(inFlight.owner_event_uuid, chargeEvent);
     assert.equal(ops("capture", s.authorizationId)[0]!.key, s.priorCorrelation, "provider saw the prior identity as idempotency key");
 
-    // DB backstop (migration 063): nobody but the dispatching owner may declare a
+    // DB backstop (migration 067): nobody but the dispatching owner may declare a
     // negative outcome on an in-flight operation.
     await assert.rejects(
       pool.query(`UPDATE siton.payment_attempts SET result_class='permanent_fail' WHERE participant_id=$1 AND correlation_id=$2`, [s.participantId, s.priorCorrelation]),

@@ -1,5 +1,6 @@
 ﻿import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
+import { withForcedTx, forcedDealStep, forcedParticipantStep } from "./helpers/forced_state.js";
 
 process.env.DISABLE_OUTBOX_WORKER = "1";
 
@@ -127,34 +128,17 @@ async function createCompletedChargedDeal(suffix: string) {
   });
   assert.equal(webhook.statusCode, 200);
 
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    await client.query(`SELECT set_config('siton.in_atomic', 'true', true)`);
-    await client.query(`SELECT set_config('siton.audit_written', '1', true)`);
-    await client.query(`SELECT set_config('siton.outbox_written', '1', true)`);
+  // Per-row audit enforcement (migration 076): forced steps write audit rows.
+  await withForcedTx(pool, "charging.finalize_completed", async (client) => {
     const dealState = await client.query(`SELECT state FROM siton.deals WHERE deal_id=$1`, [created.deal_id]);
     const currentState = String(dealState.rows[0]?.state || "");
+    const windowSet = { extraSet: "completion_window_until=COALESCE(completion_window_until, now())" };
     if (currentState === "Charging") {
-      await client.query(`SELECT set_config('siton.action_name', 'charging.to_completion_window', true)`);
-      await client.query(
-        `UPDATE siton.deals
-         SET state='CompletionWindow',
-             completion_window_until=COALESCE(completion_window_until, now())
-         WHERE deal_id=$1`,
-        [created.deal_id]
-      );
+      await forcedDealStep(client, created.deal_id, "CompletionWindow", "charging.to_completion_window", windowSet);
     }
-    await client.query(`SELECT set_config('siton.action_name', 'charging.finalize_completed', true)`);
-    await client.query(`UPDATE siton.deals SET state='Completed', completion_window_until=COALESCE(completion_window_until, now()) WHERE deal_id=$1`, [created.deal_id]);
-    await client.query(`UPDATE siton.participants SET buyer_state='DealCompleted' WHERE participant_id=$1`, [participant.participant_id]);
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+    await forcedDealStep(client, created.deal_id, "Completed", "charging.finalize_completed", windowSet);
+    await forcedParticipantStep(client, participant.participant_id, { buyer_state: "DealCompleted" }, "charging.finalize_completed");
+  });
 
   return {
     deal_id: created.deal_id,
@@ -199,7 +183,7 @@ async function main() {
     assert.equal(issueWithoutNote.statusCode, 404);
   });
 
-  await runTest("affiliate remains attribution-only while verification stays operational", async () => {
+  await runTest("affiliate remains attribution-only: the distributor KYC lifecycle is retired", async () => {
     const affiliate = await pool.query(
       `SELECT affiliate_id::text AS affiliate_id
        FROM siton.affiliate_accounts
@@ -208,6 +192,8 @@ async function main() {
     );
     const affiliateId = String(affiliate.rows[0].affiliate_id);
 
+    // Red-team GOV (Codex on PR #97): no admin verification lifecycle exists for
+    // affiliates any more — the subject type is refused, nothing is written.
     const approve = await app.inject({
       method: "POST",
       url: `/api/admin/kyc/affiliate/${affiliateId}/decision`,
@@ -217,7 +203,9 @@ async function main() {
         admin_note: "master depth approval"
       }
     });
-    assert.equal(approve.statusCode, 200);
+    assert.equal(approve.statusCode, 400);
+    const after = await pool.query(`SELECT verification_status FROM siton.affiliate_accounts WHERE affiliate_id=$1`, [affiliateId]);
+    assert.notEqual(String(after.rows[0]?.verification_status || ""), "verified");
   });
 }
 

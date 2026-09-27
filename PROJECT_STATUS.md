@@ -1,10 +1,10 @@
 # SITON PROJECT STATUS
 
-Updated: 2026-09-26
+Updated: 2026-09-27
 Canonical branch: `master`
-Current merged baseline: `6d2d09e4a1aeb2931951bd7f7070b09ba67fa984` (PR #92, red-team hardening)
-Render staging: LIVE on that SHA — web `dep-dar9bnrbc2fs738rbjr0` (verified 2026-09-25: readiness ok, HSTS live); worker redeploys on the same commit.
-Supabase staging: code migration high-water is **074**. The app connects as a least-privilege role and does NOT auto-apply DDL, so pending migrations must be applied in ledger order via the owner's Supabase process. The applied high-water on staging is not verifiable from this session's role; the owner must confirm it and apply anything through 074 — see the red-team closeout note below.
+Current merged baseline: `6d2d09e4a1aeb2931951bd7f7070b09ba67fa984` (PR #92, red-team hardening) + `1a641ad` (PR #93 docs). Red-team CLOSURE round in flight on `claude/festive-wright-kx4e5a` (see the Claude milestone below).
+Render staging: LIVE on `6d2d09e` — web `dep-dar9bnrbc2fs738rbjr0` (verified 2026-09-25: readiness ok, HSTS live); worker redeploys on the same commit.
+Supabase staging (`siton-staging`, hnptacfzuqebfgeshadq): migrations **073 and 074 were applied on 2026-09-27** through the Supabase connector, with ledger rows written exactly as `scripts/run_migrations.cjs` writes them (ids 073/074, positions 66/67, checksums from the canonical bodies, status `succeeded`); applied high-water is now **074** = the merged code high-water. The closure round adds **075** (admin login lockout columns) and **076** (per-row audit/outbox enforcement + helper EXECUTE grants); they must be applied in ledger order right after the closure PR merges (same connector path) — until then the closure code must not be deployed to staging.
 
 ## CURRENT SNAPSHOT
 
@@ -312,7 +312,27 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
-### Claude Code latest milestone — Full red-team engagement (security/money/DB/concurrency/supply-chain)
+### Claude Code latest milestone — Red-team CLOSURE: every documented item fixed to the end
+
+- UPDATED: 2026-09-27
+- BRANCH: `claude/festive-wright-kx4e5a` from master `1a641ad`. Owner instruction: nothing stays on the shelf — every item the red-team report left as "documented / owner decision" is implemented, tested and merged.
+- COMPLETED (code, all with regression + negative tests; full ledger in `RED_TEAM_FINAL_REPORT.md` §11):
+  - **A2** spoof-proof client IP: `trustProxy` = exact hop count (`TRUST_PROXY_HOPS`, default 1 = Render), boot guard rejects boolean/unbounded values, `/readiness` echoes `client_ip` + `trust_proxy_hops` for live confirmation.
+  - **A3** admin password-login lockout: migration `075_admin_login_lockout.sql`; 10 failures / 15 min → 15-min self-healing lock enforced internally behind the same 401 body (no account-existence oracle); `/api/admin/auth` under the tight per-IP bucket.
+  - **A5** untokenized participant tracking/recovery path RETIRED in every runtime (401 `tracking_token_required`); `TRACKING_LEGACY_COMPAT` reported as ignored; the recovery idempotency replay is served only after the credential is verified (Codex round 6).
+  - **B3** seller/admin fee projections follow the ledger formula (8% of VAT-exclusive base + fee-VAT, product/delivery VAT separately, rounded per participant and summed). **B4** HMAC webhooks require the timestamp on production-like runtimes. **B5** mock-backed provider can never coexist with a live payment environment (any mode).
+  - **C-1** per-row DB enforcement: migration `076_per_row_audit_outbox_enforcement.sql` — a state change needs an audit row for THIS entity/transition/action in THIS transaction; outbox-required deal actions need an outbox job INSERTED for THIS deal of the REQUIRED type (insert-only evidence table fed by an AFTER INSERT trigger, joined to the live, still-pending outbox row — updating an old job, inserting-then-deleting, inserting already sent, or rewriting the live row is not evidence; Codex rounds 4–6); "in THIS transaction" is decided by the row's `xmin` (savepoints included), never by timestamps (Codex round 3); helpers are SECURITY DEFINER with runtime-role-only EXECUTE; the two forged-flag sites in the app fixed; every test fixture now writes real audit rows (`tests/helpers/forced_state.ts`); the runtime schema contract requires every manifest migration incl. 075/076, the evidence table/triggers, the lockout columns and the helper signatures, so readiness fails closed on a stale database (Codex round 7).
+  - **C-2** join critical section narrowed: lock-independent writes first, deal `FOR NO KEY UPDATE` only around inventory hold/commit + audited transitions + target-reached (one transaction, same atomicity/response). Codex round 5 asked whether a `FOR UPDATE` waiter could deadlock the pre-lock FK insert; verified not to reproduce (Postgres upgrades a lock the transaction already holds without queueing behind the waiter) and pinned by `tests/db_join_lock_order_validation.ts`.
+  - **C-3** non-canonical join path fenced (hosted/production must run `CANONICAL_POSTGRES_RUNTIME=1`, fail-closed). **C-4** target-reached-without-outbox confirmed intentional and recorded in code. **C-5** stale migration-063/064 comments corrected to 067/068.
+  - **GOV** distributor identity subsystem REMOVED (module, session/login/logout, affiliate overview + link creation, admin provision, SPA shells, Supabase distributor capability, `distributor_sessions` contract entry, `DISTRIBUTOR_SESSION_SECRET` everywhere, legacy /app UI); ordinary sharing and the analytics tables stay; the CI gate now fails on any identity token under `src/`.
+  - **DEP** `uuid` pinned to `^11` for `exceljs` (0 prod advisories path); **git-history secret scan** added to `npm run scan:secrets` (full file snapshots per commit, so multi-commit leaks are caught; card-number detector included for 13–19 digits; merge-resolution snapshots scanned; findings reported as masked fingerprints; 1,132 commits incl. merges clean). **CSP** on every HTML response (one fixed policy: startup-registered trusted inline-script hashes only, never derived from the response; no unsafe-inline scripts; frame-ancestors none), verified in headless Chromium: React + legacy shells render with 0 refusals.
+- STAGING DB: 073 + 074 applied on 2026-09-27 (ledger-consistent). 075 + 076 to be applied right after merge, before the staging deploy is trusted.
+- TESTED (local Postgres 16, closure branch): unit 17/17 · integration 47/47 · db 9/9 · api 50/50 · workers 15/15 · payments 45/45 · security 53/53 · concurrency 10/10 · failure 9/9 · e2e 17/17 (272 files; the 8 assertion-level fallout files from the new controls — readiness shape, sensitive-path list, canonical-runtime fixtures, distributor route expectations, token-only tracking in the browser smoke, admin login budget — were corrected and re-run green). Static gates (lint, architecture, runtime-env, startup-matrix, legal, logging-hygiene, money-tax, seven-day-cap, supply-chain, i18n, scan:secrets incl. git history) PASS; release-tool unit tests PASS; headless-Chromium CSP proof: React + legacy shells render, 0 refusals.
+- OPEN: none in code. Residual risks recorded in the report (§11): proxy depth on a non-Render host must be configured and confirmed; 15-minute admin lockout-DoS window (accepted); affiliate analytics tables remain in the schema (DROP is a separate owner-authorised data change).
+- PERCENTAGE: 100% for the red-team track once the closure PR is merged, 075/076 applied to staging and the staging deploy re-verified (A1/A3 live).
+- NEXT STEP: merge the closure PR → apply 075/076 on `siton-staging` in ledger order → re-verify staging (readiness, CSP header, admin lockout answers the identical 401, tracking 401) → confirm production apply plan with the owner.
+
+### Claude Code milestone — Full red-team engagement (security/money/DB/concurrency/supply-chain)
 
 - UPDATED: 2026-09-25
 - BRANCH: `claude/redteam-hardening-kx4e5a` from master `0a16515`. Owner: aggressive, systematic red team — find real failures and fix what is safe.

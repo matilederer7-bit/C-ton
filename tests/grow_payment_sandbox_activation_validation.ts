@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import "dotenv/config";
+import { withForcedTx, forcedDealStep, forcedParticipantStep } from "./helpers/forced_state.js";
 
 // R9B — Grow sandbox activation, proven end-to-end against the OFFICIAL Grow
 // contract at the application transport boundary (no network): the app runs
@@ -273,34 +274,23 @@ async function establishAuthHeld(prefix: string, qty = 2, pricePerUnit = 10) {
 
 async function enqueueChargeDeal(dealId: string) {
   const eventId = randomUUID();
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    // DB state-transition enforcement allows test-seeded transitions only
-    // under an explicit test.% action name (migration 053 contract).
-    await client.query(`SELECT set_config('siton.in_atomic', 'true', true)`);
-    await client.query(`SELECT set_config('app.in_atomic', 'true', true)`);
-    await client.query(`SELECT set_config('siton.audit_written', '1', true)`);
-    await client.query(`SELECT set_config('siton.outbox_written', '1', true)`);
-    await client.query(`SELECT set_config('siton.action_name','test.grow_charge_seed', true)`);
+  // DB state-transition enforcement allows test-seeded transitions only under
+  // an explicit test.% action name (migration 053 contract), and the per-row
+  // audit enforcement (migration 076) requires an audit row per forced step.
+  const ACTION = "test.grow_charge_seed";
+  await withForcedTx(pool, ACTION, async (client) => {
+    const participants = await client.query(`SELECT participant_id FROM siton.participants WHERE deal_id=$1`, [dealId]);
     // Walk the CANONICAL threshold/locking chain step by step — the DB
     // transition matrix (008/053) enforces it even for test seeds.
-    for (const [buyerState, moneyState] of [["LockedIn", "AuthLocked"], ["ChargingAttempt", "ChargeAttempt"]]) {
-      await client.query(
-        `UPDATE siton.participants SET buyer_state=$2, money_state=$3 WHERE deal_id=$1`,
-        [dealId, buyerState, moneyState]
-      );
+    for (const [buyerState, moneyState] of [["LockedIn", "AuthLocked"], ["ChargingAttempt", "ChargeAttempt"]] as Array<[string, string]>) {
+      for (const row of participants.rows) {
+        await forcedParticipantStep(client, String(row.participant_id), { buyer_state: buyerState, money_state: moneyState }, ACTION);
+      }
     }
     for (const dealState of ["TargetReached", "ClosedForJoining", "ReadyForCharging", "Charging"]) {
-      await client.query(`UPDATE siton.deals SET state=$2 WHERE deal_id=$1`, [dealId, dealState]);
+      await forcedDealStep(client, dealId, dealState, ACTION);
     }
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK").catch(() => undefined);
-    throw error;
-  } finally {
-    client.release();
-  }
+  });
   await pool.query(
     `INSERT INTO siton.outbox_events (event_uuid, event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at)
      VALUES ($1,'charge_deal','deal',$2,$3,'pending',0, now())`,

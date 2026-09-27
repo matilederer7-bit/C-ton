@@ -60,7 +60,6 @@ ok("every admin mutation route requires a named admin identity (no shared-key-on
 const P0_ROUTES = [
   "/api/admin/sellers/:sellerId/status",
   "/api/admin/seller-auth/:sellerId/provision",
-  "/api/admin/distributor-auth/:affiliateId/provision",
   "/api/admin/kyc/:subjectType/:subjectId/decision",
   "/api/admin/support-cases",
   "/api/admin/support-cases/:caseId",

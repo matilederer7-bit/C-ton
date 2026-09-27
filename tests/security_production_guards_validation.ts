@@ -17,6 +17,8 @@ function production(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
     OBJECT_STORAGE_ACCESS_KEY_ID: "production-access-key",
     OBJECT_STORAGE_SECRET_ACCESS_KEY: "production-secret-key",
     DATABASE_URL: "postgresql://placeholder.invalid/siton",
+    // Red-team C-3: a hosted/production runtime must run the canonical join path.
+    CANONICAL_POSTGRES_RUNTIME: "1",
     // A VALID production fixture must satisfy the production secret policy:
     // non-placeholder ADMIN_API_KEY (>=24) and SELLER_SESSION_SECRET (>=32),
     // and an OTP_HASH_SALT so OTP codes are not hashed with the public
@@ -107,5 +109,21 @@ assert.equal(resolveCompletionWindowMinutes({ APP_DEPLOYMENT_MODE: "staging", CO
 assert.equal(resolveCompletionWindowMinutes({ NODE_ENV: "development", COMPLETION_WINDOW_MINUTES: "5" }), 1440, "a manual/local deploy that is not the test harness ignores the override");
 assert.equal(resolveCompletionWindowMinutes({ COMPLETION_WINDOW_MINUTES: "5" }), 1440, "an unset NODE_ENV ignores the override");
 console.log("PASS completion window is hard-locked to 24h in production and env-overridable only in non-production");
+
+// Red-team B5: the mock/mock-backed provider mode (unsigned webhooks) can never
+// coexist with a live payment environment, in ANY deployment mode.
+assert.throws(() => assertProductionRuntimeGuards("web", { APP_DEPLOYMENT_MODE: "staging", PAYMENT_PROVIDER: "mockpay", PAYMENT_PROVIDER_MODE: "mock-backed", PAYMENT_ENVIRONMENT: "live" }), /mock-backed provider accepts unsigned webhooks/);
+assert.throws(() => assertProductionRuntimeGuards("web", production({ PAYMENT_PROVIDER_MODE: "mock-backed", PAYMENT_ENVIRONMENT: "production" })), /mock-backed provider accepts unsigned webhooks/);
+assert.doesNotThrow(() => assertProductionRuntimeGuards("web", { APP_DEPLOYMENT_MODE: "demo-preview", PAYMENT_PROVIDER: "mockpay", PAYMENT_PROVIDER_MODE: "mock-backed", PAYMENT_ENVIRONMENT: "demo" }));
+// Red-team A2: TRUST_PROXY_HOPS must be a bounded integer everywhere.
+assert.throws(() => assertProductionRuntimeGuards("web", production({ TRUST_PROXY_HOPS: "true" })), /TRUST_PROXY_HOPS must be an integer hop count/);
+assert.doesNotThrow(() => assertProductionRuntimeGuards("web", production({ TRUST_PROXY_HOPS: "1" })));
+console.log("PASS mock-backed/live separation (B5) and bounded proxy hop count (A2) are guarded");
+// Red-team C-3: the non-canonical (pre-R3) join path is test-harness only.
+assert.throws(() => assertProductionRuntimeGuards("web", production({ CANONICAL_POSTGRES_RUNTIME: "" })), /CANONICAL_POSTGRES_RUNTIME=1 is required/);
+assert.throws(() => assertProductionRuntimeGuards("web", { APP_DEPLOYMENT_MODE: "staging", RENDER: "true" }), /CANONICAL_POSTGRES_RUNTIME=1 is required/);
+assert.doesNotThrow(() => assertProductionRuntimeGuards("web", { APP_DEPLOYMENT_MODE: "staging", RENDER: "true", CANONICAL_POSTGRES_RUNTIME: "1" }));
+assert.doesNotThrow(() => assertProductionRuntimeGuards("web", { APP_DEPLOYMENT_MODE: "demo-preview" }), "the local harness may still run the legacy path");
+console.log("PASS the non-canonical join path is fenced to the local/test harness (C-3)");
 
 console.log("PASS production guards reject unsafe live topology and providers without blocking demo/test");

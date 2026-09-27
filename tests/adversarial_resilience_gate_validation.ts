@@ -301,11 +301,13 @@ await run("abuse: recovery outside ChargeFailedCompletion is forbidden and side-
   const join = await joinDeal({ dealId, buyerId: "buyer-recovery-abuse", label: "bad-recovery" });
   assert.equal(join.statusCode, 200, join.body);
   const participantId = (join.json() as any).participant_id as string;
+  const trackingToken = String((join.json() as any).tracking_access_token || "");
 
   const recovery = await app.inject({
     method: "POST",
     url: `/api/participants/${participantId}/recovery`,
     headers: {
+      authorization: `Bearer ${trackingToken}`,
       "idempotency-key": `bad-recovery-${randomUUID()}`,
       "x-forwarded-for": testIp("bad-recovery")
     },

@@ -10,7 +10,7 @@
 //   1. Membership is derived from the LIVE Fastify router, never from a
 //      hand-written route list. Two signals decide it, and either is enough:
 //        - route metadata: a route registered with `config.authority` set to a
-//          protected principal (seller | admin | distributor). This is the
+//          protected principal (seller | admin | link_viewer). This is the
 //          robust signal - it follows the route wherever its path lives.
 //        - namespace: a path under one of PROTECTED_NAMESPACES. This is the
 //          safety net for routes that carry no metadata yet.
@@ -30,14 +30,13 @@ const PROTECTED_NAMESPACES = [
   "/api/admin/",
   "/api/seller/",
   "/api/affiliate/",
-  "/api/distributor/",
   // Scoped read-only external link dashboard (seller distribution hub).
   "/api/link-viewer/"
 ];
 
 // Route metadata values (Fastify `config.authority`) that mark a route as
 // protected regardless of its path.
-const PROTECTED_AUTHORITIES = ["seller", "admin", "distributor", "link_viewer"];
+const PROTECTED_AUTHORITIES = ["seller", "admin", "link_viewer"];
 
 // Response bodies that are ONLY a guard refusal. An allowlisted route whose
 // anonymous answer is one of these is not "anonymous by design" - it is a
@@ -50,8 +49,6 @@ const GUARD_REFUSAL_ERRORS = [
   "seller_auth_required",
   "SELLER_AUTH_REQUIRED",
   "seller_auth_expired",
-  "distributor_auth_required",
-  "distributor_auth_unavailable",
   "link_viewer_auth_required",
   "link_viewer_auth_unavailable",
   "forbidden"
@@ -104,36 +101,17 @@ const ANONYMOUS_BY_DESIGN = [
     expect: { status: [200], marker: /"authenticated":false/ }
   },
   {
-    path: "/api/distributor/session",
-    reason: "Distributor equivalent of the seller session probe: reports authentication state, returns no distributor data when unauthenticated.",
+    path: "/api/link-viewer/session",
+    reason: "Auth-state probe of the external link dashboard: reports the signed-out state and returns no link, seller or buyer data when unauthenticated.",
     // Unlike the seller session probe (which answers 200 ok:true when signed
     // out), this endpoint reports the signed-out state as 401
-    // `distributor_auth_required` - a body that is, by shape, a guard refusal.
+    // `link_viewer_auth_required` - a body that is, by shape, a guard refusal.
     // `state_probe` is the reviewed acknowledgement of that: the gate honours it
     // ONLY for a route whose path ends in `/session` (the auth-state endpoint
     // naming a data route cannot wear without becoming a different route) whose
     // body reports `"authenticated":false` and discloses no principal data. It
     // is what lets a genuine state probe carry a guard-refusal-shaped body while
     // a data route (e.g. /api/seller/deals) crafted into this list cannot.
-    state_probe: true,
-    probe: { method: "GET" },
-    expect: { status: [200, 401], marker: /"authenticated":false/ }
-  },
-  {
-    path: "/api/distributor/session/login",
-    reason: "Credential entry point for the distributor surface.",
-    probe: { method: "POST", payload: {} },
-    expect: { status: [400, 401], marker: /distributor_auth_invalid_credentials|identifier/ }
-  },
-  {
-    path: "/api/distributor/session/logout",
-    reason: "Idempotent session teardown. No distributor data in the response.",
-    probe: { method: "POST", payload: {} },
-    expect: { status: [200], marker: /"ok":true/ }
-  },
-  {
-    path: "/api/link-viewer/session",
-    reason: "Auth-state probe of the external link dashboard: reports the signed-out state and returns no link, seller or buyer data when unauthenticated.",
     state_probe: true,
     probe: { method: "GET" },
     expect: { status: [200, 401], marker: /"authenticated":false/ }
@@ -152,7 +130,7 @@ const ANONYMOUS_BY_DESIGN = [
   },
   {
     path: "/api/affiliate/links/visit",
-    reason: "Public click/entry tracking. Share links are handed to anonymous buyers by design, so the recorder must accept them. It writes only click and entry events keyed by a source code the visitor already holds, and returns no campaign, distributor or buyer data.",
+    reason: "Public click/entry tracking. Share links are handed to anonymous buyers by design, so the recorder must accept them. It writes only click and entry events keyed by a source code the visitor already holds, and returns no campaign, source or buyer data.",
     probe: { method: "POST", payload: {} },
     expect: { status: [400], marker: /deal_id must be a valid uuid|affiliate_visit_invalid/ }
   }
@@ -214,7 +192,7 @@ function classifyRoute(routePath, config) {
  * they must not excuse it. Genuine anonymous entry points do not carry a
  * guard-refusal error at all (the seller session probe answers ok:true; login
  * routes answer credential errors; the affiliate recorder answers a validation
- * error) - the sole exception is the distributor session state probe, which the
+ * error) - the sole exception is the link-viewer session state probe, which the
  * gate handles through the `state_probe` allowlist flag, never here.
  */
 function isBareGuardRefusal(body) {

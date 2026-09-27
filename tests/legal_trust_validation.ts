@@ -35,8 +35,10 @@ await run("legal_distributor_no_commission_copy_validation", async () => {
   // No commission, balance, or payout for distributors anywhere in the runtime
   assert.doesNotMatch(runtime, /distributor.*commission/i);
   assert.doesNotMatch(runtime, /affiliate.*commission/i);
-  // Affiliate overview is informational only
-  assert.match(runtime, /\/api\/affiliate\/overview/);
+  // Ordinary sharing survives the distributor-identity removal: the visit
+  // route is measurement only (no money, no identity).
+  assert.match(runtime, /\/api\/affiliate\/links\/visit/);
+  assert.doesNotMatch(runtime, /\/api\/affiliate\/overview/);
 });
 
 await run("legal_footer_links_validation", async () => {

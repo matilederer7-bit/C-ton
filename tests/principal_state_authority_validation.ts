@@ -42,6 +42,11 @@ process.env.DISABLE_OUTBOX_WORKER = "1";
 process.env.SELLER_SESSION_SECRET = "seller-session-secret-principal-state";
 process.env.ADMIN_API_KEY = "principal-state-admin-key";
 process.env.ADMIN_SESSION_SECRET = process.env.ADMIN_SESSION_SECRET || "admin-session-secret-principal-state";
+// Red-team A3 put /api/admin/auth under the strict per-IP mutation bucket
+// (20/min by default); this suite performs dozens of named admin logins from
+// one injector address, so it lifts the budget (the per-account lockout, not
+// the IP bucket, is what it exercises).
+process.env.RATE_LIMIT_SENSITIVE_MAX = process.env.RATE_LIMIT_SENSITIVE_MAX || "500";
 
 const policy = createRequire(import.meta.url)(nodePath.join(process.cwd(), "scripts", "protected_route_policy.cjs"));
 

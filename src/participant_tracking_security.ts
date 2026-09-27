@@ -30,14 +30,21 @@ export function extractTrackingToken(req: any) {
   return String(req?.query?.t || req?.query?.token || req?.body?.tracking_token || "").trim();
 }
 
+// Red-team hardening (A5): the untokenized ("legacy") participant tracking
+// view is RETIRED in every runtime. A bare participant UUID never unlocks a
+// tracking/recovery/receipt view any more — not in demo, not in the test
+// harness, not with TRACKING_LEGACY_COMPAT. Every read requires the
+// high-entropy tracking credential issued at join (or a purpose-scoped token
+// issued later). The shape of this report is kept for mission control and the
+// readiness gates; the values are now constants.
 export function trackingMode() {
-  const legacyAllowed = process.env.TRACKING_LEGACY_COMPAT === "1" || !isProductionLikeEnv();
   return {
-    mode: legacyAllowed ? "mixed" : "tokenized",
+    mode: "tokenized" as const,
     token_format: "random_high_entropy_hash_only",
     production_requires_tracking_tokens: true,
-    legacy_links_allowed: legacyAllowed,
-    live_blocked_without_tracking_tokens: isProductionLikeEnv() && legacyAllowed
+    legacy_links_allowed: false,
+    live_blocked_without_tracking_tokens: false,
+    legacy_compat_env_ignored: process.env.TRACKING_LEGACY_COMPAT === "1"
   };
 }
 

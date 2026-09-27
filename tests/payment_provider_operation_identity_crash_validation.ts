@@ -59,7 +59,7 @@ process.env.PAYMENT_PROVIDER_REFUND_PATH = "/refund";
 process.env.PAYMENT_PROVIDER_RELEASE_PATH = "/release";
 process.env.PAYMENT_PROVIDER_STATUS_PATH = "/status";
 process.env.PAYMENT_PROVIDER_TIMEOUT_MS = "1500";
-// Independent financial review (migration 064): this stub settles synchronously,
+// Independent financial review (migration 068): this stub settles synchronously,
 // so its provider settlement horizon is short. A charge failure INFERRED from a
 // status read (S4) fences the automatic recovery until the horizon elapses.
 process.env.PAYMENT_SETTLEMENT_HORIZON_MS = "400";

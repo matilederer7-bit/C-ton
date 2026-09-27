@@ -37,7 +37,6 @@ process.env.DISABLE_OUTBOX_WORKER = "1";
 process.env.SELLER_SESSION_SECRET = "seller-session-secret-inputsurface";
 process.env.ADMIN_API_KEY = "input-surface-admin-key";
 process.env.ADMIN_SESSION_SECRET = process.env.ADMIN_SESSION_SECRET || "admin-session-secret-inputsurface";
-process.env.DISTRIBUTOR_SESSION_SECRET = "distributor-session-secret-inputsurface";
 // Rate limiting OFF for this suite, and that is load-bearing rather than
 // convenient. A thousands-of-requests sweep exhausts the 200/min per-IP bucket
 // within seconds, after which every later probe gets 429 - so the suite would be
@@ -159,8 +158,7 @@ const INTERNAL_DETAIL = [
   /\bECONNREFUSED\b/,
   /input-surface-admin-key/,                        // the configured secrets
   /admin-session-secret-inputsurface/,
-  /seller-session-secret-inputsurface/,
-  /distributor-session-secret-inputsurface/
+  /seller-session-secret-inputsurface/
 ];
 
 function assertNoInternalDetail(label: string, body: string) {

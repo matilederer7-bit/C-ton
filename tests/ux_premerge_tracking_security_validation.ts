@@ -33,14 +33,19 @@ try {
     }
   }
   for (const key of keys) delete process.env[key];
+  // Red-team A5: the untokenized path is RETIRED everywhere — not in the demo
+  // runtime, not in the test harness, and TRACKING_LEGACY_COMPAT=1 no longer
+  // re-enables it (it is only reported as an ignored, stale variable).
   process.env.NODE_ENV="test";
   process.env.APP_DEPLOYMENT_MODE="demo-preview";
   process.env.TRACKING_LEGACY_COMPAT="1";
-  assert.equal(trackingMode().legacy_links_allowed,true,"intentional local demo compatibility remains available");
-  // Explicit override is existing configuration, not the production default.
-  process.env.NODE_ENV="production";
-  assert.equal(trackingMode().live_blocked_without_tracking_tokens,true,"unsafe explicit override blocks live readiness");
-  console.log(`PASS UX production tracking: ${cases} real anonymous requests denied; explicit demo compatibility retained`);
+  assert.equal(trackingMode().legacy_links_allowed,false,"legacy links are retired even with the compat variable set");
+  assert.equal(trackingMode().legacy_compat_env_ignored,true,"the stale variable is reported as ignored");
+  assert.equal(trackingMode().live_blocked_without_tracking_tokens,false);
+  const demoAnonymous = await app.inject({method:"GET",url:`/api/participants/${participant}/tracking`});
+  assert.equal(demoAnonymous.statusCode,401,demoAnonymous.body);
+  assert.equal(demoAnonymous.json().error,"tracking_token_required");
+  console.log(`PASS UX production tracking: ${cases} real anonymous requests denied; untokenized legacy path retired in every runtime`);
 } finally {
   for(const key of keys) { if(saved[key]===undefined) delete process.env[key]; else process.env[key]=saved[key]; }
   await pool.query('DELETE FROM siton.participants WHERE participant_id=$1',[participant]);

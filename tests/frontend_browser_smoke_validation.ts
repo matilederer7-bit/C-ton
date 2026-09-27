@@ -899,6 +899,7 @@ async function assertBuyerDomFlowAndSafeResume(dealId: string, affiliateRef = ""
       return {
         path: location.pathname,
         participantId: flow.participantId || '',
+        trackingToken: flow.trackingAccessToken || '',
         success: Boolean(document.querySelector('.cton-success-card, .success-screen')),
         authorizationId: flow.authorizationId || '',
         body: document.body.innerText
@@ -922,106 +923,10 @@ async function assertBuyerDomFlowAndSafeResume(dealId: string, affiliateRef = ""
     }))()`);
     assert.equal(tracking.rendered, true, "buyer tracking should render after the browser join flow");
     assert.ok(tracking.overflow <= 1, `mobile tracking should not overflow horizontally: ${JSON.stringify(tracking)}`);
-    return { participantId: String(confirmation.participantId) };
-  });
-}
-
-async function assertAffiliateDomFlowContract(dealId: string) {
-  return withCdp("/app/affiliate", async ({ evaluate, setViewport }) => {
-    await setViewport({ width: 390, height: 844 });
-    for (let attempt = 0; attempt < 60; attempt += 1) {
-      if (await evaluate(`Boolean(document.querySelector('form[data-action="affiliate-link-create"]'))`)) break;
-      await wait(250);
-    }
-    const distributorSession = await evaluate(`(async () => {
-      const response = await fetch('/api/distributor/session');
-      return { status: response.status, body: await response.json() };
-    })()`);
-    assert.equal(distributorSession.status, 200, `local browser distributor context must be authenticated: ${JSON.stringify(distributorSession)}`);
-    assert.equal(distributorSession.body?.distributor_auth?.authenticated, true);
-    assert.equal(distributorSession.body?.distributor_auth?.mode, "demo-context");
-    assert.ok(distributorSession.body?.distributor_auth?.distributor_context?.affiliate_id);
-    const internalName = `browser-link-${Date.now()}`;
-    await evaluate(`(() => {
-      const deal = document.querySelector('#affiliateDealId');
-      const name = document.querySelector('#affiliateLinkName');
-      if (!deal || !name) throw new Error('affiliate link controls missing');
-      deal.value = '${dealId}';
-      deal.dispatchEvent(new Event('change', { bubbles: true }));
-      name.value = '${internalName}';
-      name.dispatchEvent(new Event('input', { bubbles: true }));
-      document.querySelector('form[data-action="affiliate-link-create"]').requestSubmit();
-      return true;
-    })()`);
-    let snapshot: any = null;
-    for (let attempt = 0; attempt < 60; attempt += 1) {
-      await wait(250);
-      snapshot = await evaluate(`(() => ({
-        text: document.body.innerText,
-        namedLink: [...document.querySelectorAll('.affiliate-link-list h3')].some((node) => node.textContent === '${internalName}'),
-        shareActions: document.querySelectorAll('.affiliate-link-list [data-inline-action="copy-link"], .affiliate-link-list [data-inline-action="share-link"]').length,
-        performanceRows: document.querySelectorAll('.affiliate-performance-table tbody tr').length,
-        assets: document.querySelectorAll('.marketing-asset-card').length,
-        boundary: Boolean(document.querySelector('.affiliate-boundary-note')),
-        overflow: document.documentElement.scrollWidth - window.innerWidth
-      }))()`);
-      if (snapshot.namedLink) break;
-    }
-    assert.equal(snapshot.namedLink, true, `affiliate named link should be created in-browser: ${JSON.stringify(snapshot)}`);
-    assert.ok(snapshot.shareActions >= 2, "named links should expose copy and share actions");
-    assert.ok(snapshot.performanceRows >= 1, "named links should appear in the performance table");
-    assert.ok(snapshot.assets >= 1, "seller-provided marketing assets should render for distributors");
-    assert.equal(snapshot.boundary, true, "distributor surface should keep the permanent attribution-only boundary");
-    assert.match(String(snapshot.text), /עמלת מפיץ היא 0/);
-    assert.doesNotMatch(String(snapshot.text), /יתרה זמינה|משיכת כספים|payout available/i);
-    assert.ok(snapshot.overflow <= 1, `mobile affiliate workspace should not overflow horizontally: ${JSON.stringify(snapshot)}`);
-    const sourceCode = await evaluate(`(() => {
-      const heading = [...document.querySelectorAll('.affiliate-link-list h3')].find((node) => node.textContent === '${internalName}');
-      const card = heading?.closest('.summary-item');
-      const sharePath = card?.querySelector('[data-share-url]')?.getAttribute('data-share-url') || '';
-      return new URL(sharePath, location.origin).searchParams.get('ref') || '';
-    })()`);
-    assert.match(String(sourceCode), /^[a-z0-9][a-z0-9_-]{7,63}$/);
-    return { internalName, sourceCode: String(sourceCode) };
-  });
-}
-
-async function assertAffiliateAttributedMetrics(internalName: string, sourceCode: string) {
-  await withCdp("/app/affiliate", async ({ evaluate, setViewport }) => {
-    await setViewport({ width: 390, height: 844 });
-    let snapshot: any = null;
-    for (let attempt = 0; attempt < 60; attempt += 1) {
-      await wait(250);
-      // The page may still be committing its navigation on early attempts —
-      // a relative fetch then throws ("Failed to parse URL"). That is exactly
-      // what this retry loop exists for, so treat it as "not ready yet".
-      try {
-      snapshot = await evaluate(`(async () => {
-        const response = await fetch('/api/affiliate/overview');
-        const payload = await response.json();
-        const link = (payload.affiliate_surface?.links || []).find((item) => item.source_code === '${sourceCode}');
-        const row = [...document.querySelectorAll('.affiliate-performance-table tbody tr')]
-          .find((node) => node.textContent?.includes('${internalName}'));
-        return {
-          attributedBuyers: Number(link?.attributed_buyers || 0),
-          attributedUnits: Number(link?.attributed_units || 0),
-          conversionRate: Number(link?.conversion_rate || 0),
-          rowVisible: Boolean(row),
-          rowText: row?.textContent || '',
-          overflow: document.documentElement.scrollWidth - window.innerWidth
-        };
-      })()`);
-      } catch (error) {
-        if (attempt >= 55) throw error;
-        continue;
-      }
-      if (snapshot.attributedBuyers >= 1 && snapshot.rowVisible) break;
-    }
-    assert.equal(snapshot.attributedBuyers, 1, `the named source should receive the browser join attribution: ${JSON.stringify(snapshot)}`);
-    assert.equal(snapshot.attributedUnits, 2, "the named source should receive the browser-selected quantity");
-    assert.ok(snapshot.conversionRate > 0, "named-link performance should expose a non-zero conversion after the attributed join");
-    assert.match(String(snapshot.rowText), new RegExp(escapeRegex(internalName)));
-    assert.ok(snapshot.overflow <= 1, `attributed metrics should not overflow on mobile: ${JSON.stringify(snapshot)}`);
+    // Red-team A5: the tracking view is token-only in every runtime. The
+    // browser flow above holds the credential in its own storage; the desktop
+    // and mobile route sweeps open fresh contexts, so they carry it in the URL.
+    return { participantId: String(confirmation.participantId), trackingToken: String(confirmation.trackingToken || "") };
   });
 }
 
@@ -1233,9 +1138,7 @@ async function main() {
 
     const created = await createDeal("עסקת smoke לדפדפן");
     await publishDeal(created.deal_id);
-    const affiliateLink = await run("distributor creates a named attribution link and sees performance/assets at 390px", () => assertAffiliateDomFlowContract(created.deal_id));
-    const joined = await run("buyer opens the attributed deal and completes OTP, mock authorization, confirmation, tracking and safe resume at 390px", () => assertBuyerDomFlowAndSafeResume(created.deal_id, affiliateLink.sourceCode));
-    await run("distributor sees the browser join attributed to the named link", () => assertAffiliateAttributedMetrics(affiliateLink.internalName, affiliateLink.sourceCode));
+    const joined = await run("buyer opens the deal and completes OTP, mock authorization, confirmation, tracking and safe resume at 390px", () => assertBuyerDomFlowAndSafeResume(created.deal_id));
 
     const soldOutDeal = await createDeal("Sold out browser fixture", { minUnits: 1, maxUnits: 1 });
     await publishDeal(soldOutDeal.deal_id);
@@ -1292,13 +1195,8 @@ async function main() {
       },
       {
         name: "buyer tracking",
-        path: `/app/track/${joined.participantId}`,
+        path: `/app/track/${joined.participantId}?t=${encodeURIComponent(joined.trackingToken)}`,
         expect: ["cton-tracking-page", "ההצטרפות שלך", "לא בוצע חיוב בפועל"]
-      },
-      {
-        name: "distributor workspace",
-        path: "/app/affiliate",
-        expect: ["affiliate-workspace", "affiliate-links", "affiliate-performance", "affiliate-assets"]
       },
       {
         name: "admin dashboard",
@@ -1355,13 +1253,8 @@ async function main() {
       },
       {
         name: "buyer tracking mobile",
-        path: `/app/track/${joined.participantId}`,
+        path: `/app/track/${joined.participantId}?t=${encodeURIComponent(joined.trackingToken)}`,
         expect: ["cton-tracking-page", "ההצטרפות שלך"]
-      },
-      {
-        name: "distributor workspace mobile",
-        path: "/app/affiliate",
-        expect: ["affiliate-workspace", "affiliate-performance", "marketing-assets-grid"]
       },
       {
         name: "admin dashboard mobile",

@@ -146,9 +146,11 @@ await run("join is not unprotected, it is protected by something other than the 
   const source = nodeFs.readFileSync(nodePath.join(process.cwd(), "src", "app.ts"), "utf8");
   const joinSource = source.slice(source.indexOf('app.post("/deals/:id/join"'));
   assert.ok(joinSource.length > 0, "could not locate the join handler to verify its guards");
-  const window = joinSource.slice(0, 12000);
+  // The join handler grew with the red-team C-2 reorder (lock-independent
+  // work first, deal lock around the money core), so the guard window is wider.
+  const window = joinSource.slice(0, 40000);
   assert.match(window, /pg_advisory_xact_lock/, "join no longer takes an advisory lock per buyer+idempotency key");
-  assert.match(window, /FOR UPDATE/, "join no longer locks the deal row, so capacity is racy");
+  assert.match(window, /FROM siton\.deals WHERE deal_id=\$1 FOR NO KEY UPDATE/, "join no longer locks the deal row, so capacity is racy");
   assert.match(window, /idempotency/i, "join no longer keys on an idempotency record");
   assert.match(window, /max_units_exceeded/, "join no longer enforces the capacity ceiling");
 

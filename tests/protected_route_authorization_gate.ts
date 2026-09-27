@@ -44,9 +44,6 @@ process.env.RATE_LIMIT_READ_MAX = "0";
 process.env.SELLER_SESSION_SECRET = "seller-session-secret-authz-gate";
 process.env.ADMIN_API_KEY = "authz-gate-admin-key";
 process.env.ADMIN_SESSION_SECRET = process.env.ADMIN_SESSION_SECRET || "admin-session-secret-authz-gate";
-// Configured on purpose: an unconfigured distributor secret makes the affiliate
-// surface answer 503 everywhere, which would prove nothing about its guard.
-process.env.DISTRIBUTOR_SESSION_SECRET = "distributor-session-secret-authz-gate";
 
 const requireCjs = createRequire(import.meta.url);
 const policy = requireCjs(path.join(process.cwd(), "scripts", "protected_route_policy.cjs"));
@@ -228,9 +225,6 @@ const EXPECTED_ANONYMOUS_BY_DESIGN = [
   "/api/admin/auth/logout",
   "/api/admin/auth/mfa/verify",
   "/api/affiliate/links/visit",
-  "/api/distributor/session",
-  "/api/distributor/session/login",
-  "/api/distributor/session/logout",
   // Seller distribution hub — scoped read-only external link dashboard
   // (state probe, credential entry, idempotent logout; no link data anonymously).
   "/api/link-viewer/session",
@@ -242,12 +236,12 @@ const EXPECTED_ANONYMOUS_BY_DESIGN = [
 ];
 
 // The anonymous entry points whose signed-out answer is a guard-refusal-
-// shaped body (401 distributor_auth_required / link_viewer_auth_required with
+// shaped body (401 link_viewer_auth_required with
 // authenticated:false) and so carry the reviewed `state_probe` flag. Pinned here as well as in the policy:
 // marking any other route a state probe means editing two files in one review,
 // exactly as the allowlist itself does. A crafted data route (e.g.
 // /api/seller/deals) cannot ride this - it is not a `/session` state probe.
-const EXPECTED_STATE_PROBES = ["/api/distributor/session", "/api/link-viewer/session"];
+const EXPECTED_STATE_PROBES = ["/api/link-viewer/session"];
 
 await run("the anonymous-by-design allowlist is exactly the reviewed set", async () => {
   const actual = policy.ANONYMOUS_BY_DESIGN.map((entry: any) => entry.path).sort();

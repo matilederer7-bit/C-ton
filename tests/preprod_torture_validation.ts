@@ -143,7 +143,8 @@ async function buildChargingParticipant(
 
   return {
     deal_id: created.deal_id,
-    participant_id: joinJson.participant_id as string
+    participant_id: joinJson.participant_id as string,
+    tracking_access_token: String(joinJson.tracking_access_token || "")
   };
 }
 
@@ -358,7 +359,7 @@ async function main() {
       });
       const tracking = await app.inject({
         method: "GET",
-        url: `/api/participants/${joinJson.participant_id}/tracking`,
+        url: `/api/participants/${joinJson.participant_id}/tracking?t=${encodeURIComponent(joinJson.tracking_access_token)}`,
         headers: { "x-forwarded-for": testIp(`soak-tracking-${iteration}`) }
       });
       assert.equal(publicDeal.statusCode, 200);
@@ -385,7 +386,7 @@ async function main() {
 
     const trackingDuringCharge = await app.inject({
       method: "GET",
-      url: `/api/participants/${charging.participant_id}/tracking`
+      url: `/api/participants/${charging.participant_id}/tracking?t=${encodeURIComponent(charging.tracking_access_token)}`
     });
     assert.equal(trackingDuringCharge.statusCode, 200);
     assert.equal((trackingDuringCharge.json() as any).tracking.buyer_state, "ChargingAttempt");
@@ -424,7 +425,7 @@ async function main() {
 
     const tracking = await app.inject({
       method: "GET",
-      url: `/api/participants/${charging.participant_id}/tracking`
+      url: `/api/participants/${charging.participant_id}/tracking?t=${encodeURIComponent(charging.tracking_access_token)}`
     });
     assert.equal(tracking.statusCode, 200);
     const trackingJson = tracking.json() as any;

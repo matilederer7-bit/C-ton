@@ -80,11 +80,11 @@ const DETECTORS = [
   },
   {
     id: "real-card-pan", severity: "FAIL", scope: "all",
-    // 15-16 digit runs (optionally space/dash separated) that start like a
+    // 13-19 digit runs (optionally space/dash separated) that start like a
     // Visa/Mastercard/Amex/Discover PAN, pass Luhn, and are not a documented
-    // test PAN or a repeated digit. Timestamps (13 digits, leading 1) and
-    // hex ids never qualify.
-    run: (text) => matches(text, /(?<!\d)(?:\d[ -]?){15,16}(?!\d)/g).map((hit) => ({ ...hit, digits: hit.match.replace(/\D/g, "") })).filter((hit) => (hit.digits.length === 15 || hit.digits.length === 16) && /^[3456]/.test(hit.digits) && luhn(hit.digits) && !KNOWN_TEST_PANS.has(hit.digits) && !/^(\d)\1+$/.test(hit.digits)).map((hit) => ({ ...hit, match: hit.digits.slice(0, 6) + "******" + hit.digits.slice(-4) }))
+    // test PAN, a repeated digit or part of a UUID. Timestamps (13 digits,
+    // leading 1) and hex ids never qualify.
+    run: (text) => matches(text, /(?<!\d)(?:\d[ -]?){13,19}(?!\d)/g).map((hit) => ({ ...hit, digits: hit.match.replace(/\D/g, "") })).filter((hit) => hit.digits.length >= 13 && hit.digits.length <= 19 && /^[3456]/.test(hit.digits) && luhn(hit.digits) && !KNOWN_TEST_PANS.has(hit.digits) && !/^(\d)\1+$/.test(hit.digits) && !insideUuid(text, hit)).map((hit) => ({ ...hit, match: hit.digits.slice(0, 6) + "******" + hit.digits.slice(-4) }))
   },
   {
     id: "pii-in-runtime", severity: "WARNING", scope: "runtime",
@@ -96,6 +96,33 @@ const DETECTORS = [
     ]
   }
 ];
+
+// A digit run that is part of a UUID-shaped token (8-4-4-4-12 hex groups,
+// e.g. the "4444-555555555555" tail of a synthetic id) is not a card number
+// even when it happens to pass Luhn.
+const UUID_SHAPE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+function insideUuid(text, hit) {
+  const start = Math.max(0, hit.index - 40);
+  const window = text.slice(start, hit.index + hit.match.length + 40);
+  for (const uuid of window.matchAll(UUID_SHAPE)) {
+    const from = start + uuid.index;
+    const to = from + uuid[0].length;
+    if (hit.index >= from && hit.index + hit.match.length <= to) return true;
+  }
+  return false;
+}
+
+// A finding is reported as a masked fingerprint, never as the credential
+// itself: the scan's own output lands in durable CI logs, and a gate that
+// republishes the secret it exists to contain defeats its purpose (Codex on
+// PR #97). Enough survives to identify the hit (prefix, length, a short hash).
+function maskSecret(value) {
+  const raw = String(value == null ? "" : value);
+  if (!raw) return "";
+  const digest = require("node:crypto").createHash("sha256").update(raw, "utf8").digest("hex").slice(0, 12);
+  const visible = raw.length > 12 ? raw.slice(0, 4) : raw.slice(0, 1);
+  return `${visible}…[${raw.length} chars, sha256:${digest}]`;
+}
 
 function matches(text, regex) {
   const out = [];
@@ -159,7 +186,7 @@ if (require.main === module) {
   const result = run();
   const fails = result.findings.filter((f) => f.severity === "FAIL");
   const warns = result.findings.filter((f) => f.severity === "WARNING");
-  for (const finding of result.findings) console.log("[" + finding.severity + "] " + finding.rel + ":" + finding.line + " " + finding.detector + " " + finding.match + (finding.note ? " (" + finding.note + ")" : ""));
+  for (const finding of result.findings) console.log("[" + finding.severity + "] " + finding.rel + ":" + finding.line + " " + finding.detector + " " + maskSecret(finding.match) + (finding.note ? " (" + finding.note + ")" : ""));
   for (const entry of result.staleAllowListEntries) { console.log("[FAIL] stale allow-list entry " + entry.file + " " + entry.detector); fails.push(entry); }
   console.log("SECRET_PII_SCAN_SUMMARY scanned=" + result.scanned + " fail=" + fails.length + " warning=" + warns.length);
   fs.writeFileSync(path.join(require("./lib/release_report.cjs").artifactsDir(process.cwd()), "secret-pii-scan.json"), JSON.stringify(result, null, 2) + "\n");
@@ -167,4 +194,4 @@ if (require.main === module) {
   process.exit(fails.length ? 1 : 0);
 }
 
-module.exports = { run, DETECTORS, luhn, KNOWN_TEST_PANS };
+module.exports = { run, DETECTORS, luhn, KNOWN_TEST_PANS, maskSecret };

@@ -171,7 +171,11 @@ assert.deepEqual(readiness.json(), {
   database: "connected",
   schema: "siton",
   inventory: "siton_inventory_rpc_v1",
-  runtime_role: "siton_web_runtime"
+  runtime_role: "siton_web_runtime",
+  // Red-team A2: readiness echoes the caller's resolved address + hop count so
+  // an operator can confirm TRUST_PROXY_HOPS live (the injector is the socket peer).
+  client_ip: "127.0.0.1",
+  trust_proxy_hops: 1
 });
 
 // ── the Seller Distribution Hub, driven AS the web runtime ────────────────

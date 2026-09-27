@@ -129,9 +129,9 @@ function enumerateRoutes(printed: string): Array<{ path: string; methods: string
   return routes;
 }
 
-await run("the viewer session is refused on EVERY seller, admin, affiliate and distributor route (never a 2xx)", async () => {
+await run("the viewer session is refused on EVERY seller, admin and affiliate route (never a 2xx)", async () => {
   const routes = enumerateRoutes(app.printRoutes({ commonPrefix: false }))
-    .filter((r) => ["/api/seller/", "/api/admin/", "/api/affiliate/", "/api/distributor/"].some((p) => r.path.startsWith(p)))
+    .filter((r) => ["/api/seller/", "/api/admin/", "/api/affiliate/"].some((p) => r.path.startsWith(p)))
     // Anonymous-by-design entry points (session state probes, logins, logouts,
     // the public visit recorder) answer everyone; they carry no data.
     .filter((r) => !/\/session(\/login|\/logout)?$|\/auth\/(login|logout|mfa\/verify)$|\/links\/visit$/.test(r.path));

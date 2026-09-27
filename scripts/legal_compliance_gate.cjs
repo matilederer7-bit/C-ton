@@ -73,8 +73,17 @@ if (/buyer_terms_accepted/.test(app + "\n" + server) || /buyer_terms_required/.t
 
 if (/terms[^\n]{0,80}(modal|popup)|modal[^\n]{0,80}terms|popup[^\n]{0,80}terms/i.test(combinedProductNoComments)) failures.push("forced terms popup/modal pattern found");
 
-for (const link of ["/app/terms", "/app/privacy", "/app/refunds", "/app/accessibility", "/app/seller-terms", "/app/distributor-terms"]) {
+for (const link of ["/app/terms", "/app/privacy", "/app/refunds", "/app/accessibility", "/app/seller-terms"]) {
   if (!app.includes(link) && !runtime.includes(link)) failures.push("missing policy link: " + link);
+}
+
+// Distributor terms: the legal page (src/legal_pages.ts slug "affiliates",
+// served at /legal/affiliates) must exist and stay linked from the product.
+// There is no distributor SPA shell any more; the link is the legal page itself.
+{
+  const legalPages = read("src/legal_pages.ts");
+  if (!/slug:\s*"affiliates"/.test(legalPages)) failures.push("distributor terms legal page (slug \"affiliates\") is missing from src/legal_pages.ts");
+  if (!app.includes("/legal/affiliates")) failures.push("missing policy link: /legal/affiliates");
 }
 
 for (const requiredCopy of ["מחיר ליחידה", "כמות", "משלוח", "סך הכול", "תפיסת מסגרת בלבד"]) {
@@ -133,11 +142,13 @@ for (const term of ["commission", "balance", "withdrawal", "affiliate_fee", "dis
 if (!/(אינו מקבל מידע אישי|לא יקבל מידע אישי)/.test(distributorTerms) || !distributorTerms.includes("אין עמלה")) failures.push("distributor terms do not pin attribution-only/no-PII/no-commission posture");
 
 {
-  const routeStart = runtime.indexOf('app.get("/api/affiliate/overview"');
-  if (routeStart < 0) failures.push("affiliate overview route not found in src/frontend_runtime.ts (cannot verify distributor PII boundary)");
+  // The only remaining affiliate route is the anonymous visit recorder. It
+  // measures clicks/entries by source code and must never touch buyer PII.
+  const routeStart = runtime.indexOf('app.post("/api/affiliate/links/visit"');
+  if (routeStart < 0) failures.push("affiliate visit route not found in src/frontend_runtime.ts (cannot verify distributor PII boundary)");
   else {
-    const separator = runtime.indexOf("// ---------------------------------------------------------------------------", routeStart);
-    const affiliateBlock = runtime.slice(routeStart, separator > routeStart ? separator : routeStart + 20000);
+    const routeEnd = runtime.indexOf("\n  });\n", routeStart);
+    const affiliateBlock = runtime.slice(routeStart, routeEnd > routeStart ? routeEnd : routeStart + 4000);
     for (const pii of ["buyer_id", "buyer_phone", "buyer_email", "buyer_name", "delivery_address"]) {
       if (affiliateBlock.includes(pii)) failures.push("buyer PII appears in distributor API block: " + pii);
     }

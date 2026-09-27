@@ -199,16 +199,11 @@ export async function recordViralJoinAttribution(c: Queryable, input: ViralJoinI
     }
   }
 
-  // Debounced async recompute; the partial unique index
-  // (event_type, aggregate_id) WHERE pending/processing makes this a no-op
-  // when a recompute is already queued for the deal.
-  await c.query(
-    `INSERT INTO siton.outbox_events(event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at)
-     VALUES ('viral_recompute','deal',$1,$2,'pending',0, now() + interval '20 seconds')
-     ON CONFLICT DO NOTHING`,
-    [input.deal_id, JSON.stringify({ deal_id: input.deal_id, reason: "join" })]
-  );
-
+  // The deal-scoped 'viral_recompute' debounce is NOT enqueued here any more:
+  // it is a per-deal unique row (partial index on event_type+aggregate_id),
+  // so concurrent joins to the same deal would serialise — and deadlock
+  // against the deal row lock — on it. The join handler enqueues it inside
+  // its critical section via enqueueViralRecompute() (red-team C-2).
   return {
     attributed: originRefType !== "none",
     generation,
@@ -749,12 +744,19 @@ export async function readViralMetricsCache(db: Queryable, scopeType: "platform"
   };
 }
 
-export async function enqueueViralRecompute(db: Queryable, dealId: string, reason: string): Promise<void> {
+// Debounced async recompute of the deal's viral subtree; the partial unique
+// index (event_type, aggregate_id) WHERE pending/processing makes this a
+// no-op when a recompute is already queued for the deal. Deal-scoped: a join
+// must call it INSIDE its deal-lock critical section (red-team C-2) — two
+// transactions inserting this row concurrently otherwise wait on each other's
+// commit and, with the participant FK key-share taken before the deal lock,
+// deadlock. `delaySeconds` keeps the join-time 20s debounce.
+export async function enqueueViralRecompute(db: Queryable, dealId: string, reason: string, delaySeconds = 0): Promise<void> {
   await db.query(
     `INSERT INTO siton.outbox_events(event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at)
-     VALUES ('viral_recompute','deal',$1,$2,'pending',0, now())
+     VALUES ('viral_recompute','deal',$1,$2,'pending',0, now() + ($3::int * interval '1 second'))
      ON CONFLICT DO NOTHING`,
-    [dealId, JSON.stringify({ deal_id: dealId, reason })]
+    [dealId, JSON.stringify({ deal_id: dealId, reason }), Math.max(0, Math.floor(delaySeconds))]
   );
 }
 

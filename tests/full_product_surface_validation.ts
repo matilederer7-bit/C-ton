@@ -127,6 +127,7 @@ async function joinDeal(dealId: string, buyerId: string, suffix: string, deliver
   assert.equal(response.statusCode, 200, `join failed for ${suffix}: ${response.body}`);
   return response.json() as {
     participant_id: string;
+    tracking_access_token: string;
     delivery_method_label?: string;
     delivery_cost?: number;
     hold_total?: number;
@@ -304,7 +305,7 @@ async function main() {
 
     const tracking = await app.inject({
       method: "GET",
-      url: `/api/participants/${joined.participant_id}/tracking`
+      url: `/api/participants/${joined.participant_id}/tracking?t=${encodeURIComponent(joined.tracking_access_token)}`
     });
     assert.equal(tracking.statusCode, 200);
     const trackingPayload = tracking.json() as any;
@@ -323,11 +324,7 @@ async function main() {
     assert.equal(Number(sellerParticipant.delivery_cost), 18);
   });
 
-  await runTest("affiliate and admin surfaces are reachable", async () => {
-    const affiliate = await app.inject({ method: "GET", url: "/api/affiliate/overview" });
-    assert.equal(affiliate.statusCode, 200);
-    assert.ok(["ready_for_attribution", "active"].includes((affiliate.json() as any).affiliate_surface.attribution_status));
-
+  await runTest("admin surface is reachable", async () => {
     const admin = await app.inject({ method: "GET", url: "/api/admin/overview?q=" });
     assert.equal(admin.statusCode, 200);
     assert.equal((admin.json() as any).ok, true);
@@ -365,7 +362,6 @@ async function main() {
       "/app/contact",
       "/app/seller",
       "/app/seller/new",
-      "/app/affiliate",
       "/app/admin"
     ];
 

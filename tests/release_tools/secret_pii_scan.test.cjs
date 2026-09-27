@@ -112,3 +112,12 @@ test("the repository itself passes the secret/PII scan", () => {
   assert.deepEqual(fails, [], JSON.stringify(fails, null, 2));
   assert.deepEqual(result.staleAllowListEntries, []);
 });
+
+test("real-card-pan covers the documented 13-19 digit range and ignores UUID fragments", () => {
+  const detector = require("../../scripts/secret_pii_scan.cjs").DETECTORS.find((d) => d.id === "real-card-pan");
+  for (const pan of ["4105987511758", "55733818719908", "4539148803436467", "43714041014380902", "532999082567378271", "4868965756214235778"]) {
+    assert.equal(detector.run(`card ${pan} end`).length, 1, `expected a hit for ${pan.length}-digit PAN`);
+  }
+  assert.equal(detector.run("id 11111111-2222-3333-4444-555555555555").length, 0, "UUID fragment is not a PAN");
+  assert.equal(detector.run("ts 1789341297974 and 4242424242424242").length, 0, "timestamp and documented test PAN ignored");
+});

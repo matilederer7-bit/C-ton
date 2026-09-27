@@ -7,6 +7,7 @@
 // audit/outbox flags + action name per step). No provider call, no real money.
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { withForcedTx, forcedDealPath, forcedParticipantStep } from "./forced_state.js";
 
 export function sellerHeaders(sellerId: string) {
   return { "x-seller-id": sellerId, "content-type": "application/json" };
@@ -137,33 +138,16 @@ const DEAL_PATHS: Record<string, Array<{ to: string; action: string }>> = {
   Failed: [{ to: "Failed", action: "deal.deadline_check" }]
 };
 
-async function forcedTx(pool: any, actionName: string, fn: (client: any) => Promise<void>) {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    await client.query(`SELECT set_config('siton.in_atomic', 'true', true)`);
-    await client.query(`SELECT set_config('app.in_atomic', 'true', true)`);
-    await client.query(`SELECT set_config('siton.audit_written', '1', true)`);
-    await client.query(`SELECT set_config('siton.outbox_written', '1', true)`);
-    await client.query(`SELECT set_config('siton.action_name', $1, true)`, [actionName]);
-    await fn(client);
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
-}
+// Per-row audit enforcement (migration 076): forced steps write their own
+// audit rows (and outbox rows where the action requires one) — see
+// tests/helpers/forced_state.ts.
+const forcedTx = withForcedTx;
 
 export async function forceDealState(pool: any, dealId: string, state: "Completed" | "Failed") {
   const path = DEAL_PATHS[state];
   assert.ok(path, `unsupported forced state ${state}`);
   await forcedTx(pool, path[0]!.action, async (client) => {
-    for (const step of path) {
-      await client.query(`SELECT set_config('siton.action_name', $1, true)`, [step.action]);
-      await client.query(`UPDATE siton.deals SET state=$2 WHERE deal_id=$1`, [dealId, step.to]);
-    }
+    await forcedDealPath(client, dealId, path);
   });
 }
 
@@ -199,10 +183,10 @@ export async function forceParticipantTo(pool: any, participantId: string, targe
   assert.ok(path, `unsupported participant target ${String(target)}`);
   await forcedTx(pool, "test.physical_fulfillment_fixture", async (client) => {
     for (const buyerState of path.buyer) {
-      await client.query(`UPDATE siton.participants SET buyer_state=$2 WHERE participant_id=$1`, [participantId, buyerState]);
+      await forcedParticipantStep(client, participantId, { buyer_state: buyerState }, "test.physical_fulfillment_fixture");
     }
     for (const moneyState of path.money) {
-      await client.query(`UPDATE siton.participants SET money_state=$2 WHERE participant_id=$1`, [participantId, moneyState]);
+      await forcedParticipantStep(client, participantId, { money_state: moneyState }, "test.physical_fulfillment_fixture");
     }
   });
 }

@@ -72,7 +72,7 @@ async function insertAttempt(
   correlationId: string
 ) {
   await client.query(
-    // R9C (migration 063): a NEW identity may only be minted once the prior one is
+    // R9C (migration 067): a NEW identity may only be minted once the prior one is
     // resolved, so synthetic rows are seeded as provider-declared failures — the
     // rolling cap counts real attempts regardless of their outcome.
     // Migration 064: "provider-declared" is exact-request evidence
