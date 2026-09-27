@@ -10315,7 +10315,8 @@ export function registerFrontendExperience(
 
       const serverMoney = await deps.withTx(async (c) => {
         const dealResult = await c.query(
-          `SELECT deal_id, state, max_units, price_per_unit
+          `SELECT deal_id, state, max_units, price_per_unit,
+                  (deadline <= clock_timestamp()) AS deadline_passed
            FROM siton.deals
            WHERE deal_id=$1
            FOR UPDATE`,
@@ -10336,6 +10337,13 @@ export function registerFrontendExperience(
           const err: any = new Error("deal is not open for payment authorization");
           err.statusCode = 409;
           err.code = "deal_not_open_for_authorization";
+          throw err;
+        }
+        // Black-Sky A-F5: no new hold after the deadline (DB clock, under the lock).
+        if ((dealResult.rows[0] as any).deadline_passed === true) {
+          const err: any = new Error("deal deadline has passed");
+          err.statusCode = 409;
+          err.code = "deal_deadline_passed";
           throw err;
         }
 

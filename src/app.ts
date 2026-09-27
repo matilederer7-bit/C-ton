@@ -500,7 +500,9 @@ export const DEAL_TRANSITIONS: Record<string, string[]> = {
   Draft: ["PendingTarget", "Cancelled"],
   PendingTarget: ["TargetReached", "Failed", "ClosedForJoining"],
   TargetReached: ["ClosedForJoining"],
-  ClosedForJoining: ["ReadyForCharging", "PendingTarget", "TargetReached"],
+  // Black-Sky A-F1 (migration 077): a paused deal still below threshold at its
+  // deadline fails like an open one.
+  ClosedForJoining: ["ReadyForCharging", "PendingTarget", "TargetReached", "Failed"],
   ReadyForCharging: ["Charging"],
   Charging: ["CompletionWindow"],
   CompletionWindow: ["Completed", "Failed"],
@@ -4864,12 +4866,19 @@ async function workerProcessEvent(event: {
       return r.rows[0] as { state: DealState; deadline: string; threshold_units: number };
     });
 
-    if (deal.state !== "PendingTarget") return;
+    // Black-Sky A-F1: a deal still awaiting its deadline decision is either
+    // open (PendingTarget) or joining-paused (ClosedForJoining). Before, the
+    // state filter ran BEFORE the deferral: a deal paused before its deadline
+    // consumed this job, never failed, kept every buyer hold, and could later be
+    // charged below threshold. Anything else (target reached, charging, a
+    // terminal state) is not decided here.
+    if (deal.state !== "PendingTarget" && deal.state !== "ClosedForJoining") return;
 
     // A deadline check may only fail a deal AFTER its deadline has passed. If the
     // deadline is still in the future (e.g. this check was enqueued at publish
     // time and processed immediately by the continuous worker), defer it until
     // the deadline instead of failing a freshly published, still-joinable deal.
+    // The deferral keeps the job alive across a pause and a later reopen.
     const deadlineMs = new Date(String(deal.deadline || "")).getTime();
     if (Number.isFinite(deadlineMs) && Date.now() < deadlineMs) {
       throw new DeferredEventError("deadline_not_reached", new Date(deadlineMs));
@@ -4883,7 +4892,7 @@ async function workerProcessEvent(event: {
       entityId: dealId,
       dealId,
       stateType: "deal_state",
-      fromState: "PendingTarget",
+      fromState: deal.state,
       toState: "Failed",
       actionName: "deal.deadline_check",
       requestId: `worker:${eventId}`,
@@ -5568,8 +5577,13 @@ const ANALYTICS_PATHS = ["/api/mall/events", "/api/viral/events", "/api/affiliat
 // shared NAT (school, office, mobile carrier CGNAT) is one IP for many real
 // buyers on a hot deal. Before, join had no per-IP budget at all.
 const JOIN_PATH_RE = /^\/(?:api\/)?deals\/[^/]+\/join$/;
-const RATE_LIMIT_JOIN_MAX = Number(process.env.RATE_LIMIT_JOIN_MAX ?? 60);
-const RATE_LIMIT_ANALYTICS_MAX = Number(process.env.RATE_LIMIT_ANALYTICS_MAX ?? 60);
+// Like the read budget, the join and analytics budgets are never stricter than
+// the mutation budget: an operator who lifts RATE_LIMIT_SENSITIVE_MAX for bulk
+// traffic lifts these with it. 0 still switches a budget off explicitly.
+const RATE_LIMIT_JOIN_MAX_CONFIGURED = Number(process.env.RATE_LIMIT_JOIN_MAX ?? 60);
+const RATE_LIMIT_JOIN_MAX = RATE_LIMIT_JOIN_MAX_CONFIGURED <= 0 ? 0 : Math.max(RATE_LIMIT_JOIN_MAX_CONFIGURED, RATE_LIMIT_SENSITIVE_MAX);
+const RATE_LIMIT_ANALYTICS_MAX_CONFIGURED = Number(process.env.RATE_LIMIT_ANALYTICS_MAX ?? 60);
+const RATE_LIMIT_ANALYTICS_MAX = RATE_LIMIT_ANALYTICS_MAX_CONFIGURED <= 0 ? 0 : Math.max(RATE_LIMIT_ANALYTICS_MAX_CONFIGURED, RATE_LIMIT_SENSITIVE_MAX);
 
 type RateLimitEntry = { count: number; resetAt: number };
 interface RateLimiterStore {
@@ -7586,7 +7600,8 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     // back exactly as before. The deal state is re-read UNDER the lock before
     // capacity is decided; the unlocked read below only rejects early.
     const dealRow = await c.query(
-      `SELECT deal_id, state, max_units, threshold_units, seller_id, title, price_per_unit, deal_type, published_at
+      `SELECT deal_id, state, max_units, threshold_units, seller_id, title, price_per_unit, deal_type, published_at,
+              (deadline <= clock_timestamp()) AS deadline_passed
        FROM siton.deals WHERE deal_id=$1`,
       [dealId]
     );
@@ -7608,6 +7623,19 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       }
     };
     assertOpenForJoining(dealState);
+    // Black-Sky A-F5: the deadline is the end of joining. Before, a join that
+    // arrived after the deadline but before the deadline_check job ran was
+    // accepted (and could even flip the deal to TargetReached). The deadline
+    // is judged by the DATABASE clock, re-checked under the deal lock below.
+    const assertBeforeDeadline = (passed: unknown) => {
+      if (passed === true) {
+        const err: any = new Error("deal deadline has passed");
+        err.statusCode = 409;
+        err.code = "deal_deadline_passed";
+        throw err;
+      }
+    };
+    assertBeforeDeadline(dealRow.rows[0].deadline_passed);
 
     const assertJoiningNotPaused = async () => {
       if (await isFlagActive(c, "pause_joining_emergency", "deal", dealId)
@@ -7878,7 +7906,7 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     // compatible with KEY SHARE, so joins serialise on it cleanly. The state
     // UPDATEs below take the same lock mode implicitly.
     const lockedDeal = await c.query(
-      `SELECT state FROM siton.deals WHERE deal_id=$1 FOR NO KEY UPDATE`,
+      `SELECT state, (deadline <= clock_timestamp()) AS deadline_passed FROM siton.deals WHERE deal_id=$1 FOR NO KEY UPDATE`,
       [dealId]
     );
     if (!lockedDeal.rowCount) {
@@ -7890,6 +7918,7 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     // committed while the pre-lock work ran must still refuse this join.
     const lockedState = String(lockedDeal.rows[0].state) as DealState;
     assertOpenForJoining(lockedState);
+    assertBeforeDeadline(lockedDeal.rows[0].deadline_passed);
     await assertJoiningNotPaused();
 
     const inventory = canonicalInventoryRuntime ? buildInventoryRepository(c) : null;
@@ -8328,12 +8357,29 @@ app.post("/deals/:id/prepare_charging", SELLER_AUTHORITY_ROUTE, async (req: any)
       ops.push({ entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", fromState: "ClosedForJoining", toState: "ReadyForCharging" });
 
       const parts = await c.query(
-        `SELECT participant_id, buyer_state, money_state
+        `SELECT participant_id, buyer_state, money_state, qty
          FROM siton.participants
          WHERE deal_id=$1
          FOR UPDATE`,
         [dealId]
       );
+
+      // Black-Sky A-F1: charge only a deal that closed AT/ABOVE its threshold.
+      // A manual pause is legal below the target (P0.3); before this guard the
+      // paused deal could go straight to ReadyForCharging and charge buyers of
+      // a deal that never reached its minimum. Counted under the row locks:
+      // only live joined holds (the rows this transition locks in).
+      const lockedUnits = (parts.rows as Array<{ buyer_state: string; money_state: string; qty: number | string }>)
+        .filter((p) => p.buyer_state === "JoinedAuthorized" && p.money_state === "AuthHeld")
+        .reduce((sum, p) => sum + Number(p.qty || 0), 0);
+      const thresholdRow = await c.query(`SELECT threshold_units FROM siton.deals WHERE deal_id=$1`, [dealId]);
+      const thresholdUnits = Number(thresholdRow.rows[0]?.threshold_units);
+      if (!Number.isFinite(thresholdUnits) || lockedUnits < thresholdUnits) {
+        const err: any = new Error("deal did not reach its threshold");
+        err.statusCode = 409;
+        err.code = "threshold_not_reached";
+        throw err;
+      }
 
       for (const p of parts.rows as Array<{ participant_id: string; buyer_state: BuyerState; money_state: MoneyState }>) {
         if (p.buyer_state === "JoinedAuthorized") {

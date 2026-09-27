@@ -9,7 +9,7 @@ process.env.DISABLE_OUTBOX_WORKER = "1";
 process.env.RATE_LIMIT_MAX = "1000";
 process.env.RATE_LIMIT_SENSITIVE_MAX = "3";
 process.env.RATE_LIMIT_JOIN_MAX = "4";
-process.env.RATE_LIMIT_ANALYTICS_MAX = "2";
+process.env.RATE_LIMIT_ANALYTICS_MAX = "5"; // above the sensitive floor (3), so this budget is its own
 
 const { app } = await import("../src/app.js");
 
@@ -38,7 +38,7 @@ await run("the /api join alias hits the join budget", async () => {
 });
 
 await run("unauthenticated analytics writers hit the analytics budget", async () => {
-  const codes = await statuses(4, { method: "POST", url: "/api/mall/events", ip: "198.51.100.23", payload: { event_type: "view" } });
+  const codes = await statuses(7, { method: "POST", url: "/api/mall/events", ip: "198.51.100.23", payload: { event_type: "view" } });
   assert.equal(codes.filter((c) => c === 429).length, 2, JSON.stringify(codes));
 });
 

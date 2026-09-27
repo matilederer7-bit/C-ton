@@ -68,7 +68,7 @@ async function main() {
     assert.deepEqual(DEAL_TRANSITIONS.Draft, ["PendingTarget", "Cancelled"]);
     assert.deepEqual(DEAL_TRANSITIONS.PendingTarget, ["TargetReached", "Failed", "ClosedForJoining"]);
     assert.deepEqual(DEAL_TRANSITIONS.TargetReached, ["ClosedForJoining"]);
-    assert.deepEqual(DEAL_TRANSITIONS.ClosedForJoining, ["ReadyForCharging", "PendingTarget", "TargetReached"]);
+    assert.deepEqual(DEAL_TRANSITIONS.ClosedForJoining, ["ReadyForCharging", "PendingTarget", "TargetReached", "Failed"]);
     assert.deepEqual(DEAL_TRANSITIONS.ReadyForCharging, ["Charging"]);
     assert.deepEqual(DEAL_TRANSITIONS.Charging, ["CompletionWindow"]);
     assert.deepEqual(DEAL_TRANSITIONS.CompletionWindow, ["Completed", "Failed"]);
