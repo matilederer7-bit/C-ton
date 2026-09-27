@@ -120,7 +120,7 @@ Procedure (owner runs the tool from the operator machine against the hosted data
 # 0. inventory under the CURRENT keyring (read-only; exit 3 if anything is UNOPENABLE — stop and investigate before changing keys)
 DATABASE_URL="<hosted-owner-url>" GROW_REFERENCE_ENCRYPTION_KEY="<current>" \
   node scripts/grow_reference_reseal.cjs --allow-hosted --yes --json > grow-inventory-before.json
-# 1. OWNER ACTION on Render (both services), then restart: 
+# 1. OWNER ACTION on Render (both services), then restart:
 #      GROW_REFERENCE_ENCRYPTION_KEY            = <new key>
 #      GROW_REFERENCE_ENCRYPTION_KEY_ID         = <new kid>            (optional but recommended)
 #      GROW_REFERENCE_ENCRYPTION_PREVIOUS_KEYS  = <old kid>:<old key>  (keep the old key here)
