@@ -2006,7 +2006,7 @@ async function handleRefundEvent(
       // The refund may have been issued (5xx/429/timeout/transport loss after
       // dispatch, or a success without a declared event). Never re-fire the
       // refund blindly and never mint a new identity — reconcile the SAME one.
-      await settle("unknown", outcome === "success" ? "success_without_reconciliation_event" : `provider_outcome_unknown:${result.result_class}`);
+      await settle("unknown", outcome === "success" ? "success_without_reconciliation_event" : `provider_outcome_unknown:${result.result_class}${result.configuration_fault ? ":configuration_fault" : ""}`);
       await schedulePaymentReconcile({
         participant_id: p.participant_id,
         deal_id: dealId,
@@ -3321,7 +3321,7 @@ async function handlePaymentReleaseEvent(
   if (outcome === "unknown") {
     // R9C C2 — 5xx/429/timeout/transport loss AFTER dispatch: the release may
     // have happened. Durable UNKNOWN on the SAME identity, reconcile decides.
-    await settle("unknown", `provider_outcome_unknown:${result.result_class}`);
+    await settle("unknown", `provider_outcome_unknown:${result.result_class}${result.configuration_fault ? ":configuration_fault" : ""}`);
     await schedulePaymentReconcile({
       participant_id: participantId,
       deal_id: dealId,
@@ -3784,7 +3784,7 @@ async function handleChargeDealEvent(
     // provider may have moved money: NEVER retry blindly and NEVER mint a new
     // identity — record UNKNOWN durably on the SAME identity and hand it to
     // the Worker-owned reconciliation rail (authoritative status lookup).
-    await settle("unknown", result.result_class === "success" ? "success_without_reconciliation_event" : `provider_outcome_unknown:${result.result_class}`);
+    await settle("unknown", result.result_class === "success" ? "success_without_reconciliation_event" : `provider_outcome_unknown:${result.result_class}${result.configuration_fault ? ":configuration_fault" : ""}`);
     await schedulePaymentReconcile({
       participant_id: p.participant_id,
       deal_id: dealId,
@@ -4302,7 +4302,7 @@ async function handleRecoveryDealEvent(
     // No provider-declared canonical outcome — durable UNKNOWN on the SAME
     // identity, then the reconciliation rail. Never a blind retry, never a
     // fresh identity after possible money movement.
-    await settle("unknown", result.result_class === "success" ? "success_without_reconciliation_event" : `provider_outcome_unknown:${result.result_class}`);
+    await settle("unknown", result.result_class === "success" ? "success_without_reconciliation_event" : `provider_outcome_unknown:${result.result_class}${result.configuration_fault ? ":configuration_fault" : ""}`);
     await schedulePaymentReconcile({
       participant_id: p.participant_id,
       deal_id: dealId,

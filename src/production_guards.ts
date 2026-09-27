@@ -1,3 +1,5 @@
+import { buildGrowReferenceKeyring } from "./grow_payment_adapter.js";
+
 export type RuntimeRole = "web" | "worker";
 
 function productionMode(env: NodeJS.ProcessEnv) {
@@ -76,6 +78,37 @@ export function assertProductionRuntimeGuards(role: RuntimeRole, env: NodeJS.Pro
     }
     if (String(env.GROW_REFERENCE_ENCRYPTION_KEY || "").trim().length > 0 && String(env.GROW_REFERENCE_ENCRYPTION_KEY || "").trim().length < 32) {
       failures.push("GROW_REFERENCE_ENCRYPTION_KEY must be at least 32 characters");
+    }
+    // The reference keyring (primary kid + rotation keys) is validated at
+    // startup with the SAME builder the adapter uses at decrypt time: a bad
+    // kid, a short / placeholder previous key or one kid naming two secrets
+    // must stop the process here, not surface as an undecryptable sealed
+    // reference in the middle of a money operation.
+    const primaryKey = String(env.GROW_REFERENCE_ENCRYPTION_KEY || "").trim();
+    const primaryKeyId = String(env.GROW_REFERENCE_ENCRYPTION_KEY_ID || "").trim();
+    const previousKeys = String(env.GROW_REFERENCE_ENCRYPTION_PREVIOUS_KEYS || "").trim();
+    if (primaryKeyId && placeholder.test(primaryKeyId)) failures.push("GROW_REFERENCE_ENCRYPTION_KEY_ID cannot use a placeholder value");
+    if (previousKeys) {
+      for (const entry of previousKeys.split(",").map((item) => item.trim()).filter(Boolean)) {
+        const secret = /^[A-Za-z0-9_-]{1,32}:(.+)$/.exec(entry)?.[1] ?? entry;
+        if (placeholder.test(secret)) failures.push("GROW_REFERENCE_ENCRYPTION_PREVIOUS_KEYS cannot contain a placeholder key");
+      }
+    }
+    if (primaryKey.length >= 32) {
+      try {
+        buildGrowReferenceKeyring({ primary_key: primaryKey, primary_key_id: primaryKeyId || null, previous_keys: previousKeys || null });
+      } catch (error) {
+        const code = String((error as Error)?.message || error);
+        failures.push(
+          code === "grow_reference_key_id_invalid"
+            ? "GROW_REFERENCE_ENCRYPTION_KEY_ID / GROW_REFERENCE_ENCRYPTION_PREVIOUS_KEYS key ids must match [A-Za-z0-9_-]{1,32}"
+            : code === "grow_reference_previous_key_invalid"
+              ? "GROW_REFERENCE_ENCRYPTION_PREVIOUS_KEYS entries must be at least 32 characters"
+              : code === "grow_reference_key_id_conflict"
+                ? "GROW_REFERENCE_ENCRYPTION_PREVIOUS_KEYS reuses a key id for a different secret"
+                : `Grow reference keyring is invalid (${code})`
+        );
+      }
     }
     const baseUrl = String(env.PAYMENT_PROVIDER_BASE_URL || "").trim();
     if (!baseUrl.startsWith("https://")) failures.push("PAYMENT_PROVIDER=grow requires an https PAYMENT_PROVIDER_BASE_URL");
