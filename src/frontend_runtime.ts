@@ -3815,7 +3815,9 @@ export function registerFrontendExperience(
     }
 
     await ensureProductSurfaces();  // Black-Sky C2: schema check BEFORE taking the transaction's connection
-    return deps.withTx(async (c) => {
+    // Black-Sky BSC-3: the 201 is sent only AFTER the insert commits, so a
+    // caller that reads the chat right after the acknowledgement sees it.
+    const outcome = await deps.withTx(async (c): Promise<{ code: number; body: unknown }> => {
       const dealResult = await c.query(`SELECT deal_id, state FROM siton.deals WHERE deal_id=$1`, [dealId]);
       if (!dealResult.rowCount) {
         const err: any = new Error("deal not found");
@@ -3824,7 +3826,7 @@ export function registerFrontendExperience(
       }
       const state = String(dealResult.rows[0].state || "") as DealState;
       if (!DEAL_CHAT_WRITE_ALLOWED_STATES.has(state)) {
-        return reply.code(403).send({ ok: false, error: "chat closed", code: "chat_closed" });
+        return { code: 403, body: { ok: false, error: "chat closed", code: "chat_closed" } };
       }
 
       // optional reply target — must be a visible message of the SAME deal
@@ -3837,7 +3839,7 @@ export function registerFrontendExperience(
           [rawReply, dealId]
         );
         if (!target.rowCount) {
-          return reply.code(404).send({ ok: false, error: "reply target not found", code: "chat_reply_target_not_found" });
+          return { code: 404, body: { ok: false, error: "reply target not found", code: "chat_reply_target_not_found" } };
         }
         replyTo = rawReply;
       }
@@ -3849,14 +3851,18 @@ export function registerFrontendExperience(
         [dealId, displayName, bodyText, replyTo, title.trim()]
       );
 
-      return reply.code(201).send({
-        ok: true,
-        message: {
-          ...dealChatMessageFromRow(inserted.rows[0]),
-          reply_to_message_id: inserted.rows[0].reply_to_message_id || null
+      return {
+        code: 201,
+        body: {
+          ok: true,
+          message: {
+            ...dealChatMessageFromRow(inserted.rows[0]),
+            reply_to_message_id: inserted.rows[0].reply_to_message_id || null
+          }
         }
-      });
+      };
     });
+    return reply.code(outcome.code).send(outcome.body);
   });
 
   // P0.3 — like/dislike reactions. Toggle-safe and idempotent: sending the
@@ -6401,7 +6407,11 @@ export function registerFrontendExperience(
 
     await ensureInvoiceWebhookTables();
     const parsed = invoiceProvider.parseInvoiceWebhookEvent(body);
-    return deps.withTx(async (c) => {
+    // Black-Sky BSC-3: the provider is acknowledged only AFTER the event row,
+    // its status and the reconcile job have COMMITTED. An ack sent inside the
+    // transaction told the provider "delivered" even when the COMMIT then
+    // failed, so it never retried and the reconciliation was lost.
+    const outcome = await deps.withTx(async (c): Promise<{ code: number; body: unknown }> => {
       const inserted = await c.query(
         `INSERT INTO siton.invoice_webhook_events
            (provider, event_id, provider_document_id, document_id, document_key, status, correlation_id, payload)
@@ -6419,7 +6429,7 @@ export function registerFrontendExperience(
         ]
       );
       if ((inserted.rowCount ?? 0) === 0) {
-        return reply.code(200).send({ ok: true, duplicate: true, provider: parsed.provider, event_id: parsed.event_id });
+        return { code: 200, body: { ok: true, duplicate: true, provider: parsed.provider, event_id: parsed.event_id } };
       }
 
       const doc = await c.query(
@@ -6444,7 +6454,7 @@ export function registerFrontendExperience(
            WHERE provider=$1 AND event_id=$2`,
           [parsed.provider, parsed.event_id]
         );
-        return reply.code(202).send({ ok: true, status: "ignored", reason: "invoice_document_not_found" });
+        return { code: 202, body: { ok: true, status: "ignored", reason: "invoice_document_not_found" } };
       }
       if (["reconciled", "voided", "skipped"].includes(String(row.status))) {
         await c.query(
@@ -6453,7 +6463,7 @@ export function registerFrontendExperience(
            WHERE provider=$1 AND event_id=$2`,
           [parsed.provider, parsed.event_id, row.document_id, row.document_key]
         );
-        return reply.code(200).send({ ok: true, status: "ignored", reason: "late_invoice_webhook_terminal_document" });
+        return { code: 200, body: { ok: true, status: "ignored", reason: "late_invoice_webhook_terminal_document" } };
       }
       await c.query(
         `INSERT INTO siton.outbox_events
@@ -6486,8 +6496,9 @@ export function registerFrontendExperience(
          WHERE provider=$1 AND event_id=$2`,
         [parsed.provider, parsed.event_id, row.document_id, row.document_key]
       );
-      return reply.code(200).send({ ok: true, status: "queued", provider: parsed.provider, event_id: parsed.event_id });
+      return { code: 200, body: { ok: true, status: "queued", provider: parsed.provider, event_id: parsed.event_id } };
     });
+    return reply.code(outcome.code).send(outcome.body);
   }
 
   app.post("/webhooks/invoices", handleWebhookInvoices);
@@ -7579,27 +7590,31 @@ export function registerFrontendExperience(
     await ensureAdminInterventionTables(deps.withTx);
     const adminActionId = String(req.params.adminActionId || "").trim();
     const context = adminRequestContext(req);
-    return deps.withTx(async (c) => {
+    // Black-Sky BSC-3: the execution verdict is sent only AFTER it commits; an
+    // operator must never see "executed" for an action the COMMIT rolled back.
+    const outcome = await deps.withTx(async (c): Promise<{ code: number; body: unknown } | null> => {
       // The action-type-specific permission can only be known after the lookup,
       // but the lookup itself must not be reachable without an admin session:
       // otherwise "404 admin_action_not_found" versus a guard rejection tells an
       // anonymous caller which action ids exist. Authenticate first, then load,
       // then enforce the specific permission (and MFA) for that action type.
       const authenticated = await requireAdminAuthContext(req, reply, c, { sessionRequired: true });
-      if (!authenticated) return reply;
+      if (!authenticated) return null;
       requireUuid(adminActionId, "admin_action_id");
       const actionResult = await c.query(`SELECT action_type FROM siton.admin_actions WHERE admin_action_id=$1`, [adminActionId]);
-      if (!actionResult.rowCount) return reply.code(404).send({ ok: false, error: "admin_action_not_found" });
+      if (!actionResult.rowCount) return { code: 404, body: { ok: false, error: "admin_action_not_found" } };
       const actionTypeForPermission = String(actionResult.rows[0].action_type || "");
       const identity = await requireAdminAuthContext(req, reply, c, {
         permission: ADMIN_ACTION_PERMISSION[actionTypeForPermission] || "admin_actions.execute",
         sessionRequired: true,
         recentMfa: HIGH_TRUST_ADMIN_ACTIONS.has(actionTypeForPermission)
       });
-      if (!identity) return reply;
+      if (!identity) return null;
       const result = await executeAdminAction(c, adminActionId, { ...context, admin_id: safeAdminId(identity) });
-      return reply.code(result.statusCode).send(result.body);
+      return { code: result.statusCode, body: result.body };
     });
+    if (!outcome) return reply;  // the auth guard already answered 401/403
+    return reply.code(outcome.code).send(outcome.body);
   });
 
   app.get("/api/admin/control-flags", async (req: any, reply: any) => {
