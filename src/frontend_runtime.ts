@@ -173,7 +173,7 @@ import {
   HIGH_TRUST_ADMIN_ACTIONS,
   adminPublicIdentity,
   claimOwnerAdminBinding,
-  isConfiguredOwnerClaimEmail,
+  isOwnerClaimEligible,
   parseCookieHeader,
   createAdminMfaCode,
   ADMIN_MFA_MAX_ATTEMPTS,
@@ -2217,7 +2217,12 @@ export function registerFrontendExperience(
       try { caps = await resolveSupabaseCapabilities(req, c, verifier); } catch { caps = null; }
       if (!caps) return reply.code(401).send({ ok: false, error: "invalid_token" });
       let sellerBinding: SellerSelfBindingOutcome | "owner" | "existing" = "existing";
-      if (isConfiguredOwnerClaimEmail(caps.email)) {
+      // Black-Sky B2: the owner claim needs more than the e-mail string — the
+      // subject must be the pinned SITON_OWNER_AUTH_USER_ID on a hosted
+      // runtime (decideOwnerClaim). A matching e-mail that fails the pin is
+      // treated like any other identity (pending self-service seller at most),
+      // never as the owner.
+      if (isOwnerClaimEligible(caps)) {
         sellerBinding = "owner";
         if (!caps.admin) await claimOwnerAdminBinding(c, caps.sub, caps.email);
         if (!caps.seller) await claimOwnerSellerBinding(c, caps.sub, caps.email);
@@ -2266,9 +2271,16 @@ export function registerFrontendExperience(
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(dealId)) {
       return reply.redirect("/preview/", 302);
     }
-    const proto = String(req.headers["x-forwarded-proto"] || "").split(",")[0]!.trim() || "https";
-    const host = String(req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0]!.trim();
-    const origin = host ? `${proto}://${host}` : "";
+    // Black-Sky B7: this response is publicly cacheable, so the absolute
+    // og:url / og:image origin must come from the deployment's configured
+    // public origin (PUBLIC_BASE_URL, else Render's RENDER_EXTERNAL_URL) and
+    // never from caller-controlled Host / X-Forwarded-Host headers — a
+    // poisoned cache entry would otherwise point every crawler and preview at
+    // an attacker host. The header fallback inside publicOrigin() applies only
+    // when nothing is configured (local development), and there the page is
+    // served without a public cache lifetime.
+    const origin = publicOrigin(req);
+    const originConfigured = Boolean(String(process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || "").trim());
     const refRaw = typeof req.query?.ref === "string" ? String(req.query.ref).trim().slice(0, 120) : "";
     const spaPath = `/preview/${refRaw ? `?ref=${encodeURIComponent(refRaw)}` : ""}#/deal/${dealId}`;
     const row = await deps.withTx(async (c) => {
@@ -2329,7 +2341,9 @@ export function registerFrontendExperience(
 <body><p><a style="color:#115e59" href="${safeSpa}">${escapeHtml(ts(shareLocale, "deal.share.redirecting"))}</a></p></body>
 </html>`;
     return reply
-      .header("cache-control", "public, max-age=300")
+      // Black-Sky B7: a public cache lifetime only when the absolute URLs came
+      // from configuration; a header-derived origin must never be cached.
+      .header("cache-control", originConfigured ? "public, max-age=300" : "no-store")
       .type("text/html; charset=utf-8")
       .send(html);
   });

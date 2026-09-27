@@ -16,12 +16,18 @@
 //   reporting success; delete is idempotent.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.49.4";
+import { parseAllowedNamespaces, scopedKey, scopedListPrefix } from "./scope.ts";
 
 const BUCKET = "deal-images";
 const BROKER_KEY_SHA256 = "747be04baee00a81abb4f17021e3ea55c9fc46f5d92dc9534687896708ce73ae";
 const MAX_BYTES = 2 * 1024 * 1024;
 const ALLOWED_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_LIST_KEYS = 1000;
+// Black-Sky E5: every op is confined to the canonical object-key shape inside
+// an allowed deployment namespace (see ./scope.ts). Configure the function
+// secret SITON_BROKER_ALLOWED_PREFIXES (comma-separated; default "staging").
+const ALLOWED_NAMESPACES = parseAllowedNamespaces(Deno.env.get("SITON_BROKER_ALLOWED_PREFIXES"));
+const validateKey = (raw: unknown) => scopedKey(raw, ALLOWED_NAMESPACES);
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL") ?? "",
@@ -47,25 +53,6 @@ function timingSafeEqualHex(a: string, b: string): boolean {
   let diff = 0;
   for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
-}
-
-function validateKey(raw: unknown): string | null {
-  const key = String(raw ?? "").replace(/\\/g, "/");
-  if (!key || key.length > 512 || key.startsWith("/") || key.includes("\0")) return null;
-  const parts = key.split("/");
-  if (parts.length < 2) return null;
-  if (parts.some((part) => !part || part === "." || part === ".." || !/^[a-zA-Z0-9._-]+$/.test(part))) return null;
-  return key;
-}
-
-function validatePrefix(raw: unknown): string | null {
-  const prefix = String(raw ?? "").replace(/\\/g, "/");
-  if (!prefix) return "";
-  if (prefix.length > 512 || prefix.startsWith("/") || prefix.includes("\0")) return null;
-  const parts = prefix.split("/");
-  const bad = parts.some((part, index) => part === "." || part === ".." || (!part && index !== parts.length - 1) || (part && !/^[a-zA-Z0-9._-]+$/.test(part)));
-  if (bad) return null;
-  return prefix.replace(/\/+$/, "");
 }
 
 function decodeBase64(data: string): Uint8Array | null {
@@ -204,8 +191,8 @@ Deno.serve(async (req: Request) => {
     }
 
     if (op === "list") {
-      const prefix = validatePrefix(body.prefix);
-      if (prefix === null) return fail(400, "invalid_storage_key");
+      const prefix = scopedListPrefix(body.prefix, ALLOWED_NAMESPACES);
+      if (prefix === null) return fail(400, "invalid_storage_prefix");
       const limit = Math.max(1, Math.min(MAX_LIST_KEYS, Number(body.limit ?? 500) || 500));
       const keys = await walkKeys(prefix, limit);
       return json(200, { ok: true, op, prefix, keys });

@@ -448,9 +448,32 @@ await run("abuse control: the platform-wide hourly self-signup cap throttles the
   assert.ok([401, 403].includes(draft.statusCode), `throttled identity drafted: ${draft.statusCode}`);
 });
 
-await run("the owner e-mail claim path is unchanged (owner gets admin + approved seller, binding=owner)", async () => {
+// Black-Sky B2: this suite runs production-like (APP_ENV=production), where the
+// owner claim is pinned to SITON_OWNER_AUTH_USER_ID. A token carrying the owner
+// e-mail but another subject must never become the owner (and the throttled
+// self-signup path must not hand it anything either).
+await run("B2: the owner e-mail on a NON-pinned subject is not the owner (no admin, no owner seller)", async () => {
+  const impostor = randomUUID();
+  process.env.SITON_OWNER_AUTH_USER_ID = randomUUID();
+  try {
+    const res = await caps(mint({ sub: impostor, email: String(process.env.SITON_OWNER_EMAIL) }));
+    assert.equal(res.statusCode, 200, res.body);
+    const body = res.json() as any;
+    assert.notEqual(body.seller_binding, "owner");
+    assert.ok(!body.admin, "no admin capability for an unpinned subject");
+    assert.notEqual(body.seller?.seller_id, "c-ton-owner");
+    const rows = await pool.query(`SELECT 1 FROM siton.admin_users WHERE auth_user_id=$1`, [impostor]);
+    assert.equal(rows.rowCount, 0);
+  } finally {
+    delete process.env.SITON_OWNER_AUTH_USER_ID;
+  }
+});
+
+await run("the owner e-mail claim path works for the PINNED owner subject (owner gets admin + approved seller, binding=owner)", async () => {
   const ownerSub = randomUUID();
+  process.env.SITON_OWNER_AUTH_USER_ID = ownerSub;
   const res = await caps(mint({ sub: ownerSub, email: String(process.env.SITON_OWNER_EMAIL) }));
+  delete process.env.SITON_OWNER_AUTH_USER_ID;
   assert.equal(res.statusCode, 200, res.body);
   const body = res.json() as any;
   assert.equal(body.seller_binding, "owner");

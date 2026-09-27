@@ -22,6 +22,7 @@ function base(role: "web" | "worker") {
     ADMIN_API_KEY: "contract-admin-0123456789abcdef",
     SELLER_SESSION_SECRET: "contract-session-0123456789abcdef0123",
     OTP_HASH_SALT: "contract-otp-salt-0123456789abcd",
+    OTP_TOKEN_SECRET: "contract-otp-token-secret-0123456789abcdef",
     RUNTIME_ROLE: role,
     DISABLE_OUTBOX_WORKER: role === "web" ? "1" : undefined,
     // R9A: production charging requires the explicit VAT authority.

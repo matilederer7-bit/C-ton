@@ -120,6 +120,7 @@ import {
   readDealImage,
   saveDealImage
 } from "./product_image_storage.js";
+import { assertSellerDealImageQuota, base64DecodedLength } from "./seller_upload_quota.js";
 import type { StorageProviderCode } from "./storage_adapter.js";
 import { buildPayoutProvider } from "./payout_provider.js";
 import { buildPayoutRail, ensurePayoutRailTables } from "./payout_rail.js";
@@ -7029,6 +7030,11 @@ app.post("/api/seller/deals/:dealId/images", { bodyLimit: IMAGE_UPLOAD_BODY_LIMI
     const requestedPrimary = isAccepted(body.is_primary) || existingImages.rowCount === 0 || !existingImages.rows.some((row: any) => Boolean(row.is_primary));
     const sortOrderRaw = Number(body.sort_order);
     const sortOrder = Number.isInteger(sortOrderRaw) && sortOrderRaw >= 0 ? Math.min(sortOrderRaw, DEAL_IMAGE_LIMIT - 1) : existingImages.rowCount;
+
+    // Black-Sky B8: the per-deal cap above bounds ONE deal; this bounds what
+    // ONE seller may accumulate across all deals (count + bytes), serialized
+    // per seller, before any byte reaches storage.
+    await assertSellerDealImageQuota(c, sellerAuthority.seller_id, base64DecodedLength(parsed.base64Data));
 
     const saved = await saveDealImage({
       dealId,

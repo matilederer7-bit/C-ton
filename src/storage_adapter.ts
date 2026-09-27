@@ -121,7 +121,7 @@ export class S3CompatibleStorageAdapter implements StorageAdapter {
   describeForReadiness(): StorageAdapterSummary { return { adapter: this.mode, storage_provider: this.providerCode, configured: true, multi_instance_safe: true, scale_blocker_for_multi_instance: false, notes: ["private_bucket_required", "s3_compatible_adapter_configured"], root: null, bucket: "<configured>", region: this.config.region, endpoint_configured: Boolean(this.config.endpoint), signed_url_ttl_seconds: this.config.signedUrlTtlSeconds }; }
 }
 
-export type SupabaseBrokerStorageConfig = { brokerUrl: string; brokerKey: string; supabaseUrl: string; bucket: string; timeoutMs: number };
+export type SupabaseBrokerStorageConfig = { brokerUrl: string; brokerKey: string; supabaseUrl: string; bucket: string; timeoutMs: number; namespace?: string };
 
 // R7 canonical staging/production media authority: Supabase Storage, reached
 // exclusively through the storage-broker Edge Function. The privileged
@@ -200,7 +200,9 @@ export class SupabaseBrokerStorageAdapter implements StorageAdapter {
   }
 
   async listKeys(prefix = "", limit = 500): Promise<string[]> {
-    const normalizedPrefix = validateStoragePrefix(prefix).replace(/\/+$/, "");
+    // Black-Sky E5: the broker refuses the bucket root; an unscoped listing
+    // (inventory reconciliation) walks this deployment's namespace instead.
+    const normalizedPrefix = validateStoragePrefix(prefix).replace(/\/+$/, "") || String(this.config.namespace || "");
     const result = await this.call({ op: "list", prefix: normalizedPrefix, limit: Math.max(1, Math.min(1000, limit)) });
     return (Array.isArray(result.keys) ? result.keys : []).map((value: unknown) => String(value || "")).filter(Boolean);
   }
@@ -224,7 +226,9 @@ function requiredSupabaseBrokerConfig(env: NodeJS.ProcessEnv): SupabaseBrokerSto
   const unsafe = brokerKey && forbidden.test(brokerKey) ? ["SITON_STORAGE_BROKER_KEY"] : [];
   if (missing.length || unsafe.length) { const err: any = new Error(`supabase storage configuration invalid: missing=${missing.join(",") || "none"}; unsafe=${unsafe.join(",") || "none"}`); err.code = "object_storage_configuration_invalid"; throw err; }
   const brokerUrl = value("SITON_STORAGE_BROKER_URL") || `${supabaseUrl.replace(/\/+$/, "")}/functions/v1/storage-broker`;
-  return { brokerUrl, brokerKey, supabaseUrl, bucket: value("SUPABASE_STORAGE_BUCKET") || "deal-images", timeoutMs: Math.max(100, Number(value("OBJECT_STORAGE_TIMEOUT_MS") || 15000)) };
+  // Same namespace derivation as the key writers (product_image_storage.ts, content_media.ts).
+  const namespace = String(env.OBJECT_STORAGE_PREFIX || env.APP_DEPLOYMENT_MODE || "test").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64) || "test";
+  return { brokerUrl, brokerKey, supabaseUrl, bucket: value("SUPABASE_STORAGE_BUCKET") || "deal-images", timeoutMs: Math.max(100, Number(value("OBJECT_STORAGE_TIMEOUT_MS") || 15000)), namespace };
 }
 
 function requiredExternalStorageConfig(env: NodeJS.ProcessEnv): S3CompatibleStorageConfig {
