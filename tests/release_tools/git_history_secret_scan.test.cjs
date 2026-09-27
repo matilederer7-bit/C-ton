@@ -56,6 +56,36 @@ test("a secret committed and later deleted is still found in history, reported o
   assert.doesNotMatch(fs.readFileSync(file, "utf8"), /AKIA/);
 });
 
+test("a Grow credential committed and later deleted is found (grow-credential detector is part of the history scan)", () => {
+  const dir = tempRepo();
+  const file = path.join(dir, "config.js");
+  fs.writeFileSync(file, "const cfg = { GROW_REFERENCE_ENCRYPTION_KEY: 'k9mZ2qL8vX4wR7tB1nP5sD3fH6jA0cE' };\n");
+  git(dir, "add", "-A");
+  git(dir, "commit", "-q", "-m", "leak");
+  fs.writeFileSync(file, "const cfg = { GROW_REFERENCE_ENCRYPTION_KEY: process.env.GROW_REFERENCE_ENCRYPTION_KEY };\n");
+  git(dir, "add", "-A");
+  git(dir, "commit", "-q", "-m", "fix");
+  const result = scan.run({ root: dir, allowList: [] });
+  assert.equal(result.findings.length, 1);
+  assert.equal(result.findings[0].detector, "grow-credential");
+  assert.equal(result.findings[0].line, 1);
+});
+
+test("context-dependent detectors see adjacent added lines together (Twilio SID + token on two lines)", () => {
+  const dir = tempRepo();
+  const file = path.join(dir, ".env.local.js");
+  fs.writeFileSync(file, "TWILIO_ACCOUNT_SID=AC" + "0123456789abcdef0123456789abcdef" + "\nTWILIO_AUTH_TOKEN=" + "fedcba9876543210fedcba9876543210" + "\n");
+  git(dir, "add", "-A");
+  git(dir, "commit", "-q", "-m", "leak");
+  fs.writeFileSync(file, "TWILIO_ACCOUNT_SID=\nTWILIO_AUTH_TOKEN=\n");
+  git(dir, "add", "-A");
+  git(dir, "commit", "-q", "-m", "fix");
+  const result = scan.run({ root: dir, allowList: [] });
+  const twilio = result.findings.find((f) => f.detector === "twilio-auth-token");
+  assert.ok(twilio, `expected the Twilio token to be found across two added lines: ${JSON.stringify(result.findings)}`);
+  assert.equal(twilio.line, 2);
+});
+
 test("allow-listed synthetic values are ignored", () => {
   const dir = tempRepo();
   fs.writeFileSync(path.join(dir, "fixture.js"), "const key = 'AKIA" + "ABCDEFGHIJKLMNOP';\n");

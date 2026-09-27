@@ -2591,15 +2591,17 @@ export function registerFrontendExperience(
       );
       const row = result.rows[0];
       // Red-team hardening (A3): per-account lockout, checked BEFORE the
-      // password so a locked account cannot be probed further. Only a real,
-      // Active account can be locked; a missing account answers the same 401
-      // as a wrong password below, so this adds no account-existence oracle.
-      if (row && row.status === "Active" && row.login_locked_until && Date.parse(String(row.login_locked_until)) > Date.now()) {
-        const retryAfterSeconds = Math.max(1, Math.ceil((Date.parse(String(row.login_locked_until)) - Date.now()) / 1000));
-        reply.header("retry-after", String(retryAfterSeconds));
-        return reply.code(429).send({ ok: false, error: "admin_login_locked", retry_after_seconds: retryAfterSeconds });
-      }
-      if (!row || row.status !== "Active" || !(await verifyAdminPassword(password, row.password_hash))) {
+      // password so a locked account cannot be probed further. The lock is
+      // enforced INTERNALLY and answers the very same 401 body as a wrong
+      // password or an unknown e-mail (Codex on PR #97): a distinct 429 would
+      // let an attacker who exhausts a candidate's counter learn that the
+      // account exists. The password is not even verified while locked, so a
+      // correct guess during the window grants nothing and leaks nothing.
+      const locked = Boolean(row && row.status === "Active" && row.login_locked_until && Date.parse(String(row.login_locked_until)) > Date.now());
+      if (locked || !row || row.status !== "Active" || !(await verifyAdminPassword(password, row.password_hash))) {
+        if (locked) {
+          return reply.code(401).send({ ok: false, error: "admin_invalid_credentials" });
+        }
         if (row && row.status === "Active") {
           // Sliding window: failures older than the window start a fresh count.
           const windowStartedAt = row.failed_login_window_started_at ? Date.parse(String(row.failed_login_window_started_at)) : NaN;

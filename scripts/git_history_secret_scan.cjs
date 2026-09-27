@@ -8,7 +8,9 @@
 // working-tree scanner and reports commit / file / line for each hit.
 //
 // Scope: added lines only ("+" side of each diff; a removal is the fix, not
-// the leak). Allow-list: the same config/secret-scan-allowlist.json entries,
+// the leak), scanned per commit+file as ONE block so context-dependent
+// detectors (the Twilio token detector needs the account SID in the same
+// text) see adjacent lines together. Allow-list: the same config/secret-scan-allowlist.json entries,
 // matched by detector + exact match / prefix (the file is not required to
 // match, because history paths move). Controls:
 // tests/release_tools/git_history_secret_scan.test.cjs.
@@ -29,7 +31,8 @@ const HISTORY_DETECTOR_IDS = new Set([
   "render-api-key",
   "twilio-auth-token",
   "supabase-service-role-jwt",
-  "database-url-credential"
+  "database-url-credential",
+  "grow-credential"
 ]);
 
 function loadAllowList(root) {
@@ -76,23 +79,37 @@ function run(options = {}) {
   const seen = new Set();
   let commits = 0;
   const commitSet = new Set();
+  const excluded = (file) => /^tests\/release_tools\//.test(file) || file === "scripts/secret_pii_scan.cjs" || file === "scripts/git_history_secret_scan.cjs" || file === "config/secret-scan-allowlist.json";
+  // Group the added lines of each (commit, file) into one text block so
+  // detectors that need context across adjacent lines still fire.
+  const blocks = new Map();
   for (const added of addedLinesFromLog(log.stdout)) {
     if (!commitSet.has(added.commit)) { commitSet.add(added.commit); commits += 1; }
-    if (added.text.length > 20000) continue;
     // Same exclusions as the working-tree scanner: the scanner's own source,
     // its allow-list and its control tests (which carry synthetic detector
     // fixtures by design).
-    if (/^tests\/release_tools\//.test(added.file) || added.file === "scripts/secret_pii_scan.cjs" || added.file === "scripts/git_history_secret_scan.cjs" || added.file === "config/secret-scan-allowlist.json") continue;
+    if (excluded(added.file)) continue;
+    if (added.text.length > 20000) continue;
+    const key = `${added.commit}\u0000${added.file}`;
+    let block = blocks.get(key);
+    if (!block) { block = { commit: added.commit, file: added.file, lines: [], numbers: [] }; blocks.set(key, block); }
+    block.lines.push(added.text);
+    block.numbers.push(added.line);
+  }
+  for (const block of blocks.values()) {
+    const text = block.lines.join("\n");
+    const lineAt = (index) => { let n = 0; for (let i = 0; i < index && i < text.length; i += 1) if (text.charCodeAt(i) === 10) n += 1; return block.numbers[n] ?? block.numbers[block.numbers.length - 1] ?? 0; };
     for (const detector of detectors) {
+      if (detector.scope === "non-test" && block.file.startsWith("tests/")) continue;
       let hits;
-      try { hits = detector.run(added.text); } catch { hits = []; }
+      try { hits = detector.run(text); } catch { hits = []; }
       for (const hit of hits) {
         if (allowed(allowList, detector.id, hit.match)) continue;
         const key = `${detector.id}|${hit.match}`;
         // Report each distinct secret once, at its FIRST appearance.
         if (seen.has(key)) continue;
         seen.add(key);
-        findings.push({ commit: added.commit, file: added.file, line: added.line, detector: detector.id, match: hit.match.slice(0, 80), note: hit.note || null });
+        findings.push({ commit: block.commit, file: block.file, line: lineAt(hit.index), detector: detector.id, match: hit.match.slice(0, 80), note: hit.note || null });
       }
     }
   }

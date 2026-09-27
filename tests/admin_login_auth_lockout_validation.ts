@@ -8,11 +8,12 @@ const { Pool } = pg;
 // per-account lockout, so with a spoofable client IP the password step had an
 // unbounded guessing budget. The account now locks itself after
 // ADMIN_LOGIN_MAX_FAILURES wrong passwords inside a sliding window — regardless
-// of source IP — refuses even the CORRECT password while locked (429), and
-// heals by itself once the lock expires. A missing account keeps answering the
-// same 401 (no account-existence oracle). Against the pre-fix code the
-// "locked" assertions below fail: the 10th wrong password is a plain 401 and
-// the correct password always succeeds.
+// of source IP — refuses even the CORRECT password while locked, and heals by
+// itself once the lock expires. The lock is enforced internally and answers
+// the SAME 401 body as a wrong password or an unknown e-mail, so exhausting a
+// candidate's counter never reveals whether the account exists (no oracle,
+// Codex on PR #97). Against the pre-fix code the "locked" assertions below
+// fail: the correct password always succeeds.
 
 function fakePaymentProvider() {
   return {
@@ -92,7 +93,7 @@ function login(app: FastifyInstance, email: string, password: string, ip: string
 const { ADMIN_LOGIN_MAX_FAILURES } = await import("../src/admin_identity.js");
 const MAX = ADMIN_LOGIN_MAX_FAILURES;
 
-await run("admin password login locks the account after the failure budget, ignoring X-Forwarded-For rotation", async () => {
+await run("admin password login locks the account after the failure budget, ignoring X-Forwarded-For rotation, without an existence oracle", async () => {
   const { app, pool } = await buildRuntimeApp("admin-login-lock");
   try {
     const email = await seedAdmin(pool, false);
@@ -105,12 +106,17 @@ await run("admin password login locks the account after the failure budget, igno
     // The MAX-th wrong password trips the lock (still a plain 401 — no oracle).
     const last = await login(app, email, "wrong-password-final", "198.51.100.9");
     assert.equal(last.statusCode, 401, last.body);
-    // The CORRECT password is now refused with 429 + Retry-After.
+    // The CORRECT password is now refused — with the SAME 401 body as a wrong
+    // password (no distinct status, no Retry-After: no account-existence oracle).
     const locked = await login(app, email, PASSWORD, "198.51.100.10");
-    assert.equal(locked.statusCode, 429, locked.body);
-    assert.equal(locked.json().error, "admin_login_locked");
-    assert.ok(Number(locked.headers["retry-after"]) > 0, "Retry-After must be positive");
+    assert.equal(locked.statusCode, 401, locked.body);
+    assert.deepEqual(locked.json(), { ok: false, error: "admin_invalid_credentials" });
+    assert.equal(locked.headers["retry-after"], undefined, "a locked account must not announce itself");
     assert.ok(!String(locked.headers["set-cookie"] || "").includes("siton_admin_session="), "no admin session while locked");
+    // Indistinguishable from an unknown account probed the same way.
+    const unknown = await login(app, `nobody-${Date.now()}@siton.local`, PASSWORD, "198.51.100.10");
+    assert.equal(unknown.statusCode, 401);
+    assert.deepEqual(unknown.json(), locked.json(), "locked and unknown accounts answer identically");
     const row = await pool.query(`SELECT login_locked_until, failed_login_count FROM siton.admin_users WHERE email=$1`, [email]);
     assert.ok(row.rows[0].login_locked_until, "lock timestamp persisted");
     assert.equal(Number(row.rows[0].failed_login_count), 0, "counter reset when the lock engages");
@@ -138,8 +144,8 @@ await run("the lockout also gates the password step of an MFA-required admin", a
       assert.equal(res.statusCode, 401, res.body);
     }
     const locked = await login(app, email, PASSWORD, "198.51.100.20");
-    assert.equal(locked.statusCode, 429, locked.body);
-    assert.equal(locked.json().error, "admin_login_locked");
+    assert.equal(locked.statusCode, 401, locked.body);
+    assert.equal(locked.json().error, "admin_invalid_credentials");
     assert.equal(locked.json().mfa_challenge_id, undefined, "no MFA challenge is issued while locked");
   } finally {
     await pool.end();
