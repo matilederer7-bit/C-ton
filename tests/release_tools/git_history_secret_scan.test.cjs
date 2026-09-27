@@ -20,21 +20,20 @@ function tempRepo() {
   return dir;
 }
 
-test("addedLinesFromLog yields only added lines with their new-file line numbers", () => {
+test("touchedFilesFromLog yields every (commit, file) pair a commit put content into", () => {
   const log = [
     "commit 0123456789abcdef0123456789abcdef01234567",
-    "diff --git a/x.txt b/x.txt",
-    "--- a/x.txt",
-    "+++ b/x.txt",
-    "@@ -1,2 +1,3 @@",
-    " keep",
-    "-gone",
-    "+added one",
-    "+added two",
+    "",
+    "x.txt",
+    "dir/y.txt",
+    "",
+    "commit 89abcdef0123456789abcdef0123456789abcdef",
+    "",
+    "x.txt",
     ""
   ].join("\n");
-  const rows = [...scan.addedLinesFromLog(log)];
-  assert.deepEqual(rows.map((r) => [r.file, r.line, r.text]), [["x.txt", 2, "added one"], ["x.txt", 3, "added two"]]);
+  const rows = [...scan.touchedFilesFromLog(log)];
+  assert.deepEqual(rows.map((r) => [r.commit.slice(0, 8), r.file]), [["01234567", "x.txt"], ["01234567", "dir/y.txt"], ["89abcdef", "x.txt"]]);
 });
 
 test("a secret committed and later deleted is still found in history, reported once at first appearance", () => {
@@ -84,6 +83,42 @@ test("context-dependent detectors see adjacent added lines together (Twilio SID 
   const twilio = result.findings.find((f) => f.detector === "twilio-auth-token");
   assert.ok(twilio, `expected the Twilio token to be found across two added lines: ${JSON.stringify(result.findings)}`);
   assert.equal(twilio.line, 2);
+});
+
+test("a credential assembled over SEVERAL commits is found: SID in one commit, token in the next, both deleted later", () => {
+  const dir = tempRepo();
+  const file = path.join(dir, ".env.local.js");
+  fs.writeFileSync(file, "TWILIO_ACCOUNT_SID=AC" + "0123456789abcdef0123456789abcdef" + "\n");
+  git(dir, "add", "-A");
+  git(dir, "commit", "-q", "-m", "sid only");
+  fs.writeFileSync(file, "TWILIO_ACCOUNT_SID=AC" + "0123456789abcdef0123456789abcdef" + "\nTWILIO_AUTH_TOKEN=" + "fedcba9876543210fedcba9876543210" + "\n");
+  git(dir, "add", "-A");
+  git(dir, "commit", "-q", "-m", "token added in a later commit");
+  fs.writeFileSync(file, "TWILIO_ACCOUNT_SID=\nTWILIO_AUTH_TOKEN=\n");
+  git(dir, "add", "-A");
+  git(dir, "commit", "-q", "-m", "fix");
+  const result = scan.run({ root: dir, allowList: [] });
+  assert.equal(result.commits, 3);
+  const twilio = result.findings.find((f) => f.detector === "twilio-auth-token");
+  assert.ok(twilio, `expected the Twilio token to be found from the file snapshot: ${JSON.stringify(result.findings)}`);
+  assert.equal(twilio.line, 2);
+  // Reported at the commit that completed the credential, not the fix.
+  assert.equal(twilio.commit, git(dir, "rev-parse", "HEAD~1").trim());
+});
+
+test("a secret is reported at its FIRST appearance even when later commits keep carrying it", () => {
+  const dir = tempRepo();
+  const file = path.join(dir, "config.js");
+  fs.writeFileSync(file, "const key = 'AKIA" + "ABCDEFGHIJKLMNOP';\n");
+  git(dir, "add", "-A");
+  git(dir, "commit", "-q", "-m", "leak");
+  const first = git(dir, "rev-parse", "HEAD").trim();
+  fs.writeFileSync(file, "const key = 'AKIA" + "ABCDEFGHIJKLMNOP';\nconst other = 1;\n");
+  git(dir, "add", "-A");
+  git(dir, "commit", "-q", "-m", "still there");
+  const result = scan.run({ root: dir, allowList: [] });
+  assert.equal(result.findings.length, 1);
+  assert.equal(result.findings[0].commit, first);
 });
 
 test("allow-listed synthetic values are ignored", () => {

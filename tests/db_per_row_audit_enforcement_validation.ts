@@ -64,19 +64,19 @@ async function arm(client: pg.PoolClient, action: string, audit = "1", outbox = 
   await client.query(`SELECT set_config('siton.outbox_written', $1, true)`, [outbox]);
 }
 
-async function auditRow(client: pg.PoolClient, args: { entityType: "deal" | "participant"; entityId: string; dealId: string; stateType: string; from: string; to: string; action: string }) {
+async function auditRow(client: pg.PoolClient, args: { entityType: "deal" | "participant"; entityId: string; dealId: string; stateType: string; from: string; to: string; action: string; createdAtSql?: string }) {
   await client.query(
-    `INSERT INTO siton.audit_log (entity_type, entity_id, deal_id, state_type, from_state, to_state, action_name, request_id, correlation_id, idempotency_key, payload)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,'{}'::jsonb)`,
+    `INSERT INTO siton.audit_log (entity_type, entity_id, deal_id, state_type, from_state, to_state, action_name, request_id, correlation_id, idempotency_key, payload, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,'{}'::jsonb, ${args.createdAtSql || "now()"})`,
     [args.entityType, args.entityId, args.dealId, args.stateType, args.from, args.to, args.action, `c1:${randomUUID()}`, `c1:${randomUUID()}`]
   );
 }
 
-async function outboxRow(client: pg.PoolClient, dealId: string) {
+async function outboxRow(client: pg.PoolClient, dealId: string, eventType = "charge_deal") {
   await client.query(
     `INSERT INTO siton.outbox_events (event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at, sent, sent_at)
-     VALUES ('deadline_check','deal',$1,'{"c1":true}','sent',1,now(),true,now())`,
-    [dealId]
+     VALUES ($2,'deal',$1,'{"c1":true}','sent',1,now(),true,now())`,
+    [dealId, eventType]
   );
 }
 
@@ -131,6 +131,70 @@ await runTest("deal: an audit row from an EARLIER committed transaction does not
   assert.match(String(err), /matching audit_log row for this deal/);
 });
 
+await runTest("deal: a FUTURE-DATED audit row from an earlier transaction does not count (row identity, not timestamps)", async () => {
+  const dealId = await seedDeal("PendingTarget");
+  // An attacker/bug that could write audit rows commits one dated an hour
+  // ahead: a timestamp-based "written in this transaction" test would accept
+  // it in every later transaction. Transaction identity does not.
+  assert.equal(await inTx(async (c) => {
+    await auditRow(c, { entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", from: "PendingTarget", to: "TargetReached", action: "deal.target_reached", createdAtSql: "now() + interval '1 hour'" });
+  }), null);
+  const err = await inTx(async (c) => {
+    await arm(c, "deal.target_reached");
+    await c.query(`UPDATE siton.deals SET state='TargetReached' WHERE deal_id=$1`, [dealId]);
+  });
+  assert.match(String(err), /matching audit_log row for this deal/);
+});
+
+await runTest("deal: a matching audit row ANOTHER transaction commits while this one is open does not count", async () => {
+  const dealId = await seedDeal("PendingTarget");
+  const long = await pool.connect();
+  try {
+    await long.query("BEGIN");
+    await arm(long, "deal.target_reached");
+    // Take a snapshot / xid first, then let a concurrent transaction commit
+    // the matching row: under READ COMMITTED the trigger's probe would SEE it.
+    await long.query(`SELECT pg_current_xact_id()`);
+    assert.equal(await inTx(async (c) => {
+      await auditRow(c, { entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", from: "PendingTarget", to: "TargetReached", action: "deal.target_reached" });
+    }), null);
+    const visible = await long.query(`SELECT count(*)::int AS n FROM siton.audit_log WHERE entity_id=$1`, [dealId]);
+    assert.equal(visible.rows[0].n, 1, "the concurrent row is visible to the open transaction");
+    let err: string | null = null;
+    try {
+      await long.query(`UPDATE siton.deals SET state='TargetReached' WHERE deal_id=$1`, [dealId]);
+    } catch (error: any) {
+      err = String(error?.message || error);
+    }
+    await long.query("ROLLBACK");
+    assert.match(String(err), /matching audit_log row for this deal/);
+  } finally {
+    long.release();
+  }
+});
+
+await runTest("deal: an audit row written inside a SAVEPOINT of this transaction is accepted", async () => {
+  const dealId = await seedDeal("PendingTarget");
+  const err = await inTx(async (c) => {
+    await arm(c, "deal.target_reached");
+    await c.query("SAVEPOINT audit_step");
+    await auditRow(c, { entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", from: "PendingTarget", to: "TargetReached", action: "deal.target_reached" });
+    await c.query("RELEASE SAVEPOINT audit_step");
+    await c.query(`UPDATE siton.deals SET state='TargetReached' WHERE deal_id=$1`, [dealId]);
+  });
+  assert.equal(err, null, String(err));
+  // ...but a row whose savepoint was ROLLED BACK is gone and does not count.
+  const dealId2 = await seedDeal("PendingTarget");
+  const rolled = await inTx(async (c) => {
+    await arm(c, "deal.target_reached");
+    await c.query("SAVEPOINT audit_step");
+    await auditRow(c, { entityType: "deal", entityId: dealId2, dealId: dealId2, stateType: "deal_state", from: "PendingTarget", to: "TargetReached", action: "deal.target_reached" });
+    await c.query("ROLLBACK TO SAVEPOINT audit_step");
+    await c.query(`UPDATE siton.deals SET state='TargetReached' WHERE deal_id=$1`, [dealId2]);
+  });
+  assert.match(String(rolled), /matching audit_log row for this deal/);
+});
+
 await runTest("deal: the matching audit row in the same transaction is accepted", async () => {
   const dealId = await seedDeal("PendingTarget");
   const err = await inTx(async (c) => {
@@ -181,6 +245,15 @@ await runTest("outbox: an outbox-required deal action needs an outbox row for TH
     await c.query(`UPDATE siton.deals SET state='Charging' WHERE deal_id=$1`, [dealId]);
   });
   assert.match(String(forged), /outbox_events row for this deal/);
+  // A same-deal row of the WRONG type (a sent deadline_check) must not let the
+  // deal enter Charging without its charge_deal job.
+  const wrongType = await inTx(async (c) => {
+    await arm(c, "charging.start");
+    await auditRow(c, { entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", from: "ReadyForCharging", to: "Charging", action: "charging.start" });
+    await outboxRow(c, dealId, "deadline_check");
+    await c.query(`UPDATE siton.deals SET state='Charging' WHERE deal_id=$1`, [dealId]);
+  });
+  assert.match(String(wrongType), /requires a charge_deal outbox_events row for this deal/);
   const ok = await inTx(async (c) => {
     await arm(c, "charging.start");
     await auditRow(c, { entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", from: "ReadyForCharging", to: "Charging", action: "charging.start" });
@@ -188,6 +261,32 @@ await runTest("outbox: an outbox-required deal action needs an outbox row for TH
     await c.query(`UPDATE siton.deals SET state='Charging' WHERE deal_id=$1`, [dealId]);
   });
   assert.equal(ok, null, String(ok));
+});
+
+await runTest("outbox: every outbox-required action is bound to its own job type", async () => {
+  const cases: Array<[string, string, string, string]> = [
+    ["deal.publish", "Draft", "PendingTarget", "deadline_check"],
+    ["charging.to_completion_window", "Charging", "CompletionWindow", "finalize_deal"],
+    ["charging.finalize_failed", "CompletionWindow", "Failed", "refund_issue"],
+    ["deal.cancel", "Draft", "Cancelled", "cancel_refund"]
+  ];
+  for (const [action, from, to, eventType] of cases) {
+    const dealId = await seedDeal(from, from !== "Draft");
+    const wrong = await inTx(async (c) => {
+      await arm(c, action);
+      await auditRow(c, { entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", from, to, action });
+      await outboxRow(c, dealId, eventType === "charge_deal" ? "deadline_check" : "charge_deal");
+      await c.query(`UPDATE siton.deals SET state=$2 WHERE deal_id=$1`, [dealId, to]);
+    });
+    assert.match(String(wrong), new RegExp(`requires a ${eventType} outbox_events row for this deal`), `${action}: ${wrong}`);
+    const ok = await inTx(async (c) => {
+      await arm(c, action);
+      await auditRow(c, { entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", from, to, action });
+      await outboxRow(c, dealId, eventType);
+      await c.query(`UPDATE siton.deals SET state=$2 WHERE deal_id=$1`, [dealId, to]);
+    });
+    assert.equal(ok, null, `${action}: ${ok}`);
+  }
 });
 
 await runTest("the coarse flag checks are still enforced first (defence in depth)", async () => {

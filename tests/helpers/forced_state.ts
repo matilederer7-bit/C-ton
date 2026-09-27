@@ -17,12 +17,14 @@
 
 type Queryable = { query: (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number | null }> };
 
-const OUTBOX_REQUIRED_DEAL_ACTIONS = new Set([
-  "deal.publish",
-  "charging.start",
-  "charging.to_completion_window",
-  "charging.finalize_failed",
-  "deal.cancel"
+// Action → the outbox job the DB requires for it (migration 076 checks the
+// event type, not just "some row for this deal").
+const OUTBOX_REQUIRED_DEAL_ACTIONS = new Map<string, string>([
+  ["deal.publish", "deadline_check"],
+  ["charging.start", "charge_deal"],
+  ["charging.to_completion_window", "finalize_deal"],
+  ["charging.finalize_failed", "refund_issue"],
+  ["deal.cancel", "cancel_refund"]
 ]);
 
 let fixtureSeq = 0;
@@ -65,14 +67,16 @@ export async function forcedDealStep(
      VALUES ('deal',$1,$1,'deal_state',$2,$3,$4,$5,$5,$6,'{"fixture":true}'::jsonb)`,
     [dealId, fromState, toState, actionName, requestId, options.idempotencyKey || `fixture:${dealId}:${toState}:${requestId}`]
   );
-  if (OUTBOX_REQUIRED_DEAL_ACTIONS.has(actionName)) {
-    // An already-sent row satisfies "an outbox row for THIS deal was written in
-    // this transaction" without leaving pending work for the worker.
+  const requiredEventType = OUTBOX_REQUIRED_DEAL_ACTIONS.get(actionName);
+  if (requiredEventType) {
+    // An already-sent row of the REQUIRED type satisfies "the action's outbox
+    // job for THIS deal was written in this transaction" without leaving
+    // pending work for the worker.
     await client.query(
       `INSERT INTO siton.outbox_events
          (event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at, sent, sent_at)
-       VALUES ('deadline_check','deal',$1,$2,'sent',1,now(),true,now())`,
-      [dealId, JSON.stringify({ deal_id: dealId, fixture: true, action: actionName })]
+       VALUES ($3,'deal',$1,$2,'sent',1,now(),true,now())`,
+      [dealId, JSON.stringify({ deal_id: dealId, fixture: true, action: actionName }), requiredEventType]
     );
   }
   await client.query(`SELECT set_config('siton.audit_written', '1', true)`);

@@ -12,12 +12,20 @@
 --   * a participant buyer_state / money_state change requires the same for the
 --     changed column(s);
 --   * the outbox-required deal actions (009) require an outbox row for THIS
---     deal written in the current transaction, not merely a flag.
+--     deal, of the event type that action must enqueue (deal.publish →
+--     deadline_check, charging.start → charge_deal, charging.to_completion_window
+--     → finalize_deal, charging.finalize_failed → refund_issue, deal.cancel →
+--     cancel_refund), written in the current transaction — not merely a flag.
 --
--- "Written in the current transaction" is decided by created_at >= now():
--- now() is the transaction start timestamp and the audit/outbox default is
--- now(), so rows inserted in this transaction carry exactly that value while
--- every row from an earlier, committed transaction is strictly older.
+-- "Written in the current transaction" is decided by TRANSACTION IDENTITY,
+-- not by wall-clock: the candidate row's xmin must be the current top-level
+-- transaction id, or a subtransaction (SAVEPOINT) of it. A timestamp predicate
+-- (created_at >= now()) was rejected in review (Codex on PR #97): under READ
+-- COMMITTED a long transaction can see a matching row that ANOTHER
+-- transaction committed after this one started, and a deliberately
+-- future-dated row would satisfy every later transaction. Row identity has
+-- neither hole: a row is visible to this transaction AND its xid is still "in
+-- progress" only when this transaction (or one of its savepoints) wrote it.
 --
 -- The flag checks are kept (defence in depth; their error texts are relied on
 -- by existing tests). The function bodies below are the 022 (deals) / 008
@@ -29,6 +37,40 @@ CREATE INDEX IF NOT EXISTS ix_audit_log_entity_state_created
 
 CREATE INDEX IF NOT EXISTS ix_outbox_events_aggregate_created
   ON siton.outbox_events (aggregate_id, created_at DESC);
+
+-- Does the row whose xmin is p_xmin belong to the CURRENT transaction (top
+-- level or any of its subtransactions)? Callers only pass the xmin of a row
+-- they can already see; a row from any OTHER in-progress transaction is never
+-- visible, so "visible + xid in progress" identifies our own writes exactly.
+CREATE OR REPLACE FUNCTION siton.row_xmin_is_current_tx(p_xmin xid)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SET search_path = ''
+AS $$
+DECLARE
+  v_current xid8 := pg_catalog.pg_current_xact_id();
+  v_current32 numeric;
+  v_row32 numeric;
+  v_delta numeric;
+BEGIN
+  IF p_xmin = v_current::xid THEN
+    RETURN true;
+  END IF;
+  -- A subtransaction id is assigned after (i.e. is greater than, modulo the
+  -- 32-bit wrap) the top-level id it belongs to. Rebuild the row's 64-bit id
+  -- from the current epoch and ask the clog: only our own subtransactions can
+  -- be both visible to us and still in progress.
+  v_current32 := (v_current::text::numeric) % 4294967296;
+  v_row32 := p_xmin::text::numeric;
+  v_delta := ((v_row32 - v_current32) + 4294967296) % 4294967296;
+  IF v_delta = 0 OR v_delta >= 2147483648 THEN
+    RETURN false; -- frozen/bootstrap xids and anything assigned before us
+  END IF;
+  RETURN pg_catalog.pg_xact_status((v_current::text::numeric + v_delta)::text::xid8) = 'in progress';
+END
+$$;
+REVOKE EXECUTE ON FUNCTION siton.row_xmin_is_current_tx(xid) FROM PUBLIC;
 
 CREATE OR REPLACE FUNCTION siton.audit_row_written_in_tx(
   p_entity_type text,
@@ -53,13 +95,17 @@ AS $$
       AND a.from_state = p_from_state
       AND a.to_state = p_to_state
       AND a.action_name = p_action_name
-      AND a.created_at >= pg_catalog.now()
+      AND siton.row_xmin_is_current_tx(a.xmin)
   )
 $$;
 
+-- The outbox row must be for THIS deal AND carry the event type the action
+-- requires (a same-deal row of any other type, e.g. a sent deadline_check,
+-- must not let a deal enter Charging without its charge_deal job).
 CREATE OR REPLACE FUNCTION siton.outbox_row_written_in_tx(
   p_aggregate_type text,
-  p_aggregate_id uuid
+  p_aggregate_id uuid,
+  p_event_type text
 )
 RETURNS boolean
 LANGUAGE sql
@@ -72,7 +118,8 @@ AS $$
     FROM siton.outbox_events o
     WHERE o.aggregate_id = p_aggregate_id
       AND o.aggregate_type = p_aggregate_type
-      AND o.created_at >= pg_catalog.now()
+      AND o.event_type = p_event_type
+      AND siton.row_xmin_is_current_tx(o.xmin)
   )
 $$;
 
@@ -83,7 +130,7 @@ $$;
 -- read audit_log / outbox_events regardless of the caller's row policies; the
 -- functions only ever return a boolean.
 REVOKE EXECUTE ON FUNCTION siton.audit_row_written_in_tx(text, uuid, text, text, text, text) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION siton.outbox_row_written_in_tx(text, uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION siton.outbox_row_written_in_tx(text, uuid, text) FROM PUBLIC;
 DO $per_row_helper_grants$
 DECLARE
   v_role text;
@@ -91,13 +138,13 @@ BEGIN
   FOREACH v_role IN ARRAY ARRAY['anon', 'authenticated'] LOOP
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = v_role) THEN
       EXECUTE format('REVOKE EXECUTE ON FUNCTION siton.audit_row_written_in_tx(text, uuid, text, text, text, text) FROM %I', v_role);
-      EXECUTE format('REVOKE EXECUTE ON FUNCTION siton.outbox_row_written_in_tx(text, uuid) FROM %I', v_role);
+      EXECUTE format('REVOKE EXECUTE ON FUNCTION siton.outbox_row_written_in_tx(text, uuid, text) FROM %I', v_role);
     END IF;
   END LOOP;
   FOREACH v_role IN ARRAY ARRAY['siton_web_runtime', 'siton_worker_runtime'] LOOP
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = v_role) THEN
       EXECUTE format('GRANT EXECUTE ON FUNCTION siton.audit_row_written_in_tx(text, uuid, text, text, text, text) TO %I', v_role);
-      EXECUTE format('GRANT EXECUTE ON FUNCTION siton.outbox_row_written_in_tx(text, uuid) TO %I', v_role);
+      EXECUTE format('GRANT EXECUTE ON FUNCTION siton.outbox_row_written_in_tx(text, uuid, text) TO %I', v_role);
     END IF;
   END LOOP;
 END
@@ -212,6 +259,7 @@ LANGUAGE plpgsql
 AS $$
 DECLARE
   v_action text;
+  v_event_type text;
 BEGIN
   IF NEW.state IS DISTINCT FROM OLD.state THEN
     v_action := siton.require_action_name();
@@ -226,9 +274,17 @@ BEGIN
       IF NOT siton.flag_is_set('siton.outbox_written') THEN
         RAISE EXCEPTION 'deal state change requires outbox in same transaction. action=%', v_action;
       END IF;
-      -- Per-row assertion (C-1): the outbox row must be for THIS deal.
-      IF NOT siton.outbox_row_written_in_tx('deal', NEW.deal_id) THEN
-        RAISE EXCEPTION 'deal state change requires an outbox_events row for this deal in the same transaction. deal=% action=%', NEW.deal_id, v_action;
+      -- Per-row assertion (C-1): the outbox row must be for THIS deal and
+      -- must be the job this action exists to enqueue.
+      v_event_type := CASE v_action
+        WHEN 'deal.publish' THEN 'deadline_check'
+        WHEN 'charging.start' THEN 'charge_deal'
+        WHEN 'charging.to_completion_window' THEN 'finalize_deal'
+        WHEN 'charging.finalize_failed' THEN 'refund_issue'
+        WHEN 'deal.cancel' THEN 'cancel_refund'
+      END;
+      IF NOT siton.outbox_row_written_in_tx('deal', NEW.deal_id, v_event_type) THEN
+        RAISE EXCEPTION 'deal state change requires a % outbox_events row for this deal in the same transaction. deal=% action=%', v_event_type, NEW.deal_id, v_action;
       END IF;
     END IF;
   END IF;
