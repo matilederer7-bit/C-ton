@@ -10318,16 +10318,6 @@ export function registerFrontendExperience(
     if (body.deal_id) authorizeInput.deal_id = String(body.deal_id);
     if (body.correlation_id) authorizeInput.correlation_id = String(body.correlation_id);
     if (body.payment_method_id) authorizeInput.payment_method_id = String(body.payment_method_id);
-    if (body.payment_method_id) {
-      // Black-Sky A-F4 — ownership of a client-supplied stored method is
-      // checked BEFORE the provider is asked to authorize on it.
-      await ensurePaymentOpsTables();
-      await deps.withTx((c) => assertPaymentMethodOwnershipInTx(c, {
-        provider_code: deps.paymentProvider.providerCode,
-        provider_payment_method_id: String(body.payment_method_id),
-        buyer_id: String(body.buyer_id || "").trim() || null
-      }));
-    }
 
     let dealAuthorizationContext: {
       deal_id: string;
@@ -10342,6 +10332,20 @@ export function registerFrontendExperience(
       const dealId = String(body.deal_id);
       requireUuid(dealId, "deal_id");
       const qty = parsePositiveIntegerQuantity(body.qty);
+
+      if (body.payment_method_id) {
+        // Black-Sky A-F4 — a deal-scoped authorization records the method on
+        // the binding (the renewal source) and upserts it for the buyer: the
+        // ownership of a client-supplied stored method is checked BEFORE the
+        // provider is asked to authorize on it. (A non-deal authorization
+        // creates no binding, and the post-authorize upsert never reassigns.)
+        await ensurePaymentOpsTables();
+        await deps.withTx((c) => assertPaymentMethodOwnershipInTx(c, {
+          provider_code: deps.paymentProvider.providerCode,
+          provider_payment_method_id: String(body.payment_method_id),
+          buyer_id: String(body.buyer_id || "").trim() || null
+        }));
+      }
 
       // A deal-scoped authorization must bind a buyer identity server-side so
       // Join can verify it. Mock-backed demo flows may keep the legacy loose
