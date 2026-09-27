@@ -208,8 +208,8 @@ Clean full pass on the final code (local PostgreSQL 16, nothing else running):
 
 Full detail: `docs/CREDENTIAL_COMPROMISE_RUNBOOK.md`, `docs/BACKUP_RESTORE_RUNBOOK.md`, `docs/CONFIG_INVENTORY.md`.
 
-1. **Staging DB before the merge deploys:** apply migrations **077, 078, 079**, then `supabase/staging/027_black_sky_db_integrity_grants.sql`. The schema contract fails closed without them. 078 re-adds 12 FKs, so apply it in a quiet window. Never set `siton.allow_test_actions` on staging.
-2. **Render, both services:** make sure `SUPABASE_MANAGEMENT_API_TOKEN` is **not** set; hosted services refuse to boot with it. If it ever was set, rotate it.
+1. ~~**Staging DB:** apply 077, 078, 079 + `supabase/staging/027`.~~ **DONE 2026-09-27** (before the #99 merge; ledger 72/72, verified). Never set `siton.allow_test_actions` on staging.
+2. ~~**Render, both services:** `SUPABASE_MANAGEMENT_API_TOKEN` must not be set.~~ **DONE** — verified absent (hosted boot guard passed on `c1c361f` and `f02414b`). If it ever was set, rotate it.
 3. **Render (production-mode runtimes):** add `OTP_TOKEN_SECRET` (random, ≥32 characters, distinct) and, on web, `SITON_OWNER_AUTH_USER_ID` (the owner's Supabase auth UUID). Both are required at boot in production. Staging (`APP_DEPLOYMENT_MODE=staging`) does not require them.
 4. **Off-site backups:**
    - provision the `OFFSITE_BACKUP_*` secrets: a read-only role URL, an age public key, bucket name and scoped access keys;
@@ -225,7 +225,7 @@ Full detail: `docs/CREDENTIAL_COMPROMISE_RUNBOOK.md`, `docs/BACKUP_RESTORE_RUNBO
    - set `SITON_BROKER_ALLOWED_PREFIXES` and redeploy the `storage-broker` edge function.
 7. **Second SuperAdmin:** create one with a separate MFA device. Payout freeze/unfreeze, emergency pauses and the payout attestation action need a second approver.
 8. **MFA:** turn it on for the Supabase, Render and GitHub owner accounts, and keep the backup bucket on a separate account.
-9. **Render auto-deploy:** after the blueprint syncs, confirm it shows "After CI checks pass".
+9. ~~**Render auto-deploy:** confirm "After CI checks pass".~~ **DONE** — `autoDeployTrigger: checksPass` is live; the `f02414b` deploy started only after master CI passed.
 10. **GitHub:** enable Dependabot security updates and keep the required checks on master.
 11. **Decisions:**
     - alert routing for `worker_alert:*` (no pager exists);
