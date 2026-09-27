@@ -2,9 +2,50 @@
 
 Updated: 2026-09-27
 Canonical branch: `master`
-Current merged baseline: `f02414b` (PR #117, Black-Sky BSC-2 follow-up on top of PR #99 `c1c361f`). Black-Sky track: **98%** — merged, 077–079 + grant file 027 applied to staging before the merge, the post-merge Codex P2 (BSC-2, webhook claim fencing) fixed and merged in PR #117 with a clean Codex review, master CI green, staging redeploy of `f02414b` verified live on 2026-09-27; BSC-3 (success response sent before COMMIT, found by CI on PR #116) fixed in PR #116 with a regression test — pending a clean Codex review of #116's head, merge and staging deploy. Previous: `df9aee3` / `d186153` red-team closure (100%).
-Render staging: LIVE on `f02414b` (checks-gated auto-deploy, `autoDeployTrigger: checksPass`) — web `srv-daa5o9u7bikc73fgjskg` deploy `dep-dasin2rncjis73ei4790` and worker `srv-daakn0tg1s2s73dfk3pg` deploy `dep-dasin2rncjis73ei487g` (verified 2026-09-27 ~15:05 UTC: web "Server listening" on release `f02414b`, worker `worker_ready`, zero warn/error/fatal lines). The previous `c1c361f` deploy passed the production guards (`SUPABASE_MANAGEMENT_API_TOKEN` not set) and `/readiness` with the schema contract incl. 077–079. Earlier baseline `df9aee3` red-team checks: see the red-team milestone below.
+Current merged baseline: `73026b4` (PR #116, Black-Sky BSC-3 fix + close-out, on top of #117 `f02414b` and #99 `c1c361f`). Black Sky Engineering: **100% (closed)**; Production Readiness: **18%** (see TRACKS) — Black-Sky all merged with a clean Codex review of each final head (#117 on `26a6f82`, #116 on `1534bde`), master CI green on `73026b4`, 077–079 + grant file 027 on staging (ledger 72/72), staging live on `73026b4` (verified 2026-09-27 18:23 UTC). Previous: `df9aee3` / `d186153` red-team closure (100%).
+Render staging: LIVE on `73026b4` (checks-gated auto-deploy, `autoDeployTrigger: checksPass`) — web `srv-daa5o9u7bikc73fgjskg` deploy `dep-dasloc8u01pc73f5vni0` and worker `srv-daakn0tg1s2s73dfk3pg` deploy `dep-dasloc8u01pc73f5vnvg` (verified 2026-09-27 18:23 UTC: web "Server listening", worker `worker_ready`, zero warn/error/fatal lines since the deploy). Earlier deploys `f02414b` and `c1c361f` passed the production guards (`SUPABASE_MANAGEMENT_API_TOKEN` not set) and `/readiness` with the schema contract incl. 077–079.
 Supabase staging (`siton-staging`, hnptacfzuqebfgeshadq): migrations through **079** applied (077 → position 70, 078 → 71, 079 → 72, plus grant file `supabase/staging/027`, all on 2026-09-27 through the Supabase connector before the #99 merge, checksums from the canonical bodies); **72/72** ledger rows succeeded. Verified: ClosedForJoining→Failed edge, 6 new triggers enabled, 0 NOT VALID constraints, `test.*` refused, deal→participant FK = RESTRICT, 027 self-check passed. BSC-2 (#117) needs no migration.
+
+
+## TRACKS (owner decision 2026-09-27: two separate percentages)
+
+- **Black Sky Engineering: 100% — CLOSED.** All code fixes merged (#99 `c1c361f`, #117 `f02414b`, #116 `73026b4`); CI green on master `73026b4`; the latest Codex review of each final head is clean (#117 `26a6f82`, #116 `1534bde`); migrations 077–079 + grant file 027 applied to staging (ledger 72/72); staging live and checked on `73026b4`; recovery / failure / money / DB suites pass (314 files / 0 failures, `RECOVERY_PROOF_PASS`, `DB_BACKUP_RESTORE_REHEARSAL_PASS`). No further hardening, adversarial round or scope expansion on this track unless a new concrete finding appears.
+- **Production Readiness: 18% (5 of 28 items done) — OPEN, owner-driven.** External actions, not code changes. Items marked **REAL MONEY LAUNCH BLOCKER** (12 open) must be closed before any real charge; real-money activation stays BLOCKED by policy until then. By owner decision these deployment/provisioning actions (incl. report E1 CRIT off-site backups and E5 HIGH storage broker, whose code is done) are the scope of this track, not completion criteria of Black Sky Engineering.
+
+### Production Readiness checklist
+
+| # | Item | Status | Class |
+|---|---|---|---|
+| PR-1 | Staging DB: 077–079 + `supabase/staging/027` | DONE (ledger 72/72) | — |
+| PR-2 | `SUPABASE_MANAGEMENT_API_TOKEN` absent on Render | DONE (boot guard passed) | — |
+| PR-3 | Render deploys gated on CI (`checksPass`) | DONE | — |
+| PR-4 | Production env: `OTP_TOKEN_SECRET` (≥32 random chars), `OTP_HASH_SALT` (random, not the public default; also still missing on both staging services) and `SITON_OWNER_AUTH_USER_ID` on the production web/worker — production refuses to boot without them (`src/production_guards.ts`) | OPEN | **REAL MONEY LAUNCH BLOCKER** |
+| PR-5 | Production DB: apply 077–079 + grant file 027 (owner-authorized schema change) | OPEN | **REAL MONEY LAUNCH BLOCKER** |
+| PR-6 | Off-site backups: provision `OFFSITE_BACKUP_*` secrets, keep the age identity offline, run once → `OFFSITE_BACKUP_PASS`, then one verified restore | OPEN | **REAL MONEY LAUNCH BLOCKER** |
+| PR-7 | Hosted backups checklist: plan/PITR, retention, last backup, restore ever done, who can restore (with MFA) | OPEN | **REAL MONEY LAUNCH BLOCKER** |
+| PR-8 | Backup path for `auth.users` and Storage objects | OPEN | **REAL MONEY LAUNCH BLOCKER** |
+| PR-9 | MFA on the Supabase, Render, GitHub and Grow owner accounts; backup bucket on a separate account | OPEN | **REAL MONEY LAUNCH BLOCKER** |
+| PR-10 | Second SuperAdmin with a separate MFA device (dual approval for payout freeze/unfreeze, emergency pause, payout attestation) | OPEN | **REAL MONEY LAUNCH BLOCKER** |
+| PR-11 | Alert routing for `worker_alert:*` (a human is paged for money cases) | OPEN | **REAL MONEY LAUNCH BLOCKER** |
+| PR-12 | Decision: handling of a partly charged deal whose charge retries are exhausted | OPEN | **REAL MONEY LAUNCH BLOCKER** |
+| PR-13 | Grow: provider contract for real money resolved (F-13) and live-mode verification performed (policy reasons `F13_PROVIDER_CONTRACT_UNRESOLVED`, `GROW_LIVE_VERIFICATION_NOT_PERFORMED`) | OPEN | **REAL MONEY LAUNCH BLOCKER** |
+| PR-14 | Supabase "Confirm email" on | OPEN | launch prerequisite |
+| PR-15 | `SITON_BROKER_ALLOWED_PREFIXES` set and `storage-broker` edge function redeployed (report E5, HIGH: code fixed, deploy pending) | OPEN | launch prerequisite (security) |
+| PR-16 | GitHub: Dependabot security updates on, required checks kept on master | OPEN | recommended |
+| PR-17 | WAF/CDN in front of Render | OPEN | recommended |
+| PR-18 | Delete or reconfigure the orphan Render service `siton-staging-web-atp1` | OPEN | cleanup |
+| PR-19 | Clear `ADVERSARIAL_REVIEW_NOT_PERFORMED` in `config/real-money-release-policy.json` with dated evidence (owner decides whether the red-team and Black-Sky reports suffice or a further review is required) | OPEN | **REAL MONEY LAUNCH BLOCKER** |
+| PR-20 | Owner approval of production payment activation (`PRODUCTION_PAYMENT_ACTIVATION_NOT_APPROVED`), then the separately reviewed commit that flips the policy to `ALLOWED` with evidence for every reason (`docs/REAL_MONEY_RELEASE_GOVERNANCE.md`); runtime variables are set only after that | OPEN | **REAL MONEY LAUNCH BLOCKER** |
+| PR-21 | Render web plan (currently `free`, hibernates) and Supabase Site URL decisions for launch | OPEN | launch prerequisite |
+| PR-22 | Decide whether Base44 remains an intended runtime (`scripts/release_checklist.cjs` O-4) | OPEN | recommended |
+| PR-23 | Confirm the production seller-approval step (`verification_status='approved'` required to publish, else `409 seller_kyc_not_approved`) and staff an approval process (`docs/SELLER_ONBOARDING_KYC.md`) | OPEN | launch prerequisite |
+| PR-24 | Hosted browser proofs (seller journey, buyer join, admin) re-run against the deployed launch SHA | OPEN | launch prerequisite |
+| PR-25 | Owner acknowledges the runbooks: deployment, rollback, payment incident, security incident, database incident | OPEN | launch prerequisite |
+| PR-26 | Mobile store placeholders (`SITON_APP_ID`, app link host, signing credentials) — store build only | OPEN | recommended |
+| PR-27 | Render worker start command `node .demo_dist/src/worker.js` (SIGTERM drain) | DONE (live on the worker service) | — |
+| PR-28 | Production image without the dev toolchain (`npm prune --omit=dev`) | DONE (Dockerfile; docker-release-lab green) | — |
+
+This list reconciles every open item of `scripts/release_checklist.cjs`; its per-release gates (Docker lab green and all workflows green for the exact launch SHA) are checked at the Launch Gate itself. Detail per item: `BLACK_SKY_FINAL_REPORT.md` §7–§8, `docs/BACKUP_RESTORE_RUNBOOK.md`, `docs/CREDENTIAL_COMPROMISE_RUNBOOK.md`, `docs/CONFIG_INVENTORY.md`. Next step: the owner works the REAL MONEY LAUNCH BLOCKERs, then the Launch Gate.
 
 ## CURRENT SNAPSHOT
 
@@ -312,7 +353,7 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
-### Claude Code latest milestone — Black-Sky: 98% — #99 + BSC-2 (#117) merged and staging verified; BSC-3 fix in PR #116 under review
+### Claude Code latest milestone — Black Sky Engineering: 100% (closed) — #99, BSC-2 (#117) and BSC-3 (#116) merged, clean reviews, staging verified
 
 - UPDATED: 2026-09-27
 - BRANCH: `claude/festive-wright-kx4e5a` from master `d186153`; PR [#99](https://github.com/matilederer7-bit/C-ton/pull/99). Full ledger, combination scenarios, owner actions and "What can still kill Siton?": `BLACK_SKY_FINAL_REPORT.md`.
@@ -330,9 +371,10 @@ Current invariants:
 - REVIEW: the Codex re-review workflow skips drafts; after PR #99 left draft and merged, Codex reviewed head `2d26d53` and reported one P2 — **BSC-2**: the A-F3 stale webhook reclaim had no claim fencing, so a stalled processor could overwrite a newer claimant's terminal status. Fixed in PR #117: per-claim `claim_token`, compare-and-set `markEvent`, the sweep clears the token (no migration); 7 fencing regression cases fail on the pre-fix code and pass after; full local gate re-run on the fix (313 files / 0 failures, release tools 199/199, `RECOVERY_PROOF_PASS`, `DB_BACKUP_RESTORE_REHEARSAL_PASS`). PR #117: CI 7/7 green on head `26a6f82`; latest Codex review on that head: "Didn't find any major issues" (its earlier P1 on this status slot fixed and resolved). Squash-merged as `f02414b`.
 - BSC-3 (found by CI on PR #116): chat POST, the invoice webhook and admin action execution sent their success response inside the DB transaction, so a failed COMMIT could still acknowledge (invoice provider stops retrying → reconciliation lost; operator told "executed"), and a read right after the 201 could miss the row (the CI failure in `receipt_content_integration`). Fixed: each handler returns `{code, body}` from `withTx` and replies only after COMMIT; `tests/black_sky_ack_after_commit_failure_validation.ts` (block + throw at `db.before_commit`) fails on the pre-fix code for both the chat and webhook cases and passes after; audit of every `withTx` callback found no other success reply inside a transaction.
 - STAGING VERIFIED (live, `f02414b`): master `backend-gates` green (complete repository suite + extended Docker smoke); checks-gated auto-deploy: web `dep-dasin2rncjis73ei4790` and worker `dep-dasin2rncjis73ei487g` live; web "Server listening" on release `f02414b`, worker `worker_ready` (event deadline 120 s, watchdog 300 s); zero warn/error/fatal log lines since the deploy.
-- OPEN: PR #116 (BSC-3 fix): Codex reviewed head `d6a5499` and raised no finding on the BSC-3 code (one status-wording P1, fixed here); a clean Codex review of the current head, merge, master CI and the staging deploy of the merge are still pending. Owner actions in `BLACK_SKY_FINAL_REPORT.md` §7 (off-site backup secrets, hosted-backup checklist, Supabase "Confirm email" + storage-broker prefixes, second SuperAdmin + MFA, production secrets and 077–079 + 027 before any production deploy).
-- PERCENTAGE: **98%** — BSC-3 is fixed and tested but not yet merged/deployed.
-- NEXT STEP: merge PR #116 after green CI and a clean Codex review of its head, verify the staging deploy, then record 100% in a docs-only follow-up. Owner actions §7; real-money activation stays BLOCKED by policy.
+- MERGED + STAGING VERIFIED (live, `73026b4`): PR #116 squash-merged as `73026b4` after CI 7/7 and a clean Codex review of its final head `1534bde` ("Didn't find any major issues"; the review of `d6a5499` raised no finding on the BSC-3 code, only a status-wording P1, fixed). Master `backend-gates` run 36337715718 green; checks-gated deploy: web `dep-dasloc8u01pc73f5vni0` and worker `dep-dasloc8u01pc73f5vnvg` live; web "Server listening", worker `worker_ready`; zero warn/error/fatal log lines since the deploy.
+- OPEN: none on this track. The remaining owner actions are a separate track, Production Readiness (see TRACKS at the top), and do not reopen Black Sky Engineering.
+- PERCENTAGE: Black Sky Engineering **100% (closed)**.
+- NEXT STEP: Production Readiness → Launch Gate; real-money activation stays BLOCKED until every REAL MONEY LAUNCH BLOCKER is closed.
 
 ### Claude Code milestone — Red-team CLOSURE: every documented item fixed to the end (100%, merged + staging verified)
 
