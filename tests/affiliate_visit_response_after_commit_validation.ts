@@ -10,11 +10,15 @@
 // visit is parked at the db.before_commit block fault, and the suite asserts
 // that its HTTP response has NOT been produced while the transaction is open.
 import assert from "node:assert/strict";
+import pg from "pg";
+import { countLinkClicks, seedAffiliateLink } from "./helpers/seed_affiliate_link.js";
 
 process.env.NODE_ENV = "test";
 process.env.APP_DEPLOYMENT_MODE = "demo-preview";
 process.env.DISABLE_OUTBOX_WORKER = "1";
 
+const { Pool } = pg;
+const pool = new Pool({ connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton" });
 const { app } = await import("../src/app.js");
 const { armTestFault, resetTestFaults } = await import("../src/fault_injection.js");
 
@@ -62,23 +66,16 @@ function visit(dealId: string, sourceCode: string, clickId: string) {
   });
 }
 
-async function linkClicks(sourceCode: string) {
-  const response = await app.inject({ method: "GET", url: "/api/affiliate/overview" });
-  assert.equal(response.statusCode, 200, response.body);
-  const link = (response.json() as any).affiliate_surface.links.find((item: any) => item.source_code === sourceCode);
-  assert.ok(link, "link missing from distributor overview");
-  return Number(link.clicks);
+// Reads through a separate pool connection (READ COMMITTED): an uncommitted
+// click row is invisible here exactly as it is to any other reader.
+function linkClicks(sourceCode: string) {
+  return countLinkClicks(pool, sourceCode);
 }
 
 async function main() {
   const dealId = await createPublishedDeal();
-  const linkResponse = await app.inject({
-    method: "POST",
-    url: "/api/affiliate/links",
-    payload: { deal_id: dealId, internal_name: "commit ordering link" }
-  });
-  assert.equal(linkResponse.statusCode, 201, linkResponse.body);
-  const sourceCode = String((linkResponse.json() as any).link.source_code);
+  const sourceCode = `visit-commit-${Date.now().toString(36)}`;
+  await seedAffiliateLink(pool, dealId, sourceCode, "commit ordering link");
 
   const first = await visit(dealId, sourceCode, "click-visit-commit-0001");
   assert.equal(first.statusCode, 202, first.body);
@@ -104,7 +101,7 @@ async function main() {
       delay(750, { responded: false as const })
     ]);
     const clicksWhileOpen = await linkClicks(sourceCode);
-    assert.equal(clicksWhileOpen, 1, "uncommitted click leaked into the distributor overview");
+    assert.equal(clicksWhileOpen, 1, "uncommitted click leaked to a concurrent reader");
     assert.equal(
       early.responded,
       false,
@@ -125,9 +122,13 @@ async function main() {
 }
 
 main()
-  .then(() => app.close())
+  .then(async () => {
+    await app.close();
+    await pool.end();
+  })
   .catch(async (error) => {
     console.error(error);
     await app.close().catch(() => undefined);
+    await pool.end().catch(() => undefined);
     process.exit(1);
   });

@@ -40,7 +40,6 @@ process.env.DISABLE_OUTBOX_WORKER = "1";
 process.env.SELLER_SESSION_SECRET = "seller-session-secret-cross-principal";
 process.env.ADMIN_API_KEY = "cross-principal-admin-key";
 process.env.ADMIN_SESSION_SECRET = process.env.ADMIN_SESSION_SECRET || "admin-session-secret-cross-principal";
-process.env.DISTRIBUTOR_SESSION_SECRET = "distributor-session-secret-cross-principal";
 
 const { app } = await import("../src/app.js");
 const { establishNamedAdminSession } = await import("./helpers/named_admin_session.js");
@@ -341,7 +340,7 @@ await run("a caller-supplied seller identity never overrides the session", async
   assert.ok([401, 403].includes(headerOnly.statusCode), `header-only caller got ${headerOnly.statusCode}`);
 });
 
-await run("a seller session is not admin authority and not distributor authority", async () => {
+await run("a seller session is not admin authority", async () => {
   // Role confusion: holding one valid credential must not open another surface.
   // These admin routes are REAL and registered - probing a path that does not
   // exist would pass on the 404 and prove nothing.
@@ -362,15 +361,6 @@ await run("a seller session is not admin authority and not distributor authority
     );
   }
 
-  const distributorProbe = await app.inject({
-    method: "GET",
-    url: "/api/affiliate/overview",
-    headers: { cookie: cookieA, "x-request-id": randomUUID() }
-  } as any);
-  assert.ok(
-    distributorProbe.statusCode < 200 || distributorProbe.statusCode >= 300,
-    `a seller session reached the distributor surface (${distributorProbe.statusCode})`
-  );
 });
 
 console.log(`SUMMARY passed=${passed} failed=${failed} seller_a=${SELLER_A} seller_b=${SELLER_B}`);

@@ -324,43 +324,6 @@ async function main() {
     assert.equal(summary.vat_amount, 0);
     assert.equal(summary.fee_base_amount, 220);
   });
-
-  await runTest("affiliate overview is attribution-only (no commission/payout/PII fields)", async () => {
-    const res = await app.inject({ method: "GET", url: "/api/affiliate/overview" });
-    assert.equal(res.statusCode, 200);
-    const body = res.json() as any;
-    assert.ok(body.affiliate_surface, "affiliate_surface must be present");
-    const surface = body.affiliate_surface;
-    const surfaceJson = JSON.stringify(surface);
-    // Money-model keys must not leak.
-    for (const forbidden of [
-      "commission_amount",
-      "commission_rate",
-      "payout_status",
-      "payout_method",
-      "payout_details",
-      "affiliate_fee_amount",
-      "balance",
-      "amount_owed"
-    ]) {
-      assert.ok(
-        !surfaceJson.includes(`"${forbidden}"`),
-        `affiliate overview leaked money field "${forbidden}"`
-      );
-    }
-    // PII keys must not leak.
-    for (const forbidden of ["buyer_id", "buyer_phone", "buyer_email", "phone", "email"]) {
-      assert.ok(
-        !surfaceJson.includes(`"${forbidden}"`),
-        `affiliate overview leaked PII field "${forbidden}"`
-      );
-    }
-    // Allowed aggregate counters must be present.
-    assert.ok(typeof surface.totals?.total_attributions === "number");
-    assert.ok(typeof surface.totals?.total_units === "number");
-    assert.ok(typeof surface.totals?.active_campaigns === "number");
-  });
-
 }
 
 main()

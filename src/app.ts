@@ -63,8 +63,7 @@ import {
   recordViralJoinAttribution,
   recomputeDealViralMetrics,
   recomputeAggregateViralMetrics,
-  personalShareUrl
-} from "./viral_graph.js";
+  personalShareUrl, enqueueViralRecompute } from "./viral_graph.js";
 import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
 import {
@@ -7693,8 +7692,16 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     // is already written in this transaction; from here to COMMIT only the
     // money-critical writes remain, so the lock is held as briefly as the
     // inventory RPC and the audited state updates allow.
+    // FOR NO KEY UPDATE, not FOR UPDATE: the participant / token / legal /
+    // notification rows written above reference this deal through foreign
+    // keys, i.e. every in-flight join already holds a KEY SHARE on the deal
+    // row. FOR UPDATE conflicts with KEY SHARE (two joins would deadlock:
+    // each waiting for the other's uncommitted key share); FOR NO KEY UPDATE
+    // is exactly the exclusive lock a non-key column update needs and is
+    // compatible with KEY SHARE, so joins serialise on it cleanly. The state
+    // UPDATEs below take the same lock mode implicitly.
     const lockedDeal = await c.query(
-      `SELECT state FROM siton.deals WHERE deal_id=$1 FOR UPDATE`,
+      `SELECT state FROM siton.deals WHERE deal_id=$1 FOR NO KEY UPDATE`,
       [dealId]
     );
     if (!lockedDeal.rowCount) {
@@ -7842,6 +7849,9 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
         throw stateConflict("deal", dealId, "PendingTarget");
       }
     }
+    // Deal-scoped viral recompute debounce — a per-deal unique outbox row, so
+    // it belongs INSIDE the critical section (see enqueueViralRecompute).
+    await enqueueViralRecompute(c, dealId, "join", 20);
     // ---- end of critical section: only the idempotency records remain ----
 
     const deliveryCost = Number(selectedDelivery?.cost || 0);

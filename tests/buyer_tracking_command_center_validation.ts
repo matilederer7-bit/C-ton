@@ -1,10 +1,12 @@
 ﻿import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import pg from "pg";
+import { withForcedTx, forcedDealPath, forcedDealStep, forcedParticipantStep } from "./helpers/forced_state.js";
 
 process.env.DISABLE_OUTBOX_WORKER = "1";
 
 const { app } = await import("../src/app.js");
+const { issueParticipantTrackingToken } = await import("../src/participant_tracking_security.js");
 const { Pool } = pg;
 
 const DATABASE_URL = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton";
@@ -114,7 +116,9 @@ async function joinDeal(dealId: string, suffix: string, qty: number, buyerId = `
     }
   });
   assert.equal(response.statusCode, 200, response.body);
-  return response.json() as { participant_id: string };
+  const joined = response.json() as { participant_id: string; tracking_access_token: string };
+  trackingTokens.set(joined.participant_id, joined.tracking_access_token);
+  return joined;
 }
 
 async function forceDealState(dealId: string, state: "Completed" | "Failed" | "Cancelled") {
@@ -132,35 +136,15 @@ async function forceDealState(dealId: string, state: "Completed" | "Failed" | "C
   };
   const path = paths[state];
   assert.ok(path, `unsupported forced state ${state}`);
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    await client.query(`SELECT set_config('siton.in_atomic', 'true', true)`);
-    await client.query(`SELECT set_config('app.in_atomic', 'true', true)`);
-    await client.query(`SELECT set_config('siton.audit_written', '1', true)`);
-    await client.query(`SELECT set_config('siton.outbox_written', '1', true)`);
-    for (const step of path) {
-      await client.query(`SELECT set_config('siton.action_name', $1, true)`, [step.action]);
-      await client.query(`UPDATE siton.deals SET state=$2 WHERE deal_id=$1`, [dealId, step.to]);
-    }
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  // Per-row audit enforcement (migration 076): forced steps write audit rows.
+  await withForcedTx(pool, path[0]!.action, async (client) => {
+    await forcedDealPath(client, dealId, path);
+  });
 }
 
 async function forceParticipantRecovery(participantId: string) {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    await client.query(`SELECT set_config('siton.in_atomic', 'true', true)`);
-    await client.query(`SELECT set_config('app.in_atomic', 'true', true)`);
-    await client.query(`SELECT set_config('siton.audit_written', '1', true)`);
-    await client.query(`SELECT set_config('siton.outbox_written', '1', true)`);
-    await client.query(`SELECT set_config('siton.action_name', 'test.buyer_tracking_recovery', true)`);
+  const ACTION = "test.buyer_tracking_recovery";
+  await withForcedTx(pool, ACTION, async (client) => {
     const dealRow = await client.query(
       `SELECT deal_id FROM siton.participants WHERE participant_id=$1`,
       [participantId]
@@ -168,9 +152,8 @@ async function forceParticipantRecovery(participantId: string) {
     const dealId = dealRow.rows[0]?.deal_id as string | undefined;
     if (dealId) {
       const completionWindowUntil = new Date(Date.now() + 30 * 60_000).toISOString();
-      const dealStatePath = ["TargetReached", "ClosedForJoining", "ReadyForCharging", "Charging", "CompletionWindow"];
-      for (const nextState of dealStatePath) {
-        await client.query(`UPDATE siton.deals SET state=$2 WHERE deal_id=$1`, [dealId, nextState]);
+      for (const nextState of ["TargetReached", "ClosedForJoining", "ReadyForCharging", "Charging", "CompletionWindow"]) {
+        await forcedDealStep(client, dealId, nextState, ACTION);
       }
       await client.query(
         `UPDATE siton.deals SET completion_window_until=$2 WHERE deal_id=$1`,
@@ -178,18 +161,12 @@ async function forceParticipantRecovery(participantId: string) {
       );
     }
     for (const buyerState of ["LockedIn", "ChargingAttempt", "ChargeFailedCompletion"]) {
-      await client.query(`UPDATE siton.participants SET buyer_state=$2 WHERE participant_id=$1`, [participantId, buyerState]);
+      await forcedParticipantStep(client, participantId, { buyer_state: buyerState }, ACTION);
     }
     for (const moneyState of ["AuthLocked", "ChargeAttempt", "ChargeFailedRecovery"]) {
-      await client.query(`UPDATE siton.participants SET money_state=$2 WHERE participant_id=$1`, [participantId, moneyState]);
+      await forcedParticipantStep(client, participantId, { money_state: moneyState }, ACTION);
     }
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 function scanKeys(value: unknown, blocked: RegExp, path: string[] = []) {
@@ -204,8 +181,13 @@ function scanKeys(value: unknown, blocked: RegExp, path: string[] = []) {
   }
 }
 
+// Red-team fix A5: the tracking view always requires the join-issued
+// tracking credential, so joinDeal records it per participant.
+const trackingTokens = new Map<string, string>();
+
 async function tracking(participantId: string) {
-  const response = await app.inject({ method: "GET", url: `/api/participants/${participantId}/tracking` });
+  const token = trackingTokens.get(participantId) || "";
+  const response = await app.inject({ method: "GET", url: `/api/participants/${participantId}/tracking?t=${encodeURIComponent(token)}` });
   assert.equal(response.statusCode, 200, response.body);
   return response.json() as any;
 }
@@ -273,6 +255,14 @@ async function main() {
        RETURNING participant_id`,
       [cancelledDeal]
     )).rows[0].participant_id;
+    // DB-seeded participant (no join): issue its tracking credential directly.
+    const cancelledToken = await issueParticipantTrackingToken(pool as any, {
+      participant_id: cancelledParticipantId,
+      deal_id: cancelledDeal,
+      purpose: "tracking",
+      issued_via: "test_seed"
+    });
+    trackingTokens.set(cancelledParticipantId, cancelledToken.token);
     const cancelled = await tracking(cancelledParticipantId);
     assert.equal(cancelled.tracking.deal_status.kind, "cancelled");
   });

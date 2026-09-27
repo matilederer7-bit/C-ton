@@ -427,7 +427,7 @@ async function main() {
 
     const tracking = await app.inject({
       method: "GET",
-      url: `/api/participants/${joinJson.participant_id}/tracking`
+      url: `/api/participants/${joinJson.participant_id}/tracking?t=${encodeURIComponent(joinJson.tracking_access_token)}`
     });
     assert.equal(tracking.statusCode, 200);
     const trackingJson = tracking.json() as any;

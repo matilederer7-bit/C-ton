@@ -2,6 +2,7 @@
 import { readFile } from "node:fs/promises";
 import pg from "pg";
 import "dotenv/config";
+import { withForcedTx, forcedDealStep, forcedParticipantStep } from "./helpers/forced_state.js";
 
 process.env.DISABLE_OUTBOX_WORKER = "1";
 process.env.RATE_LIMIT_MAX = process.env.RATE_LIMIT_MAX || "20000";
@@ -109,7 +110,17 @@ async function joinDeal(dealId: string, suffix: string) {
     }
   });
   assert.equal(join.statusCode, 200, join.body);
-  return (join.json() as { participant_id: string }).participant_id;
+  const joined = join.json() as { participant_id: string; tracking_access_token: string };
+  trackingTokens.set(joined.participant_id, joined.tracking_access_token);
+  return joined.participant_id;
+}
+
+// Red-team fix A5: tracking and recovery always require the join-issued
+// tracking credential (purpose "tracking" is accepted by both routes).
+const trackingTokens = new Map<string, string>();
+
+function trackingAuth(participantId: string) {
+  return { authorization: `Bearer ${trackingTokens.get(participantId) || ""}` };
 }
 
 const DEAL_STATE_PATH: Record<string, string[]> = {
@@ -152,15 +163,9 @@ async function setStates(participantId: string, args: {
   moneyState?: string;
   completionWindowUntil?: string | null;
 }) {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    await client.query(`SELECT set_config('siton.in_atomic', 'true', true)`);
-    await client.query(`SELECT set_config('app.in_atomic', 'true', true)`);
-    await client.query(`SELECT set_config('siton.audit_written', '1', true)`);
-    await client.query(`SELECT set_config('siton.outbox_written', '1', true)`);
-    await client.query(`SELECT set_config('siton.action_name', 'test.recovery_setup', true)`);
-
+  // Per-row audit enforcement (migration 076): forced steps write audit rows.
+  const ACTION = "test.recovery_setup";
+  await withForcedTx(pool, ACTION, async (client) => {
     const dealRow = await client.query(
       `SELECT d.deal_id, d.state, d.completion_window_until
        FROM siton.participants p
@@ -178,19 +183,12 @@ async function setStates(participantId: string, args: {
       const startIdx = targetPath.indexOf(currentDealState || "PendingTarget");
       const stepsToWalk = startIdx === -1 ? targetPath : targetPath.slice(startIdx + 1);
       for (const next of stepsToWalk) {
-        if (next === "CompletionWindow") {
+        if (next === "CompletionWindow" && currentWindow == null) {
           // window must be set in the SAME update to land at CompletionWindow with a future window
           const windowValue = args.completionWindowUntil ?? new Date(Date.now() + 30 * 60_000).toISOString();
-          if (currentWindow == null) {
-            await client.query(
-              `UPDATE siton.deals SET state=$2, completion_window_until=$3 WHERE deal_id=$1`,
-              [dealId, next, windowValue]
-            );
-          } else {
-            await client.query(`UPDATE siton.deals SET state=$2 WHERE deal_id=$1`, [dealId, next]);
-          }
+          await forcedDealStep(client, dealId, next, ACTION, { extraSet: "completion_window_until=$4", extraParams: [windowValue] });
         } else {
-          await client.query(`UPDATE siton.deals SET state=$2 WHERE deal_id=$1`, [dealId, next]);
+          await forcedDealStep(client, dealId, next, ACTION);
         }
       }
       // If window already set and we want to override (impossible after first set due to immutability trigger),
@@ -206,7 +204,7 @@ async function setStates(participantId: string, args: {
       const startIdx = targetPath.indexOf(currentBuyer || "JoinedAuthorized");
       const stepsToWalk = startIdx === -1 ? targetPath : targetPath.slice(startIdx + 1);
       for (const next of stepsToWalk) {
-        await client.query(`UPDATE siton.participants SET buyer_state=$2 WHERE participant_id=$1`, [participantId, next]);
+        await forcedParticipantStep(client, participantId, { buyer_state: next }, ACTION);
       }
     }
 
@@ -218,17 +216,10 @@ async function setStates(participantId: string, args: {
       const startIdx = targetPath.indexOf(currentMoney || "AuthHeld");
       const stepsToWalk = startIdx === -1 ? targetPath : targetPath.slice(startIdx + 1);
       for (const next of stepsToWalk) {
-        await client.query(`UPDATE siton.participants SET money_state=$2 WHERE participant_id=$1`, [participantId, next]);
+        await forcedParticipantStep(client, participantId, { money_state: next }, ACTION);
       }
     }
-
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 async function moveToRecovery(participantId: string, args?: { withinWindow?: boolean }) {
@@ -267,7 +258,7 @@ async function readBuyerPaymentMethods(buyerId: string) {
 }
 
 async function tracking(participantId: string) {
-  const r = await app.inject({ method: "GET", url: `/api/participants/${participantId}/tracking` });
+  const r = await app.inject({ method: "GET", url: `/api/participants/${participantId}/tracking`, headers: trackingAuth(participantId) });
   assert.equal(r.statusCode, 200, r.body);
   return r.json() as any;
 }
@@ -302,7 +293,7 @@ async function main() {
     const r = await app.inject({
       method: "POST",
       url: `/api/participants/${pid}/recovery`,
-      headers: { "idempotency-key": `forbidden-charged-${Date.now()}` },
+      headers: { ...trackingAuth(pid), "idempotency-key": `forbidden-charged-${Date.now()}` },
       payload: {}
     });
     // ChargedSuccess maps to "already_recovered" so callers can re-link to tracking.
@@ -324,7 +315,7 @@ async function main() {
     const r = await app.inject({
       method: "POST",
       url: `/api/participants/${pid}/recovery`,
-      headers: { "idempotency-key": `recovered-${Date.now()}` },
+      headers: { ...trackingAuth(pid), "idempotency-key": `recovered-${Date.now()}` },
       payload: {}
     });
     assert.equal(r.statusCode, 200);
@@ -343,7 +334,7 @@ async function main() {
     const r = await app.inject({
       method: "POST",
       url: `/api/participants/${pid}/recovery`,
-      headers: { "idempotency-key": `dropped-${Date.now()}` },
+      headers: { ...trackingAuth(pid), "idempotency-key": `dropped-${Date.now()}` },
       payload: {}
     });
     assert.equal(r.statusCode, 409, r.body);
@@ -363,7 +354,7 @@ async function main() {
     const r = await app.inject({
       method: "POST",
       url: `/api/participants/${pid}/recovery`,
-      headers: { "idempotency-key": `dealfailed-${Date.now()}` },
+      headers: { ...trackingAuth(pid), "idempotency-key": `dealfailed-${Date.now()}` },
       payload: {}
     });
     assert.equal(r.statusCode, 409, r.body);
@@ -382,7 +373,7 @@ async function main() {
     const r = await app.inject({
       method: "POST",
       url: `/api/participants/${pid}/recovery`,
-      headers: { "idempotency-key": `dealcompleted-${Date.now()}` },
+      headers: { ...trackingAuth(pid), "idempotency-key": `dealcompleted-${Date.now()}` },
       payload: {}
     });
     assert.equal(r.statusCode, 200);
@@ -396,7 +387,7 @@ async function main() {
     const r = await app.inject({
       method: "POST",
       url: `/api/participants/${pid}/recovery`,
-      headers: { "idempotency-key": `elapsed-${Date.now()}` },
+      headers: { ...trackingAuth(pid), "idempotency-key": `elapsed-${Date.now()}` },
       payload: {}
     });
     assert.equal(r.statusCode, 409, r.body);
@@ -415,7 +406,7 @@ async function main() {
     const r = await app.inject({
       method: "POST",
       url: `/api/participants/${pid}/recovery`,
-      headers: { "idempotency-key": `notcw-${Date.now()}` },
+      headers: { ...trackingAuth(pid), "idempotency-key": `notcw-${Date.now()}` },
       payload: {}
     });
     assert.equal(r.statusCode, 409);
@@ -430,7 +421,7 @@ async function main() {
     const r = await app.inject({
       method: "POST",
       url: `/api/participants/${pid}/recovery`,
-      headers: { "idempotency-key": idemKey },
+      headers: { ...trackingAuth(pid), "idempotency-key": idemKey },
       payload: {}
     });
     assert.equal(r.statusCode, 200, r.body);
@@ -459,14 +450,14 @@ async function main() {
     const first = await app.inject({
       method: "POST",
       url: `/api/participants/${pid}/recovery`,
-      headers: { "idempotency-key": key },
+      headers: { ...trackingAuth(pid), "idempotency-key": key },
       payload: {}
     });
     assert.equal(first.statusCode, 200);
     const second = await app.inject({
       method: "POST",
       url: `/api/participants/${pid}/recovery`,
-      headers: { "idempotency-key": key },
+      headers: { ...trackingAuth(pid), "idempotency-key": key },
       payload: {}
     });
     assert.equal(second.statusCode, 200);
@@ -483,14 +474,14 @@ async function main() {
     const r1 = await app.inject({
       method: "POST",
       url: `/api/participants/${pid}/recovery`,
-      headers: { "idempotency-key": `puniq-1-${Date.now()}` },
+      headers: { ...trackingAuth(pid), "idempotency-key": `puniq-1-${Date.now()}` },
       payload: {}
     });
     assert.equal(r1.statusCode, 200);
     const r2 = await app.inject({
       method: "POST",
       url: `/api/participants/${pid}/recovery`,
-      headers: { "idempotency-key": `puniq-2-${Date.now()}` },
+      headers: { ...trackingAuth(pid), "idempotency-key": `puniq-2-${Date.now()}` },
       payload: {}
     });
     assert.equal(r2.statusCode, 200);
@@ -510,7 +501,7 @@ async function main() {
     const r = await app.inject({
       method: "POST",
       url: `/api/participants/${pid}/recovery`,
-      headers: { "idempotency-key": `rawcard-${Date.now()}` },
+      headers: { ...trackingAuth(pid), "idempotency-key": `rawcard-${Date.now()}` },
       payload: { card_number: "4111111111111111", cvv: "123", expiry: "12/30" }
     });
     assert.equal(r.statusCode, 400, r.body);
@@ -532,7 +523,7 @@ async function main() {
     const r = await app.inject({
       method: "POST",
       url: `/api/participants/${pid}/recovery`,
-      headers: { "idempotency-key": `token-${Date.now()}` },
+      headers: { ...trackingAuth(pid), "idempotency-key": `token-${Date.now()}` },
       payload: { payment_method_id: tokenId, provider_code: "mockpay" }
     });
     assert.equal(r.statusCode, 200, r.body);
@@ -570,7 +561,7 @@ async function main() {
     const r = await app.inject({
       method: "POST",
       url: `/api/participants/${pid}/recovery`,
-      headers: { "idempotency-key": `qty-${Date.now()}` },
+      headers: { ...trackingAuth(pid), "idempotency-key": `qty-${Date.now()}` },
       payload: { qty: 999 }
     });
     assert.equal(r.statusCode, 200, r.body);
@@ -586,7 +577,7 @@ async function main() {
     const r = await app.inject({
       method: "POST",
       url: `/api/participants/${pid}/recovery`,
-      headers: { "idempotency-key": `nostate-${Date.now()}` },
+      headers: { ...trackingAuth(pid), "idempotency-key": `nostate-${Date.now()}` },
       payload: {}
     });
     assert.equal(r.statusCode, 200, r.body);
@@ -602,7 +593,7 @@ async function main() {
     const r = await app.inject({
       method: "POST",
       url: `/api/participants/${pid}/recovery`,
-      headers: { "idempotency-key": `pii-${Date.now()}` },
+      headers: { ...trackingAuth(pid), "idempotency-key": `pii-${Date.now()}` },
       payload: {}
     });
     assert.equal(r.statusCode, 200);

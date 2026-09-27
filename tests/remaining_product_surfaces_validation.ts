@@ -1,5 +1,6 @@
 ﻿import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
+import { withForcedTx, forcedDealStep, forcedParticipantStep } from "./helpers/forced_state.js";
 
 process.env.DISABLE_OUTBOX_WORKER = "1";
 process.env.APP_DEPLOYMENT_MODE = "demo-preview";
@@ -146,33 +147,16 @@ async function buildChargedParticipant(suffix: string, buyerId: string) {
 }
 
 async function forceCompleteDeal(dealId: string, participantId: string) {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    await client.query(`SELECT set_config('siton.in_atomic', 'true', true)`);
-    await client.query(`SELECT set_config('siton.audit_written', '1', true)`);
-    await client.query(`SELECT set_config('siton.outbox_written', '1', true)`);
+  // Per-row audit enforcement (migration 076): forced steps write audit rows.
+  await withForcedTx(pool, "charging.finalize_completed", async (client) => {
     const dealState = await client.query(`SELECT state FROM siton.deals WHERE deal_id=$1`, [dealId]);
     const currentState = String(dealState.rows[0]?.state || "");
+    const windowSet = { extraSet: "completion_window_until=COALESCE(completion_window_until, now())" };
     if (currentState === "Charging") {
-      await client.query(`SELECT set_config('siton.action_name', 'charging.to_completion_window', true)`);
-      await client.query(
-        `UPDATE siton.deals
-         SET state='CompletionWindow',
-             completion_window_until=COALESCE(completion_window_until, now())
-         WHERE deal_id=$1`,
-        [dealId]
-      );
+      await forcedDealStep(client, dealId, "CompletionWindow", "charging.to_completion_window", windowSet);
     }
-    await client.query(`SELECT set_config('siton.action_name', 'charging.finalize_completed', true)`);
-    await client.query(
-      `UPDATE siton.deals
-       SET state='Completed',
-           completion_window_until=COALESCE(completion_window_until, now())
-       WHERE deal_id=$1`,
-      [dealId]
-    );
-    await client.query(`UPDATE siton.participants SET buyer_state='DealCompleted' WHERE participant_id=$1`, [participantId]);
+    await forcedDealStep(client, dealId, "Completed", "charging.finalize_completed", windowSet);
+    await forcedParticipantStep(client, participantId, { buyer_state: "DealCompleted" }, "charging.finalize_completed");
     await client.query(
       `INSERT INTO siton.invoice_documents
          (document_key, document_type, deal_id, participant_id, deal_title, qty,
@@ -184,13 +168,7 @@ async function forceCompleteDeal(dealId: string, participantId: string) {
        ON CONFLICT (document_key) DO NOTHING`,
       [`remaining-charge-receipt:${participantId}`, dealId, participantId]
     );
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 async function main() {
@@ -221,16 +199,7 @@ async function main() {
     assert.equal(shippingExport.statusCode, 200);
   });
 
-  await runTest("affiliate stays attribution-only while verification remains an admin surface", async () => {
-    const affiliateOverview = await app.inject({
-      method: "GET",
-      url: "/api/affiliate/overview"
-    });
-    assert.equal(affiliateOverview.statusCode, 200);
-    const affiliatePayload = affiliateOverview.json() as any;
-    assert.ok(affiliatePayload.affiliate_surface.totals.total_attributions >= 0);
-    assert.ok(affiliatePayload.affiliate_surface.totals.total_units >= 0);
-
+  await runTest("affiliate verification remains an admin surface with no settlement rows", async () => {
     const adminOverview = await app.inject({
       method: "GET",
       url: "/api/admin/overview?q=",

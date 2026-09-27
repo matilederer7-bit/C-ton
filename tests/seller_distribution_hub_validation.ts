@@ -506,15 +506,14 @@ await run("PII isolation: no external response contains names, phones, emails, a
   }
 });
 
-await run("the external credential cannot reach seller, distributor, affiliate, admin or participant surfaces", async () => {
+await run("the external credential cannot reach seller, affiliate, admin or participant surfaces", async () => {
   const probes = [
     { method: "GET", url: `/api/seller/deals/${dealA}/distribution` },
     { method: "GET", url: `/api/seller/deals/${dealA}/distribution/links/${L1.link_id}` },
     { method: "GET", url: `/api/seller/deals/${dealA}` },
     { method: "GET", url: `/api/seller/deals` },
     { method: "GET", url: `/api/seller/analytics` },
-    { method: "GET", url: `/api/affiliate/overview` },
-    { method: "GET", url: `/api/distributor/session` },
+    { method: "POST", url: `/api/affiliate/links/visit`, payload: {} },
     { method: "GET", url: `/api/admin/r6/overview` },
     { method: "GET", url: `/api/admin/deals/${dealA}/viral` },
     // /api/participants/* is deliberately NOT probed here: demo-preview keeps
@@ -536,9 +535,6 @@ await run("the external credential cannot reach seller, distributor, affiliate, 
     if (!probe.url.startsWith("/api/admin/")) {
       assert.ok(!raw.includes("WhatsApp קבוצה א"), `${probe.method} ${probe.url} leaked seller A's link data`);
     }
-    // /api/distributor/session answers with the demo distributor context in
-    // demo-preview regardless of any cookie (existing demo behaviour, not this
-    // credential); the leak assertions above still apply to it.
     // Demo-preview opens seller/admin read surfaces to the demo workspace by
     // design; the strict non-demo authority proof for this credential lives in
     // link_viewer_authority_validation.ts (internal-runtime).

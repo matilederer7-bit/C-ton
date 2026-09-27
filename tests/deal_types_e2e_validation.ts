@@ -807,29 +807,16 @@ try {
     assert.equal(tokenedTracking.fulfillment.units.length, 3, "buyer A joined with qty=3");
     await assertTrackingExposesLast4Only(tokenedTracking, voucherEligibleParticipantId);
 
-    // Legacy (untokened) probe: demo-preview may allow it; shape must hold either way.
+    // Untokened probe (red-team fix A5): the legacy bare-UUID path is retired
+    // in every runtime, so a tokenless read is an explicit 401 and never leaks
+    // any voucher unit data.
     const tracking = await app.inject({
       method: "GET",
       url: `/api/participants/${voucherEligibleParticipantId}/tracking`
     });
-    // legacy_links_allowed in demo-preview mode lets unauthenticated tracking
-    // pass for this gate. We just need to confirm the surface shape.
-    if (tracking.statusCode === 200) {
-      const tj = (tracking.json() as any).tracking;
-      // Eligible participants from B2 should see units with last4.
-      const isEligible = tj.fulfillment.eligible;
-      if (isEligible) {
-        assert.ok(tj.fulfillment.units.length >= 1);
-        for (const u of tj.fulfillment.units) {
-          assert.ok(u.code_display_last4 && String(u.code_display_last4).length === 4);
-          // Plaintext code must not appear in the response.
-          assert.ok(!("plaintext_code" in u));
-          assert.ok(!("code" in u));
-        }
-      }
-    } else {
-      assert.ok([401, 403].includes(tracking.statusCode), `unexpected ${tracking.statusCode}`);
-    }
+    assert.equal(tracking.statusCode, 401, tracking.body);
+    assert.equal((tracking.json() as any).error, "tracking_token_required");
+    assert.doesNotMatch(tracking.body, /code_display_last4|plaintext_code|fulfillment/);
   });
 
   await run("B4: voucher-export ג€” Completed-only, eligible-only, CSV-injection neutralized, no plaintext code", async () => {

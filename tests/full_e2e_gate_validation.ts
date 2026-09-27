@@ -309,15 +309,11 @@ try {
     });
     assert.equal(wrongTracking.statusCode, 403);
 
-    const previousNodeEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = "production";
-    try {
-      const legacy = await app.inject({ method: "GET", url: `/api/participants/${primaryParticipantId}/tracking` });
-      assert.ok([401, 403].includes(legacy.statusCode), legacy.body);
-    } finally {
-      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
-      else process.env.NODE_ENV = previousNodeEnv;
-    }
+    // Red-team fix A5: the untokenized legacy path is retired in every
+    // runtime (no NODE_ENV toggle needed) — a bare participant id is 401.
+    const legacy = await app.inject({ method: "GET", url: `/api/participants/${primaryParticipantId}/tracking` });
+    assert.equal(legacy.statusCode, 401, legacy.body);
+    assert.equal((legacy.json() as any).error, "tracking_token_required");
   });
 
   await run("deal progression: repeat purchase allowed, target reached, last unit race bounded", async () => {

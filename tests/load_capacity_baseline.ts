@@ -29,6 +29,7 @@ if (!/(localhost|127\.0\.0\.1|postgres:5432|siton)/i.test(DATABASE_URL) || /prod
 const { Pool } = pg;
 const DB = new Pool({ connectionString: DATABASE_URL, max: 30 });
 const { app, processOutboxEventById } = await import(`../src/app.js?load-baseline-${Date.now()}`);
+const { issueParticipantTrackingToken } = await import("../src/participant_tracking_security.js");
 const HARNESS_TIMEOUT_MS = Number(process.env.LOAD_BASELINE_TIMEOUT_MS || 10 * 60_000);
 let harnessTimedOut = false;
 let harnessTimeout: NodeJS.Timeout | null = null;
@@ -70,6 +71,9 @@ const testSeller = `load-baseline-${Date.now()}`;
 const createdDeals: string[] = [];
 const createdOutboxEvents: string[] = [];
 const createdParticipants: string[] = [];
+// Red-team fix A5: the tracking view always requires the participant's
+// tracking credential, so DB-seeded participants get one issued here.
+const trackingTokens = new Map<string, string>();
 
 function sanitizedError(error: unknown) {
   return String((error as any)?.message || error)
@@ -252,6 +256,13 @@ async function createParticipant(dealId: string, i: number, state = "JoinedAutho
     [participantId, dealId, `buyer-load-${i}-${randomUUID()}`, `Buyer ${i}`, `050${String(1000000 + i).slice(-7)}`, `buyer${i}@example.test`, state, money]
   );
   createdParticipants.push(participantId);
+  const issued = await issueParticipantTrackingToken(DB as any, {
+    participant_id: participantId,
+    deal_id: dealId,
+    purpose: "tracking",
+    issued_via: "load_capacity_baseline"
+  });
+  trackingTokens.set(participantId, issued.token);
   return participantId;
 }
 
@@ -349,8 +360,9 @@ async function runTrackingScenarios(stage: 1 | 2) {
     ? { scenario: "B1 tracking reads", total: 100, concurrency: 10, timeoutMs: 5000 }
     : { scenario: "B2 tracking reads", total: 1000, concurrency: 50, timeoutMs: 8000 };
   await runRequests({ ...cfg, request: async (i) => {
-    const id = participantIds[i % participantIds.length];
-    const res = await app.inject({ method: "GET", url: `/api/participants/${id}/tracking` });
+    const id = participantIds[i % participantIds.length] || "";
+    const token = trackingTokens.get(id) || "";
+    const res = await app.inject({ method: "GET", url: `/api/participants/${id}/tracking?t=${encodeURIComponent(token)}` });
     return { ok: res.statusCode === 200, status: res.statusCode, dbError: res.statusCode >= 500 };
   }});
 }
