@@ -1490,7 +1490,7 @@ export function registerFrontendExperience(
         status: "processed" | "ignored" | "failed";
         reason: string;
       };
-    }) => Promise<void>;
+    }) => Promise<{ held: true; reason: string } | void>;
   }
 ) {
   const computeManager = new SupabaseComputeManager();
@@ -1649,12 +1649,15 @@ export function registerFrontendExperience(
            $4,now(),now()
          )
          ON CONFLICT (provider_code, provider_payment_method_id) DO UPDATE
-         SET buyer_id=EXCLUDED.buyer_id,
-             status=CASE WHEN $6 THEN 'invalid' ELSE 'active' END,
+         SET status=CASE WHEN $6 THEN 'invalid' ELSE 'active' END,
              last_authorized_at=CASE WHEN $5 THEN now() ELSE buyer_payment_methods.last_authorized_at END,
              last_failed_at=CASE WHEN $6 THEN now() ELSE buyer_payment_methods.last_failed_at END,
              correlation_id=EXCLUDED.correlation_id,
-             updated_at=now()`,
+             updated_at=now()
+         -- Black-Sky A-F4: a stored method is owned by the buyer that first
+         -- registered it; a conflicting write by another buyer never
+         -- reassigns ownership (no-op here; the routes refuse it with 409).
+         WHERE buyer_payment_methods.buyer_id = EXCLUDED.buyer_id`,
         [
           args.buyer_id,
           args.provider_code,
@@ -1665,6 +1668,25 @@ export function registerFrontendExperience(
         ]
       );
     });
+  };
+  /**
+   * Black-Sky A-F4 — `payment_method_id` arrives from the client. A stored
+   * method registered to ANOTHER buyer (or, with no buyer identity at all, to
+   * anyone) is refused before any provider I/O or durable write: it must never
+   * be re-bound to the caller (the renewal path picks the buyer's stored
+   * method by buyer_id and the binding's payment_method_ref).
+   */
+  const assertPaymentMethodOwnershipInTx = async (c: any, args: { provider_code: string; provider_payment_method_id: string; buyer_id: string | null }) => {
+    const owner = await c.query(
+      `SELECT buyer_id FROM siton.buyer_payment_methods WHERE provider_code=$1 AND provider_payment_method_id=$2`,
+      [args.provider_code, args.provider_payment_method_id]
+    );
+    if (!owner.rowCount) return;
+    if (args.buyer_id && String(owner.rows[0].buyer_id) === args.buyer_id) return;
+    const err: any = new Error("payment method belongs to another buyer");
+    err.statusCode = 409;
+    err.code = "payment_method_not_owned";
+    throw err;
   };
   const payoutProvider = deps.payoutProvider ?? buildPayoutProvider();
   const operationalReadiness = () =>
@@ -6174,8 +6196,9 @@ export function registerFrontendExperience(
         });
       }
 
+      let finalClassification: { status: "processed" | "ignored" | "failed"; reason: string } = classification;
       if (classification.status === "processed" && deps.applyPaymentWebhookClassification) {
-        await deps.applyPaymentWebhookClassification({
+        const applied = await deps.applyPaymentWebhookClassification({
           event: {
             provider,
             event_id: eventId,
@@ -6189,16 +6212,19 @@ export function registerFrontendExperience(
           target,
           classification
         });
+        // Black-Sky A-F8 — a capture event whose declared amount/currency does
+        // not match the obligation is held for review, never applied.
+        if (applied && applied.held) finalClassification = { status: "ignored", reason: applied.reason };
       }
 
-      await webhookIngestion.markEvent(provider, eventId, classification.status, classification.reason);
+      await webhookIngestion.markEvent(provider, eventId, finalClassification.status, finalClassification.reason);
 
       return reply.code(200).send({
         ok: true,
         duplicate: Boolean(ingested.duplicate),
         event_id: eventId,
-        status: classification.status,
-        reason: classification.reason
+        status: finalClassification.status,
+        reason: finalClassification.reason
       });
     } catch (error) {
       const failureReason = String((error as Error)?.message || error || "webhook_processing_failed").slice(0, 240);
@@ -6305,6 +6331,11 @@ export function registerFrontendExperience(
     // durable sealed reference. Pending bindings may flip to authorized ONLY
     // through this lookup (amount contradiction fails the binding closed).
     let lookupOutcome: string = "not_required";
+    // F-M5 — a lookup that proved nothing (transport loss, non-2xx, a
+    // not-yet-final state) must not consume the callback: the event is stored
+    // as 'failed' (re-claimable by the provider's redelivery) and the worker
+    // maintenance sweep re-reads every pending binding on its own.
+    let lookupRetryable = false;
     if (binding.status === "pending_provider_confirmation" && deps.paymentProvider.status) {
       try {
         const status = await deps.paymentProvider.status({
@@ -6313,6 +6344,10 @@ export function registerFrontendExperience(
           correlation_id: `grow-callback:${event.event_id.slice(0, 48)}`
         });
         lookupOutcome = `provider_state_${status.state}`;
+        if (status.state !== "authorized" && !status.final) {
+          lookupRetryable = true;
+          lookupOutcome = `provider_state_${status.state}_not_final${status.error_code ? `:${status.error_code}` : ""}`;
+        }
         if (status.state === "authorized") {
           await paymentBindings.confirmBindingAuthorized({
             provider_code: deps.paymentProvider.providerCode,
@@ -6323,6 +6358,7 @@ export function registerFrontendExperience(
         }
       } catch (error) {
         lookupOutcome = error instanceof PaymentBindingError ? `binding_${error.code}` : "authoritative_lookup_failed";
+        if (!(error instanceof PaymentBindingError)) lookupRetryable = true;
       }
     } else if (binding.status !== "pending_provider_confirmation") {
       // Post-authorization callbacks (capture/late/duplicate hints) stay
@@ -6330,11 +6366,13 @@ export function registerFrontendExperience(
       lookupOutcome = `binding_${binding.status}_evidence_only`;
     }
 
-    await webhookIngestion.markEvent("grow", event.event_id, "processed", `callback_hint:${lookupOutcome}`.slice(0, 240));
+    const callbackStatus = lookupRetryable ? "failed" as const : "processed" as const;
+    await webhookIngestion.markEvent("grow", event.event_id, callbackStatus, `callback_hint:${lookupOutcome}`.slice(0, 240));
     return reply.code(200).send({
       ok: true,
-      status: "processed",
+      status: callbackStatus,
       reason: lookupOutcome,
+      retryable: lookupRetryable,
       money_from_callback: false,
       authoritative_source: "server_status_lookup"
     });
@@ -10067,19 +10105,28 @@ export function registerFrontendExperience(
       // the saved-token model stays in sync. Raw card data already rejected
       // above. Tokens are issued by /api/payments/tokenize.
       if (paymentMethodId) {
-        await c.query(
+        // Black-Sky A-F4 — never re-bind another buyer's stored method.
+        await assertPaymentMethodOwnershipInTx(c, { provider_code: providerCode, provider_payment_method_id: paymentMethodId, buyer_id: String(row.buyer_id) });
+        const stored = await c.query(
           `INSERT INTO siton.buyer_payment_methods (
              buyer_id, provider_code, provider_payment_method_id, status,
              last_authorized_at, correlation_id, created_at, updated_at
            ) VALUES ($1,$2,$3,'active', now(), $4, now(), now())
            ON CONFLICT (provider_code, provider_payment_method_id) DO UPDATE
-           SET buyer_id=EXCLUDED.buyer_id,
-               status='active',
+           SET status='active',
                last_authorized_at=now(),
                correlation_id=EXCLUDED.correlation_id,
-               updated_at=now()`,
+               updated_at=now()
+           WHERE buyer_payment_methods.buyer_id = EXCLUDED.buyer_id`,
           [String(row.buyer_id), providerCode, paymentMethodId, `recovery:${participantId}:${idempotencyKey}`]
         );
+        if (Number(stored.rowCount || 0) !== 1) {
+          // lost a race against another buyer's first registration
+          const err: any = new Error("payment method belongs to another buyer");
+          err.statusCode = 409;
+          err.code = "payment_method_not_owned";
+          throw err;
+        }
       }
 
       // Enqueue the deal-level recovery_deal job. The partial unique index
@@ -10369,6 +10416,20 @@ export function registerFrontendExperience(
       const dealId = String(body.deal_id);
       requireUuid(dealId, "deal_id");
       const qty = parsePositiveIntegerQuantity(body.qty);
+
+      if (body.payment_method_id) {
+        // Black-Sky A-F4 — a deal-scoped authorization records the method on
+        // the binding (the renewal source) and upserts it for the buyer: the
+        // ownership of a client-supplied stored method is checked BEFORE the
+        // provider is asked to authorize on it. (A non-deal authorization
+        // creates no binding, and the post-authorize upsert never reassigns.)
+        await ensurePaymentOpsTables();
+        await deps.withTx((c) => assertPaymentMethodOwnershipInTx(c, {
+          provider_code: deps.paymentProvider.providerCode,
+          provider_payment_method_id: String(body.payment_method_id),
+          buyer_id: String(body.buyer_id || "").trim() || null
+        }));
+      }
 
       // A deal-scoped authorization must bind a buyer identity server-side so
       // Join can verify it. Mock-backed demo flows may keep the legacy loose

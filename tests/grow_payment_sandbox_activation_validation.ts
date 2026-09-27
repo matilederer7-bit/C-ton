@@ -686,6 +686,13 @@ await runTest("R9C H1 (Grow CASE 17): refund executed, then HTTP 503 → UNKNOWN
   const chargeEvent = await enqueueChargeDeal(flow.dealId);
   assert.equal((await processOutboxEventById(chargeEvent))?.status, "sent");
   assert.equal((await pool.query(`SELECT money_state FROM siton.participants WHERE participant_id=$1`, [flow.participantId])).rows[0].money_state, "ChargedSuccess");
+  // Black-Sky A-F9: a refund is legal only for a deal-level failure, so the
+  // fixture fails the deal first (CompletionWindow -> Failed, audited) exactly
+  // as a below-threshold finalize would; the refund job below is then the
+  // system-mandated one this case exercises.
+  await withForcedTx(pool, "test.grow_refund_deal_failed", async (client) => {
+    await forcedDealStep(client, flow.dealId, "Failed", "test.grow_refund_deal_failed");
+  });
   fakeGrow.refundMode = "http_503_after_effect";
   const refundCallsBefore = fakeGrow.refundCalls;
   const refundEffectsBefore = fakeGrow.refundEffects;

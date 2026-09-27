@@ -141,6 +141,46 @@ async function loadParticipantChargeContext(c: any, participantId: string, dealI
   };
 }
 
+const NEGATE = (value: unknown) => {
+  const amount = roundMoney(Number(value));
+  return amount === 0 ? 0 : -amount;
+};
+
+/**
+ * Black-Sky A-F6 — the refund reverses the money that was CHARGED, as it was
+ * recorded: the refund_adjustment row is the exact negation of the recorded
+ * charge row (same VAT, same fee rates, same split), never a recomputation from
+ * the live VAT / fee configuration (a rate change between charge and refund
+ * would otherwise leave a residual on a fully refunded participant). Sign
+ * semantics are preserved: charge rows are >= 0, so the copy is <= 0.
+ */
+async function loadNegatedChargeAmounts(c: any, participantId: string): Promise<PlatformFeeMoneySnapshot | null> {
+  const r = await c.query(
+    `SELECT gross_amount, vat_amount, fee_base_amount, platform_fee_rate, platform_fee_vat_rate,
+            platform_fee_base_amount, platform_fee_vat_amount, platform_fee_total_amount,
+            platform_fee_amount, seller_net_amount
+     FROM siton.platform_fee_money_events
+     WHERE participant_id=$1 AND logical_entry_type='charge'
+     ORDER BY created_at ASC
+     LIMIT 1`,
+    [participantId]
+  );
+  const row = r.rows[0];
+  if (!row) return null;
+  return {
+    gross_amount: NEGATE(row.gross_amount),
+    vat_amount: NEGATE(row.vat_amount),
+    fee_base_amount: NEGATE(row.fee_base_amount),
+    platform_fee_rate: Number(row.platform_fee_rate),
+    platform_fee_vat_rate: Number(row.platform_fee_vat_rate),
+    platform_fee_base_amount: NEGATE(row.platform_fee_base_amount),
+    platform_fee_vat_amount: NEGATE(row.platform_fee_vat_amount),
+    platform_fee_total_amount: NEGATE(row.platform_fee_total_amount),
+    platform_fee_amount: NEGATE(row.platform_fee_amount),
+    seller_net_amount: NEGATE(row.seller_net_amount)
+  };
+}
+
 async function logicalEntryExists(c: any, participantId: string, entryType: "charge" | "refund_adjustment") {
   const result = await c.query(
     `SELECT 1
@@ -169,8 +209,10 @@ async function insertPlatformFeeMoneyEntry(c: any, args: {
   sign: 1 | -1;
   gross_amount: number;
   vat_amount: number;
+  /** Black-Sky A-F6 — exact amounts to record (a refund copies the negated charge row) */
+  amounts_override?: PlatformFeeMoneySnapshot;
 }) {
-  const amounts = calculatePlatformFeeMoney({
+  const amounts = args.amounts_override ?? calculatePlatformFeeMoney({
     grossAmount: args.gross_amount,
     vatAmount: args.vat_amount,
     sign: args.sign
@@ -321,6 +363,11 @@ export function buildPlatformFeeMoney(deps: { withTx: WithTx }) {
       }
 
       const logicalEntryType = args.event_type === "refund_issued" ? "refund_adjustment" : "charge";
+      const negatedCharge = logicalEntryType === "refund_adjustment" ? await loadNegatedChargeAmounts(c, args.participant_id) : null;
+      if (logicalEntryType === "refund_adjustment" && !negatedCharge) {
+        // unreachable: the charge row was ensured (backfilled) above
+        throw new Error(`platform_fee_money_refund_without_charge participant=${args.participant_id}`);
+      }
       const entry = await insertPlatformFeeMoneyEntry(c, {
         participant_id: context.participant_id,
         deal_id: context.deal_id,
@@ -337,7 +384,8 @@ export function buildPlatformFeeMoney(deps: { withTx: WithTx }) {
           logicalEntryType === "charge" ? "ready_for_settlement" : "reversed_after_refund",
         sign: logicalEntryType === "charge" ? 1 : -1,
         gross_amount: context.gross_amount,
-        vat_amount: context.vat_amount
+        vat_amount: context.vat_amount,
+        ...(negatedCharge ? { amounts_override: negatedCharge } : {})
       });
 
       return {

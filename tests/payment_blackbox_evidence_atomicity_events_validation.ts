@@ -19,6 +19,7 @@
 
 import assert from "node:assert/strict";
 import { bootBlackBox, makeRunner } from "./blackbox/harness.js";
+import { withForcedTx, forcedDealStep } from "./helpers/forced_state.js";
 
 const bb = await bootBlackBox({ tag: "bb-events", port: 3304, env: { COMPLETION_WINDOW_MINUTES: "30" } });
 const { run, summary } = makeRunner("payment_blackbox_evidence_atomicity_events");
@@ -165,6 +166,12 @@ await run("B10c duplicate refund_issued deliveries → one Refunded, one refund 
   const p = d.participants[0]!;
   assert.equal((await bb.processOutboxEventById(await bb.enqueueCharge(d.deal_id)))?.status, "sent");
   assert.equal((await bb.participant(p.participant_id)).money_state, "ChargedSuccess");
+  // Black-Sky A-F9: a refund is legal only for a deal-level failure, so the
+  // deal is failed first (audited forced step, as a below-threshold finalize
+  // would); the refund job is then the system-mandated one this case needs.
+  await withForcedTx(bb.pool, "test.blackbox_refund_deal_failed", async (client) => {
+    await forcedDealStep(client, d.deal_id, "Failed", "test.blackbox_refund_deal_failed");
+  });
   const refund = await bb.processOutboxEventById(await bb.enqueueRefund(d.deal_id, "blackbox_refund"));
   console.log(`  B10c refund job: ${JSON.stringify(refund)}`);
   await bb.drain({ dealIds: [d.deal_id], skip: (e) => e.event_type === "finalize_deal" });

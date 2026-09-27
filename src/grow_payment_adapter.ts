@@ -733,7 +733,21 @@ export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transpor
         if (!looked.ok) {
           // READ-ONLY lookup failed: no settle request exists yet — a definite
           // pre-dispatch failure, safe to retry with the SAME identity.
-          return { result_class: looked.result_class === "unknown" ? "temporary_fail" as const : looked.result_class, retryable: looked.result_class !== "permanent_fail", dispatched: false as const, error_code: looked.error_code };
+          // "Unknown unless proven": only an explicit, parseable Grow rejection
+          // of the lookup is a declared outcome. A bare HTTP 400/422 (or any
+          // other non-2xx) proves nothing about the money and is NOT a capture
+          // decline: it stays a bounded pre-dispatch retry (the outbox attempt
+          // cap + DLQ bound it) and never fabricates a charge_failed verdict.
+          if (looked.declined === true) {
+            return { result_class: "permanent_fail" as const, retryable: false, dispatched: false as const, error_code: looked.error_code };
+          }
+          return {
+            result_class: "temporary_fail" as const,
+            retryable: true,
+            dispatched: false as const,
+            error_code: looked.error_code,
+            ...(looked.configuration_fault ? { configuration_fault: true as const } : {})
+          };
         }
         reference = looked.reference;
         if (!reference.transaction_id || !reference.transaction_token) {

@@ -24,7 +24,8 @@ import {
   buildPaymentAttemptHelpers,
   PaymentOperationInFlightError,
   type AttemptType as PaymentAttemptType,
-  type DispatchState as PaymentDispatchState
+  type DispatchState as PaymentDispatchState,
+  type ArmDealGate
 } from "./payment_attempt_helpers.js";
 import { buildPaymentProvider, getPaymentProviderSummary, providerAmbiguityPolicy, type PaymentExecutionResult, type PaymentStatusResult } from "./payment_provider.js";
 import { buildPaymentAuthorizationBindings, PaymentBindingError } from "./payment_binding.js";
@@ -1256,10 +1257,36 @@ async function applyPaymentWebhookClassification(args: {
     status: "processed" | "ignored" | "failed";
     reason: string;
   };
-}) {
+}): Promise<{ held: true; reason: string } | void> {
   if (args.classification.status !== "processed" || !args.target) return;
   const target = args.target; // narrowed once; closures below cannot re-narrow args.target
   await ensurePlatformFeeMoneyTables(withTx);
+
+  // Black-Sky A-F8 — a provider capture event that DECLARES an amount or a
+  // currency must match the obligation it would settle. A mismatch is not a
+  // success: no state, no ledger, no attempt verdict is written (the identity
+  // stays as it is and the reconcile rail / an operator owns the truth) and a
+  // payment-mismatch case is opened. Events that declare no amount (the
+  // worker's own provider-answer ingests, providers whose events carry none)
+  // are unaffected.
+  if (args.event.event_type === "charge_captured" || args.event.event_type === "recovery_captured") {
+    const declared = declaredEventMoney(args.event.payload);
+    if (declared.amount_minor !== null || declared.currency !== null || declared.malformed) {
+      const expected = await expectedCaptureObligation(target.participant_id, target.deal_id);
+      const amountMismatch = declared.amount_minor !== null && (expected.amount_minor === null || declared.amount_minor !== expected.amount_minor);
+      const currencyMismatch = declared.currency !== null && declared.currency !== expected.currency;
+      const malformed = declared.malformed;
+      if (amountMismatch || currencyMismatch || malformed) {
+        await openPaymentOperationalCase({
+          autoKey: `payment-capture-event-amount-mismatch:${target.participant_id}:${args.event.provider}:${args.event.event_id}`.slice(0, 200),
+          subject: `Capture event amount/currency mismatch for participant ${target.participant_id}`,
+          description: `Provider ${args.event.provider} event ${args.event.event_id} (${args.event.event_type}, reference ${args.event.provider_reference || "n/a"}, correlation ${args.event.correlation_id || target.correlation_id || "n/a"}) declares ${declared.raw_amount ?? "n/a"} ${declared.raw_currency ?? "n/a"}; the obligation is ${expected.amount_minor ?? "n/a"} ${expected.currency}. The event was NOT applied: no success, no state change, no ledger entry; the capture identity stays unresolved for reconciliation. Verify at the provider.`,
+          correlationId: args.event.correlation_id || target.correlation_id || null
+        });
+        return { held: true, reason: "capture_amount_mismatch_held_for_review" };
+      }
+    }
+  }
 
   // R9C — the operation's durable outcome commits in the SAME transaction as
   // the canonical state (and ledger). A negative outcome cannot be written
@@ -1514,6 +1541,56 @@ async function applyPaymentWebhookClassification(args: {
   }
 }
 
+function declaredEventMoney(payload: Record<string, unknown> | undefined): {
+  amount_minor: number | null;
+  currency: string | null;
+  malformed: boolean;
+  raw_amount: string | null;
+  raw_currency: string | null;
+} {
+  const source = (payload && typeof payload === "object" ? payload : {}) as Record<string, unknown>;
+  const rawAmount = source.amount_minor ?? source.amount_received ?? null;
+  const rawCurrency = source.currency ?? null;
+  let amount: number | null = null;
+  let malformed = false;
+  if (rawAmount !== null && rawAmount !== undefined && rawAmount !== "") {
+    const parsed = typeof rawAmount === "number" ? rawAmount : Number(String(rawAmount).trim());
+    if (Number.isInteger(parsed) && parsed >= 0) amount = parsed;
+    else malformed = true;
+  }
+  let currency: string | null = null;
+  if (rawCurrency !== null && rawCurrency !== undefined && String(rawCurrency).trim() !== "") {
+    currency = String(rawCurrency).trim().toUpperCase();
+  }
+  return {
+    amount_minor: amount,
+    currency,
+    malformed,
+    raw_amount: rawAmount === null || rawAmount === undefined ? null : String(rawAmount).slice(0, 40),
+    raw_currency: rawCurrency === null || rawCurrency === undefined ? null : String(rawCurrency).slice(0, 10)
+  };
+}
+
+/** The authoritative capture obligation: the consumed binding's amount, else the participant's server-side amount. */
+async function expectedCaptureObligation(participantId: string, dealId: string): Promise<{ amount_minor: number | null; currency: string }> {
+  return withTx(async (c) => {
+    const r = await c.query(
+      `SELECT p.qty, p.delivery_cost, d.price_per_unit, pab.amount_minor AS binding_amount_minor, pab.currency AS binding_currency
+       FROM siton.participants p
+       JOIN siton.deals d ON d.deal_id = p.deal_id
+       LEFT JOIN siton.payment_authorization_bindings pab ON pab.consumed_by_participant_id = p.participant_id
+       WHERE p.participant_id=$1 AND p.deal_id=$2`,
+      [participantId, dealId]
+    );
+    const row = r.rows[0];
+    if (!row) return { amount_minor: null, currency: "ILS" };
+    const amount = row.binding_amount_minor !== null && row.binding_amount_minor !== undefined
+      ? Number(row.binding_amount_minor)
+      : paymentMinorAmount({ qty: Number(row.qty || 0), pricePerUnit: Number(row.price_per_unit || 0), deliveryCost: Number(row.delivery_cost || 0) });
+    return { amount_minor: amount, currency: String(row.binding_currency || "ILS").toUpperCase() };
+  });
+}
+
 async function ingestAndProcessPaymentEvent(args: {
   provider: string;
   event_id: string;
@@ -1570,8 +1647,9 @@ async function ingestAndProcessPaymentEvent(args: {
       });
     }
 
+    let finalClassification: { status: "processed" | "ignored" | "failed"; reason: string } = classification;
     if (classification.status === "processed") {
-      await applyPaymentWebhookClassification({
+      const applied = await applyPaymentWebhookClassification({
         event: {
           provider: args.provider,
           event_id: args.event_id,
@@ -1585,13 +1663,14 @@ async function ingestAndProcessPaymentEvent(args: {
         target,
         classification
       });
+      if (applied && applied.held) finalClassification = { status: "ignored", reason: applied.reason };
     }
 
-    await webhookIngestion.markEvent(args.provider, args.event_id, classification.status, classification.reason);
+    await webhookIngestion.markEvent(args.provider, args.event_id, finalClassification.status, finalClassification.reason);
     return {
       duplicate: Boolean(ingested.duplicate),
-      status: classification.status,
-      reason: classification.reason
+      status: finalClassification.status,
+      reason: finalClassification.reason
     };
   } catch (error) {
     const failureReason = String(error instanceof Error ? error.message : error || "webhook_processing_failed").slice(0, 240);
@@ -1750,6 +1829,29 @@ async function handleRefundEvent(
   eventId: string
 ) {
   const dealId = event.aggregate_id;
+
+  // Black-Sky A-F9 — docs/REFUND_POLICY.md: a refund exists ONLY as the
+  // automatic consequence of a deal-level failure (a Failed deal — including a
+  // CompletionWindow deal finalized below the 90% threshold after charges — or
+  // a Cancelled deal for cancel_refund). Both are terminal states, so a plain
+  // read is authoritative. A refund job for any other deal (Completed, still
+  // Charging, ...) moves no money: it is refused with a case and acknowledged.
+  const refundDeal = await withTx(async (c) => {
+    const r = await c.query(`SELECT state FROM siton.deals WHERE deal_id=$1`, [dealId]);
+    return r.rows[0] as { state: DealState } | undefined;
+  });
+  if (!refundDeal) throw new PermanentFailError(`${event.event_type} deal not found ${dealId}`);
+  const refundLegalStates: ReadonlyArray<string> = event.event_type === "cancel_refund" ? ["Failed", "Cancelled"] : ["Failed"];
+  if (!refundLegalStates.includes(String(refundDeal.state))) {
+    await openPaymentOperationalCase({
+      autoKey: `refund-refused-deal-not-failed:${dealId}:${event.event_type}`,
+      subject: `Refund refused: deal ${dealId} is ${refundDeal.state}, not a deal-level failure`,
+      description: `A ${event.event_type} job (worker event ${eventId}) targeted deal ${dealId} in state ${refundDeal.state}. Refunds are system-mandated only as a consequence of a deal-level failure (${refundLegalStates.join(" / ")}); no refund was sent to the provider and no participant state changed. Investigate how the job was enqueued.`,
+      correlationId: null
+    });
+    app.log.warn({ deal_id: dealId, deal_state: refundDeal.state, event_type: event.event_type, event_id: eventId }, "refund refused: deal is not in a deal-level failure state");
+    return;
+  }
 
   const needRefundWithTrace = await withTx(async (c) => {
     const r = await c.query(
@@ -1910,7 +2012,7 @@ async function handleRefundEvent(
       // The refund may have been issued (5xx/429/timeout/transport loss after
       // dispatch, or a success without a declared event). Never re-fire the
       // refund blindly and never mint a new identity — reconcile the SAME one.
-      await settle("unknown", outcome === "success" ? "success_without_reconciliation_event" : `provider_outcome_unknown:${result.result_class}`);
+      await settle("unknown", outcome === "success" ? "success_without_reconciliation_event" : `provider_outcome_unknown:${result.result_class}${result.configuration_fault ? ":configuration_fault" : ""}`);
       await schedulePaymentReconcile({
         participant_id: p.participant_id,
         deal_id: dealId,
@@ -2793,6 +2895,8 @@ async function armMoneyOperation(args: {
   expected_money_states: string[];
   expected_buyer_states?: string[];
   provider_reference?: string | null;
+  /** Black-Sky A-F2 — deal-level phase gate re-checked under the deal row lock in the arm transaction */
+  deal_gate?: ArmDealGate | null;
 }): Promise<boolean> {
   await assertOutboxLeaseForProviderIo(args.event);
   const armed = await armProviderDispatch({
@@ -2821,10 +2925,25 @@ async function armMoneyOperation(args: {
     // contract (Grow: never; legacy rows: never).
     negative_finality_authoritative: args.attempt_type === "charge_start" || args.attempt_type === "recovery"
       ? providerAmbiguityPolicy(paymentProvider).negative_status_authoritative
-      : null
+      : null,
+    deal_gate: args.deal_gate ?? null
   });
   if (armed === "armed") return true;
   if (armed === "lease_lost") throw new OutboxLeaseLostError(args.event.event_uuid);
+  if (armed === "deal_phase_closed") {
+    // Black-Sky A-F2 — the deal left the phase in which this operation is legal
+    // (terminal decision taken, completion window over) between the rail's
+    // first read and the arm: nothing was sent, so the minted identity is
+    // retired in place (never dispatched) and no money call is made. The
+    // terminal decision / release rail owns the participant from here.
+    await retireNeverDispatched({
+      participant_id: args.participant_id,
+      deal_id: args.deal_id,
+      attempt_types: [args.attempt_type],
+      reason: "arm_refused:deal_phase_closed"
+    }).catch(() => []);
+    app.log.warn({ participant_id: args.participant_id, deal_id: args.deal_id, attempt_type: args.attempt_type, correlation_id: args.correlation_id }, "money dispatch refused at arm: deal phase closed");
+  }
   return false;
 }
 
@@ -3208,7 +3327,7 @@ async function handlePaymentReleaseEvent(
   if (outcome === "unknown") {
     // R9C C2 — 5xx/429/timeout/transport loss AFTER dispatch: the release may
     // have happened. Durable UNKNOWN on the SAME identity, reconcile decides.
-    await settle("unknown", `provider_outcome_unknown:${result.result_class}`);
+    await settle("unknown", `provider_outcome_unknown:${result.result_class}${result.configuration_fault ? ":configuration_fault" : ""}`);
     await schedulePaymentReconcile({
       participant_id: participantId,
       deal_id: dealId,
@@ -3671,7 +3790,7 @@ async function handleChargeDealEvent(
     // provider may have moved money: NEVER retry blindly and NEVER mint a new
     // identity — record UNKNOWN durably on the SAME identity and hand it to
     // the Worker-owned reconciliation rail (authoritative status lookup).
-    await settle("unknown", result.result_class === "success" ? "success_without_reconciliation_event" : `provider_outcome_unknown:${result.result_class}`);
+    await settle("unknown", result.result_class === "success" ? "success_without_reconciliation_event" : `provider_outcome_unknown:${result.result_class}${result.configuration_fault ? ":configuration_fault" : ""}`);
     await schedulePaymentReconcile({
       participant_id: p.participant_id,
       deal_id: dealId,
@@ -4120,7 +4239,11 @@ async function handleRecoveryDealEvent(
       correlation_id: correlation,
       expected_money_states: ["ChargeFailedRecovery"],
       expected_buyer_states: ["ChargeFailedCompletion"],
-      provider_reference: p.authorization_id || null
+      provider_reference: p.authorization_id || null,
+      // Black-Sky A-F2 — recovery exists only inside an OPEN completion window of
+      // a deal still in CompletionWindow: re-checked under the deal row lock at
+      // the last step before provider I/O (the rail's first read may be stale).
+      deal_gate: { states: ["CompletionWindow"], require_open_completion_window: true }
     });
     if (!armed) return "done" as const;
     const owner = { event_uuid: event.event_uuid, lease_generation: event.lease_generation };
@@ -4185,7 +4308,7 @@ async function handleRecoveryDealEvent(
     // No provider-declared canonical outcome — durable UNKNOWN on the SAME
     // identity, then the reconciliation rail. Never a blind retry, never a
     // fresh identity after possible money movement.
-    await settle("unknown", result.result_class === "success" ? "success_without_reconciliation_event" : `provider_outcome_unknown:${result.result_class}`);
+    await settle("unknown", result.result_class === "success" ? "success_without_reconciliation_event" : `provider_outcome_unknown:${result.result_class}${result.configuration_fault ? ":configuration_fault" : ""}`);
     await schedulePaymentReconcile({
       participant_id: p.participant_id,
       deal_id: dealId,
@@ -4787,8 +4910,47 @@ async function handleFinalizeDealEvent(
     const captured = await sumCapturedUnits(c, dealId);
     return { captured, threshold: Number(dealRow.threshold_units) };
   });
+  const completes = decision.captured >= decision.threshold;
 
-  if (decision.captured >= decision.threshold) {
+  // Black-Sky A-F2 — the terminal decision is taken UNDER THE DEAL ROW LOCK.
+  // The transition serializes on the deal row (FOR UPDATE, before any write) and
+  // re-validates, inside that same transaction, everything the provisional
+  // reads above concluded: the window is over on the DB clock, no capture-side
+  // identity is unresolved (a recovery armed in the last instant of the window
+  // holds the deal row FOR SHARE, so it is durable before this check runs), and
+  // the captured-unit count still selects the SAME outcome. Anything else rolls
+  // the decision back and defers it — never Completed / Failed on stale money.
+  const revalidateDecisionUnderLock = async (c: PoolClient) => {
+    const window = await c.query(
+      `SELECT (completion_window_until IS NOT NULL AND completion_window_until <= clock_timestamp()) AS elapsed
+       FROM siton.deals WHERE deal_id=$1`,
+      [dealId]
+    );
+    if (window.rows[0]?.elapsed !== true) {
+      throw new DeferredEventError(`finalize_window_not_elapsed_under_lock deal ${dealId}`, new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS));
+    }
+    const unresolved = await c.query(
+      `SELECT count(*)::int AS n
+       FROM siton.payment_attempts pa
+       JOIN siton.participants p ON p.participant_id = pa.participant_id
+       WHERE pa.deal_id=$1 AND pa.attempt_type IN ('charge_start','recovery')
+         AND (pa.result_class='unknown'
+              OR (pa.result_class='success' AND p.money_state NOT IN ('ChargedSuccess','RecoveredCharge','Refunded')))`,
+      [dealId]
+    );
+    if (Number(unresolved.rows[0]?.n || 0) > 0) {
+      throw new DeferredEventError(`finalize_unresolved_capture_under_lock deal ${dealId}`, new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS));
+    }
+    const capturedNow = await sumCapturedUnits(c, dealId);
+    if ((capturedNow >= decision.threshold) !== completes) {
+      throw new DeferredEventError(
+        `finalize_decision_changed_under_lock deal ${dealId} (captured ${decision.captured} -> ${capturedNow}, threshold ${decision.threshold})`,
+        new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS)
+      );
+    }
+  };
+
+  if (completes) {
     await atomicTransition({
       entityType: "deal",
       entityId: dealId,
@@ -4800,7 +4962,9 @@ async function handleFinalizeDealEvent(
       requestId: `worker:${eventId}`,
       idempotencyKey: `deal-finalize-ok:${dealId}`,
       outbox: null,
-      payload: { decision }
+      payload: { decision },
+      serializeOnEntity: true,
+      insideTx: revalidateDecisionUnderLock
     });
 
     await applyCompletedDealOutcome(dealId, eventId);
@@ -4818,7 +4982,9 @@ async function handleFinalizeDealEvent(
     requestId: `worker:${eventId}`,
     idempotencyKey: `deal-finalize-fail:${dealId}`,
     outbox: { event_type: "refund_issue", aggregate_type: "deal", aggregate_id: dealId, payload: { deal_id: dealId } },
-    payload: { decision }
+    payload: { decision },
+    serializeOnEntity: true,
+    insideTx: revalidateDecisionUnderLock
   });
 
   await failAllParticipantsForDeal(dealId, `worker:${eventId}`);
@@ -5252,11 +5418,74 @@ export async function processStorageCleanupBatch(limit = 10, leaseMs = 60_000) {
   }
   return processed;
 }
+/**
+ * F-M5 — a hosted (Grow) authorization binding stays 'pending_provider_confirmation'
+ * until an authoritative server-side status lookup confirms it. A callback whose
+ * lookup failed, or a callback that never arrived, used to leave it pending for
+ * ever. This bounded sweep re-reads pending bindings (READ-ONLY provider status,
+ * never a money call) and confirms them through the same amount-checked path as
+ * the callback / status route. A create intent still unresolved (no provider
+ * reference yet) and an expired hold are never touched; each binding is re-read
+ * at most once per backoff interval (its updated_at is bumped before the read).
+ */
+export async function reconcilePendingAuthorizationBindings(limit = 20, backoffMs = 60_000, minAgeMs = 30_000): Promise<{ examined: number; confirmed: number }> {
+  if (paymentProvider.providerCode !== "grow" || !paymentProvider.status) return { examined: 0, confirmed: 0 };
+  const due = await withTx(async (c) => {
+    const r = await c.query(
+      `UPDATE siton.payment_authorization_bindings b
+       SET updated_at = clock_timestamp()
+       WHERE b.binding_id IN (
+         SELECT binding_id FROM siton.payment_authorization_bindings
+         WHERE provider_code=$1
+           AND status='pending_provider_confirmation'
+           AND authorization_id NOT LIKE 'siton_create_pending:%'
+           AND (expires_at IS NULL OR expires_at > clock_timestamp())
+           AND created_at <= clock_timestamp() - ($3::text || ' milliseconds')::interval
+           AND updated_at <= clock_timestamp() - ($4::text || ' milliseconds')::interval
+         ORDER BY updated_at ASC
+         LIMIT $2
+         FOR UPDATE SKIP LOCKED
+       )
+       RETURNING b.authorization_id, b.provider_reference`,
+      [paymentProvider.providerCode, Math.max(1, Math.floor(limit)), String(Math.max(0, Math.floor(minAgeMs))), String(Math.max(0, Math.floor(backoffMs)))]
+    );
+    return r.rows as Array<{ authorization_id: string; provider_reference: string | null }>;
+  });
+  let confirmed = 0;
+  for (const row of due) {
+    try {
+      const status = await paymentProvider.status!({
+        provider_reference: row.provider_reference || row.authorization_id,
+        operation: "authorization",
+        correlation_id: `binding-sweep:${row.authorization_id.slice(0, 40)}`
+      });
+      if (status.state !== "authorized") continue; // not proven: try again after the backoff
+      const result = await paymentBindings.confirmBindingAuthorized({
+        provider_code: paymentProvider.providerCode,
+        authorization_id: row.authorization_id,
+        provider_amount_minor: status.amount_minor,
+        provider_reference: status.provider_reference
+      });
+      if (result?.status === "authorized") confirmed += 1;
+    } catch (error) {
+      // an amount contradiction already failed the binding closed; anything
+      // else is retried after the backoff
+      if (!(error instanceof PaymentBindingError)) app.log.warn({ authorization_id: row.authorization_id, err: error }, "pending binding sweep: status lookup failed");
+    }
+  }
+  return { examined: due.length, confirmed };
+}
+
 export async function runWorkerMaintenance() {
   // F-4 — no UNKNOWN money identity may stay without a live reconcile.
   await reconcileOrphanedUnknownIdentities().catch(() => 0);
   // F-2b — no deal past its completion window may stay without a live finalize.
   await rescheduleStalledFinalizations().catch(() => 0);
+  // Black-Sky A-F3 — a webhook claim whose processor died is returned to
+  // 'pending' (bounded, idempotent) so the provider's replay is not swallowed.
+  await webhookIngestion.reclaimStaleProcessing().catch(() => 0);
+  // F-M5 — pending hosted authorizations are re-read (status only) until proven.
+  await reconcilePendingAuthorizationBindings().catch(() => ({ examined: 0, confirmed: 0 }));
   // Crash recovery for the notification rail: stranded 'processing' rows are
   // reclaimed with a bounded attempt budget before the next flush.
   await reclaimStrandedNotifications(pool, Number(process.env.NOTIFICATION_STUCK_TIMEOUT_MS || 5 * 60_000)).catch(() => 0);

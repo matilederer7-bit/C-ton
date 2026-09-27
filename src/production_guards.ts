@@ -1,3 +1,5 @@
+import { buildGrowReferenceKeyring } from "./grow_payment_adapter.js";
+
 export type RuntimeRole = "web" | "worker";
 
 function productionMode(env: NodeJS.ProcessEnv) {
@@ -118,6 +120,21 @@ export function assertProductionRuntimeGuards(role: RuntimeRole, env: NodeJS.Pro
           }
           seenKids.set(kid, secret);
         }
+      }
+    }
+    // Final consistency check with the SAME keyring builder the adapter uses
+    // at decrypt time, so the boot guard and the runtime can never disagree
+    // about what a valid keyring is (money branch, Grow leftover 1).
+    const primaryKeyForBuild = String(env.GROW_REFERENCE_ENCRYPTION_KEY || "").trim();
+    if (primaryKeyForBuild.length >= 32 && !failures.some((f) => f.startsWith("GROW_REFERENCE_ENCRYPTION"))) {
+      try {
+        buildGrowReferenceKeyring({
+          primary_key: primaryKeyForBuild,
+          primary_key_id: growKeyId || null,
+          previous_keys: growPreviousRaw.trim() || null
+        });
+      } catch (error) {
+        failures.push(`GROW_REFERENCE_ENCRYPTION keyring is invalid (${String((error as Error)?.message || error)})`);
       }
     }
     const baseUrl = String(env.PAYMENT_PROVIDER_BASE_URL || "").trim();
