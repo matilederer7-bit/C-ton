@@ -45,6 +45,19 @@ try {
   const demoAnonymous = await app.inject({method:"GET",url:`/api/participants/${participant}/tracking`});
   assert.equal(demoAnonymous.statusCode,401,demoAnonymous.body);
   assert.equal(demoAnonymous.json().error,"tracking_token_required");
+  // No existence oracle: without a credential, a KNOWN and an UNKNOWN
+  // participant id answer identically (401) on the tracking and impact routes;
+  // only a credentialed caller can see 404 for an unknown id.
+  const unknown = randomUUID();
+  for (const route of ["tracking", "impact"]) {
+    const known = await app.inject({method:"GET",url:`/api/participants/${participant}/${route}`});
+    const missing = await app.inject({method:"GET",url:`/api/participants/${unknown}/${route}`});
+    assert.equal(known.statusCode,401,`${route} known: ${known.body}`);
+    assert.equal(missing.statusCode,401,`${route} unknown without a credential must not reveal absence: ${missing.body}`);
+    assert.equal(missing.json().error,known.json().error,`${route}: identical error for known and unknown ids`);
+    const credentialed = await app.inject({method:"GET",url:`/api/participants/${unknown}/${route}`,headers:{authorization:"Bearer some-token"}});
+    assert.equal(credentialed.statusCode,404,`${route} unknown with a credential: ${credentialed.body}`);
+  }
   console.log(`PASS UX production tracking: ${cases} real anonymous requests denied; untokenized legacy path retired in every runtime`);
 } finally {
   for(const key of keys) { if(saved[key]===undefined) delete process.env[key]; else process.env[key]=saved[key]; }

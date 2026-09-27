@@ -368,7 +368,16 @@ async function main() {
       method: "GET",
       url: "/api/participants/00000000-0000-0000-0000-000000000000/tracking"
     });
-    assert.equal(unknownTracking.statusCode, 404);
+    // No existence oracle: without a tracking credential an unknown id answers
+    // the same 401 as a known one; only a credentialed caller sees 404.
+    assert.equal(unknownTracking.statusCode, 401);
+    assert.equal((unknownTracking.json() as any).error, "tracking_token_required");
+    const unknownTrackingWithCredential = await app.inject({
+      method: "GET",
+      url: "/api/participants/00000000-0000-0000-0000-000000000000/tracking",
+      headers: { authorization: "Bearer some-token" }
+    });
+    assert.equal(unknownTrackingWithCredential.statusCode, 404);
   });
 
   await runTest("charged, recovered, and dropped tracking states remain coherent for the whole product", async () => {

@@ -334,8 +334,10 @@ async function main() {
             // the switch must be reachable from every surface
             if (!s.switchVisible) problems.push(`${where}: no language switch`);
             const errors = page!.errors().filter((e) =>
-              // a deliberately missing deal/tracking id answers 404 by design
-              !(surface.name.includes("missing") && /\b404\b/.test(e.text)));
+              // a deliberately missing deal id answers 404 by design; a missing
+              // tracking link carries no credential, so it answers 401 (the
+              // server never reveals whether a participant id exists)
+              !(surface.name.includes("missing") && /\b40[14]\b/.test(e.text)));
             if (errors.length) problems.push(`${where}: ${errors.slice(0, 2).map((e) => `${e.kind}:${e.text}`).join(" ; ")}`);
           }
         }
