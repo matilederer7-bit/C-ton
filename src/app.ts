@@ -61,6 +61,7 @@ import {
 import { registerFrontendExperience } from "./frontend_runtime.js";
 import { applicationRequestTelemetry } from "./infrastructure_metrics.js";
 import { createReadinessProbe } from "./readiness_probe.js";
+import { rateLimitClientKey } from "./public_write_caps.js";
 import { assertProductionRuntimeGuards } from "./production_guards.js";
 import { rewriteCanonicalApiAlias } from "./api_route_aliases.js";
 import { ensureJoinOtpVerified, ensureOtpRailTables, OtpValidationError } from "./otp_rail.js";
@@ -5726,19 +5727,9 @@ export function rateLimitBucketForRequest(method: string, originalUrl: string, s
   return BUCKET_STRICTNESS[a] >= BUCKET_STRICTNESS[b] ? a : b;
 }
 
-// IPv6 clients are keyed by their /64: one allocation holds 2^64 addresses,
-// so a per-address key gave a single host unlimited budgets.
-export function rateLimitClientKey(ip: string): string {
-  const value = String(ip || "unknown").trim().toLowerCase();
-  if (!value.includes(":") || value.startsWith("::ffff:")) return value.replace(/^::ffff:/, "");
-  const head = value.split("%")[0] ?? value;
-  const parts = head.split("::");
-  const left = parts[0] ? parts[0].split(":") : [];
-  const right = parts.length > 1 && parts[1] ? parts[1].split(":") : [];
-  const missing = Math.max(0, 8 - left.length - right.length);
-  const full = [...left, ...Array(missing).fill("0"), ...right].slice(0, 8);
-  return full.slice(0, 4).map((h) => h || "0").join(":") + "::/64";
-}
+// IPv6 clients are keyed by their /64 (src/public_write_caps.ts holds the one
+// implementation, shared with the per-client public-write caps).
+export { rateLimitClientKey };
 
 if (RATE_LIMIT_MAX > 0) {
   app.addHook("onRequest", async (req, reply) => {

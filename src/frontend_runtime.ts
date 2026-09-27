@@ -240,6 +240,7 @@ import { LEGAL_NAV_LABEL_KEYS, LEGAL_PAGE_ORDER, LEGAL_PAGES, resolveLegalPage, 
 import { htmlAttrs, localeFromRequest, ogLocale, ts, type Locale } from "./server_i18n.js";
 import { isBuyerVerificationRequired, buyerVerificationPolicySummary } from "./buyer_verification_policy.js";
 import { buildSupabaseVerifier } from "./supabase_auth.js";
+import { publicWriteCaps } from "./public_write_caps.js";
 import { resolveSupabaseCapabilities, bearerToken } from "./actor_resolver.js";
 import {
   recordViralFunnelEvent,
@@ -3374,6 +3375,11 @@ export function registerFrontendExperience(
     requestId: string;
   }) {
     const { reply } = args;
+    // Black-Sky C5: per-client budget in front of the platform-wide cap, so one
+    // client cannot exhaust the 200/h global budget for every buyer.
+    if (!publicWriteCaps.consume("inquiry", String(args.req?.ip || "unknown"))) {
+      return { ok: false as const, rate_limited: true as const };
+    }
     const limits = await c.query(
       `SELECT count(*) FILTER (WHERE t.customer_ref = $1)::int AS per_customer,
               count(*) FILTER (WHERE t.deal_id = $2)::int AS per_deal,
@@ -8982,6 +8988,10 @@ export function registerFrontendExperience(
     if (supportCategoryRequiresDeal(categoryKey) && !dealReference) {
       return reply.code(400).send({ ok: false, error: "contact_deal_reference_required" });
     }
+    // Black-Sky C5: per-client budget before the platform-wide 30/h cap.
+    if (!publicWriteCaps.consume("support_contact", String(req.ip || "unknown"))) {
+      return reply.code(429).send({ ok: false, error: "support contact rate limited", code: "support_rate_limited" });
+    }
 
     const created = await deps.withTx(async (c) => {
       const counts = await c.query(
@@ -10681,6 +10691,10 @@ export function registerFrontendExperience(
     const text = String(body.text || "").replace(/\s+/g, " ").trim();
     if (text.length > BUYER_FEEDBACK_TEXT_MAX) {
       return reply.code(400).send({ ok: false, error: "feedback text too long", code: "feedback_text_too_long" });
+    }
+    // Black-Sky C5: per-client budget before the per-deal / platform-wide caps.
+    if (!publicWriteCaps.consume("feedback", String(req.ip || "unknown"))) {
+      return reply.code(429).send({ ok: false, error: "feedback rate limited", code: "feedback_rate_limited" });
     }
     // The HTTP reply is sent only after withTx has COMMITTED, so a caller that
     // receives the 201 can read the returned feedback_id on another connection.
