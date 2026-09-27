@@ -80,6 +80,11 @@ Legend:
 | `TWILIO_FROM` | ⬜ | ⚠ if Twilio | ⚠ if Twilio | 📄 | — | E.164 sender. |
 | `NOTIFICATION_MAX_ATTEMPTS` | ⬜ | ⬜ | ⬜ | 📄 | `3` | |
 | `SELLER_SESSION_SECRET` | ⬜ (demo skips) | ⚠ | ⚠ | 🔒 | — | Required for non-demo seller sessions. |
+| `OTP_TOKEN_SECRET` | ⬜ (local-only fallback) | ⚠ | ✅ | 🔒 | — | Black-Sky E10: signs buyer OTP proofs. Production boot requires ≥32 chars, not a placeholder, and distinct from `SELLER_SESSION_SECRET` and `OTP_HASH_SALT`. |
+| `SITON_OWNER_EMAIL` | ⬜ | ⬜ | ⬜ | 📄 | unset | Owner auto-claim e-mail. Necessary, never sufficient (Black-Sky B2). |
+| `SITON_OWNER_AUTH_USER_ID` | ⬜ | ⚠ (hosted owner claim) | ✅ when `SITON_OWNER_EMAIL` is set | 📄 | unset | Black-Sky B2: the owner's Supabase auth user UUID. On any hosted/production-like runtime the owner auto-claim is refused unless the token subject equals it. |
+| `PUBLIC_BASE_URL` | ⬜ | ⚠ custom domain | ⚠ | 📄 | `RENDER_EXTERNAL_URL` | Canonical public origin for absolute links (share page og: URLs, deep links). Black-Sky B7: never taken from Host headers on a cacheable page. |
+| `SELLER_CONTENT_ASSET_MAX_COUNT` / `SELLER_DEAL_IMAGE_MAX_COUNT` / `SELLER_DEAL_IMAGE_MAX_BYTES` | ⬜ | ⬜ | ⬜ | 📄 | `40` / `240` / `536870912` | Black-Sky B8 per-seller upload quotas (429 `seller_*_quota_exceeded`). |
 | `BUYER_SESSION_SECRET` | ⬜ (local-only fallback) | ⚠ | ⚠ | 🔒 | — | Signs deal-bound HttpOnly buyer sessions used only for safe server-side resume. |
 | `LINK_VIEWER_SESSION_SECRET` | ⬜ (local-only fallback) | ⚠ | ⚠ | 🔒 | — | Signs the scoped read-only external link-dashboard sessions (seller distribution hub). Falls back to `BUYER_SESSION_SECRET` / `OTP_TOKEN_SECRET`. |
 | `SITON_PLATFORM_FEE_VAT_RATE` | ⬜ | ⬜ | ⬜ | 📄 | `0.18` | |
@@ -97,7 +102,7 @@ Legend:
 | `SUPABASE_PROJECT_REF` | ⬜ | ⬜ | ⚠ for hosted metrics/compute | 📄 | unset | Hosted project identifier; never treated as a credential. |
 | `SUPABASE_METRICS_SECRET_KEY` | ⬜ | ⬜ | ⚠ for hosted metrics | 🔒 | unset | Dedicated Secret API key used server-side for the Prometheus-compatible Metrics API. |
 | `SUPABASE_METRICS_TIMEOUT_MS` | ⬜ | ⬜ | ⬜ | 📄 | `5000` | Bounded hosted-metrics request timeout. |
-| `SUPABASE_MANAGEMENT_API_TOKEN` | ⬜ | ⬜ | ⚠ only for compute approval | 🔒 | unset | PAT/OAuth token for billing add-on read/update; never sent to the browser. |
+| `SUPABASE_MANAGEMENT_API_TOKEN` | ⬜ (owner tooling only) | ❌ must be absent | ❌ must be absent | 🔒 | unset | Black-Sky E2: account-level credential. The boot guard refuses it on every hosted or production web/worker runtime; it lives only in owner tooling / CI. The in-app compute upgrade therefore stays unavailable on hosted runtimes (reason `SUPABASE_MANAGEMENT_API_TOKEN_missing`). |
 | `SUPABASE_MANAGEMENT_TIMEOUT_MS` | ⬜ | ⬜ | ⬜ | 📄 | `5000` | Bounded Management API read/update timeout. |
 | `SUPABASE_COMPUTE_MANAGEMENT_ENABLED` | ✅ | ✅ | ✅ | 📄 | `false` | Explicit feature flag for a human-approved one-tier compute upgrade. Monitoring remains active when false. |
 | `INFRA_*_WARNING` / `INFRA_*_CRITICAL` / `INFRA_*_WINDOW_MINUTES` | ⬜ | ⬜ | ⬜ | 📄 | documented defaults | Central overrides for sustained health thresholds; see `INFRASTRUCTURE_HEALTH_AND_CAPACITY.md`. |
