@@ -1824,6 +1824,29 @@ async function handleRefundEvent(
 ) {
   const dealId = event.aggregate_id;
 
+  // Black-Sky A-F9 — docs/REFUND_POLICY.md: a refund exists ONLY as the
+  // automatic consequence of a deal-level failure (a Failed deal — including a
+  // CompletionWindow deal finalized below the 90% threshold after charges — or
+  // a Cancelled deal for cancel_refund). Both are terminal states, so a plain
+  // read is authoritative. A refund job for any other deal (Completed, still
+  // Charging, ...) moves no money: it is refused with a case and acknowledged.
+  const refundDeal = await withTx(async (c) => {
+    const r = await c.query(`SELECT state FROM siton.deals WHERE deal_id=$1`, [dealId]);
+    return r.rows[0] as { state: DealState } | undefined;
+  });
+  if (!refundDeal) throw new PermanentFailError(`${event.event_type} deal not found ${dealId}`);
+  const refundLegalStates: ReadonlyArray<string> = event.event_type === "cancel_refund" ? ["Failed", "Cancelled"] : ["Failed"];
+  if (!refundLegalStates.includes(String(refundDeal.state))) {
+    await openPaymentOperationalCase({
+      autoKey: `refund-refused-deal-not-failed:${dealId}:${event.event_type}`,
+      subject: `Refund refused: deal ${dealId} is ${refundDeal.state}, not a deal-level failure`,
+      description: `A ${event.event_type} job (worker event ${eventId}) targeted deal ${dealId} in state ${refundDeal.state}. Refunds are system-mandated only as a consequence of a deal-level failure (${refundLegalStates.join(" / ")}); no refund was sent to the provider and no participant state changed. Investigate how the job was enqueued.`,
+      correlationId: null
+    });
+    app.log.warn({ deal_id: dealId, deal_state: refundDeal.state, event_type: event.event_type, event_id: eventId }, "refund refused: deal is not in a deal-level failure state");
+    return;
+  }
+
   const needRefundWithTrace = await withTx(async (c) => {
     const r = await c.query(
       `SELECT
