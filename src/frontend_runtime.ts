@@ -7486,7 +7486,7 @@ export function registerFrontendExperience(
       });
       if (!identity) return reply;
       // An action type added in code before the DB CHECK list is widened
-      // (docs/migration_proposals/078_*) answers a clear 409, never a 500.
+      // (migration 079) answers a clear 409, never a 500.
       await c.query("SAVEPOINT admin_action_insert");
       let action: any;
       try {

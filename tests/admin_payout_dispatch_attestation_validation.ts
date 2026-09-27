@@ -65,14 +65,21 @@ const valid = (overrides: Record<string, unknown> = {}) => ({
 const create = (headers: Record<string, string>, payload: Record<string, unknown>) =>
   app.inject({ method: "POST", url: "/api/admin/actions", headers, payload });
 
+// Simulate a database that has not applied migration 079 yet (the 035 list):
+// the route must answer a clean 409, never a 500.
+await pool.query(`ALTER TABLE siton.admin_actions DROP CONSTRAINT IF EXISTS admin_actions_action_type_check`);
+await pool.query(`ALTER TABLE siton.admin_actions ADD CONSTRAINT admin_actions_action_type_check CHECK (action_type IN (
+  'trigger_reconcile','requeue_outbox_event','retry_notification','retry_invoice_failed','freeze_payouts',
+  'unfreeze_payouts','open_support_case','content_takedown_request','pause_joining_emergency','pause_charging_emergency'))`);
+
 await run("before the action_type migration the route answers 409, not 500", async () => {
   const res = await create(A, valid());
   assert.equal(res.statusCode, 409, res.body);
   assert.equal((res.json() as any).error, "admin_action_type_requires_migration");
 });
 
-// Apply the proposed migration to THIS isolated test database.
-await pool.query(await readFile("docs/migration_proposals/078_admin_action_resolve_payout_dispatch_unknown.sql", "utf8"));
+// Re-apply the real migration 079 body (idempotent) to THIS isolated database.
+await pool.query(await readFile("src/migrations/079_admin_action_payout_attestation.sql", "utf8"));
 
 await run("attestation evidence is mandatory", async () => {
   for (const [payload, error] of [
