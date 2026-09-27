@@ -3660,7 +3660,7 @@ export function registerFrontendExperience(
         return reply.code(404).send({ ok: false, error: "inquiry not found", code: "inquiry_not_found" });
       }
       const thread = existing.rows[0];
-      return appendCustomerInquiryMessage(c, {
+      const appended: any = await appendCustomerInquiryMessage(c, {
         req, reply,
         dealId: String(thread.deal_id),
         dealTitle: String(thread.title || ""),
@@ -3671,6 +3671,11 @@ export function registerFrontendExperience(
         message,
         requestId
       });
+      // A throttled follow-up is a 429 like the first message (it answered 200 { ok:false }).
+      if (appended?.rate_limited) {
+        return reply.code(429).send({ ok: false, error: "inquiry rate limited", code: "inquiry_rate_limited" });
+      }
+      return appended;
     });
   });
 

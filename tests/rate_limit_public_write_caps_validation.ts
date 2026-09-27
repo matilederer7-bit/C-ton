@@ -110,6 +110,22 @@ await run("inquiries: the 31st inquiry from one address is 429 inquiry_rate_limi
   assert.equal(after.rows[0].n, before.rows[0].n, "a refused inquiry writes no message");
   const other = await inquiry("198.51.100.21", dealB, 32);
   assert.equal(other.statusCode, 201, other.body);
+  // A follow-up on a real thread from the exhausted address is refused with a
+  // real 429 (the follow-up route used to answer 200 { ok:false, rate_limited }).
+  const thread = other.json() as any;
+  const followUp = await app.inject({
+    method: "POST", url: `/api/inquiries/${thread.thread_id}/messages`,
+    headers: { "content-type": "application/json", "x-forwarded-for": "198.51.100.20" },
+    payload: { access_token: thread.access_token, message: `המשך ${randomUUID()}` }
+  });
+  assert.equal(followUp.statusCode, 429, followUp.body);
+  assert.equal((followUp.json() as any).code, "inquiry_rate_limited");
+  const okFollowUp = await app.inject({
+    method: "POST", url: `/api/inquiries/${thread.thread_id}/messages`,
+    headers: { "content-type": "application/json", "x-forwarded-for": "198.51.100.21" },
+    payload: { access_token: thread.access_token, message: `המשך ${randomUUID()}` }
+  });
+  assert.ok([200, 201].includes(okFollowUp.statusCode), okFollowUp.body);
 });
 
 await run("feedback: the 31st answer from one address is 429 feedback_rate_limited; another address still gets 201", async () => {
