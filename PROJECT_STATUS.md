@@ -2,7 +2,7 @@
 
 Updated: 2026-09-27
 Canonical branch: `master`
-Current merged baseline: `73026b4` (PR #116, Black-Sky BSC-3 fix + close-out, on top of #117 `f02414b` and #99 `c1c361f`). Black Sky Engineering: **100% (closed)**; Production Readiness: **17%** (see TRACKS) — Black-Sky all merged with a clean Codex review of each final head (#117 on `26a6f82`, #116 on `1534bde`), master CI green on `73026b4`, 077–079 + grant file 027 on staging (ledger 72/72), staging live on `73026b4` (verified 2026-09-27 18:23 UTC). Previous: `df9aee3` / `d186153` red-team closure (100%).
+Current merged baseline: `73026b4` (PR #116, Black-Sky BSC-3 fix + close-out, on top of #117 `f02414b` and #99 `c1c361f`). Black Sky Engineering: **100% (closed)**; Production Readiness: **14%** (see TRACKS) — Black-Sky all merged with a clean Codex review of each final head (#117 on `26a6f82`, #116 on `1534bde`), master CI green on `73026b4`, 077–079 + grant file 027 on staging (ledger 72/72), staging live on `73026b4` (verified 2026-09-27 18:23 UTC). Previous: `df9aee3` / `d186153` red-team closure (100%).
 Render staging: LIVE on `73026b4` (checks-gated auto-deploy, `autoDeployTrigger: checksPass`) — web `srv-daa5o9u7bikc73fgjskg` deploy `dep-dasloc8u01pc73f5vni0` and worker `srv-daakn0tg1s2s73dfk3pg` deploy `dep-dasloc8u01pc73f5vnvg` (verified 2026-09-27 18:23 UTC: web "Server listening", worker `worker_ready`, zero warn/error/fatal lines since the deploy). Earlier deploys `f02414b` and `c1c361f` passed the production guards (`SUPABASE_MANAGEMENT_API_TOKEN` not set) and `/readiness` with the schema contract incl. 077–079.
 Supabase staging (`siton-staging`, hnptacfzuqebfgeshadq): migrations through **079** applied (077 → position 70, 078 → 71, 079 → 72, plus grant file `supabase/staging/027`, all on 2026-09-27 through the Supabase connector before the #99 merge, checksums from the canonical bodies); **72/72** ledger rows succeeded. Verified: ClosedForJoining→Failed edge, 6 new triggers enabled, 0 NOT VALID constraints, `test.*` refused, deal→participant FK = RESTRICT, 027 self-check passed. BSC-2 (#117) needs no migration.
 
@@ -10,7 +10,7 @@ Supabase staging (`siton-staging`, hnptacfzuqebfgeshadq): migrations through **0
 ## TRACKS (owner decision 2026-09-27: two separate percentages)
 
 - **Black Sky Engineering: 100% — CLOSED.** All code fixes merged (#99 `c1c361f`, #117 `f02414b`, #116 `73026b4`); CI green on master `73026b4`; the latest Codex review of each final head is clean (#117 `26a6f82`, #116 `1534bde`); migrations 077–079 + grant file 027 applied to staging (ledger 72/72); staging live and checked on `73026b4`; recovery / failure / money / DB suites pass (314 files / 0 failures, `RECOVERY_PROOF_PASS`, `DB_BACKUP_RESTORE_REHEARSAL_PASS`). No further hardening, adversarial round or scope expansion on this track unless a new concrete finding appears.
-- **Production Readiness: 17% (3 of 18 items done) — OPEN, owner-driven.** External actions, not code changes. Items marked **REAL MONEY LAUNCH BLOCKER** (10 open) must be closed before any real charge; real-money activation stays BLOCKED by policy until then. By owner decision these deployment/provisioning actions (incl. report E1 CRIT off-site backups and E5 HIGH storage broker, whose code is done) are the scope of this track, not completion criteria of Black Sky Engineering.
+- **Production Readiness: 14% (3 of 22 items done) — OPEN, owner-driven.** External actions, not code changes. Items marked **REAL MONEY LAUNCH BLOCKER** (12 open) must be closed before any real charge; real-money activation stays BLOCKED by policy until then. By owner decision these deployment/provisioning actions (incl. report E1 CRIT off-site backups and E5 HIGH storage broker, whose code is done) are the scope of this track, not completion criteria of Black Sky Engineering.
 
 ### Production Readiness checklist
 
@@ -19,7 +19,7 @@ Supabase staging (`siton-staging`, hnptacfzuqebfgeshadq): migrations through **0
 | PR-1 | Staging DB: 077–079 + `supabase/staging/027` | DONE (ledger 72/72) | — |
 | PR-2 | `SUPABASE_MANAGEMENT_API_TOKEN` absent on Render | DONE (boot guard passed) | — |
 | PR-3 | Render deploys gated on CI (`checksPass`) | DONE | — |
-| PR-4 | Production env: `OTP_TOKEN_SECRET` (≥32 random chars) and `SITON_OWNER_AUTH_USER_ID` on the production web/worker | OPEN | **REAL MONEY LAUNCH BLOCKER** |
+| PR-4 | Production env: `OTP_TOKEN_SECRET` (≥32 random chars), `OTP_HASH_SALT` (random, not the public default; also still missing on both staging services) and `SITON_OWNER_AUTH_USER_ID` on the production web/worker — production refuses to boot without them (`src/production_guards.ts`) | OPEN | **REAL MONEY LAUNCH BLOCKER** |
 | PR-5 | Production DB: apply 077–079 + grant file 027 (owner-authorized schema change) | OPEN | **REAL MONEY LAUNCH BLOCKER** |
 | PR-6 | Off-site backups: provision `OFFSITE_BACKUP_*` secrets, keep the age identity offline, run once → `OFFSITE_BACKUP_PASS`, then one verified restore | OPEN | **REAL MONEY LAUNCH BLOCKER** |
 | PR-7 | Hosted backups checklist: plan/PITR, retention, last backup, restore ever done, who can restore (with MFA) | OPEN | **REAL MONEY LAUNCH BLOCKER** |
@@ -28,12 +28,16 @@ Supabase staging (`siton-staging`, hnptacfzuqebfgeshadq): migrations through **0
 | PR-10 | Second SuperAdmin with a separate MFA device (dual approval for payout freeze/unfreeze, emergency pause, payout attestation) | OPEN | **REAL MONEY LAUNCH BLOCKER** |
 | PR-11 | Alert routing for `worker_alert:*` (a human is paged for money cases) | OPEN | **REAL MONEY LAUNCH BLOCKER** |
 | PR-12 | Decision: handling of a partly charged deal whose charge retries are exhausted | OPEN | **REAL MONEY LAUNCH BLOCKER** |
-| PR-13 | Grow real-money certification (F-13) and the owner's explicit real-money activation | OPEN | **REAL MONEY LAUNCH BLOCKER** |
+| PR-13 | Grow: provider contract for real money resolved (F-13) and live-mode verification performed (policy reasons `F13_PROVIDER_CONTRACT_UNRESOLVED`, `GROW_LIVE_VERIFICATION_NOT_PERFORMED`) | OPEN | **REAL MONEY LAUNCH BLOCKER** |
 | PR-14 | Supabase "Confirm email" on | OPEN | launch prerequisite |
 | PR-15 | `SITON_BROKER_ALLOWED_PREFIXES` set and `storage-broker` edge function redeployed (report E5, HIGH: code fixed, deploy pending) | OPEN | launch prerequisite (security) |
 | PR-16 | GitHub: Dependabot security updates on, required checks kept on master | OPEN | recommended |
 | PR-17 | WAF/CDN in front of Render | OPEN | recommended |
 | PR-18 | Delete or reconfigure the orphan Render service `siton-staging-web-atp1` | OPEN | cleanup |
+| PR-19 | Clear `ADVERSARIAL_REVIEW_NOT_PERFORMED` in `config/real-money-release-policy.json` with dated evidence (owner decides whether the red-team and Black-Sky reports suffice or a further review is required) | OPEN | **REAL MONEY LAUNCH BLOCKER** |
+| PR-20 | Owner approval of production payment activation (`PRODUCTION_PAYMENT_ACTIVATION_NOT_APPROVED`), then the separately reviewed commit that flips the policy to `ALLOWED` with evidence for every reason (`docs/REAL_MONEY_RELEASE_GOVERNANCE.md`); runtime variables are set only after that | OPEN | **REAL MONEY LAUNCH BLOCKER** |
+| PR-21 | Render web plan (currently `free`, hibernates) and Supabase Site URL decisions for launch | OPEN | launch prerequisite |
+| PR-22 | Decide whether Base44 remains an intended runtime (`scripts/release_checklist.cjs` O-4) | OPEN | recommended |
 
 Detail per item: `BLACK_SKY_FINAL_REPORT.md` §7–§8, `docs/BACKUP_RESTORE_RUNBOOK.md`, `docs/CREDENTIAL_COMPROMISE_RUNBOOK.md`, `docs/CONFIG_INVENTORY.md`. Next step: the owner works the REAL MONEY LAUNCH BLOCKERs, then the Launch Gate.
 
