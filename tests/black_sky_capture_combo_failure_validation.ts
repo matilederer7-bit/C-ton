@@ -100,21 +100,13 @@ await run("C1a worker killed after claim + 503 UNKNOWN on the retry (money moved
 });
 
 // ── C1b: PINNED KNOWN DEFECT (BLACK_SKY_DEFECT BSC-1) ───────────────────────
-// The strict fail-closed assertions below are the CORRECT contract and are not
-// weakened. They currently FAIL: a validly signed charge_captured webhook whose
+// Found by this suite: a validly signed charge_captured webhook whose
 // correlation_id matches no Siton identity and whose provider_reference is not
-// the participant's authorization is resolved by participant_id
-// (src/payment_reconciliation.ts resolveTarget fallback) and applied as
-// capture_success — participant ChargedSuccess + a fee-ledger 'charge' row —
-// while the provider holds NO capture. The real identity later reconciles to
-// permanent_fail, the participant stays ChargedSuccess, and no operational
-// case is opened; the money invariant participant.charged_state_has_successful_capture
-// FAILs. Production code is not changed here (report-only task).
-//
-// Default mode: expected-failure. The run PASSES only when the strict block
-// fails with exactly this defect's signature, and FAILS when the strict block
-// passes (the defect was fixed: delete the wrapper, keep the strict block).
-// BLACK_SKY_STRICT=1 runs the strict block as a normal test.
+// the participant's authorization was resolved by participant_id and applied
+// as capture_success — participant ChargedSuccess + a fee-ledger 'charge' row —
+// while the provider held NO capture; the money invariant
+// participant.charged_state_has_successful_capture FAILed. Fixed in
+// src/payment_reconciliation.ts resolveTarget; these strict assertions guard it.
 async function c1bStrict() {
   const d = await chargingDeal();
   const p = d.participants[0]!;
@@ -156,19 +148,10 @@ async function c1bStrict() {
 }
 
 const C1B_NAME = "C1b dead worker + 503 with nothing moved + a signed charge_captured webhook naming a foreign operation → never charged on foreign evidence, no second capture, invariants PASS";
-if (process.env.BLACK_SKY_STRICT === "1") {
-  await run(C1B_NAME, c1bStrict);
-} else {
-  await run(`${C1B_NAME} [PINNED KNOWN DEFECT BSC-1: expected to fail strictly]`, async () => {
-    let strictError: unknown = null;
-    try { await c1bStrict(); } catch (error) { strictError = error; }
-    assert.ok(strictError, "BSC-1 appears FIXED: the strict fail-closed block passed — remove the expected-failure wrapper and keep c1bStrict as a normal test");
-    const message = String((strictError as any)?.message || strictError);
-    assert.match(message, /BSC-1: foreign evidence must never mark the participant charged/, `C1b failed for a reason OTHER than the pinned defect: ${message}`);
-    console.log(`BLACK_SKY_DEFECT BSC-1 reproduced: ${message.split("\n")[0]}`);
-  });
-}
-
+// BSC-1 was fixed in src/payment_reconciliation.ts (a money-operation event
+// naming an unknown correlation fails closed); the strict block is now the
+// regression test.
+await run(C1B_NAME, c1bStrict);
 
 const failed = summary();
 await bb.close();

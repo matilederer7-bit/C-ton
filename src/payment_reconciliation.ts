@@ -21,6 +21,18 @@ export type ProviderWebhookEvent = {
   payload: Record<string, unknown>;
 };
 
+const MONEY_OPERATION_EVENTS = new Set([
+  "charge_captured",
+  "charge_failed",
+  "recovery_captured",
+  "recovery_failed",
+  "refund_issued"
+]);
+
+function isMoneyOperationEvent(eventType: string) {
+  return MONEY_OPERATION_EVENTS.has(eventType);
+}
+
 export function buildPaymentReconciliation(deps: { withTx: WithTx }) {
   async function resolveTarget(event: ProviderWebhookEvent): Promise<ReconciliationTarget | null> {
     if (event.correlation_id) {
@@ -50,6 +62,19 @@ export function buildPaymentReconciliation(deps: { withTx: WithTx }) {
       };
       if (fromAttempt && correlationFamilyMatches(String(event.event_type || ""), String(fromAttempt.attempt_type))) {
         return fromAttempt as ReconciliationTarget;
+      }
+      // Black-Sky BSC-1 — fail closed on foreign evidence. A money-operation
+      // event that NAMES a correlation id matching no Siton operation is not
+      // proof about any operation of ours: before, it fell through to the
+      // participant_id lookup below and a validly signed charge_captured for an
+      // unknown identity marked the participant ChargedSuccess (fee row
+      // written) while the provider held no capture. Such an event now has no
+      // target ("failed: missing_correlation_target"); the real operation is
+      // settled only by its own identity (webhook or authoritative status).
+      // A correlation that DID resolve to one of our operations of another
+      // family keeps the F-5b participant-level fallback.
+      if (!fromAttempt && isMoneyOperationEvent(String(event.event_type || ""))) {
+        return null;
       }
     }
 
