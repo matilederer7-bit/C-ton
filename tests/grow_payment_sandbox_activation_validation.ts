@@ -402,7 +402,7 @@ await runTest("J5 create maps the official contract with the SERVER-computed amo
   assert.equal(body.provider, "grow");
   assert.equal(body.authorization, "pending_provider_confirmation");
   assert.equal(String(body.payment_url).startsWith("https://sandbox.meshulam.co.il/hosted/"), true);
-  assert.equal(String(body.authorization_id).startsWith("grow_ref_v1."), true);
+  assert.equal(String(body.authorization_id).startsWith("grow_ref_v2."), true);
   assert.equal(response.body.includes("ptoken-"), false, "raw process credentials must never reach the browser");
   // Server-side truth: 2 × 10 ILS = sum 20.00, regardless of the spoofed browser amount.
   const proc = fakeGrow.processes.get(processIdFromCreateOrder(fakeGrow.seq));
@@ -412,7 +412,7 @@ await runTest("J5 create maps the official contract with the SERVER-computed amo
   assert.equal(Number(binding.amount_minor), 2000);
   assert.equal(binding.provider_code, "grow");
   assert.equal(binding.provider_environment, "sandbox");
-  assert.equal(String(binding.provider_reference).startsWith("grow_ref_v1."), true);
+  assert.equal(String(binding.provider_reference).startsWith("grow_ref_v2."), true);
 });
 
 await runTest("pending authorization is never consumable as AuthHeld", async () => {
@@ -466,7 +466,7 @@ await runTest("authoritative status lookup confirms the binding; callback after 
   assert.equal(binding.status, "authorized");
   assert.equal(binding.status_reason, "provider_status_confirmed");
   // The refreshed binding reference is sealed and carries no plaintext tokens.
-  assert.equal(String(binding.provider_reference).startsWith("grow_ref_v1."), true);
+  assert.equal(String(binding.provider_reference).startsWith("grow_ref_v2."), true);
   assert.equal(String(binding.provider_reference).includes(tx.transactionToken), false);
   // A duplicate/late callback about the now-authorized binding records evidence only.
   const proc = fakeGrow.processes.get(processId)!;
