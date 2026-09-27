@@ -1,4 +1,4 @@
-import { buildGrowReferenceKeyring } from "./grow_payment_adapter.js";
+import { buildGrowReferenceKeyring } from "./grow_reference_keyring.js";
 
 export type RuntimeRole = "web" | "worker";
 

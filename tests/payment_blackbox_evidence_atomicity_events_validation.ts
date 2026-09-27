@@ -172,7 +172,17 @@ await run("B10c duplicate refund_issued deliveries → one Refunded, one refund 
   await withForcedTx(bb.pool, "test.blackbox_refund_deal_failed", async (client) => {
     await forcedDealStep(client, d.deal_id, "Failed", "test.blackbox_refund_deal_failed");
   });
-  const refund = await bb.processOutboxEventById(await bb.enqueueRefund(d.deal_id, "blackbox_refund"));
+  // Migration 078 (Black-Sky D3): the forced CompletionWindow -> Failed step
+  // enqueued the mandated refund_issue job (parked); release THAT job rather
+  // than inserting a duplicate, as finalize_failed does in production.
+  const releasedRefund = await bb.pool.query(
+    `UPDATE siton.outbox_events SET payload=$2, available_at=now()
+     WHERE aggregate_type='deal' AND aggregate_id=$1 AND event_type='refund_issue' AND status='pending'
+     RETURNING event_uuid`,
+    [d.deal_id, JSON.stringify({ deal_id: d.deal_id, reason: "blackbox_refund" })]
+  );
+  assert.equal(releasedRefund.rowCount, 1, "exactly one pending refund_issue job for the failed deal");
+  const refund = await bb.processOutboxEventById(String(releasedRefund.rows[0].event_uuid));
   console.log(`  B10c refund job: ${JSON.stringify(refund)}`);
   await bb.drain({ dealIds: [d.deal_id], skip: (e) => e.event_type === "finalize_deal" });
   const refundRow = (await bb.attempts(p.participant_id, "refund"))[0];

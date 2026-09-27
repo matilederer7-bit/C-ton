@@ -41,17 +41,27 @@ async function run(name: string, fn: () => Promise<void>) {
 }
 
 // Simulate "the processor died N minutes ago": age both the first-claim instant
-// and the claim stamp (whichever the implementation reads).
+// and the claim stamp (whichever the implementation reads). received_at is an
+// immutable identity column since migration 078, so time travel runs on ONE
+// connection with the enforcement triggers bypassed (the same technique the
+// suites use to age an immutable deal deadline); runtime code never does this.
 async function ageClaim(eventId: string, minutes: number) {
-  await pool.query(
-    `UPDATE siton.webhook_events
-     SET received_at = received_at - ($3::text || ' minutes')::interval,
-         payload_jsonb = CASE WHEN payload_jsonb ? 'claimed_at'
-           THEN jsonb_set(payload_jsonb, '{claimed_at}', to_jsonb(((payload_jsonb->>'claimed_at')::timestamptz - ($3::text || ' minutes')::interval)))
-           ELSE payload_jsonb END
-     WHERE provider=$1 AND event_id=$2`,
-    [provider, eventId, String(minutes)]
-  );
+  const c = await pool.connect();
+  try {
+    await c.query(`SET session_replication_role = replica`);
+    await c.query(
+      `UPDATE siton.webhook_events
+       SET received_at = received_at - ($3::text || ' minutes')::interval,
+           payload_jsonb = CASE WHEN payload_jsonb ? 'claimed_at'
+             THEN jsonb_set(payload_jsonb, '{claimed_at}', to_jsonb(((payload_jsonb->>'claimed_at')::timestamptz - ($3::text || ' minutes')::interval)))
+             ELSE payload_jsonb END
+       WHERE provider=$1 AND event_id=$2`,
+      [provider, eventId, String(minutes)]
+    );
+  } finally {
+    await c.query(`SET session_replication_role = origin`).catch(() => {});
+    c.release();
+  }
 }
 
 try {

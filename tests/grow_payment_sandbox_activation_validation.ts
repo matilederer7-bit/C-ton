@@ -696,12 +696,18 @@ await runTest("R9C H1 (Grow CASE 17): refund executed, then HTTP 503 → UNKNOWN
   fakeGrow.refundMode = "http_503_after_effect";
   const refundCallsBefore = fakeGrow.refundCalls;
   const refundEffectsBefore = fakeGrow.refundEffects;
-  const refundEventId = randomUUID();
-  await pool.query(
-    `INSERT INTO siton.outbox_events (event_uuid, event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at)
-     VALUES ($1,'refund_issue','deal',$2,$3,'pending',0, now())`,
-    [refundEventId, flow.dealId, JSON.stringify({ deal_id: flow.dealId, reason: "r9c_grow_refund_ambiguity" })]
+  // Migration 078 (Black-Sky D3): CompletionWindow -> Failed must enqueue its
+  // refund_issue job in the SAME transaction, so the forced step above already
+  // enqueued it (parked far in the future). Release THAT job to the worker
+  // instead of inserting a second one — as finalize_failed does in production.
+  const releasedRefund = await pool.query(
+    `UPDATE siton.outbox_events SET payload=$2, available_at=now()
+     WHERE aggregate_type='deal' AND aggregate_id=$1 AND event_type='refund_issue' AND status='pending'
+     RETURNING event_uuid`,
+    [flow.dealId, JSON.stringify({ deal_id: flow.dealId, reason: "r9c_grow_refund_ambiguity" })]
   );
+  assert.equal(releasedRefund.rowCount, 1, "exactly one pending refund_issue job for the failed deal");
+  const refundEventId = String(releasedRefund.rows[0].event_uuid);
   const refundOutcome = await processOutboxEventById(refundEventId);
   fakeGrow.refundMode = "ok";
   assert.equal(refundOutcome?.status, "sent", JSON.stringify(refundOutcome));
