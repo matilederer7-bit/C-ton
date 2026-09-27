@@ -134,7 +134,8 @@ test("a Luhn-valid card number committed and later deleted is found (real-card-p
   const pan = result.findings.find((f) => f.detector === "real-card-pan");
   assert.ok(pan, `expected the PAN to be found in history: ${JSON.stringify(result.findings)}`);
   assert.equal(pan.line, 1);
-  assert.equal(pan.match, "453914******6467", "the PAN is reported masked");
+  assert.doesNotMatch(pan.match, /6467/, "the PAN is reported as a fingerprint, never the full number");
+  assert.match(pan.match, /…\[16 chars, sha256:[0-9a-f]{12}\]$/);
 });
 
 test("deleted PANs of every card length (13, 14, 17, 18, 19 digits) are found in history", () => {
@@ -150,6 +151,46 @@ test("deleted PANs of every card length (13, 14, 17, 18, 19 digits) are found in
   const result = scan.run({ root: dir, allowList: [] });
   const found = result.findings.filter((f) => f.detector === "real-card-pan").map((f) => f.line).sort();
   assert.deepEqual(found, [1, 2, 3, 4, 5], JSON.stringify(result.findings));
+});
+
+test("findings never carry the credential itself — only a masked fingerprint", () => {
+  const dir = tempRepo();
+  const file = path.join(dir, "config.js");
+  const key = "AKIA" + "ABCDEFGHIJKLMNOP";
+  fs.writeFileSync(file, `const key = '${key}';\n`);
+  git(dir, "add", "-A");
+  git(dir, "commit", "-q", "-m", "leak");
+  const result = scan.run({ root: dir, allowList: [] });
+  assert.equal(result.findings.length, 1);
+  const serialized = JSON.stringify(result);
+  assert.ok(!serialized.includes(key), "the raw credential must not appear anywhere in the scan result");
+  assert.match(result.findings[0].match, /^AKIA…\[20 chars, sha256:[0-9a-f]{12}\]$/);
+});
+
+test("a credential that first appears in a merge's conflict resolution (and is deleted later) is found", () => {
+  const dir = tempRepo();
+  const file = path.join(dir, "config.js");
+  fs.writeFileSync(file, "const key = 'base';\n");
+  git(dir, "add", "-A");
+  git(dir, "commit", "-q", "-m", "base");
+  const trunk = git(dir, "rev-parse", "--abbrev-ref", "HEAD").trim();
+  git(dir, "checkout", "-q", "-b", "side");
+  fs.writeFileSync(file, "const key = 'side';\n");
+  git(dir, "commit", "-q", "-am", "side");
+  git(dir, "checkout", "-q", trunk);
+  fs.writeFileSync(file, "const key = 'trunk';\n");
+  git(dir, "commit", "-q", "-am", "trunk");
+  spawnSync("git", ["merge", "side"], { cwd: dir }); // conflicts
+  fs.writeFileSync(file, "const key = 'AKIA" + "ABCDEFGHIJKLMNOP';\n"); // resolution introduces the secret
+  git(dir, "add", "-A");
+  git(dir, "commit", "-q", "-m", "merge with resolution");
+  const merge = git(dir, "rev-parse", "HEAD").trim();
+  fs.writeFileSync(file, "const key = process.env.KEY;\n");
+  git(dir, "commit", "-q", "-am", "fix");
+  const result = scan.run({ root: dir, allowList: [] });
+  const aws = result.findings.find((f) => f.detector === "aws-access-key");
+  assert.ok(aws, `expected the merge-resolution secret to be found: ${JSON.stringify(result.findings)}`);
+  assert.equal(aws.commit, merge);
 });
 
 test("allow-listed synthetic values are ignored", () => {

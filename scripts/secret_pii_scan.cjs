@@ -112,6 +112,18 @@ function insideUuid(text, hit) {
   return false;
 }
 
+// A finding is reported as a masked fingerprint, never as the credential
+// itself: the scan's own output lands in durable CI logs, and a gate that
+// republishes the secret it exists to contain defeats its purpose (Codex on
+// PR #97). Enough survives to identify the hit (prefix, length, a short hash).
+function maskSecret(value) {
+  const raw = String(value == null ? "" : value);
+  if (!raw) return "";
+  const digest = require("node:crypto").createHash("sha256").update(raw, "utf8").digest("hex").slice(0, 12);
+  const visible = raw.length > 12 ? raw.slice(0, 4) : raw.slice(0, 1);
+  return `${visible}…[${raw.length} chars, sha256:${digest}]`;
+}
+
 function matches(text, regex) {
   const out = [];
   for (const match of text.matchAll(regex)) out.push({ match: match[0], groups: match.slice(1), index: match.index });
@@ -174,7 +186,7 @@ if (require.main === module) {
   const result = run();
   const fails = result.findings.filter((f) => f.severity === "FAIL");
   const warns = result.findings.filter((f) => f.severity === "WARNING");
-  for (const finding of result.findings) console.log("[" + finding.severity + "] " + finding.rel + ":" + finding.line + " " + finding.detector + " " + finding.match + (finding.note ? " (" + finding.note + ")" : ""));
+  for (const finding of result.findings) console.log("[" + finding.severity + "] " + finding.rel + ":" + finding.line + " " + finding.detector + " " + maskSecret(finding.match) + (finding.note ? " (" + finding.note + ")" : ""));
   for (const entry of result.staleAllowListEntries) { console.log("[FAIL] stale allow-list entry " + entry.file + " " + entry.detector); fails.push(entry); }
   console.log("SECRET_PII_SCAN_SUMMARY scanned=" + result.scanned + " fail=" + fails.length + " warning=" + warns.length);
   fs.writeFileSync(path.join(require("./lib/release_report.cjs").artifactsDir(process.cwd()), "secret-pii-scan.json"), JSON.stringify(result, null, 2) + "\n");
@@ -182,4 +194,4 @@ if (require.main === module) {
   process.exit(fails.length ? 1 : 0);
 }
 
-module.exports = { run, DETECTORS, luhn, KNOWN_TEST_PANS };
+module.exports = { run, DETECTORS, luhn, KNOWN_TEST_PANS, maskSecret };

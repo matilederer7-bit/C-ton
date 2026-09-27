@@ -18,11 +18,12 @@
 //
 // Allow-list: the same config/secret-scan-allowlist.json entries, matched by
 // detector + exact match / prefix (the file is not required to match, because
-// history paths move). Controls: tests/release_tools/git_history_secret_scan.test.cjs.
+// history paths move). Findings carry a masked fingerprint of the match, never
+// the credential. Controls: tests/release_tools/git_history_secret_scan.test.cjs.
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-const { DETECTORS } = require("./secret_pii_scan.cjs");
+const { DETECTORS, maskSecret } = require("./secret_pii_scan.cjs");
 
 const HISTORY_DETECTOR_IDS = new Set([
   "private-key",
@@ -118,14 +119,22 @@ function run(options = {}) {
   const detectors = DETECTORS.filter((d) => HISTORY_DETECTOR_IDS.has(d.id));
   // Oldest first so a secret is reported at its FIRST appearance; ACMR = the
   // commits that put content INTO a path (a deletion is the fix, not the leak).
-  const args = ["log", "--all", "--reverse", "--no-renames", "--diff-filter=ACMR", "--format=commit %H", "--name-only", "--", "."];
+  // -m: git log shows NO diff for a merge commit by default, so a credential
+  // that first appears in a merge's conflict resolution would never be
+  // listed (Codex on PR #97); with -m the merge is diffed against each parent
+  // and every path it changed relative to either parent is scanned.
+  const args = ["log", "--all", "--reverse", "--no-renames", "-m", "--diff-filter=ACMR", "--format=commit %H", "--name-only", "--", "."];
   const log = spawnSync("git", args, { cwd: root, encoding: "utf8", maxBuffer: 1024 * 1024 * 1024 });
   if (log.status !== 0) throw new Error("git log failed: " + String(log.stderr || "").slice(0, 400));
   const commitSet = new Set();
   const pairs = [];
+  const pairSeen = new Set();
   for (const touched of touchedFilesFromLog(log.stdout)) {
     commitSet.add(touched.commit);
     if (excludedPath(touched.file)) continue;
+    const pairKey = `${touched.commit}\u0000${touched.file}`; // -m lists a merge once per parent
+    if (pairSeen.has(pairKey)) continue;
+    pairSeen.add(pairKey);
     pairs.push(touched);
   }
   const findings = [];
@@ -142,7 +151,9 @@ function run(options = {}) {
         // Report each distinct secret once, at its first appearance.
         if (seen.has(key)) continue;
         seen.add(key);
-        findings.push({ commit: snapshot.commit, file: snapshot.file, line: lineOf(snapshot.text, hit.index), detector: detector.id, match: hit.match.slice(0, 80), note: hit.note || null });
+        // Never carry the credential itself out of the scan: the report (and
+        // the CI log it lands in) gets a masked fingerprint.
+        findings.push({ commit: snapshot.commit, file: snapshot.file, line: lineOf(snapshot.text, hit.index), detector: detector.id, match: maskSecret(hit.match), note: hit.note || null });
       }
     }
     scannedBlobs.add(`${snapshot.commit}:${snapshot.file}`);
