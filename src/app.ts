@@ -60,6 +60,9 @@ import {
 } from "./invoice_dispatch.js";
 import { registerFrontendExperience } from "./frontend_runtime.js";
 import { applicationRequestTelemetry } from "./infrastructure_metrics.js";
+import { createReadinessProbe } from "./readiness_probe.js";
+import { rateLimitClientKey } from "./public_write_caps.js";
+import { countHttpStatus } from "./runtime_counters.js";
 import { assertProductionRuntimeGuards } from "./production_guards.js";
 import { rewriteCanonicalApiAlias } from "./api_route_aliases.js";
 import { ensureJoinOtpVerified, ensureOtpRailTables, OtpValidationError } from "./otp_rail.js";
@@ -690,7 +693,9 @@ const {
   workerId: process.env.WORKER_ID || `siton-worker-${process.pid}-${randomUUID()}`,
   leaseMs: Number(process.env.WORKER_LEASE_MS || 60_000),
   PermanentFailErrorCtor: PermanentFailError,
-  DeferredEventErrorCtor: DeferredEventError
+  DeferredEventErrorCtor: DeferredEventError,
+  // Resolved at call time (app is created later in this module).
+  logger: { warn: (obj, msg) => app.log.warn(obj, msg) }
 });
 
 const {
@@ -5269,6 +5274,9 @@ export function getWorkerIdentity() {
 }
 
 export async function closeWorkerDatabase() {
+  // The pool is gone: every cached readiness verdict and the grace anchor
+  // describe a connection that no longer exists.
+  readinessProbe.reset();
   await pool.end();
 }
 // Run the stuck-event reclaim every N poll cycles to amortise its cost.
@@ -5521,6 +5529,8 @@ app.addHook("onSend", (_req: any, reply: any, payload: unknown, done) => {
 });
 app.addHook("onResponse", (req: any, reply: any, done) => {
   applicationRequestTelemetry.finish(req, Number(reply.statusCode || 200));
+  // Black-Sky F-M6: 401 / 403 / 429 counters (limiter refusals included).
+  countHttpStatus(Number(reply.statusCode || 200));
   done();
 });
 export { app, issueFulfillmentForCompletedDeal };
@@ -5723,19 +5733,9 @@ export function rateLimitBucketForRequest(method: string, originalUrl: string, s
   return BUCKET_STRICTNESS[a] >= BUCKET_STRICTNESS[b] ? a : b;
 }
 
-// IPv6 clients are keyed by their /64: one allocation holds 2^64 addresses,
-// so a per-address key gave a single host unlimited budgets.
-export function rateLimitClientKey(ip: string): string {
-  const value = String(ip || "unknown").trim().toLowerCase();
-  if (!value.includes(":") || value.startsWith("::ffff:")) return value.replace(/^::ffff:/, "");
-  const head = value.split("%")[0] ?? value;
-  const parts = head.split("::");
-  const left = parts[0] ? parts[0].split(":") : [];
-  const right = parts.length > 1 && parts[1] ? parts[1].split(":") : [];
-  const missing = Math.max(0, 8 - left.length - right.length);
-  const full = [...left, ...Array(missing).fill("0"), ...right].slice(0, 8);
-  return full.slice(0, 4).map((h) => h || "0").join(":") + "::/64";
-}
+// IPv6 clients are keyed by their /64 (src/public_write_caps.ts holds the one
+// implementation, shared with the per-client public-write caps).
+export { rateLimitClientKey };
 
 if (RATE_LIMIT_MAX > 0) {
   app.addHook("onRequest", async (req, reply) => {
@@ -5974,17 +5974,29 @@ app.post("/api/client-errors", { bodyLimit: 16 * 1024 }, async (req: any, reply:
   return reply.send();
 });
 
-app.get("/readiness", async (req: any, reply: any) => {
-  try {
-    const ready = await assertCanonicalRuntimeReady(pool, "web");
-    // Operational aid for the proxy hop configuration (A2): the address the
-    // runtime attributes to THIS caller. Lets an operator confirm from a
-    // browser that TRUST_PROXY_HOPS resolves their real address (not a proxy,
-    // not a spoofed X-Forwarded-For prefix). It is the caller's own address.
-    return { ...ready, client_ip: String(req.ip || ""), trust_proxy_hops: resolveTrustProxyHops() };
-  } catch {
-    return reply.code(503).send({ ok: false, code: "not_ready" });
+// Black-Sky F-H4: /health is LIVENESS (process answers, no database), and
+// /readiness is the cached, bounded, grace-aware DB verdict (readiness_probe.ts).
+// Render's health check points at /readiness (render.yaml explains why); the
+// cache means a probe storm costs one database check per TTL, and a transient
+// connection failure inside the grace period no longer restarts the service.
+export const readinessProbe = createReadinessProbe({
+  check: () => assertCanonicalRuntimeReady(pool, "web"),
+  onEvent: (event) => {
+    if (event.kind === "recovered") app.log.info({ readiness: event }, "readiness_recovered");
+    else app.log.warn({ readiness: event }, `readiness_${event.kind}`);
   }
+});
+
+app.get("/readiness", async (req: any, reply: any) => {
+  const verdict = await readinessProbe.probe();
+  reply.header("x-readiness-cache", verdict.cached ? "hit" : "miss");
+  reply.header("x-readiness-age-ms", String(verdict.age_ms));
+  if (!verdict.ok) return reply.code(503).send(verdict.body);
+  // Operational aid for the proxy hop configuration (A2): the address the
+  // runtime attributes to THIS caller. Lets an operator confirm from a
+  // browser that TRUST_PROXY_HOPS resolves their real address (not a proxy,
+  // not a spoofed X-Forwarded-For prefix). It is the caller's own address.
+  return { ...verdict.body, client_ip: String(req.ip || ""), trust_proxy_hops: resolveTrustProxyHops() };
 });
 
 function parseImageUploadBody(body: any) {

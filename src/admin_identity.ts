@@ -34,7 +34,10 @@ export const ADMIN_PERMISSIONS = [
   "emergency.pause",
   "invoice.retry",
   "notification.retry",
-  "outbox.requeue"
+  "outbox.requeue",
+  // Resolve a payout dispatch_outcome_unknown case from an operator
+  // attestation. SuperAdmin only (via ADMIN_PERMISSIONS).
+  "payout.resolve"
 ] as const;
 export type AdminPermission = typeof ADMIN_PERMISSIONS[number];
 
@@ -83,10 +86,12 @@ export const ADMIN_ACTION_PERMISSION: Record<string, AdminPermission> = {
   open_support_case: "support.manage",
   content_takedown_request: "support.manage",
   pause_joining_emergency: "emergency.pause",
-  pause_charging_emergency: "emergency.pause"
+  pause_charging_emergency: "emergency.pause",
+  resolve_payout_dispatch_unknown: "payout.resolve"
 };
 
 export const HIGH_TRUST_ADMIN_ACTIONS = new Set([
+  "resolve_payout_dispatch_unknown",
   "freeze_payouts",
   "unfreeze_payouts",
   "pause_joining_emergency",

@@ -234,11 +234,13 @@ async function postGrowCallback(fields: Record<string, string>) {
   });
 }
 
-async function confirmViaStatus(authorizationId: string) {
+// Black-Sky C8: the status lookup presents the server-issued binding handle
+// (correlation_id) that authorize returned, exactly as the web client does.
+async function confirmViaStatus(authorizationId: string, correlationId: string) {
   return app.inject({
     method: "POST",
     url: "/api/payments/status",
-    payload: { provider_reference: authorizationId, operation: "authorization" }
+    payload: { provider_reference: authorizationId, correlation_id: correlationId, operation: "authorization" }
   });
 }
 
@@ -251,7 +253,7 @@ async function establishAuthHeld(prefix: string, qty = 2, pricePerUnit = 10) {
   const authorization = authorizeResponse.json() as { authorization_id: string; correlation_id: string };
   const processId = processIdFromCreateOrder(fakeGrow.seq);
   fakeAuthorize(processId);
-  const confirm = await confirmViaStatus(authorization.authorization_id);
+  const confirm = await confirmViaStatus(authorization.authorization_id, authorization.correlation_id);
   assert.equal(confirm.statusCode, 200, confirm.body);
   assert.equal(confirm.json().state, "authorized");
   const joinResponse = await joinDeal(dealId, buyerId, qty, authorization.authorization_id);
@@ -465,7 +467,7 @@ await runTest("authoritative status lookup confirms the binding; callback after 
   const authorization = response.json() as { authorization_id: string; correlation_id: string };
   const processId = processIdFromCreateOrder(fakeGrow.seq);
   const tx = fakeAuthorize(processId);
-  const confirm = await confirmViaStatus(authorization.authorization_id);
+  const confirm = await confirmViaStatus(authorization.authorization_id, authorization.correlation_id);
   assert.equal(confirm.statusCode, 200, confirm.body);
   assert.equal(confirm.json().state, "authorized");
   const binding = await bindingByAuthorization(authorization.authorization_id);
@@ -494,9 +496,9 @@ await runTest("authoritative status lookup confirms the binding; callback after 
 await runTest("a provider-reported amount that contradicts the binding fails the binding closed", async () => {
   const dealId = await seedDeal("grow-t5", 10);
   const response = await authorizeGrow(dealId, "grow-t5-buyer", 2);
-  const authorization = response.json() as { authorization_id: string };
+  const authorization = response.json() as { authorization_id: string; correlation_id: string };
   fakeAuthorize(processIdFromCreateOrder(fakeGrow.seq), "25.00");
-  const confirm = await confirmViaStatus(authorization.authorization_id);
+  const confirm = await confirmViaStatus(authorization.authorization_id, authorization.correlation_id);
   assert.equal(confirm.statusCode, 409, confirm.body);
   assert.equal(confirm.json().error, "payment_binding_amount_mismatch");
   const binding = await bindingByAuthorization(authorization.authorization_id);
@@ -508,9 +510,9 @@ await runTest("an authorization bound to one deal can never join another deal", 
   const dealA = await seedDeal("grow-t6a", 10);
   const dealB = await seedDeal("grow-t6b", 10);
   const response = await authorizeGrow(dealA, "grow-t6-buyer", 2);
-  const authorization = response.json() as { authorization_id: string };
+  const authorization = response.json() as { authorization_id: string; correlation_id: string };
   fakeAuthorize(processIdFromCreateOrder(fakeGrow.seq));
-  const confirm = await confirmViaStatus(authorization.authorization_id);
+  const confirm = await confirmViaStatus(authorization.authorization_id, authorization.correlation_id);
   assert.equal(confirm.json().state, "authorized");
   const join = await joinDeal(dealB, "grow-t6-buyer", 2, authorization.authorization_id);
   assert.equal(join.statusCode, 402, join.body);
@@ -794,6 +796,43 @@ await runTest("provider summary + guards report Grow sandbox capabilities honest
     () => assertProductionRuntimeGuards("web", { ...baseEnv, PAYMENT_ENVIRONMENT: "live" } as NodeJS.ProcessEnv),
     /live/
   );
+});
+
+await runTest("Black-Sky C8: /api/payments/status is no provider amplifier — only the binding's own handle + reference reach Grow", async () => {
+  const dealId = await seedDeal("grow-c8", 10);
+  const response = await authorizeGrow(dealId, "grow-c8-buyer", 1);
+  assert.equal(response.statusCode, 200, response.body);
+  const authorization = response.json() as { authorization_id: string; correlation_id: string };
+  const other = await authorizeGrow(await seedDeal("grow-c8b", 10), "grow-c8b-buyer", 1);
+  const otherAuthorization = other.json() as { authorization_id: string; correlation_id: string };
+  const lookupsBefore = fakeGrow.lookupCalls;
+  const post = (payload: Record<string, unknown>) => app.inject({ method: "POST", url: "/api/payments/status", payload });
+  // no handle at all (the old contract): refused before any provider call
+  const bare = await post({ provider_reference: authorization.authorization_id, operation: "authorization" });
+  assert.equal(bare.statusCode, 400, bare.body);
+  assert.equal(bare.json().error, "payment_status_binding_required");
+  // arbitrary reference with an invented handle
+  const invented = await post({ provider_reference: "gp-arbitrary", correlation_id: "growauth-not-a-real-handle", operation: "authorization" });
+  assert.equal(invented.statusCode, 404, invented.body);
+  // a real handle with someone else's reference, and vice versa: indistinguishable 404
+  const crossed = await post({ provider_reference: otherAuthorization.authorization_id, correlation_id: authorization.correlation_id, operation: "authorization" });
+  assert.equal(crossed.statusCode, 404, crossed.body);
+  assert.deepEqual(crossed.json(), invented.json(), "no oracle between unknown handle and foreign reference");
+  const crossedOp = await post({ provider_reference: authorization.authorization_id, correlation_id: otherAuthorization.correlation_id, operation: "refund" });
+  assert.equal(crossedOp.statusCode, 404, crossedOp.body);
+  assert.equal(fakeGrow.lookupCalls, lookupsBefore, "no refused request reached the provider");
+  // the legitimate handle still confirms (one provider lookup)
+  fakeAuthorize(processIdFromCreateOrder(fakeGrow.seq - 1));
+  const legit = await confirmViaStatus(authorization.authorization_id, authorization.correlation_id);
+  assert.equal(legit.statusCode, 200, legit.body);
+  assert.ok(fakeGrow.lookupCalls > lookupsBefore);
+  // a binding that is no longer pending/authorized is answered locally
+  await pool.query(`UPDATE siton.payment_authorization_bindings SET status='expired', status_reason='test' WHERE correlation_id=$1`, [authorization.correlation_id]);
+  const lookupsAfterLegit = fakeGrow.lookupCalls;
+  const terminal = await confirmViaStatus(authorization.authorization_id, authorization.correlation_id);
+  assert.equal(terminal.statusCode, 409, terminal.body);
+  assert.equal(terminal.json().error, "payment_status_binding_not_pending");
+  assert.equal(fakeGrow.lookupCalls, lookupsAfterLegit);
 });
 
 await runTest("approveTransaction was NEVER sent across the entire J4/J5 sandbox flow (official rule)", async () => {

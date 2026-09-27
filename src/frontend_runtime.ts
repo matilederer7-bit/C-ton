@@ -159,6 +159,7 @@ import {
   buildMissionWebhookTrace
 } from "./admin_mission_control.js";
 import {
+  adminActionInputError,
   adminRequestContext,
   ensureAdminControlPlaneTables,
   executeAdminAction,
@@ -240,6 +241,8 @@ import { LEGAL_NAV_LABEL_KEYS, LEGAL_PAGE_ORDER, LEGAL_PAGES, resolveLegalPage, 
 import { htmlAttrs, localeFromRequest, ogLocale, ts, type Locale } from "./server_i18n.js";
 import { isBuyerVerificationRequired, buyerVerificationPolicySummary } from "./buyer_verification_policy.js";
 import { buildSupabaseVerifier } from "./supabase_auth.js";
+import { publicWriteCaps } from "./public_write_caps.js";
+import { incrementRuntimeCounter, runtimeCountersSnapshot } from "./runtime_counters.js";
 import { resolveSupabaseCapabilities, bearerToken } from "./actor_resolver.js";
 import {
   recordViralFunnelEvent,
@@ -1600,6 +1603,9 @@ export function registerFrontendExperience(
   const ensureInvoiceWebhookTables = memoizeSchemaCheck(() => deps.withTx(async c=>assertRequiredTables(c,["invoice_webhook_events","invoice_webhook_security_events"])));
   const ensureLegalAcceptanceTables = memoizeSchemaCheck(() => deps.withTx(async c=>assertRequiredTables(c,["legal_acceptances"])));
   const recordInvoiceWebhookSecurityFailure = async (args: { provider: string; event_id?: string | null; failure_reason: string; remote_hint?: string }) => {
+    // Black-Sky F-M6: counted in-process before the durable write, so the
+    // signal survives even when the database write fails.
+    if (/signature/.test(args.failure_reason)) incrementRuntimeCounter("invoice_webhook_signature_failed_total");
     await ensureInvoiceWebhookTables();
     await deps.withTx(async (c) => {
       await c.query(
@@ -1611,6 +1617,8 @@ export function registerFrontendExperience(
   };
   const ensurePaymentOpsTables = memoizeSchemaCheck(() => deps.withTx(async c=>assertRequiredTables(c,["payment_webhook_security_events","buyer_payment_methods"])));
   const recordWebhookSecurityFailure = async (args: { provider: string; event_id?: string | null; failure_reason: string; remote_hint?: string }) => {
+    incrementRuntimeCounter("webhook_rejected_total");
+    if (/signature/.test(args.failure_reason)) incrementRuntimeCounter("webhook_signature_failed_total");
     await ensurePaymentOpsTables();
     await deps.withTx(async (c) => {
       await c.query(
@@ -2709,6 +2717,18 @@ export function registerFrontendExperience(
       const adminVerifiable = Boolean(!locked && row && row.status === "Active");
       const adminPasswordOk = await verifyAdminPassword(password, adminVerifiable ? row.password_hash : await adminLoginDummyHash());
       if (!adminVerifiable || !adminPasswordOk) {
+        // Black-Sky F-M6: every failed admin login is a security event: counted
+        // in-process and logged with a keyed-free hash of the presented e-mail
+        // (never the e-mail, never the password), the outcome class and the
+        // request id. The HTTP answer is unchanged (same 401 for every case).
+        const outcome = locked ? "locked" : !row ? "unknown_account" : row.status !== "Active" ? "inactive_account" : "bad_password";
+        incrementRuntimeCounter("admin_login_failed_total");
+        req.log?.warn?.({
+          security_event: "admin.login.failed",
+          outcome,
+          email_hash: createHash("sha256").update(`admin-login:${email}`).digest("hex").slice(0, 24),
+          request_id: String(req.id || "")
+        }, "admin_login_failed");
         if (locked) {
           return reply.code(401).send({ ok: false, error: "admin_invalid_credentials" });
         }
@@ -2718,6 +2738,8 @@ export function registerFrontendExperience(
           const windowFresh = Number.isFinite(windowStartedAt) && Date.now() - windowStartedAt < ADMIN_LOGIN_FAILURE_WINDOW_MINUTES * 60_000;
           const failures = (windowFresh ? Number(row.failed_login_count || 0) : 0) + 1;
           if (failures >= ADMIN_LOGIN_MAX_FAILURES) {
+            incrementRuntimeCounter("admin_login_locked_total");
+            req.log?.warn?.({ security_event: "admin.login.locked", admin_user_id: row.admin_user_id, request_id: String(req.id || "") }, "admin_login_locked");
             await c.query(
               `UPDATE siton.admin_users
                SET failed_login_count=0, failed_login_window_started_at=NULL,
@@ -2803,6 +2825,8 @@ export function registerFrontendExperience(
       // the 6-digit code cannot be brute-forced within its window. The SELECT
       // holds FOR UPDATE, so the increment and the lock decision are race-safe.
       if (row.code_hash !== hashAdminOtp(code)) {
+        incrementRuntimeCounter("admin_mfa_failed_total");
+        req.log?.warn?.({ security_event: "admin.mfa.failed", admin_user_id: row.admin_user_id, request_id: String(req.id || "") }, "admin_mfa_failed");
         const nextAttempts = Number(row.attempts || 0) + 1;
         if (nextAttempts >= ADMIN_MFA_MAX_ATTEMPTS) {
           await c.query(`UPDATE siton.admin_mfa_challenges SET attempts=$2, status='Revoked' WHERE mfa_challenge_id=$1`, [challengeId, nextAttempts]);
@@ -3401,6 +3425,11 @@ export function registerFrontendExperience(
     requestId: string;
   }) {
     const { reply } = args;
+    // Black-Sky C5: per-client budget in front of the platform-wide cap, so one
+    // client cannot exhaust the 200/h global budget for every buyer.
+    if (!publicWriteCaps.consume("inquiry", String(args.req?.ip || "unknown"))) {
+      return { ok: false as const, rate_limited: true as const };
+    }
     const limits = await c.query(
       `SELECT count(*) FILTER (WHERE t.customer_ref = $1)::int AS per_customer,
               count(*) FILTER (WHERE t.deal_id = $2)::int AS per_deal,
@@ -3658,7 +3687,7 @@ export function registerFrontendExperience(
         return reply.code(404).send({ ok: false, error: "inquiry not found", code: "inquiry_not_found" });
       }
       const thread = existing.rows[0];
-      return appendCustomerInquiryMessage(c, {
+      const appended: any = await appendCustomerInquiryMessage(c, {
         req, reply,
         dealId: String(thread.deal_id),
         dealTitle: String(thread.title || ""),
@@ -3669,6 +3698,11 @@ export function registerFrontendExperience(
         message,
         requestId
       });
+      // A throttled follow-up is a 429 like the first message (it answered 200 { ok:false }).
+      if (appended?.rate_limited) {
+        return reply.code(429).send({ ok: false, error: "inquiry rate limited", code: "inquiry_rate_limited" });
+      }
+      return appended;
     });
   });
 
@@ -7402,6 +7436,8 @@ export function registerFrontendExperience(
     if (!targetId) return reply.code(400).send({ ok: false, error: "target_id_required" });
     if (!reason) return reply.code(400).send({ ok: false, error: "reason_required" });
     if (!idempotencyKey) return reply.code(400).send({ ok: false, error: "idempotency_key_required" });
+    const inputError = adminActionInputError(actionType, targetType, targetId, body.metadata && typeof body.metadata === "object" ? body.metadata : {});
+    if (inputError) return reply.code(400).send({ ok: false, error: inputError });
     const context = adminRequestContext(req);
     return deps.withTx(async (c) => {
       const permission = ADMIN_ACTION_PERMISSION[actionType] || "admin_actions.create";
@@ -7411,17 +7447,30 @@ export function registerFrontendExperience(
         recentMfa: HIGH_TRUST_ADMIN_ACTIONS.has(actionType)
       });
       if (!identity) return reply;
-      const action = await insertAdminAction(c, {
-        action_type: actionType,
-        target_type: targetType,
-        target_id: targetId,
-        reason,
-        idempotency_key: idempotencyKey,
-        metadata: body.metadata && typeof body.metadata === "object" ? body.metadata : {},
-        request_id: context.request_id,
-        correlation_id: context.correlation_id,
-        admin_id: safeAdminId(identity)
-      });
+      // An action type added in code before the DB CHECK list is widened
+      // (docs/migration_proposals/078_*) answers a clear 409, never a 500.
+      await c.query("SAVEPOINT admin_action_insert");
+      let action: any;
+      try {
+        action = await insertAdminAction(c, {
+          action_type: actionType,
+          target_type: targetType,
+          target_id: targetId,
+          reason,
+          idempotency_key: idempotencyKey,
+          metadata: body.metadata && typeof body.metadata === "object" ? body.metadata : {},
+          request_id: context.request_id,
+          correlation_id: context.correlation_id,
+          admin_id: safeAdminId(identity)
+        });
+        await c.query("RELEASE SAVEPOINT admin_action_insert");
+      } catch (error: any) {
+        await c.query("ROLLBACK TO SAVEPOINT admin_action_insert");
+        if (error?.code === "23514" && error?.constraint === "admin_actions_action_type_check") {
+          return reply.code(409).send({ ok: false, error: "admin_action_type_requires_migration", action_type: actionType });
+        }
+        throw error;
+      }
       return { ok: true, action };
     });
   });
@@ -7852,6 +7901,10 @@ export function registerFrontendExperience(
           app_health: {
             ok: true
           },
+          // Black-Sky F-M6: in-process security / reliability counters of THIS
+          // web instance (401/403/429, admin login + MFA failures, webhook
+          // signature rejections, swallowed outbox row errors).
+          security_counters: runtimeCountersSnapshot(),
           deployment: {
             mode: deps.deploymentMode,
             is_demo_preview: deps.isDemoPreview
@@ -9008,6 +9061,10 @@ export function registerFrontendExperience(
     const dealReference = dealScoped ? extractDealReference(body.deal_ref ?? body.deal_link ?? body.deal_id) : null;
     if (supportCategoryRequiresDeal(categoryKey) && !dealReference) {
       return reply.code(400).send({ ok: false, error: "contact_deal_reference_required" });
+    }
+    // Black-Sky C5: per-client budget before the platform-wide 30/h cap.
+    if (!publicWriteCaps.consume("support_contact", String(req.ip || "unknown"))) {
+      return reply.code(429).send({ ok: false, error: "support contact rate limited", code: "support_rate_limited" });
     }
 
     const created = await deps.withTx(async (c) => {
@@ -10592,11 +10649,37 @@ export function registerFrontendExperience(
     if (!deps.paymentProvider.status) return reply.code(501).send({ ok: false, error: "payment_status_not_supported" });
     const body = req.body || {};
     const providerReference = String(body.provider_reference || "").trim();
-    const correlationId = String(body.correlation_id || req.headers?.["x-request-id"] || req.id || "").trim();
+    const presentedCorrelationId = String(body.correlation_id || "").trim();
     const operation = String(body.operation || "authorization") as "authorization" | "capture" | "release" | "refund";
     if (!providerReference || providerReference.length > 4096 || !["authorization", "capture", "release", "refund"].includes(operation)) {
       return reply.code(400).send({ ok: false, error: "payment_status_request_invalid" });
     }
+    // Black-Sky C8: this route is unauthenticated, and each call is an
+    // outbound provider request. It was a provider amplifier: any caller could
+    // make the server query ANY provider reference. The caller must now
+    // present the server-issued binding handle it received from authorize
+    // (correlation_id), and the provider reference must belong to THAT
+    // binding of THIS provider, before any provider call. Unknown handle,
+    // foreign reference and wrong provider are one indistinguishable 404.
+    if (!presentedCorrelationId || presentedCorrelationId.length > 200) {
+      return reply.code(400).send({ ok: false, error: "payment_status_binding_required" });
+    }
+    const binding = await paymentBindings.getBindingByCorrelation(presentedCorrelationId);
+    const bindingMatches = Boolean(
+      binding &&
+      binding.provider_code === deps.paymentProvider.providerCode &&
+      (binding.authorization_id === providerReference || binding.provider_reference === providerReference)
+    );
+    if (!binding || !bindingMatches) {
+      return reply.code(404).send({ ok: false, error: "payment_status_binding_not_found" });
+    }
+    // An authorization lookup only has a purpose while the binding still waits
+    // for (or holds) provider confirmation; terminal bindings are answered
+    // locally without a provider call.
+    if (operation === "authorization" && !["pending_provider_confirmation", "authorized"].includes(binding.status)) {
+      return reply.code(409).send({ ok: false, error: "payment_status_binding_not_pending", binding_status: binding.status });
+    }
+    const correlationId = binding.correlation_id;
     const result = await deps.paymentProvider.status({ provider_reference: providerReference, correlation_id: correlationId, operation });
 
     // Hosted-payment completion is asynchronous and server-authoritative: a
@@ -10708,6 +10791,10 @@ export function registerFrontendExperience(
     const text = String(body.text || "").replace(/\s+/g, " ").trim();
     if (text.length > BUYER_FEEDBACK_TEXT_MAX) {
       return reply.code(400).send({ ok: false, error: "feedback text too long", code: "feedback_text_too_long" });
+    }
+    // Black-Sky C5: per-client budget before the per-deal / platform-wide caps.
+    if (!publicWriteCaps.consume("feedback", String(req.ip || "unknown"))) {
+      return reply.code(429).send({ ok: false, error: "feedback rate limited", code: "feedback_rate_limited" });
     }
     // The HTTP reply is sent only after withTx has COMMITTED, so a caller that
     // receives the 201 can read the returned feedback_id on another connection.
