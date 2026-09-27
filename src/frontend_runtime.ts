@@ -1641,12 +1641,15 @@ export function registerFrontendExperience(
            $4,now(),now()
          )
          ON CONFLICT (provider_code, provider_payment_method_id) DO UPDATE
-         SET buyer_id=EXCLUDED.buyer_id,
-             status=CASE WHEN $6 THEN 'invalid' ELSE 'active' END,
+         SET status=CASE WHEN $6 THEN 'invalid' ELSE 'active' END,
              last_authorized_at=CASE WHEN $5 THEN now() ELSE buyer_payment_methods.last_authorized_at END,
              last_failed_at=CASE WHEN $6 THEN now() ELSE buyer_payment_methods.last_failed_at END,
              correlation_id=EXCLUDED.correlation_id,
-             updated_at=now()`,
+             updated_at=now()
+         -- Black-Sky A-F4: a stored method is owned by the buyer that first
+         -- registered it; a conflicting write by another buyer never
+         -- reassigns ownership (no-op here; the routes refuse it with 409).
+         WHERE buyer_payment_methods.buyer_id = EXCLUDED.buyer_id`,
         [
           args.buyer_id,
           args.provider_code,
@@ -1657,6 +1660,25 @@ export function registerFrontendExperience(
         ]
       );
     });
+  };
+  /**
+   * Black-Sky A-F4 — `payment_method_id` arrives from the client. A stored
+   * method registered to ANOTHER buyer (or, with no buyer identity at all, to
+   * anyone) is refused before any provider I/O or durable write: it must never
+   * be re-bound to the caller (the renewal path picks the buyer's stored
+   * method by buyer_id and the binding's payment_method_ref).
+   */
+  const assertPaymentMethodOwnershipInTx = async (c: any, args: { provider_code: string; provider_payment_method_id: string; buyer_id: string | null }) => {
+    const owner = await c.query(
+      `SELECT buyer_id FROM siton.buyer_payment_methods WHERE provider_code=$1 AND provider_payment_method_id=$2`,
+      [args.provider_code, args.provider_payment_method_id]
+    );
+    if (!owner.rowCount) return;
+    if (args.buyer_id && String(owner.rows[0].buyer_id) === args.buyer_id) return;
+    const err: any = new Error("payment method belongs to another buyer");
+    err.statusCode = 409;
+    err.code = "payment_method_not_owned";
+    throw err;
   };
   const payoutProvider = deps.payoutProvider ?? buildPayoutProvider();
   const operationalReadiness = () =>
@@ -9983,19 +10005,28 @@ export function registerFrontendExperience(
       // the saved-token model stays in sync. Raw card data already rejected
       // above. Tokens are issued by /api/payments/tokenize.
       if (paymentMethodId) {
-        await c.query(
+        // Black-Sky A-F4 — never re-bind another buyer's stored method.
+        await assertPaymentMethodOwnershipInTx(c, { provider_code: providerCode, provider_payment_method_id: paymentMethodId, buyer_id: String(row.buyer_id) });
+        const stored = await c.query(
           `INSERT INTO siton.buyer_payment_methods (
              buyer_id, provider_code, provider_payment_method_id, status,
              last_authorized_at, correlation_id, created_at, updated_at
            ) VALUES ($1,$2,$3,'active', now(), $4, now(), now())
            ON CONFLICT (provider_code, provider_payment_method_id) DO UPDATE
-           SET buyer_id=EXCLUDED.buyer_id,
-               status='active',
+           SET status='active',
                last_authorized_at=now(),
                correlation_id=EXCLUDED.correlation_id,
-               updated_at=now()`,
+               updated_at=now()
+           WHERE buyer_payment_methods.buyer_id = EXCLUDED.buyer_id`,
           [String(row.buyer_id), providerCode, paymentMethodId, `recovery:${participantId}:${idempotencyKey}`]
         );
+        if (Number(stored.rowCount || 0) !== 1) {
+          // lost a race against another buyer's first registration
+          const err: any = new Error("payment method belongs to another buyer");
+          err.statusCode = 409;
+          err.code = "payment_method_not_owned";
+          throw err;
+        }
       }
 
       // Enqueue the deal-level recovery_deal job. The partial unique index
@@ -10271,6 +10302,16 @@ export function registerFrontendExperience(
     if (body.deal_id) authorizeInput.deal_id = String(body.deal_id);
     if (body.correlation_id) authorizeInput.correlation_id = String(body.correlation_id);
     if (body.payment_method_id) authorizeInput.payment_method_id = String(body.payment_method_id);
+    if (body.payment_method_id) {
+      // Black-Sky A-F4 — ownership of a client-supplied stored method is
+      // checked BEFORE the provider is asked to authorize on it.
+      await ensurePaymentOpsTables();
+      await deps.withTx((c) => assertPaymentMethodOwnershipInTx(c, {
+        provider_code: deps.paymentProvider.providerCode,
+        provider_payment_method_id: String(body.payment_method_id),
+        buyer_id: String(body.buyer_id || "").trim() || null
+      }));
+    }
 
     let dealAuthorizationContext: {
       deal_id: string;
