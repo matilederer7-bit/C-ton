@@ -29,7 +29,7 @@ A `reason` is always required. Self-approval is blocked.
 ## Effects (What These Flags Actually Do)
 
 - `pause_joining_emergency` — `POST /deals/:id/join` returns `423 joining_paused_by_admin` when an active flag matches the deal, the seller, or the global scope. Existing buyers are not touched. Deal state is not changed.
-- `pause_charging_emergency` — `POST /deals/:id/charging/start` returns `423 charging_paused_by_admin` when the flag matches. Workers consult the same predicate before issuing money operations. Deal state is not changed.
+- `pause_charging_emergency` — `POST /deals/:id/charging/start` returns `423 charging_paused_by_admin` when the flag matches (deal, seller or global scope, checked inside the `charging.start` transaction that enqueues `charge_deal`). A `charge_deal` job already queued is NOT re-checked by the worker (see Live Pilot Open Items) — suspend the worker as well when queued capture must stop. Deal state is not changed.
 - `payout_freeze` — `calculateSellerSettlementForDealInTx` adds `payout_freeze_admin_flag_active` to the blocking reasons, so new settlements stay `pending`. Already-paid settlements are not reversed. The flag never moves money.
 - `content_takedown` — content surfaces (deal page / images / chat) consult the flag and render a placeholder. Files and rows are not deleted. CDN purge is a separate provider gate.
 - `trigger_reconcile` — opens or reuses a `PaymentMismatch` operational case for follow-up. No live provider call is performed.
@@ -67,7 +67,7 @@ The intervention runbook never deletes audit, outbox, webhook rows, money record
 ### Suspected charging fault
 
 1. Same as above but `action_type=pause_charging_emergency`. Second approval required.
-2. Workers stop scheduling new charging until flag is released.
+2. No new charging run can start until the flag is released; already-queued `charge_deal` jobs still run unless the worker is suspended (`docs/INCIDENT_RESPONSE_RUNBOOK.md` §3).
 
 ### Payout freeze for a seller
 

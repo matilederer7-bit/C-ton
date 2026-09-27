@@ -70,7 +70,8 @@ Facts (IMPLEMENTED, `scripts/run_migrations.cjs`):
    ```
    Markers: `MIGRATIONS_REPAIR action=clear-failed … mode=APPLY` then `MIGRATIONS_REPAIR_APPLIED rows=1` (`scripts/migrations_repair.cjs:63-74`). The helper refuses without `--i-verified-no-partial-effects` and refuses a `succeeded`/`running` row.
 4. Fix the SQL in a NEW file only if the file was never applied anywhere (a failed row means it was not applied *here*, but check every environment's ledger); then rerun `npm run db:migrate` → `MIGRATION_OK 0NN …`, `MIGRATIONS_COMPLETE count=N`, `npm run migrations:doctor` → `verdict=HEALTHY`.
-5. `docs/DATABASE_INCIDENT_RUNBOOK.md` is referenced by the helper (`scripts/migrations_repair.cjs:17`) but does not exist — OPEN; this section is the procedure until it is written.
+5. `docs/DATABASE_INCIDENT_RUNBOOK.md` §2 is the full procedure; a row stuck at `running` is resolved with `migrations:repair --clear-running` (`docs/DISASTER_RECOVERY_RUNBOOK.md` §7).
+6. Migrations that add money guards (e.g. `077`) must be applied to staging **before** the code that carries them deploys: the schema contract requires every manifest migration and `/readiness` fails closed otherwise (`docs/INCIDENT_RESPONSE_RUNBOOK.md` §6.5a).
 
 ### 5.2 The migration succeeded but the code that needs it was rolled back
 
@@ -162,6 +163,6 @@ Append to `PROJECT_STATUS.md` (your branch's own section — see `docs/PARALLEL_
 ## Appendix — OPEN items
 
 - No Render API client or scripted rollback exists in the repository; every hosted step is manual in the Render dashboard.
-- `docs/DATABASE_INCIDENT_RUNBOOK.md` (referenced by `scripts/migrations_repair.cjs`) is not written.
+- Restore of a lost database: `docs/DISASTER_RECOVERY_RUNBOOK.md`; incident entry point: `docs/INCIDENT_RESPONSE_RUNBOOK.md`.
 - The financial migrations 067/068 are on master (PR #9) and applied on staging (ledger 60/61); their rollback posture (§7) applies: additive columns/functions/triggers on `payment_attempts`, forward-only, older code ignores them. Grow stays disabled, so no provider-side state exists to roll back.
 - Supabase PITR / backup retention settings for `siton-staging` are owner-console facts not recorded in this repository.

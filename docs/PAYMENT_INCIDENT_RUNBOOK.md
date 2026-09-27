@@ -2,6 +2,8 @@
 
 Status: operator runbook for money incidents on Siton (C-ton). Written 2026-09-14 against branch `claude/release-readiness-night`. Reintegrated onto current master `0e53998` (PR #9 financial rails, PR #12 confidentiality proof, PR #13 hardened UX already merged) on 2026-09-15 as a controlled port of `claude/release-readiness-night` 63a108f; every reference below was re-verified against that master. Architecture: GitHub = code source of truth; Render = web/backend/worker staging runtime; Supabase = canonical PostgreSQL/Auth/infra; Grow = payment provider boundary, currently disabled; Base44 is never the business runtime. It changes NO financial logic and grants NO new permission. It extends `docs/OPERATIONS_MONEY_INCIDENT_RUNBOOK.md`, `docs/OPERATIONAL_RUNBOOKS.md` and `docs/ADMIN_INTERVENTION_RUNBOOK.md`; read those first, this document does not repeat their scenario lists.
 
+Daily and after-incident reconciliation (money invariants CLI `npm run db:money-invariants`, payout reconciliation case types, what "resolved" means): `docs/PAYMENT_RECONCILIATION_RUNBOOK.md`. Severity and emergency controls: `docs/INCIDENT_RESPONSE_RUNBOOK.md`.
+
 Legend: **IMPLEMENTED** = exists in the repository at the cited line. **EXPECTED** = behaviour the code is designed to produce but that no operator has observed against a live provider. **OPEN** = not implemented; do not assume it.
 
 ## 0. Standing rules (repeated from OPERATIONS_MONEY_INCIDENT_RUNBOOK.md, unchanged)

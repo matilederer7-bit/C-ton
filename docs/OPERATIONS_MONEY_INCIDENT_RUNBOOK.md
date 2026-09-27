@@ -2,6 +2,8 @@
 
 Status: local operations runbook. This does not authorize manual refunds, manual capture, or production money movement.
 
+Operator detail: `docs/PAYMENT_INCIDENT_RUNBOOK.md` (scenarios) and `docs/PAYMENT_RECONCILIATION_RUNBOOK.md` (daily/after-incident reconciliation, `npm run db:money-invariants`).
+
 ## Rules
 
 - Do not run manual refund, manual capture, manual void, manual payout, or manual state edit.
