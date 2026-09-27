@@ -176,16 +176,30 @@ All run on disposable local databases; files `tests/black_sky_*_failure_validati
 
 ## 6. Verification
 
-Local PostgreSQL 16, integrated head (see PR #99 for the exact SHA and CI). Status of this section: the clean full pass on the final head is in progress; this section is updated with its exact numbers when it completes.
+Clean full pass on the final code (local PostgreSQL 16, nothing else running):
 
-- **Test groups:** unit, db, workers, failure, payments, concurrency, api, security, e2e and integration, all green.
-- **Release tools:** 199/199.
-- **Migration isolation:** `test:migrations-isolated` gives `ISOLATED_MIGRATION_PROOF_PASS` (72 migrations, rerun pass, drift 0).
-- **Preflight and rehearsals:** `migration_preflight` gives `MIGRATION_PREFLIGHT_PASS high_water=079`; `db_backup_restore_rehearsal` passes; the recovery proof passes.
-- **Static gates:** logging hygiene, repository hygiene, secret scan, payment scan, runtime DDL, i18n, lint and typecheck all pass.
-- **CI:** all PR #99 workflows pass (backend-gates, preflight-static, preflight-database, docker-release-lab, web-runtime-core/resilience, static-readiness).
-- **Real money:** `REAL_MONEY_ACTIVATION: BLOCKED` by policy, as intended.
-- **Independent review:** BLOCKED. The repository's "Codex re-review" job reported `skipped` on every PR #99 head, so no independent Codex review took place. This is recorded as BLOCKED, not as passed.
+| Group | Files passed | Failed |
+|---|---|---|
+| unit | 17 | 0 |
+| db | 13 | 0 |
+| workers | 19 | 0 |
+| failure (incl. 7 Black-Sky combination suites) | 16 | 0 |
+| payments | 57 | 0 |
+| concurrency | 10 | 0 |
+| api | 53 | 0 |
+| security | 61 | 0 |
+| e2e | 17 | 0 |
+| integration | 50 | 0 |
+| **total** | **313** | **0** |
+
+- Release-tool tests: **199/199**.
+- `npm run chaos:recovery-proof` → `RECOVERY_PROOF_PASS invariants=PASS pass=34 fail=0`.
+- `db_backup_restore_rehearsal.cjs` → `DB_BACKUP_RESTORE_REHEARSAL_PASS`.
+- `migration_preflight.cjs` → `MIGRATION_PREFLIGHT_PASS high_water=079 migrations=72`.
+- `test:migrations-isolated` → `ISOLATED_MIGRATION_PROOF_PASS fresh_install=pass repeat=pass checksum_ledger=pass drift=0`.
+- `release:preflight:static` → technical WARNING (warnings only: legal/route-inventory/supply-chain notes), `REAL_MONEY_ACTIVATION: BLOCKED` by policy, as intended.
+- CI on PR #99: see the PR checks on the final head.
+- **Independent review: BLOCKED.** The repository's "Codex re-review" job reported `skipped` on every PR #99 head, so no independent Codex review took place. It is recorded as BLOCKED, not as passed.
 
 ---
 
