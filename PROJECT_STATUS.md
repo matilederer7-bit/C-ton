@@ -2,7 +2,7 @@
 
 Updated: 2026-09-27
 Canonical branch: `master`
-Current merged baseline: `c1c361fa30874c3542b771ad531592b8796723e0` (PR #99, Black-Sky). Black-Sky track: **95%** — merged, 077–079 + grant file 027 applied to staging before the merge, staging deploy verified live on 2026-09-27; the post-merge Codex P2 (BSC-2, webhook claim fencing) is fixed in PR #117, pending merge + clean review. Previous: `df9aee3` / `d186153` red-team closure (100%).
+Current merged baseline: `f02414b` (PR #117, Black-Sky BSC-2 follow-up on top of PR #99 `c1c361f`). Black-Sky track: **100%** — merged, 077–079 + grant file 027 applied to staging before the merge, the post-merge Codex P2 (BSC-2, webhook claim fencing) fixed and merged in PR #117 with a clean Codex review, master CI green, staging redeploy of `f02414b` verified live on 2026-09-27. Previous: `df9aee3` / `d186153` red-team closure (100%).
 Render staging: LIVE on `df9aee3` — web `siton-staging-web` deploy `dep-dasat467bikc73a1bnv0` (verified 2026-09-27 05:55 UTC: readiness ok on runtime role `siton_web_runtime`, `client_ip` is the real edge address even with a spoofed `X-Forwarded-For`, `trust_proxy_hops`=1, CSP header on `/preview/`, admin bad login → generic 401, recovery without credential → 401). The separate legacy service `siton-staging-web-atp1` fails at boot with a database connection refusal on this and the two previous deploys — it has no reachable database configured and is unrelated to this change (owner may delete or reconfigure it).
 Supabase staging (`siton-staging`, hnptacfzuqebfgeshadq): migrations **073–076 applied on 2026-09-27** through the Supabase connector with ledger rows exactly as `scripts/run_migrations.cjs` writes them (075 → position 68, 076 → position 69, checksums from the canonical bodies, status `succeeded`); 69 ledger rows succeeded. Verified on the database: evidence table + both triggers, the three lockout columns, the three 076 helpers with the exact signatures, EXECUTE only for the runtime roles, no privilege for `anon`/`authenticated`. Production Supabase is untouched (owner-authorised step).
 
@@ -312,7 +312,7 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
-### Claude Code latest milestone — Black-Sky: merged + staging verified; post-merge Codex P2 (BSC-2) fixed in PR #117
+### Claude Code latest milestone — Black-Sky: 100% — merged (#99 + BSC-2 follow-up #117), clean review, staging verified
 
 - UPDATED: 2026-09-27
 - BRANCH: `claude/festive-wright-kx4e5a` from master `d186153`; PR [#99](https://github.com/matilederer7-bit/C-ton/pull/99). Full ledger, combination scenarios, owner actions and "What can still kill Siton?": `BLACK_SKY_FINAL_REPORT.md`.
@@ -327,10 +327,11 @@ Current invariants:
 - MERGED: PR #99 squash-merged as `c1c361f` (all CI green).
 - STAGING DB: 077 (position 70), 078 (71), 079 (72) and `supabase/staging/027` applied through the Supabase connector BEFORE the merge, ledger-consistent (72/72 succeeded, checksums from the canonical bodies); verified: ClosedForJoining→Failed edge live, `test.*` refused (`siton.allow_test_actions` unset), 6 new triggers enabled, 0 NOT VALID constraints, deal→participant FK = RESTRICT, 027 self-check passed.
 - STAGING VERIFIED (live, `c1c361f`): web `dep-dashfvavcj2c73aro3lg` and worker `dep-dashfvavcj2c73aro430` live; web passed the production guards (`SUPABASE_MANAGEMENT_API_TOKEN` not set) and `/readiness` (schema contract incl. 077–079); worker booted with the watchdog; no error lines; Render auto-deploy shows `checksPass` (E8 live).
-- REVIEW: the Codex re-review workflow skips drafts; after PR #99 left draft and merged, Codex reviewed head `2d26d53` and reported one P2 — **BSC-2**: the A-F3 stale webhook reclaim had no claim fencing, so a stalled processor could overwrite a newer claimant's terminal status. Fixed in PR #117: per-claim `claim_token`, compare-and-set `markEvent`, the sweep clears the token (no migration); 7 fencing regression cases fail on the pre-fix code and pass after; full local gate re-run on the fix.
-- OPEN: PR #117 — merge after CI green and a Codex review of its head with no material finding. Owner actions in `BLACK_SKY_FINAL_REPORT.md` §7.
-- PERCENTAGE: **95%** — everything merged and staging-verified except the BSC-2 follow-up (PR #117).
-- NEXT STEP: merge PR #117 once CI is green and its latest Codex review is clean, confirm the staging redeploy, then set this slot to 100% (PR #116 is rebuilt from master for that).
+- REVIEW: the Codex re-review workflow skips drafts; after PR #99 left draft and merged, Codex reviewed head `2d26d53` and reported one P2 — **BSC-2**: the A-F3 stale webhook reclaim had no claim fencing, so a stalled processor could overwrite a newer claimant's terminal status. Fixed in PR #117: per-claim `claim_token`, compare-and-set `markEvent`, the sweep clears the token (no migration); 7 fencing regression cases fail on the pre-fix code and pass after; full local gate re-run on the fix (313 files / 0 failures, release tools 199/199, `RECOVERY_PROOF_PASS`, `DB_BACKUP_RESTORE_REHEARSAL_PASS`). PR #117: CI 7/7 green on head `26a6f82`; latest Codex review on that head: "Didn't find any major issues" (its earlier P1 on this status slot fixed and resolved). Squash-merged as `f02414b`.
+- STAGING VERIFIED (live, `f02414b`): master `backend-gates` green (complete repository suite + extended Docker smoke); checks-gated auto-deploy: web `dep-dasin2rncjis73ei4790` and worker `dep-dasin2rncjis73ei487g` live; web "Server listening" on release `f02414b`, worker `worker_ready` (event deadline 120 s, watchdog 300 s); zero warn/error/fatal log lines since the deploy.
+- OPEN: no agent-side item. Owner actions in `BLACK_SKY_FINAL_REPORT.md` §7 (off-site backup secrets, hosted-backup checklist, Supabase "Confirm email" + storage-broker prefixes, second SuperAdmin + MFA, production secrets and 077–079 + 027 before any production deploy).
+- PERCENTAGE: **100%**.
+- NEXT STEP: owner actions §7; real-money activation stays BLOCKED by policy.
 
 ### Claude Code milestone — Red-team CLOSURE: every documented item fixed to the end (100%, merged + staging verified)
 
