@@ -5557,15 +5557,15 @@ export const RATE_LIMIT_SCALE_MODE = process.env.RATE_LIMIT_SCALE_MODE || "singl
 // is spoof-proof (A2); the per-account lockout in frontend_runtime is the
 // IP-independent backstop.
 // Black-Sky C3/C4/B3: payment authorize/status (unauthenticated provider
-// calls), seller and link-viewer password login, participant recovery, and the
-// bare /deals seller lifecycle mutations join the tight per-IP budget.
+// calls), seller and link-viewer password login and participant recovery join
+// the tight per-IP budget. Seller lifecycle and editing mutations have their
+// own identity-keyed budget (SELLER_MUTATION_PATHS below).
 const SENSITIVE_PATHS = [
   "/api/otp",
   "/api/deals",
-  "/deals",
   "/api/support",
   "/api/admin/auth",
-  "/api/payments",
+  "/api/payments/status",
   "/api/seller/session",
   "/api/link-viewer/session",
   "/api/participants"
@@ -5576,7 +5576,11 @@ const ANALYTICS_PATHS = ["/api/mall/events", "/api/viral/events", "/api/affiliat
 // Buyer join gets its OWN per-IP budget, looser than the sensitive one: a
 // shared NAT (school, office, mobile carrier CGNAT) is one IP for many real
 // buyers on a hot deal. Before, join had no per-IP budget at all.
-const JOIN_PATH_RE = /^\/(?:api\/)?deals\/[^/]+\/join$/;
+// Payment authorization is one step of the same per-buyer join flow (OTP ->
+// authorize -> join), so it shares the join budget rather than the tight
+// public bucket: one real buyer costs one authorize per join. Before
+// Black-Sky it had no budget at all; /api/payments/status stays tight.
+const JOIN_PATH_RE = /^(?:\/(?:api\/)?deals\/[^/]+\/join|\/api\/payments\/authorize(?:-mock)?)$/;
 // Like the read budget, the join and analytics budgets are never stricter than
 // the mutation budget: an operator who lifts RATE_LIMIT_SENSITIVE_MAX for bulk
 // traffic lifts these with it. 0 still switches a budget off explicitly.
@@ -5584,6 +5588,55 @@ const RATE_LIMIT_JOIN_MAX_CONFIGURED = Number(process.env.RATE_LIMIT_JOIN_MAX ??
 const RATE_LIMIT_JOIN_MAX = RATE_LIMIT_JOIN_MAX_CONFIGURED <= 0 ? 0 : Math.max(RATE_LIMIT_JOIN_MAX_CONFIGURED, RATE_LIMIT_SENSITIVE_MAX);
 const RATE_LIMIT_ANALYTICS_MAX_CONFIGURED = Number(process.env.RATE_LIMIT_ANALYTICS_MAX ?? 60);
 const RATE_LIMIT_ANALYTICS_MAX = RATE_LIMIT_ANALYTICS_MAX_CONFIGURED <= 0 ? 0 : Math.max(RATE_LIMIT_ANALYTICS_MAX_CONFIGURED, RATE_LIMIT_SENSITIVE_MAX);
+// Black-Sky C4 (owner decision C): seller mutations — deal create / draft edit
+// / delivery / images / publish / pause / reopen / prepare / charging start /
+// cancel on the bare /deals lifecycle paths (and their /api alias) and the
+// /api/seller/deals editing surface — get their OWN budget, keyed by the
+// AUTHENTICATED SELLER IDENTITY first and by IP second:
+//   * per identity (RATE_LIMIT_SELLER_MUTATION_MAX, default 90/min): the web
+//     seller UI has no autosave — every save, upload, reorder and lifecycle
+//     action is an explicit click — so a real seller stays far below 1.5/s,
+//     while the heaviest suite that runs without its own limiter override
+//     issues ~50 seller mutations per run. 90 is the conservative ceiling
+//     above both; abuse (scripted create/publish churn) is bounded per seller
+//     even from rotating IPs.
+//   * per IP (RATE_LIMIT_SELLER_MUTATION_IP_MAX, default 150/min): an office
+//     NAT shared by a few sellers, still below the global 200/min so it fires
+//     first for a seller surface; also bounds forged/rotated identities.
+//   * a request carrying NO seller identity signal is an unauthenticated write
+//     to a seller surface: it stays in the tight sensitive bucket (it answers
+//     401 anyway). Public writes under /api/deals (chat, inquiries, feedback)
+//     and buyer join keep their existing budgets untouched.
+// The identity key never hits the database: a session cookie is keyed by its
+// keyed hash (the same hash the session lookup uses), a Supabase bearer by a
+// hash of the token, and the demo-preview / internal x-seller-id header by
+// the normalised seller id. Both budgets follow the read-budget convention
+// (never stricter than RATE_LIMIT_SENSITIVE_MAX; 0 switches them off).
+const SELLER_MUTATION_PATHS = ["/deals", "/api/seller/deals"];
+const RATE_LIMIT_SELLER_MUTATION_MAX_CONFIGURED = Number(process.env.RATE_LIMIT_SELLER_MUTATION_MAX ?? 90);
+const RATE_LIMIT_SELLER_MUTATION_MAX = RATE_LIMIT_SELLER_MUTATION_MAX_CONFIGURED <= 0 ? 0 : Math.max(RATE_LIMIT_SELLER_MUTATION_MAX_CONFIGURED, RATE_LIMIT_SENSITIVE_MAX);
+const RATE_LIMIT_SELLER_MUTATION_IP_MAX_CONFIGURED = Number(process.env.RATE_LIMIT_SELLER_MUTATION_IP_MAX ?? 150);
+const RATE_LIMIT_SELLER_MUTATION_IP_MAX = RATE_LIMIT_SELLER_MUTATION_IP_MAX_CONFIGURED <= 0 ? 0 : Math.max(RATE_LIMIT_SELLER_MUTATION_IP_MAX_CONFIGURED, RATE_LIMIT_SENSITIVE_MAX);
+
+// The seller identity signal a request carries, without a database lookup.
+// null = no signal at all (unauthenticated write to a seller surface).
+export function sellerMutationIdentityKey(headers: Record<string, unknown> | undefined, demoPreview = IS_DEMO_PREVIEW): string | null {
+  const h = headers || {};
+  const bearer = String(h["authorization"] || "").trim();
+  if (/^bearer\s+\S+/i.test(bearer)) {
+    return `b:${createHash("sha256").update(bearer.slice(bearer.indexOf(" ") + 1).trim()).digest("hex").slice(0, 32)}`;
+  }
+  const cookies = parseCookies(h["cookie"]);
+  const sessionToken = String(cookies[SELLER_SESSION_COOKIE] || "").trim();
+  if (sessionToken) {
+    const hashed = SELLER_SESSION_SECRET ? hashSellerSessionToken(sessionToken, SELLER_SESSION_SECRET) : null;
+    return `c:${(hashed || createHash("sha256").update(sessionToken).digest("hex")).slice(0, 32)}`;
+  }
+  // Demo preview has no seller authentication: every request acts as the
+  // (normalised, defaulted) header seller, so that IS the identity there.
+  if (demoPreview) return `id:${normalizeSellerId(h["x-seller-id"])}`;
+  return null;
+}
 
 type RateLimitEntry = { count: number; resetAt: number };
 interface RateLimiterStore {
@@ -5639,21 +5692,27 @@ function matchesPrefix(path: string, prefixes: string[]): boolean {
   return prefixes.some((p) => path === p || path.startsWith(p + "/"));
 }
 
-type RateLimitBucket = "sensitive" | "join" | "analytics" | "read" | "none";
+type RateLimitBucket = "sensitive" | "join" | "seller_mutation" | "analytics" | "read" | "none";
 
-// The sensitive bucket is for MUTATIONS (OTP, create, inquiry, support,
+// The sensitive bucket is for public MUTATIONS (OTP, inquiry, support,
 // payments, logins); a read-only method on the same prefix is public read
-// polling. Join and analytics writers have their own budgets.
+// polling. Join, seller mutations and analytics writers have their own
+// budgets. The /api lifecycle alias is a pure rewrite onto the bare /deals
+// handler, so it is classified as the path it is served on.
 export function rateLimitBucketFor(method: string, url: string): RateLimitBucket {
   const path = normalizeRateLimitPath(url);
   const readOnly = READ_ONLY_METHODS.has(String(method || "").toUpperCase());
   if (!readOnly && JOIN_PATH_RE.test(path)) return "join";
   if (!readOnly && matchesPrefix(path, ANALYTICS_PATHS)) return "analytics";
+  // Mutations only: the alias rewrite is applied so /api/deals/:id/publish is
+  // the seller mutation it is served as; public reads under /api/deals keep
+  // the read budget.
+  if (!readOnly && matchesPrefix(normalizeRateLimitPath(rewriteCanonicalApiAlias(path)), SELLER_MUTATION_PATHS)) return "seller_mutation";
   if (!matchesPrefix(path, SENSITIVE_PATHS)) return "none";
   return readOnly ? "read" : "sensitive";
 }
 
-const BUCKET_STRICTNESS: Record<RateLimitBucket, number> = { sensitive: 4, join: 3, analytics: 2, read: 1, none: 0 };
+const BUCKET_STRICTNESS: Record<RateLimitBucket, number> = { sensitive: 5, join: 4, seller_mutation: 3, analytics: 2, read: 1, none: 0 };
 
 // Classify the request as BOTH the caller sent it and as it is served after the
 // alias rewrite, and apply the stricter bucket.
@@ -5713,7 +5772,30 @@ if (RATE_LIMIT_MAX > 0) {
           .header("Retry-After", String(retryAfterSecs))
           .send({ ok: false, error: "rate_limit_exceeded", retry_after: retryAfterSecs });
       }
-    } else if (bucket === "sensitive" && RATE_LIMIT_SENSITIVE_MAX > 0) {
+    } else if (bucket === "seller_mutation" && sellerMutationIdentityKey(req.headers as any) !== null) {
+      // Identity budget first (abuse is bounded per seller even across IPs),
+      // then the wider per-IP ceiling. Both counted before the handler runs,
+      // so a refused request still costs the caller its budget.
+      const identity = sellerMutationIdentityKey(req.headers as any) as string;
+      let refusedAt: RateLimitEntry | null = null;
+      if (RATE_LIMIT_SELLER_MUTATION_MAX > 0) {
+        const sellerEntry = rateLimitStore.hit(`sm:${identity}`, now, RATE_LIMIT_WINDOW_MS);
+        if (sellerEntry.count > RATE_LIMIT_SELLER_MUTATION_MAX) refusedAt = sellerEntry;
+      }
+      if (RATE_LIMIT_SELLER_MUTATION_IP_MAX > 0) {
+        const ipEntry = rateLimitStore.hit(`smi:${ip}`, now, RATE_LIMIT_WINDOW_MS);
+        if (!refusedAt && ipEntry.count > RATE_LIMIT_SELLER_MUTATION_IP_MAX) refusedAt = ipEntry;
+      }
+      if (refusedAt) {
+        const retryAfterSecs = Math.ceil((refusedAt.resetAt - now) / 1000);
+        void reply
+          .code(429)
+          .header("Retry-After", String(retryAfterSecs))
+          .send({ ok: false, error: "rate_limit_exceeded", retry_after: retryAfterSecs });
+      }
+    } else if ((bucket === "sensitive" || bucket === "seller_mutation") && RATE_LIMIT_SENSITIVE_MAX > 0) {
+      // A seller-surface write with no identity signal is an unauthenticated
+      // public write: tight bucket.
       const sensitiveKey = `s:${ip}`;
       const sensitiveEntry = rateLimitStore.hit(sensitiveKey, now, RATE_LIMIT_WINDOW_MS);
       if (sensitiveEntry.count > RATE_LIMIT_SENSITIVE_MAX) {

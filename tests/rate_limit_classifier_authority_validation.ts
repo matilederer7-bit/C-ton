@@ -103,12 +103,17 @@ await run("Black-Sky C4: the /api join alias is classified before AND after the 
   // As served (rewritten) and as sent, join lands in the dedicated join bucket.
   assert.equal(bucketAsServed("POST", "/api/deals/abc/join"), "join");
   assert.equal(rateLimitBucketForRequest("POST", "/api/deals/abc/join", "/deals/abc/join"), "join");
-  // Seller lifecycle mutations on the bare /deals paths are in the tight bucket.
+  // Seller lifecycle mutations (bare and alias) are in the identity-keyed
+  // seller bucket (owner decision C), never in "none".
   for (const action of ["publish", "close_joining", "reopen_joining", "prepare_charging", "cancel"]) {
-    assert.equal(bucketAsServed("POST", `/api/deals/abc/${action}`), "sensitive", action);
+    assert.equal(bucketAsServed("POST", `/api/deals/abc/${action}`), "seller_mutation", action);
+    assert.equal(rateLimitBucketFor("POST", `/deals/abc/${action}`), "seller_mutation", action);
   }
   // Reads stay in the read budget, never the mutation bucket.
-  assert.equal(bucketAsServed("GET", "/api/deals"), "read");
+  // As sent, /api/deals is a public read; the bare served path is unbudgeted
+  // beyond the global cap, and the stricter (as-sent) classification wins.
+  assert.equal(rateLimitBucketFor("GET", "/api/deals"), "read");
+  assert.equal(rateLimitBucketForRequest("GET", "/api/deals", "/deals"), "read");
 });
 
 await run("Black-Sky B3: percent-encoded and double-slash paths cannot escape the budget", async () => {
@@ -120,7 +125,8 @@ await run("Black-Sky B3: percent-encoded and double-slash paths cannot escape th
 });
 
 await run("Black-Sky C3/C6/C7: payments, logins, participants and analytics writers are budgeted", async () => {
-  assert.equal(rateLimitBucketFor("POST", "/api/payments/authorize"), "sensitive");
+  assert.equal(rateLimitBucketFor("POST", "/api/payments/authorize"), "join", "authorize is one step of the per-buyer join flow");
+  assert.equal(rateLimitBucketFor("POST", "/api/payments/authorize-mock"), "join");
   assert.equal(rateLimitBucketFor("POST", "/api/payments/status"), "sensitive");
   assert.equal(rateLimitBucketFor("POST", "/api/seller/session/login"), "sensitive");
   assert.equal(rateLimitBucketFor("POST", "/api/link-viewer/session/login"), "sensitive");
