@@ -171,3 +171,128 @@ export function resolveTrustProxyHops(env: NodeJS.ProcessEnv = process.env): num
 }
 
 export const IS_PRODUCTION_LIKE = isProductionLikeEnv();
+
+// ---------------------------------------------------------------------------
+// Outbox retry policy (per retry class) and worker resilience knobs.
+// ---------------------------------------------------------------------------
+
+export type OutboxRetryClassName = "money" | "reconcile" | "invoice" | "default";
+export type OutboxRetryPolicy = {
+  baseMs: number;
+  capMs: number;
+  maxAttempts: number;
+  /** Symmetric jitter: the computed delay is scaled by a random factor in [1-ratio, 1+ratio]. */
+  jitterRatio: number;
+};
+export type OutboxRetryPolicyConfig = {
+  mode: "lane" | "legacy";
+  /**
+   * Lane mode raises a claimed row's max_attempts up to its class budget (the
+   * column default is 4); legacy mode keeps LEAST(row.max_attempts, global).
+   */
+  raiseRowMaxAttempts: boolean;
+  policies: Record<OutboxRetryClassName, OutboxRetryPolicy>;
+};
+
+// Production/staging budget. Money/reconcile/invoice (and payout) events must
+// survive a multi-minute provider incident: 30s base, 15 min cap, 8 attempts
+// (~30+60+120+240+480+900+900 s ≈ 45 min before the DLQ), +/-30% jitter so a
+// burst of events failed by the same blip does not retry in lockstep. Other
+// events keep a modest budget (5s base, 5 min cap, 6 attempts ≈ 2.5 min).
+// The DB CHECK keeps max_attempts in 1..50.
+export const OUTBOX_LANE_RETRY_DEFAULTS: Readonly<Record<OutboxRetryClassName, OutboxRetryPolicy>> = Object.freeze({
+  money: { baseMs: 30_000, capMs: 15 * 60_000, maxAttempts: 8, jitterRatio: 0.3 },
+  reconcile: { baseMs: 30_000, capMs: 15 * 60_000, maxAttempts: 8, jitterRatio: 0.3 },
+  invoice: { baseMs: 30_000, capMs: 15 * 60_000, maxAttempts: 8, jitterRatio: 0.3 },
+  default: { baseMs: 5_000, capMs: 5 * 60_000, maxAttempts: 6, jitterRatio: 0.3 }
+});
+
+function readBoundedNumber(env: NodeJS.ProcessEnv, name: string, fallback: number, min: number, max: number, integer = false) {
+  const raw = env[name];
+  if (raw === undefined || String(raw).trim() === "") return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return fallback;
+  const value = integer ? Math.floor(parsed) : parsed;
+  return Math.min(max, Math.max(min, value));
+}
+
+/**
+ * Resolve the outbox retry policy.
+ *
+ * - "lane" (production, staging and every non-test runtime): per-class
+ *   defaults above; the legacy global OUTBOX_MAX_ATTEMPTS is ignored so a
+ *   stale env var cannot silently restore the ~10 s budget.
+ * - "legacy" (automated tests only: NODE_ENV=test and not production-like):
+ *   the historical policy every existing suite was written against — base =
+ *   OUTBOX_POLL_MS, cap 15 min, max = OUTBOX_MAX_ATTEMPTS (default 4), no
+ *   jitter, deterministic.
+ * OUTBOX_RETRY_POLICY=lane|legacy forces a mode. Per-class overrides
+ * OUTBOX_RETRY_<CLASS>_BASE_MS / _CAP_MS / _MAX_ATTEMPTS and the global
+ * OUTBOX_RETRY_JITTER_RATIO apply in both modes.
+ */
+export function resolveOutboxRetryPolicyConfig(env: NodeJS.ProcessEnv = process.env): OutboxRetryPolicyConfig {
+  const forced = String(env.OUTBOX_RETRY_POLICY || "").trim().toLowerCase();
+  const testRuntime = String(env.NODE_ENV || "") === "test" && !isProductionLikeEnv(env);
+  const mode: "lane" | "legacy" = forced === "lane" || forced === "legacy"
+    ? forced
+    : testRuntime ? "legacy" : "lane";
+  const legacyBase = readBoundedNumber(env, "OUTBOX_POLL_MS", 1000, 1, 60 * 60_000);
+  const legacyMax = readBoundedNumber(env, "OUTBOX_MAX_ATTEMPTS", 4, 1, 50, true);
+  const jitterOverride = env.OUTBOX_RETRY_JITTER_RATIO;
+  const policies = {} as Record<OutboxRetryClassName, OutboxRetryPolicy>;
+  for (const name of ["money", "reconcile", "invoice", "default"] as const) {
+    const fallback: OutboxRetryPolicy = mode === "lane"
+      ? { ...OUTBOX_LANE_RETRY_DEFAULTS[name] }
+      : { baseMs: legacyBase, capMs: 15 * 60_000, maxAttempts: legacyMax, jitterRatio: 0 };
+    const prefix = `OUTBOX_RETRY_${name.toUpperCase()}`;
+    const baseMs = readBoundedNumber(env, `${prefix}_BASE_MS`, fallback.baseMs, 1, 60 * 60_000, true);
+    const capMs = Math.max(baseMs, readBoundedNumber(env, `${prefix}_CAP_MS`, fallback.capMs, 1, 6 * 60 * 60_000, true));
+    const maxAttempts = readBoundedNumber(env, `${prefix}_MAX_ATTEMPTS`, fallback.maxAttempts, 1, 50, true);
+    const jitterRatio = jitterOverride === undefined || String(jitterOverride).trim() === ""
+      ? fallback.jitterRatio
+      : readBoundedNumber(env, "OUTBOX_RETRY_JITTER_RATIO", fallback.jitterRatio, 0, 1);
+    policies[name] = { baseMs, capMs, maxAttempts, jitterRatio };
+  }
+  return { mode, raiseRowMaxAttempts: mode === "lane", policies };
+}
+
+/** Delay before an event of an unknown type (rolling deploy) is retried. */
+export function resolveUnknownOutboxEventDeferMs(env: NodeJS.ProcessEnv = process.env) {
+  return readBoundedNumber(env, "OUTBOX_UNKNOWN_EVENT_DEFER_MS", 5 * 60_000, 1_000, 60 * 60_000, true);
+}
+
+/**
+ * Per-job deadline. After it the worker stops WAITING for the handler (the
+ * job is neither acked sent nor failed; its lease stops being renewed and
+ * lease-expiry reclaim + generation fencing take over).
+ */
+export function resolveWorkerEventTimeoutMs(env: NodeJS.ProcessEnv = process.env) {
+  return readBoundedNumber(env, "WORKER_EVENT_TIMEOUT_MS", 120_000, 100, 60 * 60_000, true);
+}
+
+export type WorkerResilienceConfig = {
+  eventTimeoutMs: number;
+  alertOldestPendingMs: number;
+  alertWindowMs: number;
+  alertConsecutiveCycleFailures: number;
+  cycleBackoffCapMs: number;
+  watchdogStallMs: number;
+  watchdogMaxHeartbeatFailures: number;
+  watchdogIntervalMs: number;
+};
+
+export function resolveWorkerResilienceConfig(pollMs: number, env: NodeJS.ProcessEnv = process.env): WorkerResilienceConfig {
+  const eventTimeoutMs = resolveWorkerEventTimeoutMs(env);
+  const poll = Math.max(1, Math.floor(Number(pollMs) || 1000));
+  const defaultStall = Math.max(5 * 60_000, 10 * poll, 2 * eventTimeoutMs);
+  return {
+    eventTimeoutMs,
+    alertOldestPendingMs: readBoundedNumber(env, "WORKER_ALERT_OLDEST_PENDING_MS", 10 * 60_000, 1_000, 24 * 60 * 60_000, true),
+    alertWindowMs: readBoundedNumber(env, "WORKER_ALERT_WINDOW_MS", 5 * 60_000, 1_000, 24 * 60 * 60_000, true),
+    alertConsecutiveCycleFailures: readBoundedNumber(env, "WORKER_ALERT_CYCLE_FAILURES", 3, 1, 1_000, true),
+    cycleBackoffCapMs: Math.max(poll, readBoundedNumber(env, "WORKER_CYCLE_BACKOFF_CAP_MS", 60_000, 1, 60 * 60_000, true)),
+    watchdogStallMs: readBoundedNumber(env, "WORKER_WATCHDOG_STALL_MS", defaultStall, 1_000, 24 * 60 * 60_000, true),
+    watchdogMaxHeartbeatFailures: readBoundedNumber(env, "WORKER_WATCHDOG_MAX_HEARTBEAT_FAILURES", 5, 1, 1_000, true),
+    watchdogIntervalMs: readBoundedNumber(env, "WORKER_WATCHDOG_INTERVAL_MS", 10_000, 100, 10 * 60_000, true)
+  };
+}
