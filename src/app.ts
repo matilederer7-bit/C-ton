@@ -5344,12 +5344,6 @@ export const IMAGE_UPLOAD_BODY_LIMIT_BYTES = 8 * 1024 * 1024;
 const app = Fastify({
   logger: {
     serializers: {
-      // Black-Sky (observability without leakage): pino's default `err`
-      // serializer copies every enumerable property of an error — provider
-      // payloads, pg `detail`, buyer data — into the log line. The worker
-      // logger already used the scrubbing serializer; the web logger (and
-      // every worker path that logs through app.log) now does too.
-      err: errorLogSerializer as any,
       // Mirrors Fastify's default request serializer, with the URL sanitized.
       // Total by construction: a serializer that throws takes the request
       // handler - and the process - down with it.
@@ -5365,7 +5359,13 @@ const app = Fastify({
         } catch {
           return { method: "?", url: "[unserializable-request]" };
         }
-      }
+      },
+      // Black-Sky (observability without leakage): pino's default `err`
+      // serializer copies every enumerable property of an error — provider
+      // payloads, pg `detail`, buyer data — into the log line. The worker
+      // logger already used the scrubbing serializer; the web logger (and
+      // every worker path that logs through app.log) now does too.
+      err: errorLogSerializer as any
     }
   },
   // ONE request id, normalised ONCE, at creation. The application treats

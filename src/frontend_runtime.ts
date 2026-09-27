@@ -2428,6 +2428,14 @@ export function registerFrontendExperience(
       // does not reveal account existence or lock state either.
       let locked = false;
       if (sellerAccount && sellerAccount.auth_enabled) {
+        // Black-Sky: serialize attempts per account. Without it every
+        // concurrent guess read the same pre-lock failure count (N parallel
+        // guesses = N verified passwords), and because the 401 leaves before
+        // this transaction commits, even a strictly sequential next attempt
+        // could count one failure short and verify the password of a locked
+        // account. The lock is held to COMMIT, so the next attempt for this
+        // account sees every committed failure.
+        await c.query(`SELECT pg_advisory_xact_lock(hashtextextended('siton:seller_login:' || $1, 0))`, [String(sellerAccount.seller_id)]);
         const failures = await recentSellerLoginFailures(c, String(sellerAccount.seller_id));
         locked = failures >= SELLER_LOGIN_MAX_FAILURES;
       }

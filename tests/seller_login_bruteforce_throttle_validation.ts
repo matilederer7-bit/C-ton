@@ -176,4 +176,36 @@ await run("seller login locks per-account after too many failures and ignores X-
   }
 });
 
+await run("concurrent guesses cannot exceed the per-account budget (attempts serialize on the account)", async () => {
+  const { app, pool } = await buildRuntimeApp("seller-login-throttle-concurrent", {
+    APP_DEPLOYMENT_MODE: "internal-runtime",
+    SELLER_SESSION_SECRET: "seller-session-secret-throttle-test-0001",
+    SELLER_LOGIN_MAX_FAILURES: String(MAX),
+    SELLER_LOGIN_FAIL_WINDOW_MINUTES: "15"
+  });
+  try {
+    const suffix = Date.now();
+    const gamma = `seller-gamma-${suffix}`;
+    await provisionSeller(app, pool, gamma, `gamma-${suffix}@example.com`, "gamma-correct-pass-123");
+    // 4×MAX wrong guesses fired at once. Every one answers the generic 401,
+    // but only the first MAX may reach the password check and be recorded:
+    // once the account locks, the rest are refused unverified. Without
+    // per-account serialization every parallel guess read the same stale
+    // count and was verified (and recorded).
+    const guesses = await Promise.all(
+      Array.from({ length: 4 * MAX }, (_, i) => login(app, gamma, `wrong-guess-${i}`, `198.51.100.${i + 1}`))
+    );
+    assert.ok(guesses.every((g) => g.statusCode === 401), JSON.stringify(guesses.map((g) => g.statusCode)));
+    const recorded = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM siton.seller_security_events WHERE seller_id=$1 AND event_type='seller.login.failed'`,
+      [gamma]
+    );
+    assert.equal(Number(recorded.rows[0].n), MAX, "exactly MAX guesses may be verified before the lock engages");
+    const lockedCorrect = await login(app, gamma, "gamma-correct-pass-123", "198.51.100.200");
+    assert.equal(lockedCorrect.statusCode, 401, lockedCorrect.body);
+  } finally {
+    await pool.end();
+  }
+});
+
 console.log("seller_login_bruteforce_throttle_validation: all checks passed");
