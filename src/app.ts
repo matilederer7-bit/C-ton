@@ -1666,7 +1666,7 @@ async function ingestAndProcessPaymentEvent(args: {
       if (applied && applied.held) finalClassification = { status: "ignored", reason: applied.reason };
     }
 
-    await webhookIngestion.markEvent(args.provider, args.event_id, finalClassification.status, finalClassification.reason);
+    await webhookIngestion.markEvent(args.provider, args.event_id, finalClassification.status, finalClassification.reason, ingested.claim_token);
     return {
       duplicate: Boolean(ingested.duplicate),
       status: finalClassification.status,
@@ -1674,7 +1674,7 @@ async function ingestAndProcessPaymentEvent(args: {
     };
   } catch (error) {
     const failureReason = String(error instanceof Error ? error.message : error || "webhook_processing_failed").slice(0, 240);
-    await webhookIngestion.markEvent(args.provider, args.event_id, "failed", failureReason);
+    await webhookIngestion.markEvent(args.provider, args.event_id, "failed", failureReason, ingested.claim_token);
     throw error;
   }
 }
