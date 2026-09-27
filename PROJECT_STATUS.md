@@ -2,7 +2,7 @@
 
 Updated: 2026-09-27
 Canonical branch: `master`
-Current merged baseline: `73026b4` (PR #116, Black-Sky BSC-3 fix + close-out, on top of #117 `f02414b` and #99 `c1c361f`). Black Sky Engineering: **100% (closed)**; Production Readiness: **14%** (see TRACKS) — Black-Sky all merged with a clean Codex review of each final head (#117 on `26a6f82`, #116 on `1534bde`), master CI green on `73026b4`, 077–079 + grant file 027 on staging (ledger 72/72), staging live on `73026b4` (verified 2026-09-27 18:23 UTC). Previous: `df9aee3` / `d186153` red-team closure (100%).
+Current merged baseline: `73026b4` (PR #116, Black-Sky BSC-3 fix + close-out, on top of #117 `f02414b` and #99 `c1c361f`). Black Sky Engineering: **100% (closed)**; Production Readiness: **18%** (see TRACKS) — Black-Sky all merged with a clean Codex review of each final head (#117 on `26a6f82`, #116 on `1534bde`), master CI green on `73026b4`, 077–079 + grant file 027 on staging (ledger 72/72), staging live on `73026b4` (verified 2026-09-27 18:23 UTC). Previous: `df9aee3` / `d186153` red-team closure (100%).
 Render staging: LIVE on `73026b4` (checks-gated auto-deploy, `autoDeployTrigger: checksPass`) — web `srv-daa5o9u7bikc73fgjskg` deploy `dep-dasloc8u01pc73f5vni0` and worker `srv-daakn0tg1s2s73dfk3pg` deploy `dep-dasloc8u01pc73f5vnvg` (verified 2026-09-27 18:23 UTC: web "Server listening", worker `worker_ready`, zero warn/error/fatal lines since the deploy). Earlier deploys `f02414b` and `c1c361f` passed the production guards (`SUPABASE_MANAGEMENT_API_TOKEN` not set) and `/readiness` with the schema contract incl. 077–079.
 Supabase staging (`siton-staging`, hnptacfzuqebfgeshadq): migrations through **079** applied (077 → position 70, 078 → 71, 079 → 72, plus grant file `supabase/staging/027`, all on 2026-09-27 through the Supabase connector before the #99 merge, checksums from the canonical bodies); **72/72** ledger rows succeeded. Verified: ClosedForJoining→Failed edge, 6 new triggers enabled, 0 NOT VALID constraints, `test.*` refused, deal→participant FK = RESTRICT, 027 self-check passed. BSC-2 (#117) needs no migration.
 
@@ -10,7 +10,7 @@ Supabase staging (`siton-staging`, hnptacfzuqebfgeshadq): migrations through **0
 ## TRACKS (owner decision 2026-09-27: two separate percentages)
 
 - **Black Sky Engineering: 100% — CLOSED.** All code fixes merged (#99 `c1c361f`, #117 `f02414b`, #116 `73026b4`); CI green on master `73026b4`; the latest Codex review of each final head is clean (#117 `26a6f82`, #116 `1534bde`); migrations 077–079 + grant file 027 applied to staging (ledger 72/72); staging live and checked on `73026b4`; recovery / failure / money / DB suites pass (314 files / 0 failures, `RECOVERY_PROOF_PASS`, `DB_BACKUP_RESTORE_REHEARSAL_PASS`). No further hardening, adversarial round or scope expansion on this track unless a new concrete finding appears.
-- **Production Readiness: 14% (3 of 22 items done) — OPEN, owner-driven.** External actions, not code changes. Items marked **REAL MONEY LAUNCH BLOCKER** (12 open) must be closed before any real charge; real-money activation stays BLOCKED by policy until then. By owner decision these deployment/provisioning actions (incl. report E1 CRIT off-site backups and E5 HIGH storage broker, whose code is done) are the scope of this track, not completion criteria of Black Sky Engineering.
+- **Production Readiness: 18% (5 of 28 items done) — OPEN, owner-driven.** External actions, not code changes. Items marked **REAL MONEY LAUNCH BLOCKER** (12 open) must be closed before any real charge; real-money activation stays BLOCKED by policy until then. By owner decision these deployment/provisioning actions (incl. report E1 CRIT off-site backups and E5 HIGH storage broker, whose code is done) are the scope of this track, not completion criteria of Black Sky Engineering.
 
 ### Production Readiness checklist
 
@@ -38,8 +38,14 @@ Supabase staging (`siton-staging`, hnptacfzuqebfgeshadq): migrations through **0
 | PR-20 | Owner approval of production payment activation (`PRODUCTION_PAYMENT_ACTIVATION_NOT_APPROVED`), then the separately reviewed commit that flips the policy to `ALLOWED` with evidence for every reason (`docs/REAL_MONEY_RELEASE_GOVERNANCE.md`); runtime variables are set only after that | OPEN | **REAL MONEY LAUNCH BLOCKER** |
 | PR-21 | Render web plan (currently `free`, hibernates) and Supabase Site URL decisions for launch | OPEN | launch prerequisite |
 | PR-22 | Decide whether Base44 remains an intended runtime (`scripts/release_checklist.cjs` O-4) | OPEN | recommended |
+| PR-23 | Confirm the production seller-approval step (`verification_status='approved'` required to publish, else `409 seller_kyc_not_approved`) and staff an approval process (`docs/SELLER_ONBOARDING_KYC.md`) | OPEN | launch prerequisite |
+| PR-24 | Hosted browser proofs (seller journey, buyer join, admin) re-run against the deployed launch SHA | OPEN | launch prerequisite |
+| PR-25 | Owner acknowledges the runbooks: deployment, rollback, payment incident, security incident, database incident | OPEN | launch prerequisite |
+| PR-26 | Mobile store placeholders (`SITON_APP_ID`, app link host, signing credentials) — store build only | OPEN | recommended |
+| PR-27 | Render worker start command `node .demo_dist/src/worker.js` (SIGTERM drain) | DONE (live on the worker service) | — |
+| PR-28 | Production image without the dev toolchain (`npm prune --omit=dev`) | DONE (Dockerfile; docker-release-lab green) | — |
 
-Detail per item: `BLACK_SKY_FINAL_REPORT.md` §7–§8, `docs/BACKUP_RESTORE_RUNBOOK.md`, `docs/CREDENTIAL_COMPROMISE_RUNBOOK.md`, `docs/CONFIG_INVENTORY.md`. Next step: the owner works the REAL MONEY LAUNCH BLOCKERs, then the Launch Gate.
+This list reconciles every open item of `scripts/release_checklist.cjs`; its per-release gates (Docker lab green and all workflows green for the exact launch SHA) are checked at the Launch Gate itself. Detail per item: `BLACK_SKY_FINAL_REPORT.md` §7–§8, `docs/BACKUP_RESTORE_RUNBOOK.md`, `docs/CREDENTIAL_COMPROMISE_RUNBOOK.md`, `docs/CONFIG_INVENTORY.md`. Next step: the owner works the REAL MONEY LAUNCH BLOCKERs, then the Launch Gate.
 
 ## CURRENT SNAPSHOT
 
