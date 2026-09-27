@@ -1385,7 +1385,7 @@ function buildTrackingActivityFeed(args: {
 // attacker-sized input.
 export function parseMultipartFields(contentType: string, body: string): Record<string, string> {
   const fields: Record<string, string> = {};
-  const boundaryMatch = /boundary="?([^";]{1,200})"?/i.exec(contentType.slice(0, 1024));
+  const boundaryMatch = contentType.slice(0, 1024).match(/boundary="?([^";]{1,200})"?/i);
   if (!boundaryMatch) return fields;
   const delimiter = `--${boundaryMatch[1]}`;
   for (const part of body.split(delimiter)) {
