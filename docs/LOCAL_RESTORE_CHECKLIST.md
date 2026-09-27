@@ -1,5 +1,7 @@
 # Local Restore Checklist
 
+> **Refreshed 2026-09-27:** the current checklist (Node 22, local PostgreSQL + `pg_dump`, `db:migrate`, `db:backup-restore-rehearsal` PASS line, decrypting an off-site dump locally) is `docs/BACKUP_RESTORE_RUNBOOK.md` §6. Sections 4 and 7 below describe the retired Render demo database and are historical.
+
 Use this when moving machines, formatting, or rebuilding the C-ton dev/demo environment. Do not store secret values in this file or in git.
 
 ## 1. Clone

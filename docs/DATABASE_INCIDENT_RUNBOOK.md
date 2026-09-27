@@ -2,6 +2,8 @@
 
 Status: operator runbook for PostgreSQL / migration / worker-queue incidents on Siton (C-ton). Written 2026-09-14 against branch `claude/release-readiness-night`. Reintegrated onto current master `0e53998` (PR #9 financial rails, PR #12 confidentiality proof, PR #13 hardened UX already merged) on 2026-09-15 as a controlled port of `claude/release-readiness-night` 63a108f; every reference below was re-verified against that master. Architecture: GitHub = code source of truth; Render = web/backend/worker staging runtime; Supabase = canonical PostgreSQL/Auth/infra; Grow = payment provider boundary, currently disabled; Base44 is never the business runtime. It changes no runtime code and no migration file. Companion documents: `docs/MIGRATION_SAFETY_SYSTEM.md` (tool reference), `docs/DB_BACKUP_RESTORE_REHEARSAL.md`, `docs/OUTBOX_WORKER_OPERATIONS.md`, `docs/OPERATIONAL_RUNBOOK.md` (ready-made SQL), `docs/HEALTH_CHECK_CONTRACT.md`, `docs/INFRASTRUCTURE_HEALTH_AND_CAPACITY.md`. Money-related consequences of any database incident are handled in `docs/PAYMENT_INCIDENT_RUNBOOK.md`.
 
+> **Black-Sky operations set (2026-09-27):** entry point `docs/INCIDENT_RESPONSE_RUNBOOK.md`; total loss `docs/DISASTER_RECOVERY_RUNBOOK.md`; backups `docs/BACKUP_RESTORE_RUNBOOK.md`; money truth `docs/PAYMENT_RECONCILIATION_RUNBOOK.md`; rotation `docs/CREDENTIAL_COMPROMISE_RUNBOOK.md`; combined failures `docs/BLACK_SKY_THREAT_MODEL.md`.
+
 Legend: **IMPLEMENTED** = exists at the cited line. **EXPECTED** = designed behaviour not yet observed on the hosted database. **OPEN** = no tooling exists; do not improvise.
 
 ## 0. Never-do list
@@ -77,7 +79,7 @@ Symptoms: `MIGRATIONS_FAILED migration failed: <id> <file>: <error>` from `db:mi
 
 What the runner guarantees (IMPLEMENTED): the ledger row is inserted as `running` before the SQL, the whole file is sent as ONE `client.query(sql)` (`:96-103`), so a mid-file failure is atomic: files with an explicit `BEGIN;/COMMIT;` and files without (23 of 59, executed as one implicit transaction) both leave no partial objects, proven by the two "failing migration is atomic" preflight scenarios (`docs/MIGRATION_SAFETY_SYSTEM.md:41-42`). On failure the row becomes `failed` with `error_message` (`:112-121`) and every later run refuses (`:53-58`).
 
-STOP CONDITIONS: (a) the ledger row is `running`, not `failed` (process killed mid-migration): there is NO repair action for `running`, `--clear-failed` refuses it (`scripts/migrations_repair.cjs:66`). Escalate; resolution is a reviewed manual decision, not a script (OPEN). (b) The failing file is one that already succeeded elsewhere with a different checksum (that is section 3, not a retry). (c) The error is a privilege error (`42501`) on the hosted database: wrong identity or a missing grant from `supabase/staging/*.sql`; do not retry with a superuser.
+STOP CONDITIONS: (a) the ledger row is `running`, not `failed` (process killed between a self-transacting file's COMMIT and the ledger UPDATE): `--clear-failed` refuses it; use `npm run migrations:repair -- --clear-running <id> --mark-succeeded --i-verified-applied` (fingerprint verdict `applied`) or `--mark-failed --i-verified-no-partial-effects` (verdict `absent`), dry run first, then `--yes` (`--allow-hosted` on Supabase) — procedure in `docs/DISASTER_RECOVERY_RUNBOOK.md` §7. Files without their own BEGIN/COMMIT are now applied atomically with their ledger row and never reach `running` (`scripts/run_migrations.cjs`). (b) The failing file is one that already succeeded elsewhere with a different checksum (that is section 3, not a retry). (c) The error is a privilege error (`42501`) on the hosted database: wrong identity or a missing grant from `supabase/staging/*.sql`; do not retry with a superuser.
 
 Steps:
 1. `npm run migrations:doctor -- --database <url> [--allow-hosted]`. Expect `BLOCKED` with `dirty rows: <id>:failed`.
@@ -210,10 +212,10 @@ STOP CONDITIONS: `migration_ledger` row in `running` (no tool; escalate); `--i-v
 
 ## 11. Open items
 
-- OPEN: repair for a `running` ledger row (crash mid-migration).
+- DONE: repair for a `running` ledger row — `migrations:repair --clear-running` (see §2 STOP (a)).
 - OPEN: DLQ replay; OPEN: mission-control outbox trace column mismatch (section 6).
-- OPEN: grant/RLS drift detection for `supabase/staging/*.sql` (section 7).
-- OPEN: hosted backup/restore rehearsal; only local `pg_dump`/`pg_restore` is proven (section 8).
+- OPEN: grant/RLS drift detection for `supabase/staging/*.sql` (section 7); the manual ACL snapshot diff in `docs/DISASTER_RECOVERY_RUNBOOK.md` §6 is the current check.
+- OPEN: hosted backup/restore rehearsal; only local `pg_dump`/`pg_restore` is proven (section 8). Full restore order, the 321-grant `--no-privileges` finding and the ACL diff: `docs/DISASTER_RECOVERY_RUNBOOK.md` §5–§6.
 - OPEN: live repository adapter for `ops:repair --mode apply` (section 1).
 - OPEN: `/readiness` does not include worker freshness or ledger high-water (HC-1, HC-2 in `docs/HEALTH_CHECK_CONTRACT.md`).
 - EXPECTED, unobserved: Supavisor behaviour under connection exhaustion; the safe-code list in `src/db.ts:65-67` was proven with a local backend termination only.

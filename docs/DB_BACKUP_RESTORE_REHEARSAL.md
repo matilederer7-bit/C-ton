@@ -18,6 +18,10 @@ Command: `npm run db:backup-restore-rehearsal` (`scripts/db_backup_restore_rehea
 
 Every step aborts the chain on failure so a broken dump is never "restored successfully" downstream. Databases are dropped on exit; the dump lives in a temp directory removed on exit. Without `pg_dump`/`pg_restore` (set `PG_BIN` or install the client) the rehearsal reports `SKIPPED_ENVIRONMENT`, never PASS.
 
+## 2026-09-27 extension (Black-Sky)
+
+The rehearsal now also proves per-table content hashes, money invariants identical on source and restored, append-only triggers firing after restore, the ACL loss of `--no-privileges` (321 runtime ACL entries: 229 `siton_web_runtime`, 91 `siton_worker_runtime`, 1 `service_role`; 36 PUBLIC EXECUTE defaults re-appear) and its re-provision from `supabase/staging/*.sql`, plus a negative control. Final line `DB_BACKUP_RESTORE_REHEARSAL_PASS`. Step list and drill cadence: `docs/BACKUP_RESTORE_RUNBOOK.md` §4–§5; hosted restore order: `docs/DISASTER_RECOVERY_RUNBOOK.md`.
+
 ## What it does NOT prove
 
 - Hosted backups. Supabase point-in-time recovery / daily backups are a platform feature outside this repository; the runbooks call them "hosted action - document only".
