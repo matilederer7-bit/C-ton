@@ -114,6 +114,28 @@ await run("timeout: a hung check is bounded and treated as transient", async () 
   assert.ok(h.events.some((e) => e.startsWith("degraded:")), h.events.join(","));
 });
 
+await run("a timed-out check still running blocks new checks (never piles up queries on the pool)", async () => {
+  const h = harness({ ttlMs: 0, timeoutMs: 30, graceMs: 60_000 });
+  assert.equal((await h.probe.probe()).status, 200);
+  let release: (() => void) | null = null;
+  h.set(() => new Promise((resolve) => { release = () => resolve({ ...OK }); }));
+  for (let i = 0; i < 5; i++) {
+    h.advance(1_000);
+    const verdict = await h.probe.probe();
+    assert.equal(verdict.status, 200, "inside the grace period: degraded");
+    assert.equal((verdict.body as any).database, "degraded");
+  }
+  assert.equal(h.calls(), 2, "five probes against a hung database started ONE check");
+  (release as unknown as () => void)();
+  await new Promise((r) => setTimeout(r, 5));
+  h.set(async () => ({ ...OK }));
+  h.advance(1_000);
+  const recovered = await h.probe.probe();
+  assert.equal(recovered.status, 200);
+  assert.equal((recovered.body as any).database, "connected");
+  assert.equal(h.calls(), 3, "once the hung check settled, a fresh check runs");
+});
+
 await run("grace: transient failures after a success answer 200/degraded until the grace ends, then 503", async () => {
   const h = harness({ ttlMs: 0, graceMs: 60_000 });
   const good = await h.probe.probe();

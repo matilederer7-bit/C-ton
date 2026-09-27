@@ -110,13 +110,27 @@ export function createReadinessProbe(options: ReadinessProbeOptions) {
   let checks = 0;
   let consecutiveTransientFailures = 0;
 
+  // A timed-out check is abandoned, not cancelled: its queries keep a pool
+  // connection until the driver's own timeout. While it is unsettled no new
+  // check is started, so a hung database never accumulates probe queries on
+  // the shared pool (at most ONE outstanding check per process).
+  let unsettledCheck: Promise<unknown> | null = null;
+
   async function runCheckWithTimeout(): Promise<Record<string, unknown>> {
+    if (unsettledCheck) {
+      throw Object.assign(new Error(READINESS_CHECK_TIMEOUT_ERROR), { code: READINESS_CHECK_TIMEOUT_ERROR });
+    }
     let timer: NodeJS.Timeout | null = null;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(Object.assign(new Error(READINESS_CHECK_TIMEOUT_ERROR), { code: READINESS_CHECK_TIMEOUT_ERROR })), timeoutMs);
     });
+    const check = Promise.resolve().then(() => options.check());
+    const tracked = check.then(() => undefined, () => undefined).finally(() => {
+      if (unsettledCheck === tracked) unsettledCheck = null;
+    });
+    unsettledCheck = tracked;
     try {
-      return await Promise.race([options.check(), timeout]);
+      return await Promise.race([check, timeout]);
     } finally {
       if (timer) clearTimeout(timer);
     }
