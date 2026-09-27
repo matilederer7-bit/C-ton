@@ -81,7 +81,8 @@ async function main() {
   // authority: refuse non-local hosts (CI service hosts can be allowed
   // explicitly through SITON_TEST_DB_ALLOWED_HOSTS, same rule as
   // scripts/lib/test_db_isolation.cjs).
-  require("./lib/test_db_isolation.cjs").assertLocalBase(baseUrl);
+  const isolation = require("./lib/test_db_isolation.cjs");
+  isolation.assertLocalBase(baseUrl);
   const admin = new Client({ connectionString: databaseUrl(baseUrl, "postgres"), connectionTimeoutMillis: 10_000, query_timeout: 30_000 });
   await admin.connect();
   const suffix = `${process.pid}_${Date.now()}`;
@@ -92,6 +93,7 @@ async function main() {
 
   try {
     await admin.query(`CREATE DATABASE ${quoteIdentifier(templateName)}`);
+    await isolation.enableTestActions(admin, templateName);
     const templateUrl = databaseUrl(baseUrl, templateName);
     const bootstrap = spawnSync(process.execPath, ["scripts/run_migrations.cjs"], {
       stdio: "inherit",
@@ -112,6 +114,8 @@ async function main() {
       const testStartedAt = Date.now();
       try {
         await admin.query(`CREATE DATABASE ${quoteIdentifier(testDb)} TEMPLATE ${quoteIdentifier(templateName)}`);
+        // database-level settings are not copied from a template
+        await isolation.enableTestActions(admin, testDb);
         const testTimeoutMs = item.name === "frontend_browser_smoke_validation.ts"
           ? 900000
           : item.name === "web_sigterm_fault_process_validation.ts"

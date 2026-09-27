@@ -36,7 +36,7 @@ export const REQUIRED_TABLES = [
   "discovery_events", "viral_attributions", "viral_events", "viral_metrics_cache", "content_assets", "site_content",
   "distribution_link_viewers", "distribution_link_viewer_grants", "distribution_link_viewer_sessions",
   "distribution_link_viewer_login_attempts", "products", "product_images",
-  "outbox_enqueue_evidence"
+  "outbox_enqueue_evidence", "fixture_purge_audit"
 ] as const;
 
 // EVERY migration in scripts/migration_manifest.cjs. Readiness fails closed
@@ -53,8 +53,22 @@ export const REQUIRED_MIGRATION_IDS = [
   "029", "030", "031", "032", "033", "034", "035", "036", "037", "038", "039", "040",
   "041", "042", "043", "044", "045", "046", "047", "048", "049", "050", "051", "052",
   "053", "054", "055", "056", "057", "058", "059", "060", "061", "065", "066", "067",
-  "068", "069", "070", "071", "072", "073", "074", "075", "076", "077"
+  "068", "069", "070", "071", "072", "073", "074", "075", "076", "077",
+  "078"
 ] as const;
+
+// Money / audit history the runtime roles must never DELETE or TRUNCATE, as
+// [table, also check DELETE]. siton.deals: the web runtime's DELETE serves the
+// draft-delete route (guarded by migration 078), so only TRUNCATE is refused.
+const RUNTIME_PROTECTED_TABLES: ReadonlyArray<readonly [string, boolean]> = [
+  ["deals", false],
+  ["participants", true], ["payment_attempts", true], ["platform_fee_money_events", true],
+  ["seller_settlements", true], ["seller_payout_batches", true], ["seller_payout_batch_items", true],
+  ["seller_payout_attempts", true], ["seller_payout_reconciliation_cases", true],
+  ["invoice_documents", true], ["invoice_document_attempts", true], ["audit_log", true],
+  ["webhook_events", true], ["payment_authorization_bindings", true], ["fulfillment_units", true],
+  ["deal_field_change_audit", true], ["operational_recovery_audit", true], ["fixture_purge_audit", true]
+];
 
 export async function assertDatabaseSchema(db: Db): Promise<void> {
   let ledger: { rows: any[] };
@@ -89,6 +103,10 @@ export async function assertDatabaseSchema(db: Db): Promise<void> {
     throw new Error(`database schema drift: missing tables ${missing.join(", ")}; run migrations`);
   }
 
+  // Enforcement triggers must exist AND be enabled: a trigger switched off with
+  // a DISABLE TRIGGER table command (tgenabled 'D', or 'R' = replica-only)
+  // keeps its name in pg_trigger while enforcing nothing, so a name-only check
+  // would report a disarmed database as ready. Fail closed on both.
   const requiredTriggers = [
     "trg_deals_before_update_enforce",
     "trg_participants_before_update_enforce",
@@ -103,10 +121,30 @@ export async function assertDatabaseSchema(db: Db): Promise<void> {
     "trg_payment_attempts_charge_rate_limit",
     // migration 076 (red-team C-1): outbox insertion evidence
     "trg_outbox_events_record_enqueue",
-    "trg_outbox_enqueue_evidence_no_update"
+    "trg_outbox_enqueue_evidence_no_update",
+    // migrations 067/068: payment operation lifecycle
+    "trg_payment_attempts_lifecycle_guard",
+    "trg_payment_attempts_eligibility",
+    "trg_payment_attempts_settlement_fence",
+    "trg_payment_attempts_settlement_horizon",
+    // migration 077: payout rail forward-only status / monotonic amounts
+    "trg_seller_settlements_status_forward_only",
+    "trg_seller_payout_batches_status_forward_only",
+    "trg_seller_payout_batch_items_status_forward_only",
+    "trg_seller_settlements_monotonic_amounts",
+    // migration 078: delete guard, frozen fields, issued documents, identities
+    "trg_deals_before_delete_guard",
+    "trg_participants_before_delete_fixture_purge",
+    "trg_deals_seller_frozen_after_publish",
+    "trg_participants_delivery_frozen_after_charge",
+    "trg_invoice_documents_issued_immutable",
+    "trg_invoice_documents_issued_no_delete",
+    "trg_payment_attempts_identity_immutable",
+    "trg_webhook_events_identity_immutable",
+    "trg_fixture_purge_audit_append_only"
   ];
   const triggers = await db.query(
-    `SELECT tgname FROM pg_trigger t
+    `SELECT t.tgname, t.tgenabled::text AS tgenabled FROM pg_trigger t
      JOIN pg_class c ON c.oid=t.tgrelid
      JOIN pg_namespace n ON n.oid=c.relnamespace
      WHERE n.nspname='siton' AND NOT t.tgisinternal`
@@ -115,6 +153,13 @@ export async function assertDatabaseSchema(db: Db): Promise<void> {
   const missingTriggers = requiredTriggers.filter((name) => !triggerSet.has(name));
   if (missingTriggers.length) {
     throw new Error(`database schema drift: missing triggers ${missingTriggers.join(", ")}`);
+  }
+  const requiredTriggerSet = new Set<string>(requiredTriggers);
+  const disabledTriggers = triggers.rows
+    .filter((row: any) => requiredTriggerSet.has(String(row.tgname)) && !["O", "A"].includes(String(row.tgenabled)))
+    .map((row: any) => `${row.tgname}(${row.tgenabled})`);
+  if (disabledTriggers.length) {
+    throw new Error(`database schema drift: enforcement triggers disabled: ${disabledTriggers.join(", ")}`);
   }
 
   // Migration 075 (admin login lockout) columns and the 076 per-row helpers
@@ -148,6 +193,47 @@ export async function assertDatabaseSchema(db: Db): Promise<void> {
     if (!helperSignatures.has(required)) {
       throw new Error(`database schema drift: per-row enforcement helper ${required} (migration 076) is missing`);
     }
+  }
+
+  // Migration 078 (Black-Sky D2/D3) must be live, not merely recorded: the
+  // test-action gate lives in a replaced function body and the delete
+  // protection in the FK delete actions.
+  const actionGate = await db.query(
+    `SELECT p.prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+     WHERE n.nspname='siton' AND p.proname='is_valid_action_name'`
+  );
+  if (actionGate.rows.length !== 1 || !String(actionGate.rows[0].prosrc).includes("siton.allow_test_actions")) {
+    throw new Error("database schema drift: is_valid_action_name does not gate test actions (migration 078)");
+  }
+  const restrictFks = await db.query(
+    `SELECT conname, confdeltype::text AS confdeltype FROM pg_constraint
+     WHERE connamespace='siton'::regnamespace AND contype='f'
+       AND conname IN ('participants_deal_id_fkey','payment_attempts_participant_id_fkey','platform_fee_money_events_deal_id_fkey')`
+  );
+  if (restrictFks.rows.length !== 3 || restrictFks.rows.some((row: any) => row.confdeltype !== "r")) {
+    throw new Error("database schema drift: money foreign keys are not ON DELETE RESTRICT (migration 078)");
+  }
+
+  // Runtime boundary, checked only where the runtime roles exist (staging /
+  // production; a plain local database has none): neither runtime role may
+  // DELETE or TRUNCATE money/audit history.
+  const runtimePrivileges = await db.query(
+    `SELECT r.rolname, t.tbl, t.check_delete,
+            has_table_privilege(r.rolname, format('siton.%I', t.tbl), 'DELETE') AS can_delete,
+            has_table_privilege(r.rolname, format('siton.%I', t.tbl), 'TRUNCATE') AS can_truncate
+     FROM pg_roles r
+     CROSS JOIN unnest($1::text[], $2::boolean[]) AS t(tbl, check_delete)
+     WHERE r.rolname IN ('siton_web_runtime','siton_worker_runtime')
+       AND to_regclass(format('siton.%I', t.tbl)) IS NOT NULL`,
+    [RUNTIME_PROTECTED_TABLES.map(([table]) => table), RUNTIME_PROTECTED_TABLES.map(([, checkDelete]) => checkDelete)]
+  );
+  const privilegeViolations: string[] = [];
+  for (const row of runtimePrivileges.rows) {
+    if (row.check_delete && row.can_delete) privilegeViolations.push(`${row.rolname} holds DELETE on siton.${row.tbl}`);
+    if (row.can_truncate) privilegeViolations.push(`${row.rolname} holds TRUNCATE on siton.${row.tbl}`);
+  }
+  if (privilegeViolations.length) {
+    throw new Error(`database runtime boundary drift: ${privilegeViolations.join("; ")}`);
   }
 
   const constraints = await db.query(

@@ -7247,8 +7247,11 @@ app.delete("/api/seller/deals/:dealId/images/:imageId", async (req: any, reply: 
 //   * the seller owns the deal
 //   * ZERO participation and ZERO financial activity (participants, payment
 //     attempts, authorization bindings, fee-ledger rows, webhook evidence)
-//   * Draft always qualifies; a published deal qualifies only while completely
-//     untouched
+//   * the deal was NEVER published (Draft, or a Draft that was cancelled).
+//     Black-Sky D2 (migration 078): a published deal — even an untouched one —
+//     is public, audited state and is never deleted; the seller pauses it and
+//     it fails at its deadline. The DB enforces the same rule with a BEFORE
+//     DELETE guard; this check answers it as a clean 409 first.
 // Anything with history uses the canonical cancellation path instead.
 // audit_log / legal_acceptances / operational_cases rows are deliberately
 // KEPT (soft references — the compliance trail survives the deal row).
@@ -7262,13 +7265,19 @@ app.delete("/api/seller/deals/:dealId", async (req: any, reply: any) => {
     requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
     await c.query("SELECT pg_advisory_xact_lock(hashtextextended('deal-delete:' || $1, 0))", [dealId]);
     const dealResult = await c.query(
-      `SELECT deal_id, seller_id, state FROM siton.deals WHERE deal_id=$1 FOR UPDATE`,
+      `SELECT deal_id, seller_id, state, published_at FROM siton.deals WHERE deal_id=$1 FOR UPDATE`,
       [dealId]
     );
     if (!dealResult.rowCount || normalizeSellerId(dealResult.rows[0].seller_id) !== sellerAuthority.seller_id) {
       throw Object.assign(new Error("deal not found"), { statusCode: 404, code: "deal_not_found" });
     }
     const state = String(dealResult.rows[0].state);
+    if (dealResult.rows[0].published_at || !["Draft", "Cancelled"].includes(state)) {
+      throw Object.assign(new Error("a published deal cannot be deleted; pause joining instead"), {
+        statusCode: 409,
+        code: "deal_delete_not_allowed"
+      });
+    }
     const activity = await c.query(
       `SELECT
          (SELECT count(*) FROM siton.participants WHERE deal_id=$1) AS participants,
@@ -7324,7 +7333,8 @@ app.delete("/api/seller/deals/:dealId", async (req: any, reply: any) => {
       ]
     );
     // The deal row itself — FKs cascade the content tables (images, options,
-    // terms, chat, viral rows); nothing financial exists by the guard above.
+    // terms, chat, viral rows); nothing financial exists by the guard above
+    // (money FKs are ON DELETE RESTRICT since migration 078).
     await c.query(`DELETE FROM siton.deals WHERE deal_id=$1`, [dealId]);
     return { ok: true, deleted: true, deal_id: dealId, previous_state: state };
   }, true);
