@@ -60,6 +60,7 @@ import {
 } from "./invoice_dispatch.js";
 import { registerFrontendExperience } from "./frontend_runtime.js";
 import { applicationRequestTelemetry } from "./infrastructure_metrics.js";
+import { createReadinessProbe } from "./readiness_probe.js";
 import { assertProductionRuntimeGuards } from "./production_guards.js";
 import { rewriteCanonicalApiAlias } from "./api_route_aliases.js";
 import { ensureJoinOtpVerified, ensureOtpRailTables, OtpValidationError } from "./otp_rail.js";
@@ -5268,6 +5269,9 @@ export function getWorkerIdentity() {
 }
 
 export async function closeWorkerDatabase() {
+  // The pool is gone: every cached readiness verdict and the grace anchor
+  // describe a connection that no longer exists.
+  readinessProbe.reset();
   await pool.end();
 }
 // Run the stuck-event reclaim every N poll cycles to amortise its cost.
@@ -5973,17 +5977,29 @@ app.post("/api/client-errors", { bodyLimit: 16 * 1024 }, async (req: any, reply:
   return reply.send();
 });
 
-app.get("/readiness", async (req: any, reply: any) => {
-  try {
-    const ready = await assertCanonicalRuntimeReady(pool, "web");
-    // Operational aid for the proxy hop configuration (A2): the address the
-    // runtime attributes to THIS caller. Lets an operator confirm from a
-    // browser that TRUST_PROXY_HOPS resolves their real address (not a proxy,
-    // not a spoofed X-Forwarded-For prefix). It is the caller's own address.
-    return { ...ready, client_ip: String(req.ip || ""), trust_proxy_hops: resolveTrustProxyHops() };
-  } catch {
-    return reply.code(503).send({ ok: false, code: "not_ready" });
+// Black-Sky F-H4: /health is LIVENESS (process answers, no database), and
+// /readiness is the cached, bounded, grace-aware DB verdict (readiness_probe.ts).
+// Render's health check points at /readiness (render.yaml explains why); the
+// cache means a probe storm costs one database check per TTL, and a transient
+// connection failure inside the grace period no longer restarts the service.
+export const readinessProbe = createReadinessProbe({
+  check: () => assertCanonicalRuntimeReady(pool, "web"),
+  onEvent: (event) => {
+    if (event.kind === "recovered") app.log.info({ readiness: event }, "readiness_recovered");
+    else app.log.warn({ readiness: event }, `readiness_${event.kind}`);
   }
+});
+
+app.get("/readiness", async (req: any, reply: any) => {
+  const verdict = await readinessProbe.probe();
+  reply.header("x-readiness-cache", verdict.cached ? "hit" : "miss");
+  reply.header("x-readiness-age-ms", String(verdict.age_ms));
+  if (!verdict.ok) return reply.code(503).send(verdict.body);
+  // Operational aid for the proxy hop configuration (A2): the address the
+  // runtime attributes to THIS caller. Lets an operator confirm from a
+  // browser that TRUST_PROXY_HOPS resolves their real address (not a proxy,
+  // not a spoofed X-Forwarded-For prefix). It is the caller's own address.
+  return { ...verdict.body, client_ip: String(req.ip || ""), trust_proxy_hops: resolveTrustProxyHops() };
 });
 
 function parseImageUploadBody(body: any) {
