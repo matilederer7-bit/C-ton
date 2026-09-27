@@ -6217,7 +6217,7 @@ export function registerFrontendExperience(
         if (applied && applied.held) finalClassification = { status: "ignored", reason: applied.reason };
       }
 
-      await webhookIngestion.markEvent(provider, eventId, finalClassification.status, finalClassification.reason);
+      await webhookIngestion.markEvent(provider, eventId, finalClassification.status, finalClassification.reason, ingested.claim_token);
 
       return reply.code(200).send({
         ok: true,
@@ -6228,7 +6228,7 @@ export function registerFrontendExperience(
       });
     } catch (error) {
       const failureReason = String((error as Error)?.message || error || "webhook_processing_failed").slice(0, 240);
-      await webhookIngestion.markEvent(provider, eventId, "failed", failureReason);
+      await webhookIngestion.markEvent(provider, eventId, "failed", failureReason, ingested.claim_token);
       throw error;
     }
   }
@@ -6323,7 +6323,7 @@ export function registerFrontendExperience(
         failure_reason: "grow_callback_unmatched_binding",
         remote_hint: String(req.ip || "")
       }).catch(() => undefined);
-      await webhookIngestion.markEvent("grow", event.event_id, "ignored", "no_matching_server_binding");
+      await webhookIngestion.markEvent("grow", event.event_id, "ignored", "no_matching_server_binding", ingested.claim_token);
       return reply.code(200).send({ ok: true, status: "ignored", reason: "no_matching_server_binding", money_from_callback: false });
     }
 
@@ -6367,7 +6367,7 @@ export function registerFrontendExperience(
     }
 
     const callbackStatus = lookupRetryable ? "failed" as const : "processed" as const;
-    await webhookIngestion.markEvent("grow", event.event_id, callbackStatus, `callback_hint:${lookupOutcome}`.slice(0, 240));
+    await webhookIngestion.markEvent("grow", event.event_id, callbackStatus, `callback_hint:${lookupOutcome}`.slice(0, 240), ingested.claim_token);
     return reply.code(200).send({
       ok: true,
       status: callbackStatus,

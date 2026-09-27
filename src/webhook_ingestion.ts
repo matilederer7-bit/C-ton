@@ -32,6 +32,17 @@ function resolveStaleMs(explicit?: number) {
   return Math.max(MIN_WEBHOOK_PROCESSING_STALE_MS, value);
 }
 
+// Claim fencing (Codex review on PR #99): every claim — first insert, re-claim
+// of pending/failed, stale reclaim — stamps a fresh random claim_token into
+// the stored envelope and hands it to the claimant. markEvent is a
+// compare-and-set on (status='processing', claim_token): only the CURRENT
+// claimant can finish the event. A processor that stalled past the stale bound
+// and wakes after another processor reclaimed (and perhaps finished) the event
+// is fenced out — its markEvent is a no-op, so it can never flip a terminal
+// processed/ignored/failed row back, nor make a finished event re-claimable
+// again. The maintenance sweep removes the token when it returns a stale row to
+// 'pending', which fences the stalled claimant the same way.
+//
 // The claim instant lives in the stored envelope (payload_jsonb.claimed_at):
 // no schema change; rows claimed before this field existed fall back to
 // received_at (their first claim).
@@ -65,9 +76,9 @@ export function buildWebhookIngestion(deps: { withTx: WithTx; staleProcessingMs?
         // loser re-reads the winner's row instead of surfacing a 23505 as 5xx.
         const inserted = await c.query(
           `INSERT INTO siton.webhook_events(provider, event_id, payload_jsonb, deal_id, participant_id, status)
-           VALUES ($1,$2,$3::jsonb || jsonb_build_object('claimed_at', clock_timestamp()),$4,$5,'processing')
+           VALUES ($1,$2,$3::jsonb || jsonb_build_object('claimed_at', clock_timestamp(), 'claim_token', gen_random_uuid()::text),$4,$5,'processing')
            ON CONFLICT (provider, event_id) DO NOTHING
-           RETURNING provider, event_id, status, received_at, processed_at`,
+           RETURNING provider, event_id, status, received_at, processed_at, payload_jsonb->>'claim_token' AS claim_token`,
           [input.provider, input.event_id, JSON.stringify(input.payload ?? {}), input.deal_id ?? null, input.participant_id ?? null]
         );
 
@@ -80,7 +91,8 @@ export function buildWebhookIngestion(deps: { withTx: WithTx; staleProcessingMs?
             event_id: input.event_id,
             status: inserted.rows[0].status as WebhookEventStatus,
             received_at: inserted.rows[0].received_at,
-            processed_at: inserted.rows[0].processed_at
+            processed_at: inserted.rows[0].processed_at,
+            claim_token: String(inserted.rows[0].claim_token) as string | null
           };
         }
 
@@ -105,7 +117,8 @@ export function buildWebhookIngestion(deps: { withTx: WithTx; staleProcessingMs?
         event_id: input.event_id,
         status: currentStatus,
         received_at: existingRow.received_at,
-        processed_at: existingRow.processed_at
+        processed_at: existingRow.processed_at,
+        claim_token: null as string | null
       };
     }).then(async (result) => {
       if (!result.duplicate || result.status === "processed" || result.status === "ignored") {
@@ -120,13 +133,13 @@ export function buildWebhookIngestion(deps: { withTx: WithTx; staleProcessingMs?
           `UPDATE siton.webhook_events
            SET status='processing',
                processed_at=NULL,
-               payload_jsonb=$4::jsonb || jsonb_build_object('claimed_at', clock_timestamp()),
+               payload_jsonb=$4::jsonb || jsonb_build_object('claimed_at', clock_timestamp(), 'claim_token', gen_random_uuid()::text),
                deal_id=COALESCE($5, deal_id),
                participant_id=COALESCE($6, participant_id)
            WHERE provider=$1
              AND event_id=$2
              AND (status IN ('pending','failed') OR (status='processing' AND ${CLAIM_STALE_SQL}))
-           RETURNING provider, event_id, status, received_at, processed_at`,
+           RETURNING provider, event_id, status, received_at, processed_at, payload_jsonb->>'claim_token' AS claim_token`,
           [input.provider, input.event_id, String(staleMs()), JSON.stringify(input.payload ?? {}), input.deal_id ?? null, input.participant_id ?? null]
         );
 
@@ -137,13 +150,20 @@ export function buildWebhookIngestion(deps: { withTx: WithTx; staleProcessingMs?
           should_process: true,
           status: updated.rows[0].status as WebhookEventStatus,
           received_at: updated.rows[0].received_at,
-          processed_at: updated.rows[0].processed_at
+          processed_at: updated.rows[0].processed_at,
+          claim_token: String(updated.rows[0].claim_token) as string | null
         };
       });
     });
   }
 
-  async function markEvent(provider: string, eventId: string, status: WebhookEventStatus, reason?: string | null) {
+  /**
+   * Finish a claimed event. Compare-and-set on the claim: applies only while
+   * the row is still 'processing' under THIS claimant's claim_token. Returns
+   * null (no-op) when the claimant was fenced out — the row was reclaimed by a
+   * newer claimant, returned to pending by the sweep, or already finished.
+   */
+  async function markEvent(provider: string, eventId: string, status: WebhookEventStatus, reason: string | null | undefined, claimToken: string | null) {
     await ensureStorage();
     return deps.withTx(async (c) => {
       const processedAt =
@@ -160,8 +180,11 @@ export function buildWebhookIngestion(deps: { withTx: WithTx; staleProcessingMs?
              END,
              processed_at=CASE WHEN $4::timestamptz IS NULL THEN processed_at ELSE $4::timestamptz END
          WHERE provider=$1 AND event_id=$2
+           AND status='processing'
+           AND $6::text IS NOT NULL
+           AND payload_jsonb->>'claim_token' = $6::text
          RETURNING provider, event_id, status, received_at, processed_at`,
-        [provider, eventId, status, processedAt, reason ?? null]
+        [provider, eventId, status, processedAt, reason ?? null, claimToken ?? null]
       );
 
       return result.rows[0] || null;
@@ -179,7 +202,7 @@ export function buildWebhookIngestion(deps: { withTx: WithTx; staleProcessingMs?
       const r = await c.query(
         `UPDATE siton.webhook_events
          SET status='pending',
-             payload_jsonb=payload_jsonb || jsonb_build_object('reclaimed_at', clock_timestamp(), 'reclaim_reason', 'stale_processing_claim')
+             payload_jsonb=(payload_jsonb - 'claim_token') || jsonb_build_object('reclaimed_at', clock_timestamp(), 'reclaim_reason', 'stale_processing_claim')
          WHERE (provider, event_id) IN (
            SELECT provider, event_id FROM siton.webhook_events
            WHERE status='processing' AND ${CLAIM_STALE_SQL.replace("$3", "$2")}
