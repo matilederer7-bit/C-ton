@@ -77,6 +77,49 @@ export function assertProductionRuntimeGuards(role: RuntimeRole, env: NodeJS.Pro
     if (String(env.GROW_REFERENCE_ENCRYPTION_KEY || "").trim().length > 0 && String(env.GROW_REFERENCE_ENCRYPTION_KEY || "").trim().length < 32) {
       failures.push("GROW_REFERENCE_ENCRYPTION_KEY must be at least 32 characters");
     }
+    // Black-Sky (Grow leftover): the reference-encryption keyring rotation
+    // settings are optional, but when present they must be well-formed at
+    // boot — a malformed kid or a short previous key would otherwise surface
+    // only as a decrypt-time "grow_reference_invalid" on a live payment
+    // callback. Mirrors the format rules of src/grow_payment_adapter.ts
+    // (kid: 1-32 chars of [A-Za-z0-9_-]; previous entries: "key" or
+    // "kid:key" with a >=32-character key; no kid may name two secrets).
+    const growKidPattern = /^[A-Za-z0-9_-]{1,32}$/;
+    const growKeyId = String(env.GROW_REFERENCE_ENCRYPTION_KEY_ID || "").trim();
+    if (growKeyId && !growKidPattern.test(growKeyId)) {
+      failures.push("GROW_REFERENCE_ENCRYPTION_KEY_ID must be 1-32 characters of [A-Za-z0-9_-]");
+    }
+    const growPreviousRaw = String(env.GROW_REFERENCE_ENCRYPTION_PREVIOUS_KEYS || "");
+    if (growPreviousRaw.trim()) {
+      const seenKids = new Map<string, string>();
+      const primaryKey = String(env.GROW_REFERENCE_ENCRYPTION_KEY || "").trim();
+      if (growKeyId && primaryKey) seenKids.set(growKeyId, primaryKey);
+      const entries = growPreviousRaw.split(",").map((entry) => entry.trim());
+      if (entries.some((entry) => !entry)) {
+        failures.push("GROW_REFERENCE_ENCRYPTION_PREVIOUS_KEYS must not contain empty entries (comma-separated \"key\" or \"kid:key\")");
+      }
+      for (const entry of entries.filter(Boolean)) {
+        const match = /^([A-Za-z0-9_-]{1,32}):(.+)$/.exec(entry);
+        const secret = match ? match[2]! : entry;
+        const kid = match ? match[1]! : "";
+        if (secret.length < 32) {
+          failures.push("GROW_REFERENCE_ENCRYPTION_PREVIOUS_KEYS entries must be at least 32 characters (\"key\" or \"kid:key\")");
+          break;
+        }
+        if (placeholder.test(secret)) {
+          failures.push("GROW_REFERENCE_ENCRYPTION_PREVIOUS_KEYS cannot contain a placeholder key");
+          break;
+        }
+        if (kid) {
+          const existing = seenKids.get(kid);
+          if (existing !== undefined && existing !== secret) {
+            failures.push(`GROW_REFERENCE_ENCRYPTION_PREVIOUS_KEYS kid "${kid}" names two different keys`);
+            break;
+          }
+          seenKids.set(kid, secret);
+        }
+      }
+    }
     const baseUrl = String(env.PAYMENT_PROVIDER_BASE_URL || "").trim();
     if (!baseUrl.startsWith("https://")) failures.push("PAYMENT_PROVIDER=grow requires an https PAYMENT_PROVIDER_BASE_URL");
     // Sandbox/live separation is bidirectional and fail-closed: sandbox may
@@ -168,6 +211,17 @@ export function assertProductionRuntimeGuards(role: RuntimeRole, env: NodeJS.Pro
     failures.push("CANONICAL_POSTGRES_RUNTIME=1 is required on a hosted/production deployment: the non-canonical join path is test-harness only");
   }
 
+  // Black-Sky E2: SUPABASE_MANAGEMENT_API_TOKEN is a Supabase *account*
+  // credential (billing add-ons, and on a broadly scoped token: projects,
+  // secrets, database). src/infrastructure_compute.ts reads it from the web
+  // runtime, so any read of the web/worker process environment (SSRF, log
+  // dump, dependency compromise, /debug surface) would hand over the account.
+  // Policy: the token lives ONLY in owner tooling / CI, never in a hosted or
+  // production web/worker runtime (docs/CONFIG_INVENTORY.md).
+  if ((hostedPlatformDeployment(env) || productionMode(env)) && String(env.SUPABASE_MANAGEMENT_API_TOKEN || "").trim()) {
+    failures.push("SUPABASE_MANAGEMENT_API_TOKEN must not be present in a hosted/production web or worker runtime: it is an account-level credential reserved for owner tooling and CI");
+  }
+
   if (!productionMode(env)) {
     if (failures.length) throw new Error(`external storage runtime guard failed: ${failures.join("; ")}`);
     return;
@@ -256,6 +310,29 @@ export function assertProductionRuntimeGuards(role: RuntimeRole, env: NodeJS.Pro
   const otpHashSalt = String(env.OTP_HASH_SALT || "").trim();
   if (!otpHashSalt) failures.push("OTP_HASH_SALT is required in production (the runtime otherwise hashes OTP codes with a public default salt)");
   else if (PUBLIC_DEFAULT_SECRETS.has(otpHashSalt) || placeholder.test(otpHashSalt)) failures.push("OTP_HASH_SALT must not be a placeholder or the public default salt");
+  // Black-Sky E10: src/otp_rail.ts signs OTP proof tokens with
+  // OTP_TOKEN_SECRET, falling back to SELLER_SESSION_SECRET and then to a
+  // public literal. A shared secret means a seller-session forgery and a
+  // buyer OTP-proof forgery are the same capability, and the literal is in
+  // this repository. Production requires its own distinct, non-placeholder
+  // secret of at least 32 characters.
+  const otpTokenSecret = String(env.OTP_TOKEN_SECRET || "").trim();
+  if (!otpTokenSecret) failures.push("OTP_TOKEN_SECRET is required in production (the runtime otherwise signs OTP proofs with SELLER_SESSION_SECRET or a public default)");
+  else if (PUBLIC_DEFAULT_SECRETS.has(otpTokenSecret) || placeholder.test(otpTokenSecret) || otpTokenSecret.length < 32) failures.push("OTP_TOKEN_SECRET must be a non-placeholder secret of at least 32 characters in production");
+  else if (sellerSessionSecret && otpTokenSecret === sellerSessionSecret) failures.push("OTP_TOKEN_SECRET must be distinct from SELLER_SESSION_SECRET in production");
+  else if (otpHashSalt && otpTokenSecret === otpHashSalt) failures.push("OTP_TOKEN_SECRET must be distinct from OTP_HASH_SALT in production");
+  // Black-Sky B2: the owner-email auto-claim (src/admin_identity.ts) turns a
+  // verified Supabase token whose e-mail claim matches SITON_OWNER_EMAIL into
+  // an active SuperAdmin. Whether Supabase only issues tokens after e-mail
+  // confirmation is a project setting this repository cannot verify, and
+  // third-party providers may assert unverified e-mails. In production the
+  // claim must therefore be pinned to a pre-bound auth user id, so the e-mail
+  // string alone never authorizes anything.
+  const ownerEmail = String(env.SITON_OWNER_EMAIL || "").trim();
+  const ownerAuthUserId = String(env.SITON_OWNER_AUTH_USER_ID || "").trim();
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (ownerEmail && !ownerAuthUserId) failures.push("SITON_OWNER_AUTH_USER_ID (the owner's Supabase auth user id) is required in production whenever SITON_OWNER_EMAIL is set: the owner admin claim must be pinned to a pre-bound identity, not to an e-mail claim");
+  else if (ownerAuthUserId && !uuidPattern.test(ownerAuthUserId)) failures.push("SITON_OWNER_AUTH_USER_ID must be the owner's Supabase auth user UUID");
 
   if (failures.length) throw new Error(`production runtime guard failed: ${failures.join("; ")}`);
 }

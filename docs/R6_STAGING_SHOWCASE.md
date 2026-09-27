@@ -21,7 +21,9 @@ evaluation. No real buyers, no real money (mockpay), no real notifications
    to the Siton server, never stored in the repo, logs, or docs.
 3. Confirm the verification email Supabase sends, then log in.
 4. On first authenticated contact the server auto-provisions your SuperAdmin
-   binding (`SITON_OWNER_EMAIL` gate — only your verified email can claim it).
+   binding (`SITON_OWNER_EMAIL` gate; on the hosted runtime the claim also
+   requires `SITON_OWNER_AUTH_USER_ID` to equal your Supabase auth user id —
+   see `docs/CONFIG_INVENTORY.md` §5).
 
 The same login also works on any owner-visible surface; each surface checks
 its own capability server-side (admin routes require the admin binding; the

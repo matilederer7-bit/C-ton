@@ -42,6 +42,7 @@ function productionEnv(overrides: Record<string, string | undefined> = {}): Node
     ADMIN_API_KEY: "admin-key-value-0123456789abcdef",
     SELLER_SESSION_SECRET: "seller-secret-value-0123456789abcdef",
     OTP_HASH_SALT: "capability-otp-salt-0123456789ab",
+    OTP_TOKEN_SECRET: "capability-otp-token-secret-0123456789abcd",
     RUNTIME_ROLE: "web",
     DISABLE_OUTBOX_WORKER: "1",
     SITON_VAT_MODE: "explicit",

@@ -53,6 +53,8 @@ Implementation references: [Supabase Metrics API](https://supabase.com/docs/guid
 
 Read-only hosted resource metrics require `SUPABASE_PROJECT_REF` and a dedicated `SUPABASE_METRICS_SECRET_KEY`. Current-tier discovery and the optional approved mutation require `SUPABASE_MANAGEMENT_API_TOKEN`; a fine-grained token needs `infra_add_ons_read` and `infra_add_ons_write`. Use a secret manager. Missing or rejected credentials produce explicit unavailable reasons and a disabled action.
 
+**Custody policy (Black-Sky E2):** `SUPABASE_MANAGEMENT_API_TOKEN` is an account-level credential. It is kept only in owner tooling / CI and must never be set on a hosted or production web/worker runtime — `src/production_guards.ts` refuses to boot when it is present. On hosted runtimes the compute panel therefore reports `SUPABASE_MANAGEMENT_API_TOKEN_missing` and the upgrade action stays disabled; compute changes are performed by the owner in the Supabase dashboard or from owner tooling.
+
 The Metrics API is beta and metric names can evolve. Parser failures degrade individual hosted metrics. PostgreSQL/application signals continue to load. History is lightweight and local; deploy/restart clears it, and the decision engine waits for sufficient time coverage before declaring sustained capacity pressure.
 
 ## Verification

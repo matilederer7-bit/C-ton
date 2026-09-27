@@ -321,6 +321,12 @@
           "reason": "the service-role key lives only inside the Edge Function runtime"
         },
         {
+          "var": "SUPABASE_MANAGEMENT_API_TOKEN",
+          "must": "absent",
+          "severity": "FAIL",
+          "reason": "Black-Sky E2: account-level Supabase credential; lives only in owner tooling / CI, never in a hosted web or worker runtime (src/production_guards.ts refuses it at boot)"
+        },
+        {
           "var": "PAYMENT_PROVIDER",
           "must": "equal",
           "value": "mockpay",
@@ -520,6 +526,19 @@
           "reason": "runtime gap OTP_HASH_SALT_DEFAULT_IN_PRODUCTION"
         },
         {
+          "var": "OTP_TOKEN_SECRET",
+          "must": "not_placeholder",
+          "severity": "FAIL",
+          "reason": "Black-Sky E10: signs buyer OTP proofs; the runtime otherwise falls back to SELLER_SESSION_SECRET or a public literal"
+        },
+        {
+          "var": "OTP_TOKEN_SECRET",
+          "must": "min_length",
+          "value": 32,
+          "severity": "FAIL",
+          "reason": "Black-Sky E10: HMAC strength; must also be distinct from SELLER_SESSION_SECRET and OTP_HASH_SALT (enforced by src/production_guards.ts)"
+        },
+        {
           "var": "PAYMENT_WEBHOOK_SECRET",
           "must": "not_placeholder",
           "roles": [
@@ -563,6 +582,12 @@
           "must": "absent",
           "severity": "FAIL",
           "reason": "service-role key never enters an application runtime"
+        },
+        {
+          "var": "SUPABASE_MANAGEMENT_API_TOKEN",
+          "must": "absent",
+          "severity": "FAIL",
+          "reason": "Black-Sky E2: account-level Supabase credential; lives only in owner tooling / CI, never in a hosted web or worker runtime (src/production_guards.ts refuses it at boot)"
         },
         {
           "var": "PAYMENT_PROVIDER",

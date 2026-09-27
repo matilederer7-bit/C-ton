@@ -1,12 +1,10 @@
 # Local Restore Checklist
 
-> **Refreshed 2026-09-27:** the current checklist (Node 22, local PostgreSQL + `pg_dump`, `db:migrate`, `db:backup-restore-rehearsal` PASS line, decrypting an off-site dump locally) is `docs/BACKUP_RESTORE_RUNBOOK.md` §6. Sections 4 and 7 below describe the retired Render demo database and are historical.
-
-Use this when moving machines, formatting, or rebuilding the C-ton dev/demo environment. Do not store secret values in this file or in git.
+Use this when moving machines, formatting, or rebuilding the C-ton development environment. Do not store secret values in this file or in git. Refreshed 2026-09-27 (Black-Sky E11): the old Render demo database (`cton-demo-db`, expired 2026-06-09) and the Base44 runtime are historical; the canonical topology is Render Web + Worker on Supabase Postgres/Storage (`render.yaml`). The full list of settings that live outside git is `docs/CONFIG_INVENTORY.md`. Restoring a backup or off-site dump into a local database (decrypt, `pg_restore`, `db:backup-restore-rehearsal`, money invariants) is `docs/BACKUP_RESTORE_RUNBOOK.md` §6.
 
 ## 1. Clone
 
-```powershell
+```bash
 git clone https://github.com/matilederer7-bit/C-ton.git
 cd C-ton
 git checkout master
@@ -15,139 +13,62 @@ git status
 git rev-list --left-right --count origin/master...HEAD
 ```
 
-Expected branch: `master`.
-Expected sync before work: `0 0` from the rev-list command.
+Expected branch: `master`. Expected sync before work: `0 0`.
 
-## 2. Node and Install
+## 2. Node and install
 
-Required Node version from `package.json`: `>=22.0.0`.
+Required Node version from `package.json` `engines`: `>=22.0.0` (the image and CI use Node 22).
 
-```powershell
+```bash
 node --version
-npm install
+npm ci
+npm ci --prefix web
 ```
 
-## 3. Restore Local Env Manually
+## 3. Local database
 
-Create a local `.env` from the saved private values. `.env` is gitignored and must stay out of git.
+Tests and local runs need a disposable PostgreSQL 16 on localhost. The test runner (`scripts/run_test_group.cjs`) creates and drops one database per test file and refuses non-local hosts (`scripts/lib/test_db_isolation.cjs`). Never point `DATABASE_URL` at the hosted Supabase project for local work.
 
-Required / common variables to restore without committing values:
-
-- `DATABASE_URL`
-- `DB_SCHEMA`
-- `APP_DEPLOYMENT_MODE`
-- `HOST`
-- `PORT`
-- `LOG_LEVEL`
-- `ADMIN_API_KEY`
-- `PAYMENT_PROVIDER`
-- `PAYMENT_PROVIDER_MODE`
-- `PAYMENT_WEBHOOK_PROVIDER`
-- `PAYMENT_WEBHOOK_SECRET`
-- `EXPECTED_COMMIT_SHA`
-- `INVOICE_PROVIDER`
-- `INVOICE_PROVIDER_MODE`
-- `INVOICE_PROVIDER_BASE_URL`
-- `INVOICE_PROVIDER_API_KEY`
-- `INVOICE_PROVIDER_BEARER_TOKEN`
-- `INVOICE_WEBHOOK_SECRET`
-- `NOTIFICATION_PROVIDER`
-- `DEBUG_SQL_LOGGING`
-- `DEBUG_JOIN_LOGGING`
-- `DEBUG_SURFACES_ENABLED`
-
-Optional external-provider variables may also be needed if those integrations are enabled:
-
-- `PAYMENT_PROVIDER_API_KEY`
-- `PAYMENT_PROVIDER_PUBLIC_KEY`
-- `PAYOUT_PROVIDER_API_KEY`
-- `DEBUG_SURFACES_ACCESS_KEY`
-- `SELLER_SESSION_SECRET`
-- `TWILIO_ACCOUNT_SID`
-- `TWILIO_AUTH_TOKEN`
-- `TWILIO_FROM`
-
-## 4. Render Database
-
-`DATABASE_URL` for the demo deployment is configured in Render as the managed database connection string. Do not paste it into git, docs, screenshots, or chat.
-
-Current demo DB details to preserve:
-
-- name: `cton-demo-db`
-- database: `cton_demo`
-- user: `cton_demo_user`
-- region: Frankfurt
-- PostgreSQL: 18
-- status: available
-- plan: free
-- note: DB expires on 2026-06-09 unless upgraded
-
-Do not apply the quarantined `legacy/render/render.legacy.yaml`. It is
-historical evidence only; restore the canonical Base44 + Supabase runtime from
-the current runtime manifest and activation checklist.
-
-## 5. Basic Checks
-
-Run only scripts that exist in `package.json`:
-
-```powershell
-npm test
+```bash
+docker compose up -d postgres   # or any local PostgreSQL 16
+export DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/siton
+npm run db:migrate
 ```
 
-Useful focused checks:
+## 4. Local `.env`
 
-```powershell
-npm run test:deal-types
-npm run test:deal-types-e2e
-npm run test:refund-policy
-npm run test:json-boundary
+Create `.env` from `.env.demo.example`. `.env` is gitignored and must stay out of git. For local/demo runs the defaults are sufficient; only restore private values if you need a real provider sandbox. Production-only secrets (`OTP_TOKEN_SECRET`, `SITON_OWNER_AUTH_USER_ID`, …) are never needed locally — see `docs/CONFIG_INVENTORY.md` §1 for where each hosted value lives.
+
+## 5. Checks
+
+```bash
+npx tsc -p tsconfig.json --noEmit           # typecheck
+npm run -s lint                             # backend enforcement scans
+node --test tests/release_tools/*.test.cjs  # release tooling
+DATABASE_URL=... node scripts/run_test_group.cjs security   # one group; "all" runs every group
+node scripts/siton_verify.cjs               # canonical verifier (needs local PostgreSQL)
 ```
 
-There is no `typecheck`, `build`, or `lint` script currently declared in `package.json`.
+## 6. Local run
 
-## 6. Local Run
-
-For local development:
-
-```powershell
-npm run dev
+```bash
+npm run dev                    # tsx src/app.ts
+npm run build:demo && node .demo_dist/src/app.js   # the same program the image runs
 ```
 
-For demo bundle flow:
+## 7. Hosted environment (reference only — owner console actions)
 
-```powershell
-npm run build:demo
-npm run start:demo:prod
-```
+- Render services `siton-staging-web` and `siton-staging-worker` deploy from `master` only after CI checks pass (`autoDeployTrigger: checksPass`).
+- Their secrets are set in the Render dashboard (`docs/CONFIG_INVENTORY.md` §1); nothing needs restoring from a local machine.
+- Supabase settings, Edge Function `storage-broker` and its secrets: `docs/CONFIG_INVENTORY.md` §2.
+- GitHub Actions secrets: `docs/CONFIG_INVENTORY.md` §3.
 
-`npm run start:demo` runs both steps through the package script.
-
-## 7. Demo DB Bootstrap
-
-Use only against the intended demo database:
-
-```powershell
-npm run bootstrap:demo-db
-```
-
-Confirm `DATABASE_URL` points at the correct Render/local demo DB before running.
-
-## 8. Render Demo Deployment
-
-1. Confirm `origin/master` contains the intended commit.
-2. Confirm Render env vars are configured in the Render dashboard and no secrets are committed.
-3. Confirm the Render database is available.
-4. Set `EXPECTED_COMMIT_SHA` to the commit being deployed.
-5. Trigger the Render demo service deploy.
-6. Check `/health` and Mission Control readiness after deploy.
-
-## 9. Pre-Format Final Check
+## 8. Pre-format final check
 
 Before formatting, confirm:
 
-- `git status --short` is clean.
-- `git rev-list --left-right --count origin/master...HEAD` returns `0 0`.
-- `.env` values are backed up outside git.
-- Render dashboard secrets are backed up or recoverable from the provider dashboards.
-- Local `uploads/` are either backed up or confirmed disposable.
+- `git status --short` is clean and `git rev-list --left-right --count origin/master...HEAD` returns `0 0` (no work exists only locally).
+- `.env` values you care about are backed up outside git.
+- Hosted secrets are recoverable from the Render / Supabase / GitHub / provider dashboards (they are not stored locally).
+- Local `uploads/` are backed up or confirmed disposable.
 - No secret values were added to git.

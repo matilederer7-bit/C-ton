@@ -26,6 +26,8 @@ function production(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
     ADMIN_API_KEY: "8f3c1d2e9a7b4c6d8e0f1a2b3c4d5e6f",
     SELLER_SESSION_SECRET: "0123456789abcdef0123456789abcdef0123",
     OTP_HASH_SALT: "9c8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f",
+    // Black-Sky E10: production requires its own OTP proof-signing secret.
+    OTP_TOKEN_SECRET: "5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d",
     PAYMENT_WEBHOOK_SECRET: "whsec_contract_fixture",
     DISABLE_OUTBOX_WORKER: "1",
     // R9A: production charging requires the explicit VAT authority.

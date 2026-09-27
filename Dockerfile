@@ -1,4 +1,7 @@
-FROM node:22-bookworm-slim
+# Black-Sky E9: the base image is pinned by its multi-arch index digest so a
+# re-pushed tag cannot silently change what ships. Dependabot (docker
+# ecosystem) proposes digest bumps as reviewable Pull Requests.
+FROM node:22-bookworm-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c
 
 WORKDIR /app
 
@@ -27,6 +30,12 @@ RUN npm run build:demo
 # same-origin under /preview by the Web service. --include=dev is required
 # because NODE_ENV=production would otherwise omit Vite/TypeScript.
 RUN cd web && npm ci --include=dev && npm run build && npm prune --omit=dev
+
+# Black-Sky E9: the runtime image carries production dependencies only. The
+# TypeScript/Vite/Vitest toolchain was needed for the two builds above and is
+# removed here (dotenv is a runtime dependency since src/runtime_config.ts
+# loads it at boot).
+RUN npm prune --omit=dev && npm cache clean --force
 
 # Run as non-root user.
 RUN useradd -m appuser && mkdir -p /var/lib/siton/uploads/deal-images && chown -R appuser:appuser /var/lib/siton

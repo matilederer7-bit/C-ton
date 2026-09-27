@@ -619,8 +619,14 @@ export type EnsureJoinOtpVerifiedResult = {
 
 /**
  * Verify that a join request carries a valid `buyer_join` OTP proof.
- * Accepts either a signed `otp_token` (preferred) or a `otp_challenge_id` that
- * is currently `verified` in the DB.
+ *
+ * Black-Sky B6: the proof is the signed `otp_token` returned ONLY to the
+ * caller who verified the code. The `challenge_id` is handed to whoever
+ * requested the challenge (and echoed in every verify error), so it is an
+ * identifier, never a proof: on its own it is refused, and when supplied next
+ * to the token it must name the same challenge. The proof is additionally
+ * bound to the first deal it is used for, so a leaked token cannot be
+ * replayed against other deals.
  */
 export async function ensureJoinOtpVerified(
   db: pg.Pool | pg.PoolClient,
@@ -631,14 +637,17 @@ export async function ensureJoinOtpVerified(
   if (!token && !challengeId) {
     throw new OtpValidationError("otp_required", 400, "otp_token or otp_challenge_id is required for join");
   }
-
-  let payload: OtpTokenPayload | null = null;
-  if (token) {
-    payload = verifyOtpToken(token);
-    if (!payload) throw new OtpValidationError("otp_not_verified", 400, "otp_token is invalid or expired");
+  if (!token) {
+    throw new OtpValidationError("otp_not_verified", 400, "otp_token is required: a challenge id alone is not a verification proof");
   }
 
-  const lookupId = payload?.challenge_id || challengeId;
+  const payload = verifyOtpToken(token);
+  if (!payload) throw new OtpValidationError("otp_not_verified", 400, "otp_token is invalid or expired");
+  if (challengeId && challengeId !== payload.challenge_id) {
+    throw new OtpValidationError("otp_not_verified", 400, "otp_challenge_id does not match the otp_token");
+  }
+
+  const lookupId = payload.challenge_id;
   const row = await db.query(
     `SELECT c.challenge_id, c.channel, c.destination_hash, c.purpose, c.status,
             c.deal_id, c.expires_at, c.verified_at, p.token_hash, p.expires_at AS proof_expires_at
@@ -655,7 +664,10 @@ export async function ensureJoinOtpVerified(
   if (Date.parse(challenge.proof_expires_at) <= Date.now()) {
     throw new OtpValidationError("otp_not_verified", 400, "verification expired");
   }
-  if (token && hashOtpProofToken(token) !== String(challenge.token_hash)) {
+  if (!timingSafeEqualStrings(hashOtpProofToken(token), String(challenge.token_hash))) {
+    throw new OtpValidationError("otp_not_verified", 400, "otp proof does not match challenge");
+  }
+  if (String(challenge.destination_hash) !== payload.destination_hash || String(challenge.purpose) !== payload.purpose) {
     throw new OtpValidationError("otp_not_verified", 400, "otp proof does not match challenge");
   }
 
@@ -675,6 +687,24 @@ export async function ensureJoinOtpVerified(
     const expectedHash = hashDestination(input.channel, input.destination);
     if (expectedHash !== String(challenge.destination_hash)) {
       throw new OtpValidationError("otp_not_verified", 400, "destination does not match verified challenge");
+    }
+  }
+
+  // Black-Sky B6: bind an unbound proof to the first deal it is presented
+  // for. The binding is atomic (deal_id IS NULL guard): a concurrent use for
+  // another deal loses and is refused by the deal check on its re-read.
+  if (!challenge.deal_id && /^[0-9a-f-]{36}$/i.test(String(input.deal_id || ""))) {
+    const bound = await db.query(
+      `UPDATE siton.otp_challenges SET deal_id=$2, updated_at=now()
+       WHERE challenge_id=$1 AND deal_id IS NULL
+       RETURNING deal_id`,
+      [lookupId, input.deal_id]
+    );
+    if (!bound.rowCount) {
+      const current = await db.query(`SELECT deal_id FROM siton.otp_challenges WHERE challenge_id=$1`, [lookupId]);
+      if (String(current.rows[0]?.deal_id || "") !== String(input.deal_id)) {
+        throw new OtpValidationError("otp_not_verified", 400, "challenge bound to a different deal");
+      }
     }
   }
 
