@@ -5446,10 +5446,10 @@ export async function reconcilePendingAuthorizationBindings(limit = 20, backoffM
          LIMIT $2
          FOR UPDATE SKIP LOCKED
        )
-       RETURNING b.authorization_id, b.provider_reference`,
+       RETURNING b.binding_id, b.authorization_id, b.provider_reference`,
       [paymentProvider.providerCode, Math.max(1, Math.floor(limit)), String(Math.max(0, Math.floor(minAgeMs))), String(Math.max(0, Math.floor(backoffMs)))]
     );
-    return r.rows as Array<{ authorization_id: string; provider_reference: string | null }>;
+    return r.rows as Array<{ binding_id: string; authorization_id: string; provider_reference: string | null }>;
   });
   let confirmed = 0;
   for (const row of due) {
@@ -5470,7 +5470,7 @@ export async function reconcilePendingAuthorizationBindings(limit = 20, backoffM
     } catch (error) {
       // an amount contradiction already failed the binding closed; anything
       // else is retried after the backoff
-      if (!(error instanceof PaymentBindingError)) app.log.warn({ authorization_id: row.authorization_id, err: error }, "pending binding sweep: status lookup failed");
+      if (!(error instanceof PaymentBindingError)) app.log.warn({ binding_id: row.binding_id, err: error }, "pending binding sweep: status lookup failed");
     }
   }
   return { examined: due.length, confirmed };
