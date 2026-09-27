@@ -56,7 +56,7 @@ export type ProviderAmbiguityPolicy = {
   same_identity_repeat_safe: boolean;
   negative_status_authoritative: boolean;
   /**
-   * Independent financial review — SETTLEMENT HORIZON (migration 064): how
+   * Independent financial review — SETTLEMENT HORIZON (migration 068): how
    * long after a capture-side request was dispatched the provider may still
    * settle it. A failure that was only INFERRED from status reads fences
    * automatic recovery, release and the terminal deal decision until

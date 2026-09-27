@@ -47,7 +47,6 @@ const GUARD_CALL_PATTERNS = {
   admin: /\b(?:requireAdminAuthContext|requireAdminRead|requireAdminMutation|requireAdminKey|requireAdminPermission)\s*\(/,
   // rejectManualSellerContextSwitch: the demo-only context switch refuses outright outside demo-preview.
   seller: /\b(?:requireSellerAuthority|requireSellerAuthorityWithoutBody|resolveRequiredSellerContext|requireSellerOperate|requireSeller|rejectManualSellerContextSwitch)\s*\(/,
-  distributor: /\b(?:resolveDistributorContext|requireDistributor\w*)\s*\(/,
   // Scoped read-only external link dashboard: requireLinkViewer refuses (401/503) before any input is read.
   link_viewer: /\brequireLinkViewer\s*\(/
 };
@@ -57,7 +56,9 @@ function principalFor(routePath, config) {
   if (routePath.startsWith("/api/admin/")) return "admin";
   if (routePath.startsWith("/api/seller/")) return "seller";
   if (routePath.startsWith("/api/link-viewer/")) return "link_viewer";
-  return "distributor";
+  // /api/affiliate/ has no authenticated principal any more (distributor
+  // identity was removed): a protected route there has no guard to detect.
+  return "affiliate";
 }
 
 // Route metadata declared at registration: `app.post(path, { config: { authority: "seller" } }, ...)`
@@ -95,13 +96,16 @@ function authFor(routePath, handlerText, config) {
       anonymous_by_design_reason: policy.anonymousByDesignReason(routePath),
       role: routePath.startsWith("/api/admin/") ? "admin-login"
         : routePath.startsWith("/api/seller/") ? "seller-login"
-          : "distributor-login"
+          : routePath.startsWith("/api/link-viewer/") ? "link-viewer-login"
+            : "affiliate-visit"
     };
   }
 
   if (klass === "protected") {
     const principal = principalFor(routePath, config);
-    const pattern = GUARD_CALL_PATTERNS[principal] || GUARD_CALL_PATTERNS.distributor;
+    // A principal with no refusing guard helper (affiliate) never matches, so
+    // any protected route it owns is reported as "no-guard-call".
+    const pattern = GUARD_CALL_PATTERNS[principal] || /$^/;
     const guardCall = (handlerText.match(pattern) || [])[0] || null;
     const role = principal === "admin"
       ? (handlerText.match(/requireAdminPermission\([^,]+,[^,]+,\s*["'`]([^"'`]+)/) || [])[1] || "admin"

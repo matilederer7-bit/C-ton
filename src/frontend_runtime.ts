@@ -50,6 +50,21 @@ import {
 } from "./operational_cases.js";
 import { getDealImagePublicUrl, resolveDealImageUrl } from "./product_image_storage.js";
 import { calculatePlatformFeeMoney, SITON_PLATFORM_FEE_RATE } from "./platform_fee_money.js";
+
+// Red-team B3: seller/admin fee PROJECTIONS (authorized frames, not revenue)
+// must follow the SAME formula as the ledger — 8% of the VAT-exclusive
+// collected base plus VAT on the fee (docs/PLATFORM_FEE_PAYMENTS_8_PERCENT.md)
+// — otherwise a seller sees a flat 8% of gross that never matches the
+// platform_fee_actual the money events later record. Product and delivery
+// gross are projected separately because their VAT rates are separate inputs.
+function projectPlatformFeeTotal(productGross: number, deliveryGross: number): number {
+  const product = Math.max(0, Number(productGross || 0));
+  const delivery = Math.max(0, Number(deliveryGross || 0));
+  const grossAmount = product + delivery;
+  if (!(grossAmount > 0)) return 0;
+  const vat = computeCustomerChargeVat({ productGrossAmount: product, deliveryGrossAmount: delivery });
+  return calculatePlatformFeeMoney({ grossAmount, vatAmount: vat.vat_amount }).platform_fee_total_amount;
+}
 import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
 import { ensurePayoutRailTables } from "./payout_rail.js";
@@ -107,16 +122,6 @@ import {
   serializeExpiredBuyerSessionCookie
 } from "./buyer_session.js";
 import {
-  DISTRIBUTOR_SESSION_TTL_SECONDS,
-  createDistributorSessionToken,
-  distributorAuthConfigured,
-  distributorCookieSecure,
-  hashDistributorSessionToken,
-  readDistributorSessionToken,
-  serializeDistributorSessionCookie,
-  serializeExpiredDistributorSessionCookie
-} from "./distributor_identity.js";
-import {
   buildSellerAnalytics,
   normalizeSellerAnalyticsPeriod,
   SELLER_ANALYTICS_PERIODS
@@ -158,6 +163,9 @@ import {
   parseCookieHeader,
   createAdminMfaCode,
   ADMIN_MFA_MAX_ATTEMPTS,
+  ADMIN_LOGIN_MAX_FAILURES,
+  ADMIN_LOGIN_FAILURE_WINDOW_MINUTES,
+  ADMIN_LOGIN_LOCK_MINUTES,
   ensureAdminIdentityTables,
   hasAdminPermission,
   hasRecentMfa,
@@ -675,88 +683,6 @@ async function revokeSellerSession(c: any, req: any, reason: string) {
          revoked_reason = $2
      WHERE token_hash = $1
        AND revoked_at IS NULL`,
-    [tokenHash, String(reason || "logout").slice(0, 120)]
-  );
-}
-
-function mapDistributorProfile(profile: any, contextSource: "demo_context" | "server_session") {
-  return {
-    affiliate_id: String(profile.affiliate_id),
-    affiliate_code: String(profile.affiliate_code),
-    display_name: String(profile.display_name || profile.affiliate_code),
-    verification_status: String(profile.verification_status || "pending"),
-    context_source: contextSource,
-    session_id: profile.session_id ? String(profile.session_id) : null,
-    expires_at: profile.expires_at ? String(profile.expires_at) : null
-  };
-}
-
-async function findDistributorLoginAccount(c: any, identifier: string) {
-  const normalized = String(identifier || "").trim();
-  const email = normalizeSellerLoginEmail(normalized);
-  const result = await c.query(
-    `SELECT affiliate_id, affiliate_code, display_name, verification_status,
-            login_email, auth_secret_hash, auth_enabled, last_login_at
-     FROM siton.affiliate_accounts
-     WHERE affiliate_code=$1 OR ($2 <> '' AND lower(login_email)=$2)
-     LIMIT 1`,
-    [normalized.slice(0, 120), email]
-  );
-  return result.rows[0] || null;
-}
-
-async function issueDistributorSession(c: any, req: any, profile: any) {
-  const token = createDistributorSessionToken();
-  const tokenHash = hashDistributorSessionToken(token);
-  if (!tokenHash) throw Object.assign(new Error("distributor session auth is not configured"), { statusCode: 503 });
-  const expiresAt = new Date(Date.now() + DISTRIBUTOR_SESSION_TTL_SECONDS * 1000).toISOString();
-  const inserted = await c.query(
-    `INSERT INTO siton.distributor_sessions
-       (affiliate_id, token_hash, expires_at, created_ip, created_user_agent)
-     VALUES ($1,$2,$3,$4,$5)
-     RETURNING session_id, expires_at`,
-    [profile.affiliate_id, tokenHash, expiresAt, requestClientIp(req), requestUserAgent(req)]
-  );
-  await c.query(
-    `UPDATE siton.affiliate_accounts SET last_login_at=now(), updated_at=now() WHERE affiliate_id=$1`,
-    [profile.affiliate_id]
-  );
-  return { token, ...inserted.rows[0] };
-}
-
-async function resolveDistributorContext(req: any, c: any, isDemoPreview: boolean) {
-  if (isDemoPreview) {
-    const demo = await c.query(
-      `SELECT affiliate_id, affiliate_code, display_name, verification_status
-       FROM siton.affiliate_accounts WHERE affiliate_code=$1 LIMIT 1`,
-      [DEFAULT_AFFILIATE_CODE]
-    );
-    return demo.rowCount ? mapDistributorProfile(demo.rows[0], "demo_context") : null;
-  }
-  if (!distributorAuthConfigured()) return null;
-  const tokenHash = hashDistributorSessionToken(readDistributorSessionToken(req));
-  if (!tokenHash) return null;
-  const result = await c.query(
-    `SELECT s.session_id, s.expires_at, a.affiliate_id, a.affiliate_code,
-            a.display_name, a.verification_status, a.auth_enabled
-     FROM siton.distributor_sessions s
-     JOIN siton.affiliate_accounts a ON a.affiliate_id=s.affiliate_id
-     WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at > now()
-       AND a.auth_enabled=true AND a.verification_status='verified'
-     LIMIT 1`,
-    [tokenHash]
-  );
-  if (!result.rowCount) return null;
-  await c.query(`UPDATE siton.distributor_sessions SET last_seen_at=now() WHERE session_id=$1`, [result.rows[0].session_id]);
-  return mapDistributorProfile(result.rows[0], "server_session");
-}
-
-async function revokeDistributorSession(c: any, req: any, reason: string) {
-  const tokenHash = hashDistributorSessionToken(readDistributorSessionToken(req));
-  if (!tokenHash) return;
-  await c.query(
-    `UPDATE siton.distributor_sessions SET revoked_at=now(), revoked_reason=$2
-     WHERE token_hash=$1 AND revoked_at IS NULL`,
     [tokenHash, String(reason || "logout").slice(0, 120)]
   );
 }
@@ -1745,8 +1671,15 @@ export function registerFrontendExperience(
     }
     if (!signatureHeader) return false;
 
-    // Replay protection: reject requests older than 5 minutes or with future timestamps
-    if (timestampHeader) {
+    // Replay protection: reject requests older than 5 minutes or with future
+    // timestamps. Red-team hardening (B4): once a REAL secret is configured the
+    // timestamp is mandatory — a validly signed body with no timestamp used to
+    // be accepted regardless of age (the replay window only ran when the header
+    // was present). Enforced in every production-like runtime; the test/demo
+    // harness can opt in with PAYMENT_WEBHOOK_REQUIRE_TIMESTAMP=1.
+    if (!timestampHeader) {
+      if (isProductionLikeEnv() || process.env.PAYMENT_WEBHOOK_REQUIRE_TIMESTAMP === "1") return false;
+    } else {
       const ts = Number(timestampHeader);
       if (!Number.isFinite(ts) || Math.abs(Date.now() - ts * 1000) > WEBHOOK_REPLAY_WINDOW_MS) {
         return false;
@@ -2477,76 +2410,6 @@ export function registerFrontendExperience(
     };
   });
 
-  app.get("/api/distributor/session", async (req: any, reply: any) => {
-    await ensureProductSurfaces();
-    return deps.withTx(async (c) => {
-      if (!deps.isDemoPreview && !distributorAuthConfigured()) {
-        return reply.code(503).send({
-          ok: false,
-          error: "distributor_auth_unavailable",
-          distributor_auth: { mode: "server-session", configured: false, authenticated: false }
-        });
-      }
-      const context = await resolveDistributorContext(req, c, deps.isDemoPreview);
-      if (!context) {
-        return reply.code(401).send({
-          ok: false,
-          error: "distributor_auth_required",
-          distributor_auth: { mode: "server-session", configured: true, authenticated: false }
-        });
-      }
-      return {
-        ok: true,
-        distributor_auth: {
-          mode: deps.isDemoPreview ? "demo-context" : "server-session",
-          configured: true,
-          authenticated: true,
-          distributor_context: context
-        }
-      };
-    });
-  });
-
-  app.post("/api/distributor/session/login", async (req: any, reply: any) => {
-    if (deps.isDemoPreview) {
-      return reply.code(409).send({ ok: false, error: "distributor_auth_not_needed_in_demo" });
-    }
-    if (!distributorAuthConfigured()) {
-      return reply.code(503).send({ ok: false, error: "distributor_auth_unavailable" });
-    }
-    await ensureProductSurfaces();
-    return deps.withTx(async (c) => {
-      const identifier = String(req.body?.identifier || req.body?.affiliate_code || req.body?.login_email || "").trim();
-      const accessCode = String(req.body?.access_code || req.body?.password || "").trim();
-      const account = await findDistributorLoginAccount(c, identifier);
-      if (!account || !account.auth_enabled || !verifySellerAccessSecret(accessCode, account.auth_secret_hash)) {
-        return reply.code(401).send({ ok: false, error: "distributor_auth_invalid_credentials" });
-      }
-      if (String(account.verification_status) !== "verified") {
-        return reply.code(403).send({ ok: false, error: "distributor_auth_blocked" });
-      }
-      const session = await issueDistributorSession(c, req, account);
-      reply.header("set-cookie", serializeDistributorSessionCookie(session.token, { secure: distributorCookieSecure() }));
-      return {
-        ok: true,
-        distributor_auth: {
-          mode: "server-session",
-          configured: true,
-          authenticated: true,
-          distributor_context: mapDistributorProfile({ ...account, ...session }, "server_session")
-        }
-      };
-    });
-  });
-
-  app.post("/api/distributor/session/logout", async (req: any, reply: any) => {
-    if (!deps.isDemoPreview && distributorAuthConfigured()) {
-      await deps.withTx(async (c) => revokeDistributorSession(c, req, "logout"));
-    }
-    reply.header("set-cookie", serializeExpiredDistributorSessionCookie({ secure: distributorCookieSecure() }));
-    return { ok: true };
-  });
-
   app.put("/api/buyer/resume/:dealId", async (req: any, reply: any) => {
     const dealId = String(req.params?.dealId || "");
     requireUuid(dealId, "deal_id");
@@ -2718,7 +2581,8 @@ export function registerFrontendExperience(
         // revoke-prior-then-insert of the MFA challenge below cannot interleave
         // and leave multiple Pending challenges (each with its own attempt
         // budget) — the one-live-challenge guarantee (A1).
-        `SELECT admin_user_id, email, display_name, role, status, password_hash, mfa_required, mfa_enabled
+        `SELECT admin_user_id, email, display_name, role, status, password_hash, mfa_required, mfa_enabled,
+                failed_login_count, failed_login_window_started_at, login_locked_until
          FROM siton.admin_users
          WHERE lower(email)=lower($1)
          LIMIT 1
@@ -2726,8 +2590,49 @@ export function registerFrontendExperience(
         [email]
       );
       const row = result.rows[0];
+      // Red-team hardening (A3): per-account lockout, checked BEFORE the
+      // password so a locked account cannot be probed further. Only a real,
+      // Active account can be locked; a missing account answers the same 401
+      // as a wrong password below, so this adds no account-existence oracle.
+      if (row && row.status === "Active" && row.login_locked_until && Date.parse(String(row.login_locked_until)) > Date.now()) {
+        const retryAfterSeconds = Math.max(1, Math.ceil((Date.parse(String(row.login_locked_until)) - Date.now()) / 1000));
+        reply.header("retry-after", String(retryAfterSeconds));
+        return reply.code(429).send({ ok: false, error: "admin_login_locked", retry_after_seconds: retryAfterSeconds });
+      }
       if (!row || row.status !== "Active" || !(await verifyAdminPassword(password, row.password_hash))) {
+        if (row && row.status === "Active") {
+          // Sliding window: failures older than the window start a fresh count.
+          const windowStartedAt = row.failed_login_window_started_at ? Date.parse(String(row.failed_login_window_started_at)) : NaN;
+          const windowFresh = Number.isFinite(windowStartedAt) && Date.now() - windowStartedAt < ADMIN_LOGIN_FAILURE_WINDOW_MINUTES * 60_000;
+          const failures = (windowFresh ? Number(row.failed_login_count || 0) : 0) + 1;
+          if (failures >= ADMIN_LOGIN_MAX_FAILURES) {
+            await c.query(
+              `UPDATE siton.admin_users
+               SET failed_login_count=0, failed_login_window_started_at=NULL,
+                   login_locked_until=now() + ($2::int * interval '1 minute'), updated_at=now()
+               WHERE admin_user_id=$1`,
+              [row.admin_user_id, ADMIN_LOGIN_LOCK_MINUTES]
+            );
+          } else {
+            await c.query(
+              `UPDATE siton.admin_users
+               SET failed_login_count=$2,
+                   failed_login_window_started_at=CASE WHEN $3::boolean THEN failed_login_window_started_at ELSE now() END,
+                   updated_at=now()
+               WHERE admin_user_id=$1`,
+              [row.admin_user_id, failures, windowFresh]
+            );
+          }
+        }
         return reply.code(401).send({ ok: false, error: "admin_invalid_credentials" });
+      }
+      if (Number(row.failed_login_count || 0) > 0 || row.login_locked_until) {
+        await c.query(
+          `UPDATE siton.admin_users
+           SET failed_login_count=0, failed_login_window_started_at=NULL, login_locked_until=NULL, updated_at=now()
+           WHERE admin_user_id=$1`,
+          [row.admin_user_id]
+        );
       }
       if (row.mfa_required || row.mfa_enabled) {
         // Red-team hardening (A1): only ONE login challenge may be live at a
@@ -6017,188 +5922,6 @@ export function registerFrontendExperience(
     });
   });
 
-  app.get("/api/affiliate/overview", async (req: any, reply: any) => {
-    await ensureProductSurfaces();
-    return deps.withTx(async (c) => {
-      const profile = await resolveDistributorContext(req, c, deps.isDemoPreview);
-      if (!profile) {
-        return reply.code(distributorAuthConfigured() ? 401 : 503).send({
-          ok: false,
-          error: distributorAuthConfigured() ? "distributor_auth_required" : "distributor_auth_unavailable"
-        });
-      }
-
-      const campaigns = await c.query(
-        `SELECT d.deal_id,
-                d.title,
-                d.description,
-                d.state,
-                d.price_per_unit,
-                d.threshold_units,
-                d.max_units,
-                d.deadline,
-                d.created_at,
-                d.published_at,
-                COUNT(DISTINCT a.participant_id)::int AS attributed_buyers,
-                COALESCE(SUM(p.qty),0) AS attributed_units,
-                COALESCE(SUM((p.qty * d.price_per_unit) + COALESCE(p.delivery_cost,0)),0) AS attributed_gross,
-                COALESCE(dm.joined_units,0) AS joined_units,
-                img.image_id,
-                img.mime_type,
-                COALESCE(delivery.delivery_labels, ARRAY[]::text[]) AS delivery_labels
-         FROM siton.deals d
-         LEFT JOIN siton.affiliate_attributions a
-           ON a.deal_id = d.deal_id
-          AND a.affiliate_id = $1
-         LEFT JOIN siton.participants p ON p.participant_id = a.participant_id
-         LEFT JOIN LATERAL (
-           SELECT COALESCE(SUM(dp.qty),0) AS joined_units
-           FROM siton.participants dp
-           WHERE dp.deal_id=d.deal_id
-         ) dm ON true
-         LEFT JOIN LATERAL (
-           SELECT image_id, public_url, mime_type
-           FROM siton.deal_images
-           WHERE deal_id=d.deal_id
-           ORDER BY is_primary DESC, sort_order ASC, created_at ASC
-           LIMIT 1
-         ) img ON true
-         LEFT JOIN LATERAL (
-           SELECT array_agg(label ORDER BY sort_order, created_at) AS delivery_labels
-           FROM siton.deal_delivery_options
-           WHERE deal_id=d.deal_id
-         ) delivery ON true
-         GROUP BY d.deal_id, dm.joined_units, img.image_id, img.mime_type, delivery.delivery_labels
-         ORDER BY d.created_at DESC
-         LIMIT 50`,
-        [profile.affiliate_id]
-      );
-
-      const links = await c.query(
-        `SELECT l.link_id, l.deal_id, l.internal_name, l.source_code, l.created_at,
-                d.title, d.state, d.deadline, d.threshold_units, d.max_units,
-                COALESCE(dm.joined_units,0) AS joined_units,
-                COALESCE(event_stats.clicks,0) AS clicks,
-                COALESCE(event_stats.entries,0) AS entries,
-                COALESCE(attribution_stats.attributed_buyers,0) AS attributed_buyers,
-                COALESCE(attribution_stats.attributed_units,0) AS attributed_units
-         FROM siton.affiliate_links l
-         JOIN siton.deals d ON d.deal_id=l.deal_id
-         LEFT JOIN LATERAL (
-           SELECT COUNT(*) FILTER (WHERE event_type='click')::int AS clicks,
-                  COUNT(*) FILTER (WHERE event_type='entry')::int AS entries
-           FROM siton.affiliate_link_events
-           WHERE link_id=l.link_id
-         ) event_stats ON true
-         LEFT JOIN LATERAL (
-           SELECT COUNT(*)::int AS attributed_buyers,
-                  COALESCE(SUM(p.qty),0) AS attributed_units
-           FROM siton.affiliate_attributions a
-           LEFT JOIN siton.participants p ON p.participant_id=a.participant_id
-           WHERE a.affiliate_id=l.affiliate_id
-             AND a.deal_id=l.deal_id
-             AND a.share_code=l.source_code
-         ) attribution_stats ON true
-         LEFT JOIN LATERAL (
-           SELECT COALESCE(SUM(dp.qty),0) AS joined_units
-           FROM siton.participants dp
-           WHERE dp.deal_id=d.deal_id
-         ) dm ON true
-         WHERE l.affiliate_id=$1 AND l.disabled_at IS NULL
-         GROUP BY l.link_id, d.deal_id, dm.joined_units,
-                  event_stats.clicks, event_stats.entries,
-                  attribution_stats.attributed_buyers, attribution_stats.attributed_units
-         ORDER BY l.created_at DESC`,
-        [profile.affiliate_id]
-      );
-
-      const attributionTotals = await c.query(
-        `SELECT
-           COUNT(*)::int AS total_attributions,
-           COALESCE(SUM(p.qty),0) AS total_units,
-           COALESCE(SUM((p.qty * d.price_per_unit) + COALESCE(p.delivery_cost,0)),0) AS attributed_gross
-          FROM siton.affiliate_attributions a
-          LEFT JOIN siton.participants p ON p.participant_id = a.participant_id
-          LEFT JOIN siton.deals d ON d.deal_id = a.deal_id
-          WHERE a.affiliate_id = $1`,
-        [profile.affiliate_id]
-      );
-      const totals = attributionTotals.rows[0] as any;
-      const linkRows = links.rows.map((row: any) => {
-        const entries = Number(row.entries || 0);
-        const joins = Number(row.attributed_buyers || 0);
-        return {
-          link_id: row.link_id,
-          deal_id: row.deal_id,
-          internal_name: row.internal_name,
-          source_code: row.source_code,
-          created_at: row.created_at,
-          title: row.title,
-          state: row.state,
-          deadline: row.deadline,
-          threshold_units: Number(row.threshold_units || 0),
-          max_units: Number(row.max_units || 0),
-          joined_units: Number(row.joined_units || 0),
-          clicks: Number(row.clicks || 0),
-          entries,
-          attributed_buyers: joins,
-          attributed_units: Number(row.attributed_units || 0),
-          conversion_rate: entries > 0 ? roundMoney((joins / entries) * 100) : 0,
-          share_link: `/app/deal/${row.deal_id}?ref=${encodeURIComponent(row.source_code)}`
-        };
-      });
-
-      return {
-        ok: true,
-        affiliate_surface: {
-          attribution_status: totals.total_attributions > 0 ? "active" : "ready_for_attribution",
-          display_name: String(profile.display_name || DEFAULT_AFFILIATE_NAME),
-          verification_status: profile.verification_status,
-          note: "Distributor surfaces are attribution-only. Payment, payout, settlement, and internal compensation flows are not part of the live product model.",
-          totals: {
-            total_attributions: Number(totals.total_attributions || 0),
-            total_units: Number(totals.total_units || 0),
-            attributed_gross: Number(totals.attributed_gross || 0),
-            clicks: linkRows.reduce((sum: number, row: any) => sum + row.clicks, 0),
-            entries: linkRows.reduce((sum: number, row: any) => sum + row.entries, 0),
-            active_campaigns: campaigns.rows.filter((row: any) => Number(row.attributed_buyers || 0) > 0).length
-          },
-          verification_surface: {
-            status: profile.verification_status
-          },
-          capabilities: {
-            named_link_creation: true,
-            identity_mode: profile.context_source
-          },
-          links: linkRows,
-          campaigns: campaigns.rows.map((row: any) => ({
-            deal_id: row.deal_id,
-            title: row.title,
-            description: row.description || "",
-            state: row.state,
-            price_per_unit: Number(row.price_per_unit || 0),
-            threshold_units: Number(row.threshold_units || 0),
-            max_units: Number(row.max_units || 0),
-            joined_units: Number(row.joined_units || 0),
-            deadline: row.deadline,
-            created_at: row.created_at,
-            published_at: row.published_at,
-            attributed_buyers: Number(row.attributed_buyers || 0),
-            attributed_units: Number(row.attributed_units || 0),
-            attributed_gross: Number(row.attributed_gross || 0),
-            delivery_labels: Array.isArray(row.delivery_labels) ? row.delivery_labels : [],
-            image: row.image_id ? {
-              image_id: row.image_id,
-              mime_type: row.mime_type,
-              url: resolveDealImageUrl({ image_id: String(row.image_id), public_url: row.public_url })
-            } : null,
-            share_link: `/app/deal/${row.deal_id}?ref=${encodeURIComponent(profile.affiliate_code)}`
-          }))
-        }
-      };
-    });
-  });
-
   // ---------------------------------------------------------------------------
   // Webhook ingestion endpoint
   // Receives payment provider callbacks, verifies HMAC, deduplicates, classifies.
@@ -7986,56 +7709,6 @@ export function registerFrontendExperience(
     });
   });
 
-  app.post("/api/admin/distributor-auth/:affiliateId/provision", async (req: any, reply: any) => {
-    if (!(await requireAdminMutation(req, reply, "admin_users.manage"))) return;
-    await ensureProductSurfaces();
-    const affiliateId = String(req.params?.affiliateId || "");
-    requireUuid(affiliateId, "affiliate_id");
-    const loginEmailRaw = String(req.body?.login_email || "").trim();
-    const loginEmail = loginEmailRaw ? normalizeSellerLoginEmail(loginEmailRaw) : "";
-    if (loginEmailRaw && !loginEmail) return reply.code(400).send({ ok: false, error: "login_email_invalid" });
-    const authEnabled = req.body?.auth_enabled === undefined ? true : Boolean(req.body.auth_enabled);
-    const accessCode = String(req.body?.access_code || "").trim();
-    if (authEnabled && !accessCode) return reply.code(400).send({ ok: false, error: "access_code_required" });
-
-    return deps.withTx(async (c) => {
-      const current = await c.query(
-        `SELECT affiliate_id, affiliate_code, display_name, verification_status
-         FROM siton.affiliate_accounts WHERE affiliate_id=$1 LIMIT 1`,
-        [affiliateId]
-      );
-      if (!current.rowCount) return reply.code(404).send({ ok: false, error: "distributor_not_found" });
-      const nextSecretHash = authEnabled ? hashSellerAccessSecret(accessCode) : null;
-      const updated = await c.query(
-        `UPDATE siton.affiliate_accounts
-         SET login_email=NULLIF($2,''), auth_secret_hash=$3, auth_enabled=$4,
-             auth_secret_updated_at=CASE WHEN $3::text IS NULL THEN auth_secret_updated_at ELSE now() END,
-             updated_at=now()
-         WHERE affiliate_id=$1
-         RETURNING affiliate_id, affiliate_code, display_name, verification_status,
-                   login_email, auth_enabled, updated_at`,
-        [affiliateId, loginEmail, nextSecretHash, authEnabled]
-      );
-      await c.query(
-        `UPDATE siton.distributor_sessions SET revoked_at=now(), revoked_reason=$2
-         WHERE affiliate_id=$1 AND revoked_at IS NULL`,
-        [affiliateId, authEnabled ? "credentials_rotated" : "auth_disabled"]
-      );
-      return {
-        ok: true,
-        distributor_auth_subject: {
-          affiliate_id: updated.rows[0].affiliate_id,
-          affiliate_code: updated.rows[0].affiliate_code,
-          display_name: updated.rows[0].display_name,
-          verification_status: updated.rows[0].verification_status,
-          login_email: updated.rows[0].login_email,
-          auth_enabled: updated.rows[0].auth_enabled,
-          sessions_revoked: true
-        }
-      };
-    });
-  });
-
   app.get("/api/admin/system-status", async (req: any, reply: any) => {
     if (!(await requireAdminRead(req, reply))) return;
     await ensureProductSurfaces();
@@ -9787,23 +9460,24 @@ export function registerFrontendExperience(
       const dealType: DealType = (["physical_product","voucher","ticket"].includes(String(row.deal_type))
         ? (row.deal_type as DealType)
         : "physical_product");
+      // Red-team hardening (A5): the tracking credential is mandatory in every
+      // runtime. A bare participant UUID (guessable-by-leak) never unlocks the
+      // buyer's tracking view; the untokenized legacy path is retired.
       const accessToken = extractTrackingToken(req);
-      const mode = trackingMode();
-      if (accessToken) {
-        const access = await verifyParticipantTrackingAccess(c, {
-          participant_id: participantId,
-          deal_id: row.deal_id,
-          token: accessToken,
-          purposes: ["tracking", "recovery", "support"]
-        });
-        if (!access.ok) {
-          const err: any = new Error(access.error);
-          err.statusCode = 403;
-          throw err;
-        }
-      } else if (!mode.legacy_links_allowed) {
+      if (!accessToken) {
         const err: any = new Error("tracking_token_required");
         err.statusCode = 401;
+        throw err;
+      }
+      const access = await verifyParticipantTrackingAccess(c, {
+        participant_id: participantId,
+        deal_id: row.deal_id,
+        token: accessToken,
+        purposes: ["tracking", "recovery", "support"]
+      });
+      if (!access.ok) {
+        const err: any = new Error(access.error);
+        err.statusCode = 403;
         throw err;
       }
 
@@ -10121,25 +9795,26 @@ export function registerFrontendExperience(
         price_per_unit: number;
         deal_title: string;
       };
+      // Red-team hardening (A5): a recovery request is a MONEY action; it is
+      // never accepted on a bare participant id. The tracking/recovery
+      // credential is mandatory in every runtime (legacy path retired).
       const accessToken = extractTrackingToken(req);
-      const mode = trackingMode();
-      if (accessToken) {
-        const access = await verifyParticipantTrackingAccess(c, {
-          participant_id: participantId,
-          deal_id: row.deal_id,
-          token: accessToken,
-          purposes: ["recovery", "tracking"]
-        });
-        if (!access.ok) {
-          const err: any = new Error(access.error);
-          err.statusCode = 403;
-          err.code = access.error;
-          throw err;
-        }
-      } else if (!mode.legacy_links_allowed) {
+      if (!accessToken) {
         const err: any = new Error("tracking_token_required");
         err.statusCode = 401;
         err.code = "tracking_token_required";
+        throw err;
+      }
+      const access = await verifyParticipantTrackingAccess(c, {
+        participant_id: participantId,
+        deal_id: row.deal_id,
+        token: accessToken,
+        purposes: ["recovery", "tracking"]
+      });
+      if (!access.ok) {
+        const err: any = new Error(access.error);
+        err.statusCode = 403;
+        err.code = access.error;
         throw err;
       }
 
@@ -10242,9 +9917,14 @@ export function registerFrontendExperience(
       // than one pending recovery_deal per deal — repeat presses are no-ops at
       // the DB level. The worker already iterates all ChargeFailedRecovery
       // participants for the deal, so a single job suffices.
+      // Red-team hardening (C-1): this request changes NO deal/participant
+      // state, so no audit row is written and the audit flag must say so. A
+      // forged '1' here would let any later state UPDATE in this transaction
+      // slip past the coarse flag check; the per-row trigger (migration 076)
+      // would still reject it, and the flag now tells the truth as well.
       await c.query(`SELECT set_config('siton.in_atomic', 'true', true)`);
       await c.query(`SELECT set_config('siton.action_name', 'participant.recovery_request', true)`);
-      await c.query(`SELECT set_config('siton.audit_written', '1', true)`);
+      await c.query(`SELECT set_config('siton.audit_written', '0', true)`);
       await c.query(`SELECT set_config('siton.outbox_written', '0', true)`);
 
       const enqueueResult = await c.query(
@@ -10265,7 +9945,7 @@ export function registerFrontendExperience(
       );
       const queued = Boolean(enqueueResult.rowCount);
 
-      await c.query(`SELECT set_config('siton.outbox_written', '1', true)`);
+      await c.query(`SELECT set_config('siton.outbox_written', $1, true)`, [queued ? "1" : "0"]);
       await c.query(`SELECT set_config('siton.in_atomic', 'false', true)`);
 
       const response = {
@@ -10827,66 +10507,6 @@ export function registerFrontendExperience(
       error: "hosted_payment_required",
       message: "Payment details must be entered in the payment provider hosted component; C-ton accepts only payment_method_id."
     });
-  });
-
-  app.post("/api/affiliate/links", async (req: any, reply: any) => {
-    await ensureProductSurfaces();
-    const body = req.body || {};
-    const result = await deps.withTx(async (c) => {
-      const profile = await resolveDistributorContext(req, c, deps.isDemoPreview);
-      if (!profile) {
-        return {
-          status: distributorAuthConfigured() ? 401 : 503,
-          body: { error: distributorAuthConfigured() ? "distributor_auth_required" : "distributor_auth_unavailable" }
-        };
-      }
-      // Authorization precedes every observation: an anonymous caller must not be
-      // able to tell a malformed request from a well-formed one on this surface.
-      if (body.affiliate_id !== undefined || body.distributor_id !== undefined || body.tenant_id !== undefined) {
-        return { status: 400, body: { error: "client_distributor_identity_forbidden" } };
-      }
-      const dealId = String(body.deal_id || "").trim();
-      const internalName = String(body.internal_name || "").trim();
-      requireUuid(dealId, "deal_id");
-      if (!internalName || internalName.length > 80) {
-        return { status: 400, body: { error: "affiliate_link_name_invalid" } };
-      }
-      const deal = await c.query(
-        `SELECT deal_id, state FROM siton.deals WHERE deal_id=$1 LIMIT 1`,
-        [dealId]
-      );
-      if (!deal.rows[0]) return { status: 404, body: { error: "deal_not_found" } };
-      if (!["PendingTarget", "TargetReached"].includes(String(deal.rows[0].state))) {
-        return { status: 409, body: { error: "affiliate_link_deal_not_shareable" } };
-      }
-      const prefix = String(profile.affiliate_code || "distributor").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").slice(0, 32) || "distributor";
-      const sourceCode = `${prefix}-${randomBytes(6).toString("hex")}`;
-      try {
-        const inserted = await c.query(
-          `INSERT INTO siton.affiliate_links (affiliate_id, deal_id, internal_name, source_code)
-           VALUES ($1,$2,$3,$4)
-           RETURNING link_id, deal_id, internal_name, source_code, created_at`,
-          [profile.affiliate_id, dealId, internalName, sourceCode]
-        );
-        const row = inserted.rows[0] as any;
-        return {
-          status: 201,
-          body: {
-            ok: true,
-            link: {
-              ...row,
-              share_link: `/app/deal/${row.deal_id}?ref=${encodeURIComponent(row.source_code)}`
-            }
-          }
-        };
-      } catch (error: any) {
-        if (String(error?.code || "") === "23505") {
-          return { status: 409, body: { error: "affiliate_link_name_exists" } };
-        }
-        throw error;
-      }
-    });
-    return reply.code(result.status).send(result.body);
   });
 
   app.post("/api/affiliate/links/visit", async (req: any, reply: any) => {
@@ -11820,6 +11440,10 @@ export function registerFrontendExperience(
         `SELECT
            COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
              FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')), 0)::numeric(14,2) AS potential_gross,
+           COALESCE(SUM(p.qty * d.price_per_unit)
+             FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')), 0)::numeric(14,2) AS potential_product_gross,
+           COALESCE(SUM(p.delivery_cost)
+             FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')), 0)::numeric(14,2) AS potential_delivery_gross,
            COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
              FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')), 0)::numeric(14,2) AS charged_gross
          FROM siton.participants p
@@ -11891,7 +11515,10 @@ export function registerFrontendExperience(
         money: {
           // Provisional: authorized frames only — NOT revenue.
           potential_gross_volume: potentialGross,
-          platform_fee_projection: Math.round(potentialGross * SITON_PLATFORM_FEE_RATE * 100) / 100,
+          // Red-team B3: the projection follows the authoritative ledger formula
+          // (8% of the VAT-exclusive base + VAT on the fee), so it reconciles
+          // with platform_fee_actual instead of a flat 8% of gross.
+          platform_fee_projection: projectPlatformFeeTotal(Number(m.potential_product_gross || 0), Number(m.potential_delivery_gross || 0)),
           // Actual: successful charges only (ChargedSuccess/RecoveredCharge).
           charged_gross_volume: Number(m.charged_gross || 0),
           platform_fee_actual: Number(feeActual.rows[0].fee_actual || 0)
@@ -11977,6 +11604,10 @@ export function registerFrontendExperience(
                 COALESCE(SUM(p.qty) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::int AS charged_units,
                 COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
                   FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::numeric(14,2) AS potential_gross,
+                COALESCE(SUM(p.qty * d.price_per_unit)
+                  FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::numeric(14,2) AS potential_product_gross,
+                COALESCE(SUM(p.delivery_cost)
+                  FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::numeric(14,2) AS potential_delivery_gross,
                 COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
                   FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::numeric(14,2) AS charged_gross,
                 MAX(GREATEST(d.updated_at, p.updated_at)) AS last_activity_at
@@ -11995,11 +11626,15 @@ export function registerFrontendExperience(
       const feeMap = new Map(feeBySeller.rows.map((r: any) => [String(r.seller_id), Number(r.fee_actual)]));
       return {
         ok: true,
-        sellers: rows.rows.map((r: any) => ({
-          ...r,
-          platform_fee_actual: feeMap.get(String(r.seller_id)) || 0,
-          platform_fee_projection: Math.round(Number(r.potential_gross || 0) * SITON_PLATFORM_FEE_RATE * 100) / 100
-        }))
+        sellers: rows.rows.map((r: any) => {
+          const { potential_product_gross, potential_delivery_gross, ...rest } = r;
+          return {
+            ...rest,
+            platform_fee_actual: feeMap.get(String(r.seller_id)) || 0,
+            // Red-team B3: ledger-aligned projection (VAT-exclusive base, fee + fee-VAT).
+            platform_fee_projection: projectPlatformFeeTotal(Number(potential_product_gross || 0), Number(potential_delivery_gross || 0))
+          };
+        })
       };
     });
   });
@@ -12573,7 +12208,6 @@ export function registerFrontendExperience(
   app.get("/app/refunds", sendShell);
   app.get("/app/accessibility", sendShell);
   app.get("/app/seller-terms", sendShell);
-  app.get("/app/distributor-terms", sendShell);
   app.get("/app/contact", sendShell);
   app.get("/app/deal/:dealId", sendShell);
   app.get("/app/join/:dealId/otp", sendShell);
@@ -12585,7 +12219,6 @@ export function registerFrontendExperience(
   app.get("/app/seller/new", sendShell);
   app.get("/app/seller/deals/:dealId/edit", sendShell);
   app.get("/app/seller/deals/:dealId", sendShell);
-  app.get("/app/affiliate", sendShell);
   app.get("/app/admin", sendShell);
   app.get("/app/admin/deals/:dealId", sendShell);
   app.get("/app/admin/participants/:participantId", sendShell);

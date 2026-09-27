@@ -2,6 +2,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import pg from "pg";
+import { withForcedTx, forcedDealPath } from "./helpers/forced_state.js";
 
 process.env.DISABLE_OUTBOX_WORKER = "1";
 
@@ -73,23 +74,11 @@ async function forceDealState(dealId: string, state: string) {
   };
   const path = paths[state];
   assert.ok(path, `unsupported forced state ${state}`);
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    await client.query(`SELECT set_config('siton.in_atomic', 'true', true)`);
-    await client.query(`SELECT set_config('siton.audit_written', '1', true)`);
-    await client.query(`SELECT set_config('siton.outbox_written', '1', true)`);
-    for (const step of path) {
-      await client.query(`SELECT set_config('siton.action_name', $1, true)`, [step.action]);
-      await client.query(`UPDATE siton.deals SET state=$2 WHERE deal_id=$1`, [dealId, step.to]);
-    }
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  // Per-row audit enforcement (migration 076): every forced step writes its
+  // own audit row (and outbox row where the action requires one).
+  await withForcedTx(pool, path[0]!.action, async (client) => {
+    await forcedDealPath(client, dealId, path);
+  });
 }
 
 async function main() {

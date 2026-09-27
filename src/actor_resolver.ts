@@ -37,19 +37,12 @@ export interface AdminCapability {
   status: string;
 }
 
-export interface DistributorCapability {
-  affiliate_id: string;
-  auth_enabled: boolean;
-  verification_status: string;
-}
-
 export interface ResolvedCapabilities {
   sub: string;
   email: string;
   token: VerifiedToken;
   seller: SellerCapability | null;
   admin: AdminCapability | null;
-  distributor: DistributorCapability | null;
 }
 
 type Queryable = { query: (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number }> };
@@ -82,7 +75,10 @@ export async function resolveSupabaseCapabilities(
   const verified = await verifier.verify(token); // throws on invalid
   const sub = verified.sub;
 
-  const [sellerRes, adminRes, distRes] = await Promise.all([
+  // The authenticated distributor capability was RETIRED (canonical amendment
+  // 2026-09-16 §4 / red-team GOV): a Supabase principal never resolves to an
+  // affiliate account any more; affiliate rows are analytics-only.
+  const [sellerRes, adminRes] = await Promise.all([
     db.query(
       `SELECT seller_id, display_name, auth_enabled, COALESCE(seller_status,'Active') AS seller_status,
               COALESCE(verification_status,'pending') AS verification_status,
@@ -94,23 +90,17 @@ export async function resolveSupabaseCapabilities(
       `SELECT admin_user_id, email, role, status
        FROM siton.admin_users WHERE auth_user_id = $1 LIMIT 2`,
       [sub]
-    ),
-    db.query(
-      `SELECT affiliate_id, auth_enabled, COALESCE(verification_status,'pending') AS verification_status
-       FROM siton.affiliate_accounts WHERE auth_user_id = $1 LIMIT 2`,
-      [sub]
     )
   ]);
 
   // A sub bound to two rows of the SAME capability is a data integrity fault:
-  // there is no way to know which seller/admin/distributor the principal is.
-  if ((sellerRes.rowCount ?? 0) > 1 || (adminRes.rowCount ?? 0) > 1 || (distRes.rowCount ?? 0) > 1) {
+  // there is no way to know which seller/admin the principal is.
+  if ((sellerRes.rowCount ?? 0) > 1 || (adminRes.rowCount ?? 0) > 1) {
     throw new AuthTokenError("ambiguous_binding");
   }
 
   const sellerRow = sellerRes.rows[0];
   const adminRow = adminRes.rows[0];
-  const distRow = distRes.rows[0];
 
   return {
     sub,
@@ -132,13 +122,6 @@ export async function resolveSupabaseCapabilities(
           email: String(adminRow.email),
           role: String(adminRow.role),
           status: String(adminRow.status)
-        }
-      : null,
-    distributor: distRow
-      ? {
-          affiliate_id: String(distRow.affiliate_id),
-          auth_enabled: Boolean(distRow.auth_enabled),
-          verification_status: String(distRow.verification_status)
         }
       : null
   };

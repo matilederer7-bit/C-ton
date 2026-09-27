@@ -514,12 +514,6 @@
           "reason": "buyer resume cookies; the runtime falls back to empty (disabled) in production-like mode"
         },
         {
-          "var": "DISTRIBUTOR_SESSION_SECRET",
-          "must": "not_placeholder",
-          "severity": "FAIL",
-          "reason": "distributor sessions fail closed without it"
-        },
-        {
           "var": "OTP_HASH_SALT",
           "must": "not_placeholder",
           "severity": "FAIL",

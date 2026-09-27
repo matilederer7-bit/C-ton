@@ -27,7 +27,8 @@ const SELF = new Set([
   "scripts/legal_compliance_gate.cjs",
   "scripts/lib/raw_card_terms.cjs",
   "scripts/logging_hygiene_gate.cjs",
-  "scripts/secret_pii_scan.cjs"
+  "scripts/secret_pii_scan.cjs",
+  "scripts/git_history_secret_scan.cjs"
 ]);
 
 function run(options = {}) {

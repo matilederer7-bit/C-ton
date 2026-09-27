@@ -1159,8 +1159,8 @@ function buildSecurityHardeningGate(input?: { tables?: Set<string> }) {
         legacy_links_allowed: enforced.legacy_links_allowed,
         expired_tokens_count: null,
         revoked_tokens_count: null,
-        warnings: enforced.live_blocked_without_tracking_tokens
-          ? ["TRACKING_LEGACY_COMPAT=1 re-enables anonymous legacy tracking links on a production-like runtime"]
+        warnings: enforced.legacy_compat_env_ignored
+          ? ["TRACKING_LEGACY_COMPAT=1 is set but ignored: anonymous legacy tracking links are retired (red-team A5); remove the variable"]
           : enforced.legacy_links_allowed
             ? ["legacy links remain for local/demo compatibility"]
             : [],

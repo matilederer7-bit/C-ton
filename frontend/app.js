@@ -91,8 +91,6 @@ const state = {
   sellerAnalyticsError: null,
   sellerDealPayload: null,
   sellerDeliveryHandoff: null,
-  distributorAuth: null,
-  affiliatePayload: null,
   adminPayload: null,
   adminMissionPayload: null,
   adminLaunchPayload: null,
@@ -128,10 +126,6 @@ const state = {
     adminCaseStatus: "",
     adminCaseType: "",
     adminCasePriority: "",
-    affiliateDealId: "",
-    affiliateLinkName: "",
-    distributorIdentifier: "",
-    distributorAccessCode: "",
     qty: "1",
     deliveryOptionId: "",
     phone: "",
@@ -302,7 +296,6 @@ const ROUTE_LABELS = {
   "seller-new": "יצירת עסקה חדשה",
   "seller-edit": "עריכת טיוטת עסקה",
   "seller-deal": "ניהול עסקה",
-  affiliate: "מרכז הפצה",
   admin: "מרכז תפעול",
   "admin-support": "Support Hub",
   "admin-deal": "פרופיל עסקה לתפעול",
@@ -321,7 +314,6 @@ const ROUTE_LABELS = {
   refunds: "ביטולים והחזרים",
   accessibility: "הצהרת נגישות",
   "seller-terms": "תנאי מוכר",
-  "distributor-terms": "תנאי מפיץ",
   contact: "יצירת קשר",
   "not-found": "עמוד לא נמצא"
 };
@@ -331,8 +323,8 @@ const PAYMENT_READINESS = {
   integrationNote: "מסלול ההצטרפות נשאר זהה: אישור מסגרת עכשיו, חיוב רק אם העסקה נסגרת בהצלחה."
 };
 
-const INTERNAL_SURFACE_ROUTES = new Set(["affiliate", "admin", "admin-support", "admin-deal", "admin-user"]);
-const PUBLIC_TRUST_ROUTES = new Set(["home", "deal", "otp", "payment", "confirmation", "tracking", "recovery", "terms", "privacy", "refunds", "accessibility", "seller-terms", "distributor-terms", "contact"]);
+const INTERNAL_SURFACE_ROUTES = new Set(["admin", "admin-support", "admin-deal", "admin-user"]);
+const PUBLIC_TRUST_ROUTES = new Set(["home", "deal", "otp", "payment", "confirmation", "tracking", "recovery", "terms", "privacy", "refunds", "accessibility", "seller-terms", "contact"]);
 
 const DEAL_TONE = {
   Draft: "warning",
@@ -653,13 +645,11 @@ function parseRoute(path) {
     ["refunds", /^\/app\/refunds$/],
     ["accessibility", /^\/app\/accessibility$/],
     ["seller-terms", /^\/app\/seller-terms$/],
-    ["distributor-terms", /^\/app\/distributor-terms$/],
     ["contact", /^\/app\/contact$/],
     ["seller", /^\/app\/seller$/],
     ["seller-new", /^\/app\/seller\/new$/],
     ["seller-edit", /^\/app\/seller\/deals\/([^/]+)\/edit$/],
     ["seller-deal", /^\/app\/seller\/deals\/([^/]+)$/],
-    ["affiliate", /^\/app\/affiliate$/],
     ["admin", /^\/app\/admin$/],
     ["admin-support", /^\/app\/admin\/support$/],
     ["admin-deal", /^\/app\/admin\/deals\/([^/]+)$/],
@@ -670,7 +660,7 @@ function parseRoute(path) {
   for (const [name, regex] of patterns) {
     const match = normalized.match(regex);
     if (!match) continue;
-    if (name === "seller" || name === "seller-new" || name === "affiliate" || name === "admin" || name === "admin-support" || name === "payment-return" || name === "terms" || name === "privacy" || name === "refunds" || name === "accessibility" || name === "seller-terms" || name === "distributor-terms" || name === "contact") {
+    if (name === "seller" || name === "seller-new" || name === "admin" || name === "admin-support" || name === "payment-return" || name === "terms" || name === "privacy" || name === "refunds" || name === "accessibility" || name === "seller-terms" || name === "contact") {
       return { name };
     }
     return name === "tracking" || name === "recovery"
@@ -724,7 +714,6 @@ async function runRoute() {
   if (route.name === "seller-new") return prepareSellerNew();
   if (route.name === "seller-edit") return prepareSellerEdit(route.dealId);
   if (route.name === "seller-deal") return loadSellerDeal(route.dealId);
-  if (route.name === "affiliate") return loadAffiliate();
   if (route.name === "admin") return loadAdmin(state.form.adminQuery);
   if (route.name === "admin-support") return loadAdminSupportCases();
   if (route.name === "admin-deal") return loadAdminDeal(route.dealId);
@@ -1273,78 +1262,6 @@ async function loadSellerDeal(dealId) {
   }, "לא הצלחנו לטעון את מסך ניהול העסקה.");
 }
 
-async function loadAffiliate() {
-  await busy("טוען את מסך השותפים הפנימי...", async () => {
-    try {
-      const session = await api("/api/distributor/session");
-      state.distributorAuth = session?.distributor_auth || null;
-    } catch (error) {
-      if ([401, 503].includes(Number(error?.status || 0))) {
-        state.distributorAuth = error?.payload?.distributor_auth || {
-          mode: "server-session",
-          configured: Number(error?.status || 0) !== 503,
-          authenticated: false
-        };
-        state.affiliatePayload = null;
-        return;
-      }
-      throw error;
-    }
-    state.affiliatePayload = await api("/api/affiliate/overview");
-    const campaigns = state.affiliatePayload?.affiliate_surface?.campaigns || [];
-    if (!state.form.affiliateDealId && campaigns.length) {
-      const firstShareable = campaigns.find((campaign) => ["PendingTarget", "TargetReached"].includes(campaign.state));
-      state.form.affiliateDealId = firstShareable?.deal_id || "";
-    }
-  }, "לא הצלחנו לטעון את מסך השותפים הפנימי.");
-}
-
-async function loginDistributor(form) {
-  const data = new FormData(form);
-  const identifier = String(data.get("distributorIdentifier") || "").trim();
-  const accessCode = String(data.get("distributorAccessCode") || "").trim();
-  if (!identifier || !accessCode) return fail("חסרים פרטי כניסה", "יש להזין מזהה מפיץ וקוד גישה.");
-  await busy("פותח את מרכז ההפצה...", async () => {
-    const response = await api("/api/distributor/session/login", {
-      method: "POST",
-      body: json({ identifier, access_code: accessCode })
-    });
-    state.distributorAuth = response?.distributor_auth || null;
-    state.form.distributorAccessCode = "";
-    await loadAffiliate();
-  }, "הכניסה למרכז ההפצה נכשלה.");
-}
-
-async function logoutDistributor() {
-  await busy("סוגר את מרכז ההפצה...", async () => {
-    await api("/api/distributor/session/logout", { method: "POST" });
-    state.distributorAuth = { mode: "server-session", configured: true, authenticated: false };
-    state.affiliatePayload = null;
-  }, "לא הצלחנו לסגור את סשן המפיץ.");
-}
-
-async function createAffiliateLink(form) {
-  const formData = new FormData(form);
-  const dealId = String(formData.get("affiliateDealId") || state.form.affiliateDealId || "").trim();
-  const internalName = String(formData.get("affiliateLinkName") || state.form.affiliateLinkName || "").trim();
-  if (!dealId) return fail("לא נבחרה עסקה", "יש לבחור עסקה פתוחה להפצה.");
-  if (!internalName) return fail("חסר שם פנימי", "יש לתת ללינק שם שיעזור לזהות את ערוץ ההפצה.");
-  await busy("יוצר לינק ייחודי...", async () => {
-    const response = await api("/api/affiliate/links", {
-      method: "POST",
-      body: json({ deal_id: dealId, internal_name: internalName })
-    });
-    state.form.affiliateLinkName = "";
-    state.banner = {
-      tone: "success",
-      title: "לינק ההפצה נוצר",
-      message: "הלינק הייחודי מוכן להעתקה, שיתוף ומדידת ביצועים."
-    };
-    await loadAffiliate();
-    if (response?.link?.share_link) await copyLink(response.link.share_link);
-  }, "לא הצלחנו ליצור את לינק ההפצה.");
-}
-
 async function recordAffiliateVisit(dealId) {
   const sourceCode = currentAffiliateRef();
   if (!sourceCode) return;
@@ -1662,11 +1579,8 @@ async function submitAction(action, form) {
   if (action === "seller-context") return saveSellerContextFromForm(form);
   if (action === "seller-login") return loginSellerFromForm(form);
   if (action === "seller-logout") return logoutSeller();
-  if (action === "distributor-login") return loginDistributor(form);
-  if (action === "distributor-logout") return logoutDistributor();
   if (action === "seller-publish") return publishDeal(form.dataset.dealId, form);
   if (action === "seller-profile-save") return saveSellerProfile(form);
-  if (action === "affiliate-link-create") return createAffiliateLink(form);
   if (action === "recovery-submit") return submitRecoveryRequest(form.dataset.participantId || state.route.participantId);
   if (action === "admin-search") return loadAdmin(state.form.adminQuery);
   if (action === "admin-kyc-decision") return decideKyc(form);
@@ -3179,7 +3093,6 @@ function getRouteSummary() {
     "seller-new": "פתיחת עסקה חדשה במסלול מונחה, בעברית מלאה ובמובייל תחילה.",
     "seller-edit": "עריכת טיוטה קיימת עם שמירה בטוחה של הפרטים והתמונות.",
     "seller-deal": "דף עסקה למוכר עם תמונת מצב, משתתפים, מסירה ומסמכים.",
-    affiliate: "מרכז הפצה וייחוס עם מצב אימות וביצועי קמפיינים. המפיץ הוא ערוץ מדידה והפצה בלבד — ללא עמלה או תשלום.",
     admin: "מרכז תפעול, חיפוש, חריגות, תורי אימות ותמונת מערכת.",
     "admin-support": "Support Hub לטיפול בתיקי קצה בלבד, בלי אישור מראש ובלי פעולות כסף.",
     "admin-deal": "פרופיל עסקה לתפעול, בקרה ותמיכה.",
@@ -3218,12 +3131,10 @@ function renderCurrentRoute() {
   if (route.name === "refunds") return renderRefundsPage();
   if (route.name === "accessibility") return renderAccessibilityPage();
   if (route.name === "seller-terms") return renderSellerTermsPage();
-  if (route.name === "distributor-terms") return renderDistributorTermsPage();
   if (route.name === "contact") return renderContactPage();
   if (route.name === "seller") return renderCtonSellerPage();
   if (route.name === "seller-new" || route.name === "seller-edit") return renderSellerNewPage();
   if (route.name === "seller-deal") return renderCtonSellerDealPage();
-  if (route.name === "affiliate") return renderAffiliatePage();
   if (route.name === "admin") return renderAdminPage();
   if (route.name === "admin-support") return renderAdminSupportPage();
   if (route.name === "admin-deal") return renderAdminDealPage();
@@ -5846,103 +5757,6 @@ function renderSellerDealPage() {
   `;
 }
 
-function renderAffiliatePage() {
-  const payload = state.affiliatePayload?.affiliate_surface;
-  if (!payload && state.loading) return "";
-  if (!payload && state.distributorAuth?.configured === false) {
-    return renderEmptyState("אימות מפיץ טרם הופעל", "הקוד מוכן, אך נדרש DISTRIBUTOR_SESSION_SECRET לפני פתיחת סביבת production.");
-  }
-  if (!payload && !state.distributorAuth?.authenticated) {
-    return `
-      <section class="hero">
-        <article class="card hero-main stack">
-          <span class="eyebrow">כניסת מפיץ</span>
-          <h1>מרכז ההפצה מוגן בסשן שרת</h1>
-          <p class="muted">הזהות נקבעת בשרת בלבד. מזהה מפיץ שנשלח בכתובת או בגוף בקשה אינו משמש להרשאה.</p>
-          <form data-action="distributor-login" class="stack">
-            <div class="inline-fields">
-              <div class="field"><label for="distributorIdentifier">מזהה מפיץ או אימייל</label><input id="distributorIdentifier" name="distributorIdentifier" type="text" autocomplete="username" required /></div>
-              <div class="field"><label for="distributorAccessCode">קוד גישה</label><input id="distributorAccessCode" name="distributorAccessCode" type="password" autocomplete="current-password" required /></div>
-            </div>
-            <button class="primary" type="submit">כניסה למרכז ההפצה</button>
-          </form>
-        </article>
-      </section>`;
-  }
-  if (!payload) return renderEmptyState("מרכז ההפצה לא זמין", "לא הצלחנו לטעון עכשיו את מרכז ההפצה.");
-  const campaigns = Array.isArray(payload.campaigns) ? payload.campaigns : [];
-  const links = Array.isArray(payload.links) ? payload.links : [];
-  const shareableCampaigns = campaigns.filter((campaign) => ["PendingTarget", "TargetReached"].includes(campaign.state));
-  const canCreateNamedLinks = Boolean(payload.capabilities?.named_link_creation);
-  const totals = payload.totals || {};
-  return `
-    <section class="affiliate-workspace stack" id="affiliate-dashboard">
-      <header class="card section affiliate-header stack">
-        <div class="section-header">
-          <div><span class="eyebrow">הפצה וייחוס</span><h1>מרכז ההפצה של ${esc(payload.display_name || "המפיץ")}</h1><p class="muted">לינקים, ביצועים ונכסי שיווק במקום אחד — בלי מידע אישי של קונים ובלי מסלול כסף.</p></div>
-          <span class="badge ${payload.verification_status === "verified" ? "success" : "warning"}">${esc(payload.verification_status || "ממתין לאימות")}</span>
-        </div>
-        <nav class="affiliate-subnav" aria-label="ניווט מרכז הפצה">
-          <a href="#affiliate-dashboard">דשבורד</a>
-          <a href="#affiliate-links">לינקים להפצה</a>
-          <a href="#affiliate-performance">ביצועי לינקים</a>
-          <a href="#affiliate-assets">נכסי שיווק</a>
-        </nav>
-        <div class="info-strip tone-info affiliate-boundary-note">
-          <strong>מדידה וייחוס בלבד</strong>
-          <p>הנתונים אינם יוצרים זכאות כספית דרך Siton. עמלת מפיץ היא 0; אין יתרה, ארנק, משיכה, payout, חשבונית או זכות פיננסית.</p>
-        </div>
-        ${state.distributorAuth?.mode === "server-session" ? `<form data-action="distributor-logout"><button class="secondary" type="submit">יציאה ממרכז ההפצה</button></form>` : ""}
-      </header>
-
-      <section class="cton-kpi-grid affiliate-kpi-grid" aria-label="מדדי הפצה מרכזיים">
-        <article class="cton-kpi"><span>קליקים</span><strong>${num(totals.clicks || 0)}</strong></article>
-        <article class="cton-kpi"><span>כניסות ייחודיות</span><strong>${num(totals.entries || 0)}</strong></article>
-        <article class="cton-kpi"><span>הצטרפויות</span><strong>${num(totals.total_attributions || 0)}</strong></article>
-        <article class="cton-kpi"><span>יחידות שיוחסו</span><strong>${num(totals.total_units || 0)}</strong></article>
-        <article class="cton-kpi success"><span>ברוטו מיוחס</span><strong>${currency(totals.attributed_gross || 0)}</strong><small>מדד ייחוס, לא יתרה</small></article>
-      </section>
-
-      <section class="card section stack" id="affiliate-links">
-        <div class="section-header"><div><h2>לינקים להפצה</h2><p class="muted">בחרו עסקה מורשית ותנו ללינק שם פנימי. כל לינק מקבל מקור ייחודי למדידה.</p></div><span class="stat-pill"><span>לינקים פעילים</span><strong>${num(links.length)}</strong></span></div>
-        ${canCreateNamedLinks ? "" : `<div class="info-strip tone-warning"><strong>יצירת לינק חדש אינה זמינה בסביבה הזו</strong><p class="small">נדרש חיבור זהות מפיץ מאומתת לפני הפעלת פעולת כתיבה ב-production. לינקים ונתוני מדידה קיימים נשארים לקריאה בלבד.</p></div>`}
-        <form class="affiliate-link-form" data-action="affiliate-link-create">
-          <div class="field"><label for="affiliateDealId">עסקה להפצה</label><select id="affiliateDealId" name="affiliateDealId" required><option value="">בחירת עסקה</option>${shareableCampaigns.map((campaign) => `<option value="${esc(campaign.deal_id)}" ${state.form.affiliateDealId === campaign.deal_id ? "selected" : ""}>${esc(campaign.title)}</option>`).join("")}</select></div>
-          <div class="field"><label for="affiliateLinkName">שם פנימי ללינק</label><input id="affiliateLinkName" name="affiliateLinkName" type="text" maxlength="80" value="${esc(state.form.affiliateLinkName)}" placeholder="למשל: קבוצת וואטסאפ שכונתית" required /></div>
-          <button class="primary" type="submit" ${shareableCampaigns.length && canCreateNamedLinks ? "" : "disabled"}>יצירת לינק ייחודי</button>
-        </form>
-        ${links.length ? `<div class="card-list affiliate-link-list">${links.map((link) => `
-          <article class="summary-item stack">
-            <div class="actions spread"><div><span class="muted">${esc(link.title)}</span><h3>${esc(link.internal_name)}</h3></div><span class="badge ${DEAL_TONE[link.state] || "warning"}">${esc(getDealCopy(link.state).label)}</span></div>
-            <p class="mono small">${esc(absoluteUrl(link.share_link))}</p>
-            <div class="actions"><button class="primary" type="button" data-inline-action="copy-link" data-share-url="${esc(link.share_link)}">העתקה</button><button class="secondary" type="button" data-inline-action="share-link" data-share-url="${esc(link.share_link)}" data-share-title="${esc(link.title)}">שיתוף</button><a class="button secondary" href="#affiliate-performance">פתיחת ביצועים</a></div>
-          </article>
-        `).join("")}</div>` : `<div class="empty-surface"><strong>עדיין לא נוצרו לינקים בשם פנימי</strong><p class="small muted">בחרו עסקה פתוחה וצרו את הלינק הראשון. הלינק הקנוני של המפיץ נשאר זמין ברשימת העסקאות.</p></div>`}
-      </section>
-
-      <section class="card section stack" id="affiliate-performance">
-        <div class="section-header"><div><h2>ביצועי לינקים</h2><p class="muted">הנתונים מצטברים ואינם כוללים שם, טלפון, אימייל או פרטי תשלום של קונים.</p></div></div>
-        ${links.length ? `<div class="table-wrap"><table class="data-table affiliate-performance-table"><thead><tr><th>לינק</th><th>עסקה</th><th>קליקים</th><th>כניסות</th><th>הצטרפויות</th><th>המרה</th><th>יחידות</th><th>ברוטו מיוחס</th><th>מצב וזמן</th><th>כמות מול יעד</th></tr></thead><tbody>${links.map((link) => {
-          const campaign = campaigns.find((item) => item.deal_id === link.deal_id) || {};
-          const urgency = sellerDeadlineSignal(link.deadline, link.state);
-          return `<tr><td>${esc(link.internal_name)}</td><td>${esc(link.title)}</td><td>${num(link.clicks)}</td><td>${num(link.entries)}</td><td>${num(link.attributed_buyers)}</td><td>${num(link.conversion_rate)}%</td><td>${num(link.attributed_units)}</td><td>${currency(campaign.attributed_gross || 0)}<small class="muted"> מדד בלבד</small></td><td>${esc(getDealCopy(link.state).label)}<br/><small>${esc(urgency.title)}</small></td><td>${num(link.joined_units)} / ${num(link.threshold_units)}</td></tr>`;
-        }).join("")}</tbody></table></div>` : `<div class="empty-surface"><strong>אין עדיין ביצועים לפי לינק</strong><p class="small muted">אחרי יצירת לינק ופתיחתו יופיעו כאן קליקים, כניסות, המרות וייחוסים.</p></div>`}
-      </section>
-
-      <section class="card section stack" id="affiliate-assets">
-        <div class="section-header"><div><h2>נכסי שיווק</h2><p class="muted">נכסים שהמוכר כבר סיפק. אפשר להעתיק, להוריד ולשתף — אי אפשר לערוך את תוכן העסקה מכאן.</p></div></div>
-        ${campaigns.length ? `<div class="marketing-assets-grid">${campaigns.map((campaign) => `
-          <article class="marketing-asset-card stack">
-            ${campaign.image?.url ? `<img src="${esc(campaign.image.url)}" alt="${esc(campaign.title)}" />` : `<div class="marketing-asset-placeholder">${icon("package")}<span>אין תמונה שסופקה</span></div>`}
-            <div><span class="badge ${DEAL_TONE[campaign.state] || "warning"}">${esc(getDealCopy(campaign.state).label)}</span><h3>${esc(campaign.title)}</h3><p>${esc(campaign.description || "המוכר לא סיפק תיאור שיווקי נוסף.")}</p></div>
-            <p class="small muted"><strong>מידע אספקה:</strong> ${esc((campaign.delivery_labels || []).join(" · ") || "לא סופק מידע נוסף")}</p>
-            <div class="actions"><button class="secondary" type="button" data-inline-action="copy-text" data-copy-text="${esc(`${campaign.title}\n${campaign.description || ""}`)}">העתקת טקסט</button>${campaign.image?.url ? `<a class="button secondary" href="${esc(campaign.image.url)}" download>הורדת תמונה</a>` : ""}<button class="primary" type="button" data-inline-action="copy-link" data-share-url="${esc(campaign.share_link)}">העתקת לינק</button></div>
-          </article>
-        `).join("")}</div>` : `<div class="empty-surface"><strong>אין נכסים זמינים</strong><p class="small muted">נכסי שיווק יופיעו רק מעסקאות שהמוכר כבר יצר.</p></div>`}
-      </section>
-    </section>
-  `;
-}
 function buildAdminUrgencySummary(payload, systemStatus, notificationStatus, invoiceStatus) {
   const criticalCount =
     Number(systemStatus?.operational_counts?.failed_webhooks || 0) +
@@ -7952,20 +7766,6 @@ function renderSellerTermsPage() {
       { title: "עמלת C-ton", body: "C-ton גובה 8% כולל הכל מהכל, כולל משלוח, למעט מעמ. אין עמלת מפיצים במערכת וכל הסדר עם מפיץ הוא מחוץ למערכת בלבד." },
       { title: "דמו ובדיקה משפטית", body: "סביבת הדמו אינה סביבת תשלום אמיתית ואין להסתמך על נתוני דמו כמסחר אמיתי. נוסח זה דורש בדיקה משפטית לפני שימוש בפרודקשן." },
       { title: "KYC והקפאה", body: "מוכר נדרש לאישור KYC בסיסי לפני פעילות אמיתית. C-ton רשאית להקפיא פעילות במקרה של חשד להונאה, תלונה מהותית, בעיית אספקה או סיכון משפטי." }
-    ]
-  );
-}
-
-function renderDistributorTermsPage() {
-  return renderLegalPage(
-    "תנאי מפיץ",
-    "מדידה ושיתוף",
-    "מפיץ ב-C-ton הוא ערוץ מדידה ושיתוף בלבד. אין במערכת יתרה, משיכה, עמלה, payout או חשבונית למפיץ.",
-    [
-      { title: "תפקיד המפיץ", body: "המפיץ משתף לינק ומאפשר ייחוס אנליטי של קליקים, כניסות, הצטרפויות מצרפיות, יחידות מיוחסות וברוטו מיוחס. הנתונים אינם יוצרים זכאות כספית במערכת." },
-      { title: "אין זכאות כספית במערכת", body: "אין עמלה למפיץ, אין יתרה, אין משיכה, אין payout ואין חשבונית למפיץ דרך C-ton. כל הסדר כספי בין מוכר למפיץ נמצא מחוץ למערכת בלבד." },
-      { title: "פרטיות קונים", body: "המפיץ לא מקבל מידע אישי על קונים. משטח ההפצה מציג נתונים מצרפיים בלבד לצורך מדידה." },
-      { title: "שימוש אסור", body: "אסור למפיץ להטעות, להבטיח מחיר אחר, להבטיח זמינות, או להציג עצמו כנציג רשמי של C-ton. C-ton רשאית לחסום לינק הפצה במקרה של שימוש מטעה." }
     ]
   );
 }

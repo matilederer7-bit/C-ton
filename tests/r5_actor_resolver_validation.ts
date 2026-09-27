@@ -21,12 +21,13 @@ function fakeVerifier(sub: string, email = "user@example.com") {
 }
 
 // A db stub whose responses are keyed by which table is queried.
-function fakeDb(rows: { seller?: any[]; admin?: any[]; distributor?: any[] }) {
+function fakeDb(rows: { seller?: any[]; admin?: any[] }) {
   return {
     async query(sql: string) {
       if (/seller_accounts/.test(sql)) return { rows: rows.seller || [], rowCount: (rows.seller || []).length };
       if (/admin_users/.test(sql)) return { rows: rows.admin || [], rowCount: (rows.admin || []).length };
-      if (/affiliate_accounts/.test(sql)) return { rows: rows.distributor || [], rowCount: (rows.distributor || []).length };
+      // The distributor capability is retired: an affiliate_accounts lookup must never run.
+      if (/affiliate_accounts/.test(sql)) throw new Error("affiliate_accounts must not be consulted by the actor resolver");
       return { rows: [], rowCount: 0 };
     }
   };
@@ -56,7 +57,7 @@ await ok("seller binding resolves the seller capability only", async () => {
   const caps = await resolveSupabaseCapabilities(bearer(), fakeDb({ seller: [{ seller_id: "seller-x", display_name: "X", auth_enabled: true, seller_status: "Active" }] }) as any, fakeVerifier(sub) as any);
   assert.equal(caps?.seller?.seller_id, "seller-x");
   assert.equal(caps?.admin, null);
-  assert.equal(caps?.distributor, null);
+  assert.equal((caps as any)?.distributor, undefined, "the distributor capability is retired");
   assert.equal(caps?.sub, sub);
 });
 
@@ -66,18 +67,12 @@ await ok("admin binding resolves the admin capability only", async () => {
   assert.equal(caps?.seller, null);
 });
 
-await ok("distributor binding resolves the distributor capability only", async () => {
-  const caps = await resolveSupabaseCapabilities(bearer(), fakeDb({ distributor: [{ affiliate_id: randomUUID(), auth_enabled: true, verification_status: "verified" }] }) as any, fakeVerifier(randomUUID()) as any);
-  assert.ok(caps?.distributor);
-  assert.equal(caps?.admin, null);
-});
-
 await ok("zero bindings → empty capability set (route requirement denies, resolver stays precise)", async () => {
   const caps = await resolveSupabaseCapabilities(bearer(), fakeDb({}) as any, fakeVerifier(randomUUID()) as any);
   assert.ok(caps);
   assert.equal(caps?.seller, null);
   assert.equal(caps?.admin, null);
-  assert.equal(caps?.distributor, null);
+  assert.equal((caps as any)?.distributor, undefined);
 });
 
 await ok("multi-capability principal (owner: admin + seller) resolves BOTH — neither silently selected", async () => {

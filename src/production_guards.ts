@@ -100,6 +100,21 @@ export function assertProductionRuntimeGuards(role: RuntimeRole, env: NodeJS.Pro
     }
   }
 
+  // Red-team hardening (B5): the synthetic mock/mock-backed provider mode accepts
+  // unsigned webhooks by design (demo/staging). It must never coexist with a
+  // LIVE payment environment in ANY deployment mode, or an unauthenticated
+  // callback could be mistaken for real-money truth.
+  if (["mock", "mock-backed"].includes(paymentMode) && ["live", "production"].includes(paymentEnvironment)) {
+    failures.push(`PAYMENT_PROVIDER_MODE=${paymentMode} cannot coexist with PAYMENT_ENVIRONMENT=${paymentEnvironment}: the mock-backed provider accepts unsigned webhooks`);
+  }
+  // Red-team hardening (A2): the proxy hop count must be an explicit small
+  // integer everywhere, never a boolean-style "true"/"all" that would trust a
+  // caller-supplied X-Forwarded-For (defeating every IP-keyed limiter).
+  const trustProxyRaw = String(env.TRUST_PROXY_HOPS || "").trim();
+  if (trustProxyRaw && !/^[0-8]$/.test(trustProxyRaw)) {
+    failures.push(`TRUST_PROXY_HOPS must be an integer hop count between 0 and 8 (got "${trustProxyRaw}"): a boolean/unbounded value trusts caller-supplied X-Forwarded-For`);
+  }
+
   // Real communications delivery is not implemented in R9A; requesting it must
   // fail closed instead of silently degrading to the log provider.
   const notificationMode = String(env.NOTIFICATION_PROVIDER_MODE || "").trim().toLowerCase();
@@ -141,6 +156,16 @@ export function assertProductionRuntimeGuards(role: RuntimeRole, env: NodeJS.Pro
     } else if (DEMO_DEPLOYMENT_MODES.includes(deploymentMode)) {
       failures.push(`APP_DEPLOYMENT_MODE=${deploymentMode} is a demo/preview mode and cannot run on a hosted deployment`);
     }
+  }
+
+  // Red-team C-3: the pre-R3 (non-canonical) join path — a SUM(qty) capacity
+  // check with no inventory RPC and no PendingTarget→TargetReached transition
+  // — exists only for the local/test harness. A hosted or production runtime
+  // must run the canonical Postgres runtime (the Render blueprint sets it); a
+  // console that drops the variable must fail closed at boot, not silently
+  // fall back to the unsupported path.
+  if ((hostedPlatformDeployment(env) || productionMode(env)) && String(env.CANONICAL_POSTGRES_RUNTIME || "").trim() !== "1") {
+    failures.push("CANONICAL_POSTGRES_RUNTIME=1 is required on a hosted/production deployment: the non-canonical join path is test-harness only");
   }
 
   if (!productionMode(env)) {
@@ -194,10 +219,12 @@ export function assertProductionRuntimeGuards(role: RuntimeRole, env: NodeJS.Pro
   if (sellerSessionSecret && (placeholder.test(sellerSessionSecret) || PUBLIC_DEFAULT_SECRETS.has(sellerSessionSecret) || sellerSessionSecret.length < 32)) {
     failures.push("SELLER_SESSION_SECRET must be a non-placeholder secret of at least 32 characters in production");
   }
-  // production_legacy_tracking_links: re-enables anonymous participant tracking
-  // links (buyer PII behind a guessable-by-leak participant id) in production.
+  // production_legacy_tracking_links: the anonymous (untokenized) participant
+  // tracking path was RETIRED (red-team A5) — the runtime no longer honours
+  // TRACKING_LEGACY_COMPAT at all. The variable must still not linger in a
+  // production console suggesting anonymous links are switchable back on.
   if (String(env.TRACKING_LEGACY_COMPAT || "").trim() === "1") {
-    failures.push("TRACKING_LEGACY_COMPAT=1 cannot run in production: it re-enables anonymous participant tracking links");
+    failures.push("TRACKING_LEGACY_COMPAT=1 cannot run in production: anonymous participant tracking links are retired and cannot be re-enabled");
   }
   // production_debug_surfaces: exposes /debug/* on the production hostname.
   if (String(env.DEBUG_SURFACES_ENABLED || "").trim() === "1") {

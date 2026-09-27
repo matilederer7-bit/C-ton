@@ -1,9 +1,9 @@
 # Siton / C-ton — Red Team Final Report
 
-- **Date:** 2026-09-25
+- **Date:** 2026-09-25 (engagement), 2026-09-27 (closure round — §11)
 - **Engagement:** Full adversarial red team (authorized, owner-requested), repo `matilederer7-bit/C-ton`, dev + staging only.
 - **Base reviewed:** `origin/master` at the start of the engagement (`0a16515…`, post Graphite-Mint).
-- **Fix branch:** `claude/redteam-hardening-kx4e5a`.
+- **Fix branch:** `claude/redteam-hardening-kx4e5a` (engagement), `claude/festive-wright-kx4e5a` (closure round).
 - **Method:** static review of the whole `src/` surface across four adversarial tracks (auth/authz/API, money/business-logic, DB/state-machine/concurrency, supply-chain/infra) plus a governance/source-of-truth map, then **dynamic proof against a locally-booted copy of the exact app** (`node .demo_dist/src/app.js` web + worker) on a throwaway PostgreSQL 16 cluster, and against the real DB-backed test harness. Every fix has a regression test; security fixes have a negative test proving the bypass is blocked.
 
 > This report states exactly what was tested and what was found. It does **not** claim the system is "fully secure." The money and database cores are unusually well-engineered and held under every attack tried; the confirmed defect was in the admin second factor, now fixed.
@@ -185,7 +185,7 @@ Static gates on the fix branch: `lint`, `gate:architecture`, `scan:secrets`, `ch
 
 ## 8. CI / PR / commits
 
-- **Fix branch:** `claude/redteam-hardening-kx4e5a`.
+- **Fix branch:** `claude/redteam-hardening-kx4e5a` (engagement), `claude/festive-wright-kx4e5a` (closure round).
 - **Commits:** `9bbe82b` (admin MFA cap + CSPRNG + completion-window hard-lock), `d1c76a3` (HSTS). New migration `074_admin_mfa_attempt_cap.sql`.
 - **PR / CI / merge / staging SHA:** recorded at close (below).
 
@@ -200,3 +200,42 @@ Static gates on the fix branch: `lint`, `gate:architecture`, `scan:secrets`, `ch
 ## 10. Definition-of-done status
 
 Confirmed vulnerabilities proven and (for the fixable ones) fixed with regression + negative tests; full regression run; a second adversarial pass over the fixes (below); `PROJECT_STATUS.md` updated; code pushed; report produced. No Critical or High remains open. The documented Medium/Low items are recorded with precise remediation and, where relevant, the reason a safe automated fix was deferred to the owner.
+
+---
+
+## 11. Closure engagement (2026-09-27) — every documented item fixed
+
+The owner's follow-up instruction was unambiguous: nothing stays on the shelf. Every item §4 left as DOCUMENTED / owner-decision was implemented, tested and merged in this closure round (branch `claude/festive-wright-kx4e5a`). The same rules applied: no production data touched, no real money, every fix behind a regression test, security enforced in the runtime/DB layer, and a second adversarial pass over each new control.
+
+| Item | Was | Now | Enforcement layer | Regression / negative test |
+|---|---|---|---|---|
+| **A2** X-Forwarded-For spoofing | `trustProxy: true` (caller picks its bucket) | trust exactly `TRUST_PROXY_HOPS` hops (default **1** = Render); a spoofed prefix is ignored; boot guard rejects a boolean/unbounded value; `/readiness` echoes `client_ip` + `trust_proxy_hops` so an operator can confirm the hop count live | `src/app.ts` (proxy-addr trust fn), `src/runtime_config.ts`, `src/production_guards.ts` | `tests/security_trust_proxy_hops_validation.ts` (spoofed prefix shares one bucket; resolver bounds; guard) |
+| **A3** admin password login lockout | none (unbounded guessing) | per-account sliding window: 10 failures / 15 min → 15-min self-healing lock (429 + `Retry-After`), correct password refused while locked, success resets, unknown e-mail keeps the same 401 (no oracle); `/api/admin/auth` joined the tight per-IP mutation bucket (meaningful now that A2 holds) | DB columns (migration `075`) + handler under `FOR UPDATE` | `tests/admin_login_auth_lockout_validation.ts` (rotating XFF, lock, heal, MFA-required admin, unknown account) |
+| **A5** untokenized tracking view | allowed in non-production / `TRACKING_LEGACY_COMPAT=1` | **retired in every runtime**: tracking + recovery routes always require the join-time credential (401 `tracking_token_required`); the env var is reported as ignored | `src/participant_tracking_security.ts`, both routes | `tests/ux_premerge_tracking_security_validation.ts` (+ every harness call now carries the token) |
+| **B3** fee projection | flat 8% of gross | ledger formula: 8% of the VAT-exclusive base + VAT on the fee, product and delivery VAT separately (`projectPlatformFeeTotal`) — reconciles with `platform_fee_actual` | `src/frontend_runtime.ts` admin overview + sellers list | covered by the admin/seller surface suites (display-only; ledger untouched) |
+| **B4** webhook timestamp optional | replay window only when the header was present | timestamp **required** whenever a real secret is configured on a production-like runtime (`PAYMENT_WEBHOOK_REQUIRE_TIMESTAMP=1` opts the harness in) | `verifyWebhookSignature` | `tests/webhook_hmac_validation.ts` (bare signature refused with the requirement, still verified without it) |
+| **B5** mock-backed + live | production-only guard | any deployment mode: `PAYMENT_PROVIDER_MODE=mock(-backed)` with `PAYMENT_ENVIRONMENT=live/production` fails closed at boot | `src/production_guards.ts` | `tests/security_production_guards_validation.ts` |
+| **C-1** tx-scoped audit/outbox flag | "some audit row somewhere" | **per-row assertion** in the DB (migration `076`): a deal/participant state change needs an audit row for *this* entity, *this* from→to, *this* action, written in *this* transaction; outbox-required deal actions need an outbox row for *this* deal. Two forged-flag sites in the app fixed (recovery request set `audit_written=1` with no audit row; completion transition set `outbox_written=1` even when nothing was inserted). Helpers are `SECURITY DEFINER` with a least-privilege EXECUTE surface (runtime roles only, never PUBLIC/anon/authenticated). Test fixtures were rewritten to write real audit rows (`tests/helpers/forced_state.ts`) — no fixture forges a flag any more. | DB triggers (`deals_before_update_enforce`, `participants_before_update_enforce`, `deals_outbox_enforce`) | `tests/db_per_row_audit_enforcement_validation.ts` (forged flag, wrong entity, wrong transition/action, earlier committed row, per-column participant rows, wrong-deal outbox row — all rejected; matching rows accepted; flag check still first) |
+| **C-2** join lock breadth | deal row lock taken first, held across ~19 writes | lock-independent work first (participant insert in pre-join state, binding consumption, viral/attribution/discovery, legal acceptance, notification enqueue, tracking token), then the **critical section**: `FOR UPDATE` re-read + re-validation, inventory hold/commit, audited transitions, target-reached, idempotency records. One transaction — atomicity and the response are unchanged; the deal row is locked only for the money core | `src/app.ts` join handler | `tests/concurrency_proof.ts` (S1–S7, I1–I6, M1–M3), `db_invariant_authority`, `adversarial_resilience_gate`, `cross_schema_atomicity` |
+| **C-3** legacy non-canonical join path | silently usable anywhere | fenced: a hosted/production runtime must run `CANONICAL_POSTGRES_RUNTIME=1` or fails closed at boot; the path is documented as test-harness-only in code | `src/production_guards.ts` | `tests/security_production_guards_validation.ts` |
+| **C-4** target-reached without outbox | unconfirmed | **confirmed intentional**: no worker rail reacts to `deal.target_reached`; the next money step is seller/deadline-driven and carries its own outbox event — recorded in code next to the transition | comment in `src/app.ts` | — (verification, not a change) |
+| **C-5** stale "migration 063/064" comments | pointed at renumbered files | all `src/` + `tests/` comments now cite `067` / `068` (migration files themselves untouched: checksummed) | — | — |
+| **GOV** distributor identity subsystem | dormant but shipped | **removed**: `src/distributor_identity.ts`, `/api/distributor/session[/login/logout]`, `/api/affiliate/overview`, `POST /api/affiliate/links`, admin `distributor-auth/provision`, the two SPA shells, the Supabase "distributor" capability, `distributor_sessions` dropped from the required-table contract, `DISTRIBUTOR_SESSION_SECRET` gone from every policy/matrix/doc, legacy `/app` distributor UI removed. Ordinary sharing stays (`POST /api/affiliate/links/visit`, viral share links, seller distribution links); the affiliate analytics tables stay (zero commission, analytics only; a future DROP is a separate owner-authorised migration). The CI gate `distributor_attribution_only_gate.cjs` now also fails on any identity token under `src/` | code + CI gate | `tests/release_tools/distributor_gate.test.cjs` (13 cases), route/authorization gates |
+| **DEP** `exceljs → uuid` moderates | 2 moderate prod advisories | `uuid` pinned to `^11` for `exceljs` via npm `overrides` (workbook write verified); **git-history secret scan** added (`scripts/git_history_secret_scan.cjs`, runs inside `npm run scan:secrets`; 1,065 commits clean) | package.json, CI secrets gate | `tests/release_tools/git_history_secret_scan.test.cjs` |
+| **CSP** | not set | `Content-Security-Policy` on every HTML response, derived per document (SHA-256 of its inline scripts; no `unsafe-inline`/`unsafe-eval` for scripts; `frame-ancestors 'none'`, `object-src 'none'`, `base-uri 'self'`; connect only to self + Supabase + payment hosts + Sentry ingest). Verified in headless Chromium against the built app: React shell and legacy shell render with **0 CSP refusals** | `src/content_security_policy.ts` + `onSend` hook | `tests/security_csp_validation.ts` |
+
+### Second adversarial pass over the new controls
+
+- **A2:** tried prefixing/rotating X-Forwarded-For with 1, 2 and 6 values behind one trusted hop — every request landed in the same bucket. Tried `TRUST_PROXY_HOPS=true`/`all`/`99`/`-1` — resolver falls back to 1 and the boot guard refuses them. Residual: an operator who sets the hop count *higher* than the real depth re-opens the spoof for that extra hop; the readiness echo exists precisely so the value is verified live, not assumed.
+- **A3:** tried rotating IPs across the 10 attempts (per-account, so no effect); tried the correct password during the lock (429, no session, no MFA challenge issued); tried an unknown e-mail 12 times (always 401, no lock row, no oracle). Residual (accepted, documented): a 15-minute lockout-DoS against a known admin e-mail, self-healing, and bounded by the per-IP budget.
+- **A5:** tried a bare UUID, a wrong token, a token for another participant/purpose — 401/403/403. No runtime flag re-enables the old path.
+- **C-1:** tried the forged flag with an audit row for another entity, the right entity with a wrong transition, a matching row committed in an *earlier* transaction, and a participant change with only one of its two audit rows — all rejected by the DB. Tried `anon`/`authenticated` executing the helper — no EXECUTE. Residual: the helper matches on `created_at >= now()` (transaction start); a matching audit row from *another* transaction that started in the same microsecond would satisfy it — practically unreachable and no weaker than before.
+- **C-2:** reran the full concurrency proof (last-unit races, idempotent replays, mid-transaction faults) — no oversell, no orphan participant, no residue after injected failures; the pre-lock participant row is invisible until COMMIT and rolls back with everything else on a capacity refusal.
+- **CSP:** tampering an inline script changes its hash and the policy no longer admits it; third-party script hosts are absent from `script-src`; framing is refused.
+
+### Residual risk after closure
+
+- Real proxy depth on a *different* host than Render must be configured (`TRUST_PROXY_HOPS`) and confirmed via `/readiness.client_ip`.
+- Admin lockout-DoS window: 15 minutes, self-healing (accepted trade-off, documented).
+- The affiliate analytics tables remain in the schema (unused by any identity; a DROP migration is an owner-authorised data change).
+- Real payment provider behaviour is still exercised only against the synthetic/sandbox providers by policy.

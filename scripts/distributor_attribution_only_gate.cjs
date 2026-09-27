@@ -25,6 +25,27 @@ const IGNORED_DIRECTORIES = new Set([
 ]);
 
 const SELF_PATH = path.normalize(path.join('scripts', 'distributor_attribution_only_gate.cjs'));
+
+// Second invariant: the authenticated distributor identity subsystem (server
+// sessions, login/logout, the distributor dashboard shell and its overview API)
+// was removed. Share links are analytics-only rows; nothing under src/ may
+// reference the removed subsystem again. Migrations are history and stay as
+// written; the legal text keeps its wording by owner decision.
+const IDENTITY_SCAN_ROOT = 'src';
+const IDENTITY_EXCLUDED_DIRECTORIES = new Set([path.normalize(path.join('src', 'migrations'))]);
+const IDENTITY_EXCLUDED_FILES = new Set([path.normalize(path.join('src', 'legal_pages.ts'))]);
+const IDENTITY_TOKENS = [
+  'distributor_identity',
+  '/api/distributor/',
+  'distributor_sessions',
+  'DISTRIBUTOR_SESSION_SECRET',
+  'requireDistributor',
+  'distributor_auth_unavailable',
+  '/app/affiliate',
+  '/app/distributor-terms',
+  '/api/affiliate/overview',
+  'distributor-auth'
+];
 const LEGACY_CLEANUP_MIGRATION = path.normalize(
   path.join('src', 'migrations', '020_drop_affiliate_legacy_columns.sql')
 );
@@ -188,6 +209,36 @@ function walk(directory, root, findings) {
   }
 }
 
+function walkIdentity(directory, root, findings) {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const absolute = path.join(directory, entry.name);
+    const relative = path.normalize(path.relative(root, absolute));
+    if (entry.isDirectory()) {
+      if (IGNORED_DIRECTORIES.has(entry.name) || IDENTITY_EXCLUDED_DIRECTORIES.has(relative)) continue;
+      walkIdentity(absolute, root, findings);
+      continue;
+    }
+    if (!entry.isFile() || IDENTITY_EXCLUDED_FILES.has(relative)) continue;
+
+    const lines = fs.readFileSync(absolute, 'utf8').split(/\r?\n/);
+    lines.forEach((line, index) => {
+      for (const token of IDENTITY_TOKENS) {
+        if (!line.includes(token)) continue;
+        findings.push({ file: relative, line: index + 1, token });
+        break;
+      }
+    });
+  }
+}
+
+function scanIdentityResidue(root) {
+  const findings = [];
+  const absoluteRoot = path.join(root, IDENTITY_SCAN_ROOT);
+  if (!fs.existsSync(absoluteRoot) || !fs.statSync(absoluteRoot).isDirectory()) return findings;
+  walkIdentity(absoluteRoot, root, findings);
+  return findings;
+}
+
 function scanRepository(root) {
   const findings = [];
   for (const relativeRoot of SCAN_ROOTS) {
@@ -279,6 +330,27 @@ function runSelfTest() {
       throw new Error(`self-test failed to protect destructive-only migration 020: ${JSON.stringify(findings)}`);
     }
 
+    // Identity residue: migrations and the legal text are exempt, everything
+    // else under src/ is not.
+    fs.writeFileSync(path.join(cleanupDir, '048_history.sql'), 'CREATE TABLE siton.distributor_sessions (id UUID);\n');
+    fs.writeFileSync(path.join(src, 'legal_pages.ts'), 'const legacyLink = "/app/distributor-terms";\n');
+    let identityFindings = scanIdentityResidue(tempRoot);
+    if (identityFindings.length !== 0) {
+      throw new Error(`self-test flagged exempt identity references: ${JSON.stringify(identityFindings)}`);
+    }
+    fs.writeFileSync(
+      path.join(src, 'residue.ts'),
+      [
+        'const secret = process.env.DISTRIBUTOR_SESSION_SECRET;',
+        'app.get("/api/distributor/session", handler);',
+        'app.get("/app/affiliate", sendShell);'
+      ].join('\n')
+    );
+    identityFindings = scanIdentityResidue(tempRoot);
+    if (identityFindings.length !== 3 || !identityFindings.every((finding) => finding.file.endsWith('residue.ts'))) {
+      throw new Error(`self-test failed to detect distributor identity residue: ${JSON.stringify(identityFindings)}`);
+    }
+
     console.log('Distributor attribution-only gate self-test: PASS');
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -291,18 +363,37 @@ function main() {
     return;
   }
 
-  const findings = scanRepository(process.cwd());
+  const root = process.cwd();
+  const findings = scanRepository(root);
+  const identityFindings = scanIdentityResidue(root);
+
   if (findings.length === 0) {
-    console.log('Distributor attribution-only gate: PASS');
+    console.log('Distributor attribution-only gate: money check PASS');
     console.log('No distributor/affiliate financial-entitlement identifiers found in runtime code or post-cleanup SQL schema.');
-    return;
+  } else {
+    console.error('Distributor attribution-only gate: money check FAIL');
+    console.error('Siton distributors are attribution/measurement only. Financial entitlement must stay outside the platform.');
+    for (const finding of findings) {
+      console.error(`${finding.file}:${finding.line} forbidden token: ${finding.token}`);
+    }
   }
 
-  console.error('Distributor attribution-only gate: FAIL');
-  console.error('Siton distributors are attribution/measurement only. Financial entitlement must stay outside the platform.');
-  for (const finding of findings) {
-    console.error(`${finding.file}:${finding.line} forbidden token: ${finding.token}`);
+  if (identityFindings.length === 0) {
+    console.log('Distributor attribution-only gate: identity residue check PASS');
+    console.log('No reference to the removed distributor identity subsystem under src/ (migrations and legal text exempt).');
+  } else {
+    console.error('Distributor attribution-only gate: identity residue check FAIL');
+    console.error('The authenticated distributor identity subsystem was removed; src/ must not reference it again.');
+    for (const finding of identityFindings) {
+      console.error(`${finding.file}:${finding.line} forbidden identity token: ${finding.token}`);
+    }
   }
+
+  if (findings.length === 0 && identityFindings.length === 0) {
+    console.log('Distributor attribution-only gate: PASS');
+    return;
+  }
+  console.error('Distributor attribution-only gate: FAIL');
   process.exitCode = 1;
 }
 

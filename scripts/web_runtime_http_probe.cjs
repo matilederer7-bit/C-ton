@@ -223,11 +223,6 @@ async function main() {
   };
   record("100 concurrent public deal readers", publicReads.every((item) => item.status === 200), report.metrics.public_read_100);
 
-  const affiliate = await request("/api/affiliate/overview");
-  const affiliateKeys = [];
-  (function collectKeys(value) { if (Array.isArray(value)) value.forEach(collectKeys); else if (value && typeof value === "object") for (const [key, child] of Object.entries(value)) { affiliateKeys.push(key); collectKeys(child); } })(affiliate.json);
-  record("distributor aggregate surface excludes PII and balances", affiliate.status === 200 && !affiliateKeys.some((key) => /^(buyer_phone|buyer_email|commission|balance|payout)$/i.test(key)), { status: affiliate.status, forbidden_keys: affiliateKeys.filter((key) => /^(buyer_phone|buyer_email|commission|balance|payout)$/i.test(key)) });
-
   const mockAuthorize = await request("/api/payments/authorize-mock", { method: "POST", headers: jsonHeaders, body: "{}" });
   record("mock payment route remains registered in non-production runtime", mockAuthorize.status !== 404, { status: mockAuthorize.status, informational: true });
 

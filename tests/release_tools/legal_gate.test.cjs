@@ -83,11 +83,26 @@ const MUTATIONS = [
     expect: /marketing opt-in/
   },
   {
-    name: "buyer PII leaks into the distributor overview block",
+    name: "buyer PII leaks into the affiliate visit recorder block",
     file: "src/frontend_runtime.ts",
-    from: "app.get(\"/api/affiliate/overview\"",
-    to: "app.get(\"/api/affiliate/overview\" /* buyer_phone */",
+    from: "app.post(\"/api/affiliate/links/visit\"",
+    to: "app.post(\"/api/affiliate/links/visit\" /* buyer_phone */",
     expect: /buyer PII appears in distributor API block/
+  },
+  {
+    name: "the distributor terms legal page link disappears from the frontend",
+    file: "frontend/app.js",
+    from: "href=\"/legal/affiliates\"",
+    to: "href=\"/legal/partners\"",
+    all: true,
+    expect: /missing policy link: \/legal\/affiliates/
+  },
+  {
+    name: "the distributor terms legal page is removed",
+    file: "src/legal_pages.ts",
+    from: "slug: \"affiliates\"",
+    to: "slug: \"affiliates_removed\"",
+    expect: /distributor terms legal page/
   }
 ];
 
@@ -95,7 +110,7 @@ for (const mutation of MUTATIONS) {
   test("legal gate fails when: " + mutation.name, () => {
     const fixture = createFixtureRepo(FIXTURE_FILES);
     try {
-      fixture.mutate(mutation.file, mutation.from, mutation.to);
+      fixture.mutate(mutation.file, mutation.from, mutation.to, { all: Boolean(mutation.all) });
       const result = runGate(fixture);
       assert.notEqual(result.status, 0, "gate should fail: " + mutation.name + "\n" + result.out);
       assert.match(result.out, /LEGAL_COMPLIANCE_GATE_FAIL/);

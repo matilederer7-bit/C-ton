@@ -327,6 +327,17 @@ export function adminPublicIdentity(identity: AdminIdentity) {
 // cryptographically secure RNG, never Math.random (whose V8 xorshift128+ state
 // is recoverable from observed outputs). Mirrors the buyer OTP rail.
 export const ADMIN_MFA_MAX_ATTEMPTS = 5;
+// Red-team hardening (A3): per-account password-login lockout, independent of
+// the source IP. After ADMIN_LOGIN_MAX_FAILURES wrong passwords inside a
+// sliding window the account refuses the password step for
+// ADMIN_LOGIN_LOCK_MINUTES and then heals by itself (no operator action). The
+// window is short on purpose: it bounds an attacker who knows an admin's
+// email to a lockout-DoS of minutes, while turning an unbounded guessing
+// budget into ~10 guesses per quarter hour (plus the now spoof-proof per-IP
+// budget, A2).
+export const ADMIN_LOGIN_MAX_FAILURES = 10;
+export const ADMIN_LOGIN_FAILURE_WINDOW_MINUTES = 15;
+export const ADMIN_LOGIN_LOCK_MINUTES = 15;
 export function createAdminMfaCode() {
   return String(randomInt(0, 1_000_000)).padStart(6, "0");
 }

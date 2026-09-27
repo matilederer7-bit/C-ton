@@ -1,0 +1,204 @@
+// Red-team finding C-1 (Medium) regression: the deals/participants BEFORE
+// UPDATE triggers only checked a transaction-global "some audit row was
+// written" flag. Migration 076 adds the PER-ROW assertion: the audit row must
+// be for THIS entity, THIS transition and THIS action, written in the same
+// transaction; the outbox-required deal actions need an outbox row for THIS
+// deal. Every "rejected" case below passes the old flag check — and the old
+// trigger accepted it.
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import pg from "pg";
+import "dotenv/config";
+
+process.env.DISABLE_OUTBOX_WORKER = "1";
+
+const { Pool } = pg;
+const pool = new Pool({ connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton" });
+
+async function runTest(name: string, fn: () => Promise<void>) {
+  try { await fn(); console.log(`PASS ${name}`); }
+  catch (error) { console.error(`FAIL ${name}`); throw error; }
+}
+
+async function inTx(fn: (client: pg.PoolClient) => Promise<void>): Promise<string | null> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    try {
+      await fn(client);
+      await client.query("COMMIT");
+      return null;
+    } catch (error: any) {
+      await client.query("ROLLBACK");
+      return String(error?.message || error);
+    }
+  } finally {
+    client.release();
+  }
+}
+
+async function seedDeal(state: string, published = true) {
+  const dealId = randomUUID();
+  await pool.query(
+    `INSERT INTO siton.deals (deal_id, seller_id, state, title, price_per_unit, min_units, max_units, threshold_units, deadline, published_at)
+     VALUES ($1,'seller-c1',$2,'C-1 per-row fixture',10,2,10,2,now()+interval '1 day',$3)`,
+    [dealId, state, published ? new Date().toISOString() : null]
+  );
+  return dealId;
+}
+
+async function seedParticipant(dealId: string, buyerState: string, moneyState: string) {
+  const participantId = randomUUID();
+  await pool.query(
+    `INSERT INTO siton.participants (participant_id, deal_id, buyer_id, qty, buyer_state, money_state)
+     VALUES ($1,$2,$3,1,$4,$5)`,
+    [participantId, dealId, `buyer-${participantId.slice(0, 8)}`, buyerState, moneyState]
+  );
+  return participantId;
+}
+
+async function arm(client: pg.PoolClient, action: string, audit = "1", outbox = "1") {
+  await client.query(`SELECT set_config('siton.in_atomic', 'true', true)`);
+  await client.query(`SELECT set_config('siton.action_name', $1, true)`, [action]);
+  await client.query(`SELECT set_config('siton.audit_written', $1, true)`, [audit]);
+  await client.query(`SELECT set_config('siton.outbox_written', $1, true)`, [outbox]);
+}
+
+async function auditRow(client: pg.PoolClient, args: { entityType: "deal" | "participant"; entityId: string; dealId: string; stateType: string; from: string; to: string; action: string }) {
+  await client.query(
+    `INSERT INTO siton.audit_log (entity_type, entity_id, deal_id, state_type, from_state, to_state, action_name, request_id, correlation_id, idempotency_key, payload)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,'{}'::jsonb)`,
+    [args.entityType, args.entityId, args.dealId, args.stateType, args.from, args.to, args.action, `c1:${randomUUID()}`, `c1:${randomUUID()}`]
+  );
+}
+
+async function outboxRow(client: pg.PoolClient, dealId: string) {
+  await client.query(
+    `INSERT INTO siton.outbox_events (event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at, sent, sent_at)
+     VALUES ('deadline_check','deal',$1,'{"c1":true}','sent',1,now(),true,now())`,
+    [dealId]
+  );
+}
+
+await runTest("deal: a forged audit flag with NO audit row is rejected per-row", async () => {
+  const dealId = await seedDeal("PendingTarget");
+  const err = await inTx(async (c) => {
+    await arm(c, "deal.target_reached");
+    await c.query(`UPDATE siton.deals SET state='TargetReached' WHERE deal_id=$1`, [dealId]);
+  });
+  assert.match(String(err), /matching audit_log row for this deal/);
+});
+
+await runTest("deal: an audit row for ANOTHER deal (same transition, same txn) does not satisfy this row", async () => {
+  const dealId = await seedDeal("PendingTarget");
+  const otherDeal = await seedDeal("PendingTarget");
+  const err = await inTx(async (c) => {
+    await arm(c, "deal.target_reached");
+    await auditRow(c, { entityType: "deal", entityId: otherDeal, dealId: otherDeal, stateType: "deal_state", from: "PendingTarget", to: "TargetReached", action: "deal.target_reached" });
+    await c.query(`UPDATE siton.deals SET state='TargetReached' WHERE deal_id=$1`, [dealId]);
+  });
+  assert.match(String(err), /matching audit_log row for this deal/);
+});
+
+await runTest("deal: an audit row for this deal but a different transition/action is rejected", async () => {
+  const dealId = await seedDeal("PendingTarget");
+  const wrongTo = await inTx(async (c) => {
+    await arm(c, "deal.target_reached");
+    // A LEGAL but different transition for this deal (PendingTarget → Failed).
+    await auditRow(c, { entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", from: "PendingTarget", to: "Failed", action: "deal.target_reached" });
+    await c.query(`UPDATE siton.deals SET state='TargetReached' WHERE deal_id=$1`, [dealId]);
+  });
+  assert.match(String(wrongTo), /matching audit_log row for this deal/);
+  const wrongAction = await inTx(async (c) => {
+    await arm(c, "deal.target_reached");
+    await auditRow(c, { entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", from: "PendingTarget", to: "TargetReached", action: "test.other_action" });
+    await c.query(`UPDATE siton.deals SET state='TargetReached' WHERE deal_id=$1`, [dealId]);
+  });
+  assert.match(String(wrongAction), /matching audit_log row for this deal/);
+});
+
+await runTest("deal: an audit row from an EARLIER committed transaction does not count", async () => {
+  const dealId = await seedDeal("PendingTarget");
+  // Commit a matching audit row on its own (as if a previous attempt wrote it).
+  assert.equal(await inTx(async (c) => {
+    await auditRow(c, { entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", from: "PendingTarget", to: "TargetReached", action: "deal.target_reached" });
+  }), null);
+  await new Promise((r) => setTimeout(r, 5));
+  const err = await inTx(async (c) => {
+    await arm(c, "deal.target_reached");
+    await c.query(`UPDATE siton.deals SET state='TargetReached' WHERE deal_id=$1`, [dealId]);
+  });
+  assert.match(String(err), /matching audit_log row for this deal/);
+});
+
+await runTest("deal: the matching audit row in the same transaction is accepted", async () => {
+  const dealId = await seedDeal("PendingTarget");
+  const err = await inTx(async (c) => {
+    await arm(c, "deal.target_reached");
+    await auditRow(c, { entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", from: "PendingTarget", to: "TargetReached", action: "deal.target_reached" });
+    await c.query(`UPDATE siton.deals SET state='TargetReached' WHERE deal_id=$1`, [dealId]);
+  });
+  assert.equal(err, null, String(err));
+  const row = await pool.query(`SELECT state FROM siton.deals WHERE deal_id=$1`, [dealId]);
+  assert.equal(row.rows[0].state, "TargetReached");
+});
+
+await runTest("participant: each changed column needs its own matching audit row", async () => {
+  const dealId = await seedDeal("PendingTarget");
+  const pid = await seedParticipant(dealId, "NotJoined", "NoFinancial");
+  // Only the money_state audit row is present; the buyer_state change is rejected.
+  const err = await inTx(async (c) => {
+    await arm(c, "participant.join_authorize");
+    await auditRow(c, { entityType: "participant", entityId: pid, dealId, stateType: "money_state", from: "NoFinancial", to: "AuthHeld", action: "participant.join_authorize" });
+    await c.query(`UPDATE siton.participants SET buyer_state='JoinedAuthorized', money_state='AuthHeld' WHERE participant_id=$1`, [pid]);
+  });
+  assert.match(String(err), /participant buyer_state change requires a matching audit_log row/);
+  // An audit row for a DIFFERENT participant does not count either.
+  const otherPid = await seedParticipant(dealId, "NotJoined", "NoFinancial");
+  const other = await inTx(async (c) => {
+    await arm(c, "participant.join_authorize");
+    await auditRow(c, { entityType: "participant", entityId: otherPid, dealId, stateType: "buyer_state", from: "NotJoined", to: "JoinedAuthorized", action: "participant.join_authorize" });
+    await c.query(`UPDATE siton.participants SET buyer_state='JoinedAuthorized' WHERE participant_id=$1`, [pid]);
+  });
+  assert.match(String(other), /matching audit_log row for this participant/);
+  // Both rows present: accepted.
+  const ok = await inTx(async (c) => {
+    await arm(c, "participant.join_authorize");
+    await auditRow(c, { entityType: "participant", entityId: pid, dealId, stateType: "buyer_state", from: "NotJoined", to: "JoinedAuthorized", action: "participant.join_authorize" });
+    await auditRow(c, { entityType: "participant", entityId: pid, dealId, stateType: "money_state", from: "NoFinancial", to: "AuthHeld", action: "participant.join_authorize" });
+    await c.query(`UPDATE siton.participants SET buyer_state='JoinedAuthorized', money_state='AuthHeld' WHERE participant_id=$1`, [pid]);
+  });
+  assert.equal(ok, null, String(ok));
+});
+
+await runTest("outbox: an outbox-required deal action needs an outbox row for THIS deal, not merely the flag", async () => {
+  const dealId = await seedDeal("ReadyForCharging");
+  const otherDeal = await seedDeal("ReadyForCharging");
+  const forged = await inTx(async (c) => {
+    await arm(c, "charging.start");
+    await auditRow(c, { entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", from: "ReadyForCharging", to: "Charging", action: "charging.start" });
+    await outboxRow(c, otherDeal); // a row for the WRONG deal
+    await c.query(`UPDATE siton.deals SET state='Charging' WHERE deal_id=$1`, [dealId]);
+  });
+  assert.match(String(forged), /outbox_events row for this deal/);
+  const ok = await inTx(async (c) => {
+    await arm(c, "charging.start");
+    await auditRow(c, { entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", from: "ReadyForCharging", to: "Charging", action: "charging.start" });
+    await outboxRow(c, dealId);
+    await c.query(`UPDATE siton.deals SET state='Charging' WHERE deal_id=$1`, [dealId]);
+  });
+  assert.equal(ok, null, String(ok));
+});
+
+await runTest("the coarse flag checks are still enforced first (defence in depth)", async () => {
+  const dealId = await seedDeal("PendingTarget");
+  const err = await inTx(async (c) => {
+    await arm(c, "deal.target_reached", "0", "1");
+    await auditRow(c, { entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", from: "PendingTarget", to: "TargetReached", action: "deal.target_reached" });
+    await c.query(`UPDATE siton.deals SET state='TargetReached' WHERE deal_id=$1`, [dealId]);
+  });
+  assert.match(String(err), /audit_log in same transaction/);
+});
+
+await pool.end();
+console.log("PASS db per-row audit/outbox enforcement (migration 076)");

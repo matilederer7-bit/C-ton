@@ -22,7 +22,7 @@ async function queryRequiredTables(db: Db, tables: readonly string[]) {
 export const REQUIRED_TABLES = [
   "deals", "participants", "audit_log", "idempotency_log", "outbox_events", "outbox_dlq",
   "payment_attempts", "webhook_events", "seller_accounts", "seller_sessions",
-  "affiliate_accounts", "affiliate_attributions", "affiliate_links", "affiliate_link_events", "distributor_sessions", "support_tickets", "deal_delivery_options",
+  "affiliate_accounts", "affiliate_attributions", "affiliate_links", "affiliate_link_events", "support_tickets", "deal_delivery_options",
   "deal_images", "deal_chat_messages", "notification_events", "notification_attempts",
   "legal_acceptances", "otp_challenges", "otp_delivery_attempts", "invoice_documents",
   "invoice_document_attempts", "invoice_reconciliation_cases", "platform_fee_money_events",

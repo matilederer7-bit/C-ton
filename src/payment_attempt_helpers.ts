@@ -14,7 +14,7 @@ export type AttemptType =
 
 /**
  * R9C — durable dispatch lifecycle of ONE logical money operation
- * (migration 063). Together with result_class it distinguishes:
+ * (migration 067). Together with result_class it distinguishes:
  *
  *   NOT_DISPATCHED     result_class unknown + dispatch_state recorded
  *   IN_FLIGHT          result_class unknown + dispatch_state dispatching + owner lease live
@@ -44,7 +44,7 @@ export type AttemptType =
 export type DispatchState = "recorded" | "dispatching" | "responded";
 
 /**
- * Independent financial review (migration 064) — why a permanent_fail row is
+ * Independent financial review (migration 068) — why a permanent_fail row is
  * believed. Only `dispatch_response` (the provider's answer to the exact
  * request) is exact-operation evidence; everything else is an inference that
  * stays inside the settlement horizon fence.
@@ -256,7 +256,7 @@ export function buildPaymentAttemptHelpers(deps: {
    * a row already at success stays success; permanent_fail may only become
    * success (provider truth wins). Non-owner callers cannot settle a NEGATIVE
    * (or still-ambiguous) result on an operation that is in flight — the DB
-   * guard of migration 063 is the backstop for the same rule.
+   * guard of migration 067 is the backstop for the same rule.
    */
   async function settleAttemptInTx(c: any, args: {
     participant_id: string;
@@ -433,7 +433,7 @@ export function buildPaymentAttemptHelpers(deps: {
       // 064 — SETTLEMENT HORIZON fence: a capture-side failure that was only
       // inferred from status reads may still settle; no recovery (a second
       // capture) and no release (release-then-capture) before its horizon. The
-      // INSERT trigger of migration 064 refuses the same identities at the DB.
+      // INSERT trigger of migration 068 refuses the same identities at the DB.
       if (args.attempt_type === "recovery" || args.attempt_type === "release") {
         const fence = await settlementFenceInTx(c, args.participant_id, args.deal_id);
         if (fence) {

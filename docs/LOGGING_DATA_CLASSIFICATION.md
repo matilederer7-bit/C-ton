@@ -6,7 +6,7 @@ Gate: `npm run gate:logging-hygiene` (`scripts/logging_hygiene_gate.cjs`). Class
 
 ### NEVER LOG (gate: FAIL)
 
-Cardholder data (`cvv`, `cvc`, `card_number`, `pan`, `expiry_*`), one-time secrets (`otp_code`, `development_code`), bearer tokens (`otp_token`, `tracking_access_token`, `session_token`, cookies, `authorization`, `x-admin-key`), credentials and keys (`password`, `password_hash`, `ADMIN_API_KEY`, `SELLER/BUYER/DISTRIBUTOR_SESSION_SECRET`, `PAYMENT_WEBHOOK_SECRET`, `PAYMENT_PROVIDER_API_KEY`, `GROW_API_KEY`, `GROW_REFERENCE_ENCRYPTION_KEY`, `SITON_STORAGE_BROKER_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`), seller banking data (`iban`, `bank_account`, `account_number`, `payout_account`), raw provider/webhook bodies.
+Cardholder data (`cvv`, `cvc`, `card_number`, `pan`, `expiry_*`), one-time secrets (`otp_code`, `development_code`), bearer tokens (`otp_token`, `tracking_access_token`, `session_token`, cookies, `authorization`, `x-admin-key`), credentials and keys (`password`, `password_hash`, `ADMIN_API_KEY`, `SELLER/BUYER_SESSION_SECRET`, `PAYMENT_WEBHOOK_SECRET`, `PAYMENT_PROVIDER_API_KEY`, `GROW_API_KEY`, `GROW_REFERENCE_ENCRYPTION_KEY`, `SITON_STORAGE_BROKER_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`), seller banking data (`iban`, `bank_account`, `account_number`, `payout_account`), raw provider/webhook bodies.
 
 A field may be SHOWN to exist with the literal value `"[redacted]"` (the OTP log provider does this for `code`).
 

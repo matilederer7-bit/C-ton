@@ -73,7 +73,7 @@ export const PAYMENT_PROVIDER_CURRENCY = process.env.PAYMENT_PROVIDER_CURRENCY |
 // provider-ready HTTP rail: how long after a capture-side request was
 // dispatched the provider may still settle it. Until that instant a failure
 // that was only INFERRED from status reads fences automatic recovery, release
-// and the terminal deal decision (migration 064). The default is deliberately
+// and the terminal deal decision (migration 068). The default is deliberately
 // conservative (24 h): an owner sets the real value per provider contract; it
 // is never guessed from a provider's expiry behaviour.
 export const PAYMENT_SETTLEMENT_HORIZON_MS = readNumberEnv("PAYMENT_SETTLEMENT_HORIZON_MS", 24 * 60 * 60 * 1000);
@@ -144,6 +144,30 @@ export function isProductionLikeEnv(env: NodeJS.ProcessEnv = process.env): boole
     env.RENDER === "true" ||
     Boolean(env.RENDER_EXTERNAL_URL)
   );
+}
+
+// Red-team hardening (A2): how many reverse-proxy hops sit in front of the
+// app. Fastify's boolean `trustProxy: true` trusted the LEFT-most (caller
+// supplied) X-Forwarded-For value, so anyone rotating that header defeated every
+// IP-keyed limiter (global / sensitive / read buckets) and the admin login
+// throttle. A hop COUNT trusts exactly that many proxies from the socket peer
+// inwards: the client address is the one the outermost trusted proxy appended,
+// and a value the caller prepends is ignored. Render terminates TLS in ONE proxy
+// layer, so the default is 1; a deployment behind an additional CDN/WAF sets
+// TRUST_PROXY_HOPS to its real depth, and 0 means "no proxy, use the socket".
+export const DEFAULT_TRUST_PROXY_HOPS = 1;
+export const MAX_TRUST_PROXY_HOPS = 8;
+export function parseTrustProxyHops(raw: unknown): number | null {
+  const text = String(raw ?? "").trim();
+  if (!/^\d{1,2}$/.test(text)) return null;
+  const hops = Number(text);
+  return hops >= 0 && hops <= MAX_TRUST_PROXY_HOPS ? hops : null;
+}
+export function resolveTrustProxyHops(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.TRUST_PROXY_HOPS;
+  if (raw === undefined || String(raw).trim() === "") return DEFAULT_TRUST_PROXY_HOPS;
+  const hops = parseTrustProxyHops(raw);
+  return hops === null ? DEFAULT_TRUST_PROXY_HOPS : hops;
 }
 
 export const IS_PRODUCTION_LIKE = isProductionLikeEnv();

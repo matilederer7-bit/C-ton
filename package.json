@@ -142,7 +142,8 @@
     "gate:money-tax": "node scripts/money_tax_invoice_gate.cjs",
     "gate:legal": "node scripts/legal_compliance_gate.cjs",
     "gate:logging-hygiene": "node scripts/logging_hygiene_gate.cjs",
-    "scan:secrets": "node scripts/secret_pii_scan.cjs",
+    "scan:secrets": "node scripts/secret_pii_scan.cjs && node scripts/git_history_secret_scan.cjs",
+    "scan:secrets-history": "node scripts/git_history_secret_scan.cjs",
     "report:routes": "node scripts/route_inventory_report.cjs",
     "check:health-contract": "node scripts/health_contract_check.cjs",
     "smoke:http-security": "node scripts/http_security_smoke.cjs",
@@ -205,6 +206,9 @@
   },
   "overrides": {
     "fast-uri": "^3.1.8",
+    "exceljs": {
+      "uuid": "^11.1.0"
+    },
     "brace-expansion@1": "^1.1.21",
     "brace-expansion@2": "^2.1.7",
     "tmp": "^0.2.7"

@@ -81,13 +81,14 @@ Legend:
 | `NOTIFICATION_MAX_ATTEMPTS` | ⬜ | ⬜ | ⬜ | 📄 | `3` | |
 | `SELLER_SESSION_SECRET` | ⬜ (demo skips) | ⚠ | ⚠ | 🔒 | — | Required for non-demo seller sessions. |
 | `BUYER_SESSION_SECRET` | ⬜ (local-only fallback) | ⚠ | ⚠ | 🔒 | — | Signs deal-bound HttpOnly buyer sessions used only for safe server-side resume. |
-| `DISTRIBUTOR_SESSION_SECRET` | ⬜ (demo context) | ⚠ | ⚠ | 🔒 | — | Required for non-demo distributor sessions and tenant resolution. |
 | `LINK_VIEWER_SESSION_SECRET` | ⬜ (local-only fallback) | ⚠ | ⚠ | 🔒 | — | Signs the scoped read-only external link-dashboard sessions (seller distribution hub). Falls back to `BUYER_SESSION_SECRET` / `OTP_TOKEN_SECRET`. |
 | `SITON_PLATFORM_FEE_VAT_RATE` | ⬜ | ⬜ | ⬜ | 📄 | `0.18` | |
 | `COMPLETION_WINDOW_MINUTES` | ⬜ | ⬜ | ⬜ | 📄 | `1440` | C6 spec — 24 h. |
 | `OUTBOX_POLL_MS` | ⬜ | ⬜ | ⬜ | 📄 | `1000` | |
 | `OUTBOX_MAX_ATTEMPTS` | ⬜ | ⬜ | ⬜ | 📄 | `4` | |
 | `DISABLE_OUTBOX_WORKER` | ⬜ | ⬜ | ⬜ | 📄 | unset | Set `1` when running a dedicated worker container. |
+| `TRUST_PROXY_HOPS` | ⬜ | ⬜ | ⬜ | 📄 | `1` | Red-team A2: number of trusted reverse-proxy hops (Render = 1). Integer 0–8 only; a boolean/unbounded value is refused at boot. Confirm live via `/readiness` → `client_ip`. |
+| `PAYMENT_WEBHOOK_REQUIRE_TIMESTAMP` | ⬜ | ⬜ | ⬜ | 📄 | unset | Red-team B4: production-like runtimes always require `x-webhook-timestamp` on HMAC webhooks; `1` opts a demo/test runtime in. |
 | `RATE_LIMIT_MAX` | ⬜ | ⬜ | ⬜ | 📄 | adapter default | `0` disables. |
 | `RATE_LIMIT_WINDOW_MS` | ⬜ | ⬜ | ⬜ | 📄 | adapter default | |
 | `RATE_LIMIT_READ_MAX` | ⬜ | ⬜ | ⬜ | 📄 | adapter default | P0.7C: per-IP budget for read-only requests on the sensitive prefixes (deal public/activity/chat polling); default `120`/window, never below `RATE_LIMIT_SENSITIVE_MAX`; `0` disables. Mutations keep `RATE_LIMIT_SENSITIVE_MAX`. |

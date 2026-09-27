@@ -29,7 +29,8 @@ import { buildPaymentProvider, getPaymentProviderSummary, providerAmbiguityPolic
 import { buildPaymentAuthorizationBindings, PaymentBindingError } from "./payment_binding.js";
 import { assessAuthorizationUsability, isAuthorizationUnusableResult, reauthorizationIdentity } from "./authorization_lifecycle.js";
 import { computeCustomerChargeVat } from "./vat_authority.js";
-import { resolveCompletionWindowMinutes, isProductionLikeEnv } from "./runtime_config.js";
+import { resolveCompletionWindowMinutes, isProductionLikeEnv, resolveTrustProxyHops } from "./runtime_config.js";
+import { contentSecurityPolicyFor, isHtmlContentType } from "./content_security_policy.js";
 import { buildNotificationService, getNotificationServiceSummary } from "./notification_service.js";
 import {
   enqueueNotification,
@@ -516,7 +517,7 @@ export const MONEY_TRANSITIONS: Record<string, string[]> = {
   AuthLocked: ["ChargeAttempt", "AuthReleased"],
   // Residual C (final financial integration): a hold released while a charge
   // was pending — the capture is never dispatched and the money truth is the
-  // provider-proofed release (migration 064 admits the same transition).
+  // provider-proofed release (migration 068 admits the same transition).
   ChargeAttempt: ["ChargedSuccess", "ChargeFailedRecovery", "AuthReleased"],
   ChargeFailedRecovery: ["RecoveredCharge", "AuthReleased"],
   ChargedSuccess: ["Refunded"],
@@ -1245,7 +1246,7 @@ async function applyPaymentWebhookClassification(args: {
   // while the exact operation is dispatching under a live worker lease: the
   // transition aborts (PaymentOperationInFlightError / DB guard SN409) and the
   // caller defers. Success is provider truth and always settles.
-  // Provenance of a negative verdict (migration 064): a failure that arrives
+  // Provenance of a negative verdict (migration 068): a failure that arrives
   // through a status read (reconcile, prior-attempt resolution, pre-flight) is an
   // INFERENCE and stays inside the settlement horizon fence; a failure the
   // provider pushed as an event is provider_event. A failure the provider gave
@@ -2790,7 +2791,7 @@ async function armMoneyOperation(args: {
     ...(args.expected_buyer_states ? { expected_buyer_states: args.expected_buyer_states } : {}),
     provider_reference: args.provider_reference ?? null,
     // Independent financial review — a capture-side dispatch opens the
-    // provider-specific SETTLEMENT HORIZON on the identity (migration 064).
+    // provider-specific SETTLEMENT HORIZON on the identity (migration 068).
     settlement_horizon_ms: args.attempt_type === "charge_start" || args.attempt_type === "recovery"
       ? providerAmbiguityPolicy(paymentProvider).settlement_horizon_ms
       : null,
@@ -3086,7 +3087,7 @@ async function handlePaymentReleaseEvent(
       });
       throw new PermanentFailError(`payment_release_negative_finality_unproven participant ${participantId}`);
     }
-    // Independent financial review — SETTLEMENT HORIZON (migration 064): a
+    // Independent financial review — SETTLEMENT HORIZON (migration 068): a
     // capture-side failure inferred from status may still settle; releasing the
     // hold now would be release-then-capture. Defer to the horizon, visibly.
     await openPaymentOperationalCase({
@@ -3718,7 +3719,7 @@ async function handleChargeDealEvent(
       payload: { completion_window_until: windowUntil.toISOString() },
       insideTx: async (c) => {
         const actualWindow = await setCompletionWindowOnce(c, dealId);
-        await c.query(
+        const finalizeEnqueue = await c.query(
           `INSERT INTO siton.outbox_events(event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at)
            VALUES ('finalize_deal','deal',$1,$2,'pending',0,$3)
            ON CONFLICT DO NOTHING`,
@@ -3740,7 +3741,13 @@ async function handleChargeDealEvent(
             [dealId, JSON.stringify({ deal_id: dealId })]
           );
         }
-        await c.query(`SELECT set_config('siton.outbox_written', '1', true)`);
+        // Red-team hardening (C-1): the outbox flag is only TRUE when the
+        // finalize_deal row for THIS deal was actually written in this
+        // transaction. A conflicting (already pending) finalize_deal while the
+        // deal is still Charging is an inconsistency the DB trigger must reject,
+        // not a case to paper over with a forged flag. The per-row trigger
+        // (migration 076) checks the outbox row itself; the flag now agrees.
+        await c.query(`SELECT set_config('siton.outbox_written', $1, true)`, [finalizeEnqueue.rowCount ? "1" : "0"]);
       }
     });
 
@@ -3776,7 +3783,7 @@ async function handleChargeDealEvent(
 //   authorized / failed -> (twice, consistently) not executed: proceed
 // A provider without a status capability cannot be verified and keeps the
 // pre-existing behaviour (documented residual). The SETTLEMENT HORIZON fence
-// (captureSettlementFenceUntil, migration 064) runs BEFORE this pre-flight: a
+// (captureSettlementFenceUntil, migration 068) runs BEFORE this pre-flight: a
 // status-inferred failure is never acted on while the provider may still settle.
 // ---------------------------------------------------------------------------
 async function verifyOriginalCaptureBeforeRecovery(args: {
@@ -3884,7 +3891,7 @@ async function verifyOriginalCaptureBeforeRecovery(args: {
   }
   // "pending" is positive evidence that a settlement is still in progress:
   // hold, and push the durable settlement horizon of the target identity out
-  // (migration 064) so nothing else acts on this obligation meanwhile.
+  // (migration 068) so nothing else acts on this obligation meanwhile.
   if (reads.some((r) => r.state === "pending")) {
     if (target && policy.settlement_horizon_ms > 0) {
       await extendSettlementHorizon({ participant_id: args.participant_id, deal_id: args.deal_id, attempt_type: target.attempt_type, correlation_id: target.correlation_id, horizon_ms: policy.settlement_horizon_ms }).catch(() => undefined);
@@ -4177,7 +4184,7 @@ async function handleRecoveryDealEvent(
       pricePerUnit: Number(p.price_per_unit || 0),
       deliveryCost: Number(p.delivery_cost || 0)
     });
-    // Independent financial review — SETTLEMENT HORIZON (migration 064): a
+    // Independent financial review — SETTLEMENT HORIZON (migration 068): a
     // capture-side failure that was only INFERRED from status reads may still
     // settle at the provider until its horizon. No automatic recovery (a second
     // capture of the same obligation) before that instant, whatever the status
@@ -4657,7 +4664,7 @@ async function handleFinalizeDealEvent(
     );
   }
 
-  // Independent financial review — SETTLEMENT HORIZON (migration 064). A
+  // Independent financial review — SETTLEMENT HORIZON (migration 068). A
   // capture-side failure that was only INFERRED from status reads may still
   // settle at the provider until its horizon: deciding Completed / Failed (and
   // releasing every hold) before that instant is the "terminal state hides late
@@ -5244,6 +5251,7 @@ export function redactUrlForLogs(rawUrl: unknown): string {
   }
 }
 
+const TRUST_PROXY_HOPS = resolveTrustProxyHops();
 const app = Fastify({
   logger: {
     serializers: {
@@ -5277,7 +5285,15 @@ const app = Fastify({
   genReqId(req: any) {
     return safeHeaderId(req?.headers?.["x-request-id"], "req");
   },
-  trustProxy: true,
+  // Red-team hardening (A2): trust exactly the configured number of proxy hops
+  // (Render: 1), never `true`. With `true` the left-most X-Forwarded-For value —
+  // the one the CALLER writes — became req.ip, so a header-rotating attacker
+  // defeated every IP-keyed rate limit. With a hop count the client address is
+  // the one the outermost trusted proxy appended; a spoofed prefix is ignored.
+  // Expressed as proxy-addr's trust function (hop index 0 = the socket peer):
+  // exactly TRUST_PROXY_HOPS hops are trusted, identical to Fastify's numeric
+  // form but typed for this Fastify major.
+  trustProxy: ((_address: string, hop: number) => hop < TRUST_PROXY_HOPS),
   bodyLimit: 8 * 1024 * 1024,
   rewriteUrl(req) {
     return rewriteCanonicalApiAlias(String(req.url || "/"));
@@ -5381,6 +5397,20 @@ app.addHook("onRequest", (req: any, reply: any, done) => {
   }
   done();
 });
+// Content-Security-Policy on every HTML document (red-team residual): the
+// policy is derived from the document itself (hashes of its inline scripts),
+// so no HTML surface can be served without one and no 'unsafe-inline' script
+// allowance is ever needed. Non-HTML responses (JSON, assets) are untouched.
+app.addHook("onSend", (_req: any, reply: any, payload: unknown, done) => {
+  try {
+    if (typeof payload === "string" && isHtmlContentType(reply.getHeader("content-type")) && !reply.getHeader("content-security-policy")) {
+      reply.header("content-security-policy", contentSecurityPolicyFor(payload));
+    }
+  } catch {
+    // never let a policy computation failure break the response
+  }
+  done(null, payload);
+});
 app.addHook("onResponse", (req: any, reply: any, done) => {
   applicationRequestTelemetry.finish(req, Number(reply.statusCode || 200));
   done();
@@ -5393,8 +5423,9 @@ export { app, issueFulfillmentForCompletedDeal };
 // RATE_LIMIT_WINDOW_MS (window duration in ms). Off when RATE_LIMIT_MAX=0.
 // Uses a fixed-window counter keyed by client IP.
 //
-// Behind Render (or any proxy with trustProxy:true), req.ip already resolves
-// the first untrusted IP from X-Forwarded-For via Fastify's built-in handling.
+// Behind Render (trustProxy = TRUST_PROXY_HOPS, default 1), req.ip resolves the
+// address appended by the outermost TRUSTED proxy hop, so a caller cannot pick
+// its own bucket by prepending X-Forwarded-For values (red-team A2).
 // Sensitive endpoints (OTP, join-deal) use a tighter per-path sub-limit.
 // Default store is memory with explicit single-instance scale mode. The narrow
 // interface is the replacement point for Redis/DB/platform-backed enforcement.
@@ -5414,7 +5445,11 @@ const READ_ONLY_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 export const RATE_LIMIT_SCALE_MODE = process.env.RATE_LIMIT_SCALE_MODE || "single_instance_only";
 
 // Paths that get the tighter per-IP limit (prefix match without trailing slash)
-const SENSITIVE_PATHS = ["/api/otp", "/api/deals/join", "/api/deals", "/api/support"];
+// Red-team hardening (A3): the admin authentication surface (password login,
+// MFA verify) shares the tight per-IP mutation budget now that the client IP
+// is spoof-proof (A2); the per-account lockout in frontend_runtime is the
+// IP-independent backstop.
+const SENSITIVE_PATHS = ["/api/otp", "/api/deals/join", "/api/deals", "/api/support", "/api/admin/auth"];
 
 type RateLimitEntry = { count: number; resetAt: number };
 interface RateLimiterStore {
@@ -5466,8 +5501,9 @@ export function rateLimitBucketFor(method: string, url: string): "sensitive" | "
 
 if (RATE_LIMIT_MAX > 0) {
   app.addHook("onRequest", async (req, reply) => {
-    // req.ip is the correct client IP when trustProxy:true is set —
-    // Fastify reads X-Forwarded-For and returns the first untrusted address.
+    // req.ip is the client address resolved through the configured trusted
+    // proxy hop count (A2): the value the outermost trusted proxy appended to
+    // X-Forwarded-For, never a caller-supplied prefix.
     const ip = req.ip || "unknown";
     const url = req.url || "";
     const now = Date.now();
@@ -5665,9 +5701,14 @@ app.post("/api/client-errors", { bodyLimit: 16 * 1024 }, async (req: any, reply:
   return reply.send();
 });
 
-app.get("/readiness", async (_req: any, reply: any) => {
+app.get("/readiness", async (req: any, reply: any) => {
   try {
-    return await assertCanonicalRuntimeReady(pool, "web");
+    const ready = await assertCanonicalRuntimeReady(pool, "web");
+    // Operational aid for the proxy hop configuration (A2): the address the
+    // runtime attributes to THIS caller. Lets an operator confirm from a
+    // browser that TRUST_PROXY_HOPS resolves their real address (not a proxy,
+    // not a spoofed X-Forwarded-For prefix). It is the caller's own address.
+    return { ...ready, client_ip: String(req.ip || ""), trust_proxy_hops: resolveTrustProxyHops() };
   } catch {
     return reply.code(503).send({ ok: false, code: "not_ready" });
   }
@@ -7356,10 +7397,21 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     if (joinTestFailurePoint === "before_participant") {
       throw new Error("join_test_failure_before_participant");
     }
-    // Lock the deal row to prevent concurrent over-booking
+    // Red-team hardening (C-2): the deal row lock used to be taken FIRST and
+    // held across ~19 writes (participant insert, binding consumption, viral
+    // graph, attribution, discovery, legal, notification, tracking token,
+    // audits, idempotency) — every join to a hot deal serialised on the whole
+    // body and a slow secondary write pressured the web pool. The transaction
+    // now does all the lock-independent work first, WITHOUT the deal row lock,
+    // and takes the lock only for the money-critical core: the capacity
+    // decision (inventory hold + commit), the audited state transitions and
+    // target-reached. Atomicity is unchanged — it is one transaction, so any
+    // failure (including a capacity refusal under the lock) rolls everything
+    // back exactly as before. The deal state is re-read UNDER the lock before
+    // capacity is decided; the unlocked read below only rejects early.
     const dealRow = await c.query(
       `SELECT deal_id, state, max_units, threshold_units, seller_id, title, price_per_unit, deal_type, published_at
-       FROM siton.deals WHERE deal_id=$1 FOR UPDATE`,
+       FROM siton.deals WHERE deal_id=$1`,
       [dealId]
     );
     if (!dealRow.rowCount) {
@@ -7372,19 +7424,25 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     const thresholdUnits = Number(dealRow.rows[0].threshold_units);
     const dealSellerId = String(dealRow.rows[0].seller_id || "");
 
-    if (!["PendingTarget", "TargetReached"].includes(dealState)) {
-      const err: any = new Error("deal is not open for joining");
-      err.statusCode = 409;
-      throw err;
-    }
+    const assertOpenForJoining = (state: string) => {
+      if (!["PendingTarget", "TargetReached"].includes(state)) {
+        const err: any = new Error("deal is not open for joining");
+        err.statusCode = 409;
+        throw err;
+      }
+    };
+    assertOpenForJoining(dealState);
 
-    if (await isFlagActive(c, "pause_joining_emergency", "deal", dealId)
-      || (dealSellerId && await isFlagActive(c, "pause_joining_emergency", "seller", dealSellerId))) {
-      const err: any = new Error("joining is paused by admin emergency control");
-      err.statusCode = 423;
-      err.code = "joining_paused_by_admin";
-      throw err;
-    }
+    const assertJoiningNotPaused = async () => {
+      if (await isFlagActive(c, "pause_joining_emergency", "deal", dealId)
+        || (dealSellerId && await isFlagActive(c, "pause_joining_emergency", "seller", dealSellerId))) {
+        const err: any = new Error("joining is paused by admin emergency control");
+        err.statusCode = 423;
+        err.code = "joining_paused_by_admin";
+        throw err;
+      }
+    };
+    await assertJoiningNotPaused();
 
     const deliveryOption = deliveryOptionId
       ? await c.query(
@@ -7417,56 +7475,6 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       throw err;
     }
 
-    const inventory = canonicalInventoryRuntime ? buildInventoryRepository(c) : null;
-    let inventoryReservationId: string | null = null;
-    if (inventory) {
-      const inventoryJoinKey = canonicalInventoryKey("join", {
-        deal_id: dealId,
-        buyer_id,
-        idempotency_key: idem
-      });
-      await inventory.sync({
-        dealId,
-        maxUnits,
-        minUnits: thresholdUnits,
-        idempotencyKey: `runtime-sync:${dealId}`
-      });
-      let inventoryHold: Record<string, unknown>;
-      try {
-        inventoryHold = await inventory.hold({
-          dealId,
-          qty,
-          idempotencyKey: inventoryJoinKey,
-          requestHash: joinRequestHash
-        });
-      } catch (error) {
-        if (error instanceof InventoryRepositoryError && error.code === "inventory_exhausted") {
-          (error as any).code = "max_units_exceeded";
-        }
-        throw error;
-      }
-      inventoryReservationId = String(inventoryHold.reservation_id || "");
-      requireUuid(inventoryReservationId, "inventory_reservation_id");
-    } else {
-      // Pre-R3 compatibility only. The target Render/Supabase path always uses the
-      // canonical inventory RPC above when CANONICAL_POSTGRES_RUNTIME=1.
-      const reservedRow = await c.query(
-        `SELECT COALESCE(SUM(qty), 0) AS total
-         FROM siton.participants
-         WHERE deal_id=$1
-           AND buyer_state NOT IN ('DealFailed','Dropped')`,
-        [dealId]
-      );
-      const remaining = maxUnits - Number(reservedRow.rows[0].total);
-      if (qty > remaining) {
-        const err: any = new Error(
-          `requested quantity (${qty}) exceeds available inventory (${Math.max(0, remaining)})`
-        );
-        err.statusCode = 409;
-        err.code = "max_units_exceeded";
-        throw err;
-      }
-    }
     // Server-authoritative authorization binding (R9A). In strict mode the
     // browser-supplied authorization_id is only a lookup handle: AuthHeld is
     // reached exclusively by consuming a server-side binding whose provider,
@@ -7492,10 +7500,12 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       authorization: authorizationPayload
     });
 
-    // INSERT participant, then immediately apply state transitions + write audit + idem_log
-    // all within the same deal-locked transaction. This prevents the race where concurrent
-    // requests slip through the idempotency check during the gap between participant INSERT
-    // (end of withTx) and idem_log write (end of atomicMultiTransition).
+    // INSERT the participant in its pre-join state (NotJoined / NoFinancial).
+    // It is invisible to every other transaction until COMMIT, and the
+    // capacity decision + state transitions below happen in this same
+    // transaction under the deal row lock, so nothing can observe a
+    // participant that was not admitted. The inventory reservation id is
+    // attached once the hold has been taken under the lock.
     const participantValues = [
       dealId,
       buyer_id,
@@ -7513,52 +7523,24 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       acquisition.requestedSource,
       paymentMethod
     ];
-    const ins = inventoryReservationId
-      ? await c.query(
-          `INSERT INTO siton.participants(
-             deal_id, buyer_id, qty, buyer_state, money_state,
-             delivery_option_id, delivery_method_type, delivery_method_label, delivery_cost,
-             buyer_name, buyer_phone, buyer_email,
-             delivery_address, delivery_city, delivery_notes, acquisition_source,
-             payment_method, inventory_reservation_id
-           )
-           VALUES ($1,$2,$3,'NotJoined','NoFinancial',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
-           RETURNING participant_id`,
-          [...participantValues, inventoryReservationId]
-        )
-      : await c.query(
-          `INSERT INTO siton.participants(
-             deal_id, buyer_id, qty, buyer_state, money_state,
-             delivery_option_id, delivery_method_type, delivery_method_label, delivery_cost,
-             buyer_name, buyer_phone, buyer_email,
-             delivery_address, delivery_city, delivery_notes, acquisition_source,
-             payment_method
-           )
-           VALUES ($1,$2,$3,'NotJoined','NoFinancial',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-           RETURNING participant_id`,
-          participantValues
-        );
+    const ins = await c.query(
+      `INSERT INTO siton.participants(
+         deal_id, buyer_id, qty, buyer_state, money_state,
+         delivery_option_id, delivery_method_type, delivery_method_label, delivery_cost,
+         buyer_name, buyer_phone, buyer_email,
+         delivery_address, delivery_city, delivery_notes, acquisition_source,
+         payment_method
+       )
+       VALUES ($1,$2,$3,'NotJoined','NoFinancial',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       RETURNING participant_id`,
+      participantValues
+    );
     const pid = ins.rows[0].participant_id as string;
-    if (
-      joinTestFailurePoint === "after_participant_before_commit"
-      || joinTestFailurePoint === "after_business_mutation_before_inventory_commit"
-    ) {
-      throw new Error("join_test_failure_after_business_mutation_before_inventory_commit");
-    }
-
-    const inventoryCommit = inventory && inventoryReservationId
-      ? await inventory.commit({
-          reservationId: inventoryReservationId,
-          authorizationEvidenceHash
-        })
-      : null;
-    if (joinTestFailurePoint === "after_inventory_commit_before_business_audit") {
-      throw new Error("join_test_failure_after_inventory_commit_before_business_audit");
-    }
 
     // Consume the server-side authorization binding atomically with this Join
     // transaction. Any mismatch (deal, buyer, provider, environment, quantity,
     // amount, currency, status, prior consumption, expiry) aborts the Join.
+    // Lock-independent: the binding row carries its own lock.
     if (authorizationId) {
       const authoritativeAmountMinor = paymentMinorAmount({
         qty,
@@ -7637,6 +7619,7 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     // R6 commerce viral graph: resolve the share-chain attribution and ensure
     // the joining buyer's personal share link — bounded indexed work only; the
     // heavy subtree aggregation runs asynchronously via 'viral_recompute'.
+    // Lock-independent (C-2): touches viral/affiliate rows, never the deal row.
     const viralJoin = await recordViralJoinAttribution(c, {
       deal_id: dealId,
       participant_id: pid,
@@ -7662,67 +7645,6 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
            ON CONFLICT DO NOTHING`,
           [mallJoinRetryToken, dealId, dealRow.rows[0].deal_type, mallStatus]
         );
-      }
-    }
-
-    // Set session config expected by audit/outbox trigger guards
-    await c.query(`SELECT set_config('siton.in_atomic', 'true', true)`);
-    await c.query(`SELECT set_config('siton.action_name', 'participant.join_authorize', true)`);
-    await c.query(`SELECT set_config('siton.audit_written', '0', true)`);
-    await c.query(`SELECT set_config('siton.outbox_written', '0', true)`);
-
-    const payloadJson = JSON.stringify(authorizationPayload);
-    await c.query(
-      `INSERT INTO siton.audit_log
-       (entity_type, entity_id, deal_id, state_type, from_state, to_state, action_name, request_id, correlation_id, idempotency_key, payload)
-       VALUES ('participant',$1,$2,'buyer_state','NotJoined','JoinedAuthorized','participant.join_authorize',$3,$4,$5,$6)`,
-      [pid, dealId, requestId, correlationId, idem, payloadJson]
-    );
-    await c.query(
-      `INSERT INTO siton.audit_log
-       (entity_type, entity_id, deal_id, state_type, from_state, to_state, action_name, request_id, correlation_id, idempotency_key, payload)
-       VALUES ('participant',$1,$2,'money_state','NoFinancial','AuthHeld','participant.join_authorize',$3,$4,$5,$6)`,
-      [pid, dealId, requestId, correlationId, idem, payloadJson]
-    );
-    await c.query(`SELECT set_config('siton.audit_written', '1', true)`);
-
-    const bsUpd = await c.query(
-      `UPDATE siton.participants SET buyer_state='JoinedAuthorized' WHERE participant_id=$1 AND buyer_state='NotJoined'`,
-      [pid]
-    );
-    if (bsUpd.rowCount !== 1) throw stateConflict("participant", pid, "NotJoined");
-    const msUpd = await c.query(
-      `UPDATE siton.participants SET money_state='AuthHeld' WHERE participant_id=$1 AND money_state='NoFinancial'`,
-      [pid]
-    );
-    if (msUpd.rowCount !== 1) throw stateConflict("participant", pid, "NoFinancial");
-
-    if (inventoryCommit?.target_transitioned === true && dealState === "PendingTarget") {
-      await c.query(`SELECT set_config('siton.action_name', 'deal.target_reached', true)`);
-      await c.query(`SELECT set_config('siton.audit_written', '0', true)`);
-      await c.query(
-        `INSERT INTO siton.audit_log
-         (entity_type, entity_id, deal_id, state_type, from_state, to_state, action_name, request_id, correlation_id, idempotency_key, payload)
-         VALUES ('deal',$1,$1,'deal_state','PendingTarget','TargetReached','deal.target_reached',$2,$3,$4,$5)`,
-        [
-          dealId,
-          requestId,
-          correlationId,
-          `target-reached:${dealId}`,
-          JSON.stringify({
-            source_inventory_reservation_id: inventoryReservationId,
-            committed_units: inventoryCommit.committed_units,
-            threshold_units: thresholdUnits
-          })
-        ]
-      );
-      await c.query(`SELECT set_config('siton.audit_written', '1', true)`);
-      const targetUpdate = await c.query(
-        `UPDATE siton.deals SET state='TargetReached' WHERE deal_id=$1 AND state='PendingTarget'`,
-        [dealId]
-      );
-      if (targetUpdate.rowCount !== 1) {
-        throw stateConflict("deal", dealId, "PendingTarget");
       }
     }
 
@@ -7758,6 +7680,170 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       issued_via: "buyer_join",
       correlation_id: correlationId
     });
+
+    if (
+      joinTestFailurePoint === "after_participant_before_commit"
+      || joinTestFailurePoint === "after_business_mutation_before_inventory_commit"
+    ) {
+      throw new Error("join_test_failure_after_business_mutation_before_inventory_commit");
+    }
+
+    // ---- CRITICAL SECTION (deal row lock) — capacity + audited transitions ----
+    // Lock the deal row to prevent concurrent over-booking. Everything above
+    // is already written in this transaction; from here to COMMIT only the
+    // money-critical writes remain, so the lock is held as briefly as the
+    // inventory RPC and the audited state updates allow.
+    const lockedDeal = await c.query(
+      `SELECT state FROM siton.deals WHERE deal_id=$1 FOR UPDATE`,
+      [dealId]
+    );
+    if (!lockedDeal.rowCount) {
+      const err: any = new Error("deal not found");
+      err.statusCode = 404;
+      throw err;
+    }
+    // Re-validate UNDER the lock: a seller close / admin pause / cancel that
+    // committed while the pre-lock work ran must still refuse this join.
+    const lockedState = String(lockedDeal.rows[0].state) as DealState;
+    assertOpenForJoining(lockedState);
+    await assertJoiningNotPaused();
+
+    const inventory = canonicalInventoryRuntime ? buildInventoryRepository(c) : null;
+    let inventoryReservationId: string | null = null;
+    if (inventory) {
+      const inventoryJoinKey = canonicalInventoryKey("join", {
+        deal_id: dealId,
+        buyer_id,
+        idempotency_key: idem
+      });
+      await inventory.sync({
+        dealId,
+        maxUnits,
+        minUnits: thresholdUnits,
+        idempotencyKey: `runtime-sync:${dealId}`
+      });
+      let inventoryHold: Record<string, unknown>;
+      try {
+        inventoryHold = await inventory.hold({
+          dealId,
+          qty,
+          idempotencyKey: inventoryJoinKey,
+          requestHash: joinRequestHash
+        });
+      } catch (error) {
+        if (error instanceof InventoryRepositoryError && error.code === "inventory_exhausted") {
+          (error as any).code = "max_units_exceeded";
+        }
+        throw error;
+      }
+      inventoryReservationId = String(inventoryHold.reservation_id || "");
+      requireUuid(inventoryReservationId, "inventory_reservation_id");
+      await c.query(
+        `UPDATE siton.participants SET inventory_reservation_id=$2 WHERE participant_id=$1`,
+        [pid, inventoryReservationId]
+      );
+    } else {
+      // Pre-R3 compatibility only — TEST-HARNESS PATH, unsupported on any hosted
+      // or production runtime (production_guards fails closed without
+      // CANONICAL_POSTGRES_RUNTIME=1; red-team C-3). It never performs the
+      // PendingTarget→TargetReached transition here (that only comes from the
+      // canonical RPC's target_transitioned); the post-commit tryTargetReached
+      // below covers it for the harness.
+      const reservedRow = await c.query(
+        `SELECT COALESCE(SUM(qty), 0) AS total
+         FROM siton.participants
+         WHERE deal_id=$1
+           AND buyer_state NOT IN ('DealFailed','Dropped')
+           AND participant_id <> $2`,
+        [dealId, pid]
+      );
+      const remaining = maxUnits - Number(reservedRow.rows[0].total);
+      if (qty > remaining) {
+        const err: any = new Error(
+          `requested quantity (${qty}) exceeds available inventory (${Math.max(0, remaining)})`
+        );
+        err.statusCode = 409;
+        err.code = "max_units_exceeded";
+        throw err;
+      }
+    }
+
+    const inventoryCommit = inventory && inventoryReservationId
+      ? await inventory.commit({
+          reservationId: inventoryReservationId,
+          authorizationEvidenceHash
+        })
+      : null;
+    if (joinTestFailurePoint === "after_inventory_commit_before_business_audit") {
+      throw new Error("join_test_failure_after_inventory_commit_before_business_audit");
+    }
+
+    // Set session config expected by audit/outbox trigger guards
+    await c.query(`SELECT set_config('siton.in_atomic', 'true', true)`);
+    await c.query(`SELECT set_config('siton.action_name', 'participant.join_authorize', true)`);
+    await c.query(`SELECT set_config('siton.audit_written', '0', true)`);
+    await c.query(`SELECT set_config('siton.outbox_written', '0', true)`);
+
+    const payloadJson = JSON.stringify(authorizationPayload);
+    await c.query(
+      `INSERT INTO siton.audit_log
+       (entity_type, entity_id, deal_id, state_type, from_state, to_state, action_name, request_id, correlation_id, idempotency_key, payload)
+       VALUES ('participant',$1,$2,'buyer_state','NotJoined','JoinedAuthorized','participant.join_authorize',$3,$4,$5,$6)`,
+      [pid, dealId, requestId, correlationId, idem, payloadJson]
+    );
+    await c.query(
+      `INSERT INTO siton.audit_log
+       (entity_type, entity_id, deal_id, state_type, from_state, to_state, action_name, request_id, correlation_id, idempotency_key, payload)
+       VALUES ('participant',$1,$2,'money_state','NoFinancial','AuthHeld','participant.join_authorize',$3,$4,$5,$6)`,
+      [pid, dealId, requestId, correlationId, idem, payloadJson]
+    );
+    await c.query(`SELECT set_config('siton.audit_written', '1', true)`);
+
+    const bsUpd = await c.query(
+      `UPDATE siton.participants SET buyer_state='JoinedAuthorized' WHERE participant_id=$1 AND buyer_state='NotJoined'`,
+      [pid]
+    );
+    if (bsUpd.rowCount !== 1) throw stateConflict("participant", pid, "NotJoined");
+    const msUpd = await c.query(
+      `UPDATE siton.participants SET money_state='AuthHeld' WHERE participant_id=$1 AND money_state='NoFinancial'`,
+      [pid]
+    );
+    if (msUpd.rowCount !== 1) throw stateConflict("participant", pid, "NoFinancial");
+
+    if (inventoryCommit?.target_transitioned === true && lockedState === "PendingTarget") {
+      // Red-team C-4 (verified): deal.target_reached is deliberately NOT an
+      // outbox-required action (009) — no worker rail reacts to it; the next
+      // money step (close_joining → prepare_charging → charging.start) is
+      // seller/deadline driven and carries its own outbox event.
+      await c.query(`SELECT set_config('siton.action_name', 'deal.target_reached', true)`);
+      await c.query(`SELECT set_config('siton.audit_written', '0', true)`);
+      await c.query(
+        `INSERT INTO siton.audit_log
+         (entity_type, entity_id, deal_id, state_type, from_state, to_state, action_name, request_id, correlation_id, idempotency_key, payload)
+         VALUES ('deal',$1,$1,'deal_state','PendingTarget','TargetReached','deal.target_reached',$2,$3,$4,$5)`,
+        [
+          dealId,
+          requestId,
+          correlationId,
+          `target-reached:${dealId}`,
+          JSON.stringify({
+            source_inventory_reservation_id: inventoryReservationId,
+            committed_units: inventoryCommit.committed_units,
+            threshold_units: thresholdUnits
+          })
+        ]
+      );
+      await c.query(`SELECT set_config('siton.audit_written', '1', true)`);
+      const targetUpdate = await c.query(
+        `UPDATE siton.deals SET state='TargetReached' WHERE deal_id=$1 AND state='PendingTarget'`,
+        [dealId]
+      );
+      if (targetUpdate.rowCount !== 1) {
+        throw stateConflict("deal", dealId, "PendingTarget");
+      }
+    }
+    // ---- end of critical section: only the idempotency records remain ----
+
     const deliveryCost = Number(selectedDelivery?.cost || 0);
     const response = {
       ok: true,

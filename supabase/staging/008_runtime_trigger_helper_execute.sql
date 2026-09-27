@@ -9,7 +9,10 @@ GRANT EXECUTE ON FUNCTION
   siton.is_valid_deal_transition(text, text),
   siton.is_valid_money_transition(text, text),
   siton.is_valid_transition(text, text, text),
-  siton.require_action_name()
+  siton.require_action_name(),
+  -- migration 076 (red-team C-1): per-row audit/outbox assertion helpers
+  siton.audit_row_written_in_tx(text, uuid, text, text, text, text),
+  siton.outbox_row_written_in_tx(text, uuid)
   TO siton_web_runtime, siton_worker_runtime;
 
 DO $trigger_helper_safety$
@@ -25,7 +28,9 @@ BEGIN
       'siton.is_valid_deal_transition(text,text)',
       'siton.is_valid_money_transition(text,text)',
       'siton.is_valid_transition(text,text,text)',
-      'siton.require_action_name()'
+      'siton.require_action_name()',
+      'siton.audit_row_written_in_tx(text,uuid,text,text,text,text)',
+      'siton.outbox_row_written_in_tx(text,uuid)'
     ] LOOP
       IF NOT has_function_privilege(v_role, v_function, 'EXECUTE') THEN
         RAISE EXCEPTION 'missing runtime trigger helper privilege role=% function=%', v_role, v_function;
