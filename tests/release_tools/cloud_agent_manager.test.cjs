@@ -276,3 +276,41 @@ test("Claude builder can test and inspect but can never take the Git lifecycle",
   const reviewerGuards = workflow.match(/--disallowedTools Write Edit MultiEdit NotebookEdit WebSearch WebFetch/g) || [];
   assert.equal(reviewerGuards.length, 2);
 });
+
+// Black-Sky E3: the builder can write the agent tree's .git/hooks, .git/config
+// and .gitattributes filters, so the lifecycle token must never meet a git
+// command run in that tree.
+test("managed commit/push runs hook-free in a pristine control checkout; the agent tree never sees the token", () => {
+  const workflow = read(".github/workflows/cloud-agent-manager.yml");
+  const stepOf = (name) => {
+    const start = workflow.indexOf(`- name: ${name}\n`);
+    assert.ok(start > -1, `step missing: ${name}`);
+    const next = workflow.indexOf("\n      - name: ", start + 1);
+    return workflow.slice(start, next === -1 ? undefined : next);
+  };
+  const exportStep = stepOf("Export managed diff without credentials");
+  assert.doesNotMatch(exportStep, /GH_TOKEN|SITON_AGENT_GITHUB_TOKEN|secrets\./, "diff export must run without any credential");
+  assert.match(exportStep, /core\.hooksPath=\/dev\/null/);
+  assert.match(exportStep, /core\.fsmonitor=false/);
+  assert.match(exportStep, /--no-ext-diff --no-textconv/);
+  const control = stepOf("Pristine control checkout");
+  assert.match(control, /actions\/checkout@v4/);
+  assert.match(control, /ref: \$\{\{ steps\.task\.outputs\.head \}\}/);
+  assert.match(control, /path: \.siton-control/);
+  assert.match(control, /persist-credentials: false/);
+  const commit = stepOf("Commit and push managed branch");
+  assert.match(commit, /working-directory: \.siton-control/);
+  assert.match(commit, /git -c core\.hooksPath=\/dev\/null commit --no-verify/);
+  assert.match(commit, /git -c core\.hooksPath=\/dev\/null push --no-verify/);
+  assert.match(commit, /git -c core\.hooksPath=\/dev\/null apply --index --binary/);
+  assert.ok(workflow.indexOf("- name: Export managed diff without credentials") < workflow.indexOf("- name: Pristine control checkout"));
+  assert.ok(workflow.indexOf("- name: Pristine control checkout") < workflow.indexOf("- name: Commit and push managed branch"));
+  // No step that carries the lifecycle token runs a bare `git commit`/`git add` in the agent tree.
+  const steps = workflow.split("\n      - name: ").slice(1);
+  for (const step of steps) {
+    if (!/SITON_AGENT_GITHUB_TOKEN/.test(step)) continue;
+    if (/working-directory: \.siton-control/.test(step)) continue;
+    assert.doesNotMatch(step, /^\s*git (add|commit|push|apply)\b/m, `token-bearing step runs git in the agent tree: ${step.split("\n")[0]}`);
+  }
+  assert.match(workflow, /gh pr create --repo "\$GITHUB_REPOSITORY"/);
+});

@@ -20,7 +20,9 @@ services:
     branch: master
     dockerfilePath: ./Dockerfile
     healthCheckPath: /readiness
-    autoDeploy: true
+    # Black-Sky E8: deploy a new master commit only after its GitHub checks
+    # pass (never on push alone). Blueprint field: autoDeployTrigger.
+    autoDeployTrigger: checksPass
     envVars:
       - key: APP_DEPLOYMENT_MODE
         value: staging
@@ -90,7 +92,9 @@ services:
     branch: master
     dockerfilePath: ./Dockerfile
     dockerCommand: node .demo_dist/src/worker.js
-    autoDeploy: true
+    # Black-Sky E8: deploy a new master commit only after its GitHub checks
+    # pass (never on push alone). Blueprint field: autoDeployTrigger.
+    autoDeployTrigger: checksPass
     envVars:
       - key: APP_DEPLOYMENT_MODE
         value: staging

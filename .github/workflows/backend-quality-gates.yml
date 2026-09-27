@@ -58,6 +58,26 @@ jobs:
       - name: Prepare artifact directory
         run: mkdir -p .ci-artifacts
 
+      # Black-Sky E9: production dependency advisories at HIGH or CRITICAL
+      # block the merge. An unreachable advisory registry (no JSON metadata in
+      # the response) is reported as a warning and does not block: the gate
+      # fails on findings, never on network weather.
+      - name: Production dependency audit (blocking on high/critical)
+        run: |
+          set +e
+          npm audit --omit=dev --audit-level=high --json > .ci-artifacts/npm-audit-production.json
+          status=$?
+          set -e
+          if node -e 'const j=JSON.parse(require("fs").readFileSync(".ci-artifacts/npm-audit-production.json","utf8")||"{}");process.exit(j&&j.metadata?0:1)'; then
+            node -e 'const j=require("./.ci-artifacts/npm-audit-production.json");console.log("npm audit (production):",JSON.stringify(j.metadata.vulnerabilities))'
+            if [ "$status" -ne 0 ]; then
+              echo "::error::npm audit found HIGH/CRITICAL advisories in production dependencies (see .ci-artifacts/npm-audit-production.json)"
+              exit 1
+            fi
+          else
+            echo "::warning::npm audit unavailable (advisory registry unreachable); production audit NOT evaluated on this run"
+          fi
+
       - name: TypeScript
         run: npx tsc --noEmit 2>&1 | tee .ci-artifacts/typescript.log
 

@@ -497,21 +497,53 @@ jobs:
           node scripts/cloud_agent_manager.cjs status PROJECT_STATUS.md
           git diff --check
 
+      # Black-Sky E3: the agent tree (including its .git/hooks, .git/config and
+      # .gitattributes filters) was writable by the builder, so no git command
+      # may run there while the lifecycle token is in the environment. The
+      # diff is exported credential-free with hooks, fsmonitor, external diff
+      # and textconv disabled, then applied and committed in a pristine
+      # control checkout that the builder never touched, and only that
+      # checkout ever sees SITON_AGENT_GITHUB_TOKEN.
+      - name: Export managed diff without credentials
+        env:
+          EXPECTED_HEAD: ${{ steps.task.outputs.head }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          safe_git() { git -c core.hooksPath=/dev/null -c core.fsmonitor=false -c diff.external= "$@"; }
+          safe_git add -A
+          if safe_git diff --cached --quiet; then
+            echo "No staged changes after managed task." >&2
+            exit 1
+          fi
+          safe_git diff --cached --binary --no-ext-diff --no-textconv "$EXPECTED_HEAD" > "$RUNNER_TEMP/siton-managed.patch"
+          test -s "$RUNNER_TEMP/siton-managed.patch"
+
+      - name: Pristine control checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.task.outputs.head }}
+          path: .siton-control
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Commit and push managed branch
+        working-directory: .siton-control
         env:
           BRANCH: ${{ steps.task.outputs.branch }}
+          EXPECTED_HEAD: ${{ steps.task.outputs.head }}
           GH_TOKEN: ${{ secrets.SITON_AGENT_GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          git add -A
-          if git diff --cached --quiet; then
-            echo "No staged changes after managed task." >&2
-            exit 1
-          fi
-          git commit -m "agent(cloud): managed run ${GITHUB_RUN_ID}"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git config user.name "siton-agent-manager[bot]"
+          git config user.email "siton-agent-manager[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git -c core.hooksPath=/dev/null apply --index --binary "$RUNNER_TEMP/siton-managed.patch"
+          git -c core.hooksPath=/dev/null commit --no-verify -m "agent(cloud): managed run ${GITHUB_RUN_ID}"
           gh auth setup-git
-          git push -u origin "$BRANCH"
+          git -c core.hooksPath=/dev/null push --no-verify -u origin "$BRANCH"
 
       - name: Run required parallel analysis swarm
         id: swarm
@@ -589,7 +621,7 @@ jobs:
           NODE
           draft_arg=""
           if [ "$VERDICT" = "CHANGES_REQUIRED" ] || [ "$VERDICT" = "INVALID" ] || [ "${SWARM_VERDICT:-}" = "FINDINGS" ]; then draft_arg="--draft"; fi
-          pr_url=$(gh pr create --base master --head "$BRANCH" --title "Cloud agent manager run ${GITHUB_RUN_ID}" --body-file /tmp/cloud-pr-body.md $draft_arg)
+          pr_url=$(gh pr create --repo "$GITHUB_REPOSITORY" --base master --head "$BRANCH" --title "Cloud agent manager run ${GITHUB_RUN_ID}" --body-file /tmp/cloud-pr-body.md $draft_arg)
           echo "url=$pr_url" >> "$GITHUB_OUTPUT"
           echo "CLOUD_AGENT_PR=$pr_url"
 
