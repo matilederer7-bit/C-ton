@@ -21,6 +21,8 @@ const { Client } = require("pg");
 
 const PG_BIN = process.env.PG_BIN || "C:/Program Files/PostgreSQL/18/bin";
 const BASE = process.env.DR_BASE_URL || "postgresql://postgres:postgres@localhost:5432";
+// Creates and drops scratch databases: local/lab hosts only.
+require("./lib/destructive_target_guard.cjs").assertDestructiveTargetAllowed(BASE + "/postgres", { action: "dr_backup_restore_drill" });
 const SUFFIX = `${process.pid}_${Date.now()}`;
 const SOURCE = `siton_dr_source_${SUFFIX}`;
 const RESTORE = `siton_dr_restore_${SUFFIX}`;

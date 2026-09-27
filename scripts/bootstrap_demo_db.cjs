@@ -3,8 +3,13 @@ const { Pool } = require("pg");
 const { runMigrations } = require("./run_migrations.cjs");
 require("dotenv").config({ quiet: true });
 
+const { assertDestructiveTargetAllowed } = require("./lib/destructive_target_guard.cjs");
+
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error("DATABASE_URL is required for demo bootstrap");
+// The bootstrap DELETEs DLQ/outbox evidence and seeds an approved demo seller:
+// it must never run against staging/production or a hosted database.
+assertDestructiveTargetAllowed(connectionString, { action: "bootstrap_demo_db" });
 
 const DEMO = {
   sellerId: "demo-seller",

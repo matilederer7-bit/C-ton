@@ -2,6 +2,7 @@ import { assertRequiredTables } from "./schema_contract.js";
 import { readMoneyAmount, MONEY_EPSILON } from "./money_input.js";
 import { pickupOptionsMissingLocation } from "./pickup_location.js";
 import Fastify from "fastify";
+import { errorLogSerializer } from "./log_redaction.js";
 import { pool } from "./db.js";
 import {
   assertCanonicalRuntimeReady,
@@ -5254,6 +5255,12 @@ const TRUST_PROXY_HOPS = resolveTrustProxyHops();
 const app = Fastify({
   logger: {
     serializers: {
+      // Black-Sky (observability without leakage): pino's default `err`
+      // serializer copies every enumerable property of an error — provider
+      // payloads, pg `detail`, buyer data — into the log line. The worker
+      // logger already used the scrubbing serializer; the web logger (and
+      // every worker path that logs through app.log) now does too.
+      err: errorLogSerializer as any,
       // Mirrors Fastify's default request serializer, with the URL sanitized.
       // Total by construction: a serializer that throws takes the request
       // handler - and the process - down with it.
