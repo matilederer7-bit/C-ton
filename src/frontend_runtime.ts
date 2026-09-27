@@ -159,6 +159,7 @@ import {
   buildMissionWebhookTrace
 } from "./admin_mission_control.js";
 import {
+  adminActionInputError,
   adminRequestContext,
   ensureAdminControlPlaneTables,
   executeAdminAction,
@@ -7403,6 +7404,8 @@ export function registerFrontendExperience(
     if (!targetId) return reply.code(400).send({ ok: false, error: "target_id_required" });
     if (!reason) return reply.code(400).send({ ok: false, error: "reason_required" });
     if (!idempotencyKey) return reply.code(400).send({ ok: false, error: "idempotency_key_required" });
+    const inputError = adminActionInputError(actionType, targetType, targetId, body.metadata && typeof body.metadata === "object" ? body.metadata : {});
+    if (inputError) return reply.code(400).send({ ok: false, error: inputError });
     const context = adminRequestContext(req);
     return deps.withTx(async (c) => {
       const permission = ADMIN_ACTION_PERMISSION[actionType] || "admin_actions.create";
@@ -7412,17 +7415,30 @@ export function registerFrontendExperience(
         recentMfa: HIGH_TRUST_ADMIN_ACTIONS.has(actionType)
       });
       if (!identity) return reply;
-      const action = await insertAdminAction(c, {
-        action_type: actionType,
-        target_type: targetType,
-        target_id: targetId,
-        reason,
-        idempotency_key: idempotencyKey,
-        metadata: body.metadata && typeof body.metadata === "object" ? body.metadata : {},
-        request_id: context.request_id,
-        correlation_id: context.correlation_id,
-        admin_id: safeAdminId(identity)
-      });
+      // An action type added in code before the DB CHECK list is widened
+      // (docs/migration_proposals/078_*) answers a clear 409, never a 500.
+      await c.query("SAVEPOINT admin_action_insert");
+      let action: any;
+      try {
+        action = await insertAdminAction(c, {
+          action_type: actionType,
+          target_type: targetType,
+          target_id: targetId,
+          reason,
+          idempotency_key: idempotencyKey,
+          metadata: body.metadata && typeof body.metadata === "object" ? body.metadata : {},
+          request_id: context.request_id,
+          correlation_id: context.correlation_id,
+          admin_id: safeAdminId(identity)
+        });
+        await c.query("RELEASE SAVEPOINT admin_action_insert");
+      } catch (error: any) {
+        await c.query("ROLLBACK TO SAVEPOINT admin_action_insert");
+        if (error?.code === "23514" && error?.constraint === "admin_actions_action_type_check") {
+          return reply.code(409).send({ ok: false, error: "admin_action_type_requires_migration", action_type: actionType });
+        }
+        throw error;
+      }
       return { ok: true, action };
     });
   });

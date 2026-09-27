@@ -18,6 +18,7 @@ import {
   canAdvancePayoutStatus,
   lockDealSettlementInTx,
   payoutDispatchCorrelationId,
+  resolveDispatchUnknownByAttestationInTx,
   upsertSellerSettlementInTx
 } from "../src/payout_rail.js";
 import { buildPlatformFeeMoney } from "../src/platform_fee_money.js";
@@ -510,6 +511,86 @@ await runTest("payout freeze set after batching is re-checked under lock before 
   await assert.rejects(rail.dispatchBatch({ payout_batch_id: batchId, event_id: "frozen" }), /payout_dispatch_held/);
   assert.equal(calls.create.length, 0);
   assert.equal((await batchOf(batchId)).payout_status, "batched");
+});
+
+// Black-Sky follow-up: operator-attested resolution of dispatch_outcome_unknown.
+async function unknownBatch(suffix: string) {
+  const seeded = await seedCompletedDeal(suffix);
+  const { provider, calls, behavior } = makeProvider();
+  const rail = makeRail(provider);
+  const batchId = await prepareBatched(rail, seeded.dealId);
+  behavior.create = async () => ({ result_class: "unknown", payout_status: null });
+  behavior.status = async () => ({ result_class: "unknown", payout_status: null });
+  await assert.rejects(rail.dispatchBatch({ payout_batch_id: batchId, event_id: `${suffix}-1` }), /outcome unknown/);
+  return { seeded, rail, calls, batchId };
+}
+const attest = (batchId: string, outcome: any, providerReference: string, actionId = randomUUID()) =>
+  withTx((c) => resolveDispatchUnknownByAttestationInTx(c, {
+    payout_batch_id: batchId, outcome, provider_reference: providerReference, admin_action_id: actionId,
+    executed_by: "admin-exec", requested_by: "admin-a", approved_by: "admin-b", note: "checked provider console"
+  }));
+
+await runTest("attestation 'paid' resolves the unknown case with evidence, schedules reconcile, never calls the provider", async () => {
+  const { seeded, rail, calls, batchId } = await unknownBatch("attest-paid");
+  const createsBefore = calls.create.length;
+  const statusBefore = calls.status.length;
+  const actionId = randomUUID();
+  const out = await attest(batchId, "paid", "PRV-TRANSFER-7781", actionId);
+  assert.deepEqual(out, { ok: true, status: "paid" });
+  assert.equal(calls.create.length, createsBefore, "no createPayout");
+  assert.equal(calls.status.length, statusBefore, "no provider lookup");
+  const batch = await batchOf(batchId);
+  assert.equal(batch.payout_status, "paid");
+  assert.equal(batch.provider_batch_reference, "PRV-TRANSFER-7781");
+  const resolved = (await casesOf(seeded.dealId)).find((row) => row.case_type === "dispatch_outcome_unknown");
+  assert.equal(resolved.case_status, "resolved");
+  assert.equal(resolved.details.resolution.resolved_by, "operator_attestation");
+  assert.equal(resolved.details.resolution.admin_action_id, actionId);
+  assert.equal(resolved.details.resolution.approved_by, "admin-b");
+  assert.equal(resolved.details.resolution.attested_provider_reference, "PRV-TRANSFER-7781");
+  assert.equal((await settlementOf(seeded.dealId)).has_open_blocking_reconciliation_case, false);
+  const attempt = await one(
+    `SELECT result_class, payout_status, provider_reference, payload FROM siton.seller_payout_attempts WHERE payout_batch_id=$1 AND correlation_id=$2`,
+    [batchId, `admin-attestation:${actionId}`]
+  );
+  assert.equal(attempt.provider_reference, "PRV-TRANSFER-7781");
+  assert.equal(attempt.payload.source, "operator_attestation");
+  const reconcile = await pool.query(`SELECT 1 FROM siton.outbox_events WHERE event_type='seller_payout_reconcile' AND aggregate_id=$1`, [batchId]);
+  assert.equal(reconcile.rowCount, 1);
+  await rail.reconcileBatch({ payout_batch_id: batchId, event_id: "reconcile-after-attest" });
+  assert.equal((await batchOf(batchId)).payout_status, "reconciled");
+});
+
+await runTest("attestation 'failed' moves the tree to failed; a repeat attestation finds no open case", async () => {
+  const { seeded, batchId } = await unknownBatch("attest-failed");
+  assert.deepEqual(await attest(batchId, "failed", "PRV-TICKET-404-NOT-FOUND"), { ok: true, status: "failed" });
+  assert.equal((await batchOf(batchId)).payout_status, "failed");
+  assert.equal((await batchOf(batchId)).last_error, "operator_attested_failed");
+  for (const item of await itemsOf(batchId)) assert.equal(item.payout_status, "failed");
+  assert.equal((await settlementOf(seeded.dealId)).payout_status, "failed");
+  const again = await attest(batchId, "paid", "PRV-LATE-CHANGE");
+  assert.deepEqual(again, { ok: false, code: "no_open_dispatch_unknown_case" });
+  assert.equal((await batchOf(batchId)).payout_status, "failed", "a second attestation cannot flip the outcome");
+});
+
+await runTest("attestation refuses missing evidence, unknown outcomes, and batches without an open unknown case", async () => {
+  const { batchId } = await unknownBatch("attest-invalid");
+  for (const [outcome, reference, code] of [
+    ["paid", "", "provider_reference_required"],
+    ["paid", "  PRV-1 ", "provider_reference_required"],
+    ["paid", "bad ref with spaces", "provider_reference_required"],
+    ["reconciled", "PRV-1234", "attested_outcome_invalid"],
+    ["refunded", "PRV-1234", "attested_outcome_invalid"]
+  ] as const) {
+    assert.deepEqual(await attest(batchId, outcome, reference), { ok: false, code }, `${outcome}/${reference}`);
+  }
+  assert.equal((await batchOf(batchId)).payout_status, "processing", "nothing changed");
+  assert.deepEqual(await attest(randomUUID(), "paid", "PRV-1234"), { ok: false, code: "payout_batch_not_found" });
+  const seeded = await seedCompletedDeal("attest-nocase");
+  const { provider } = makeProvider();
+  const plainBatch = await prepareBatched(makeRail(provider), seeded.dealId);
+  assert.deepEqual(await attest(plainBatch, "paid", "PRV-1234"), { ok: false, code: "no_open_dispatch_unknown_case" });
+  assert.equal((await batchOf(plainBatch)).payout_status, "batched");
 });
 
 await pool.end();

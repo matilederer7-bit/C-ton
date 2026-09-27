@@ -693,6 +693,147 @@ async function replaceSettlementBatchLink(c: any, sellerSettlementId: string, pa
   );
 }
 
+async function resolveDispatchUnknownCasesInTx(c: any, batch: any, resolution: Record<string, unknown>) {
+  await c.query(
+    `UPDATE siton.seller_payout_reconciliation_cases
+     SET case_status='resolved',
+         resolved_at=now(),
+         details=details || $3::jsonb
+     WHERE payout_batch_id=$1
+       AND case_type=$2
+       AND case_status='open'`,
+    [String(batch.payout_batch_id), DISPATCH_UNKNOWN_CASE_TYPE, JSON.stringify({ resolution })]
+  );
+  await refreshSettlementCaseFlagInTx(c, String(batch.trigger_deal_id));
+}
+
+/** Applies a provider-confirmed processing/paid state (forward-only) and schedules reconciliation. */
+async function applyProviderAcceptedInTx(
+  c: any,
+  batch: any,
+  result: NormalizedPayoutResult,
+  source: string,
+  extraResolution: Record<string, unknown> = {}
+) {
+  const target: PayoutLifecycleStatus = result.payout_status === "paid" || result.payout_status === "reconciled"
+    ? "paid"
+    : "processing";
+  const reference = result.payout_reference ?? null;
+  const executed = Boolean(result.external_transfer_executed);
+  await advanceBatchTreeInTx(c, String(batch.payout_batch_id), target, {
+    batch: {
+      set: `provider_batch_reference=COALESCE($4::text, provider_batch_reference),
+            external_transfer_executed=$5::boolean,
+            created_payout_at=COALESCE(created_payout_at, now()),
+            last_error=NULL${target === "paid" ? ", paid_amount=payout_amount, paid_at=COALESCE(paid_at, now())" : ""}`,
+      params: [reference, executed]
+    },
+    item: {
+      set: `provider_item_reference=COALESCE($4::text, provider_item_reference), external_transfer_executed=$5::boolean`,
+      params: [reference, executed]
+    },
+    settlement: target === "paid" ? { set: "paid_amount=GREATEST(paid_amount, payout_amount)" } : undefined
+  });
+  await resolveDispatchUnknownCasesInTx(c, batch, {
+    resolved_by: source,
+    provider_payout_status: result.payout_status ?? null,
+    provider_reference: reference,
+    ...extraResolution
+  });
+  await insertOutboxEventIfMissing(c, {
+    event_type: "seller_payout_reconcile",
+    aggregate_type: "seller_payout_batch",
+    aggregate_id: String(batch.payout_batch_id),
+    payload: {
+      payout_batch_id: String(batch.payout_batch_id),
+      payout_reference: reference
+    }
+  });
+}
+
+export const PAYOUT_ATTESTED_OUTCOMES = ["processing", "paid", "failed"] as const;
+export type PayoutAttestedOutcome = (typeof PAYOUT_ATTESTED_OUTCOMES)[number];
+
+/** Operator-supplied provider evidence id: 3..200 chars of [A-Za-z0-9._:/#-], no surrounding whitespace. */
+export function isValidAttestedProviderReference(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9._:\/#-]{3,200}$/.test(value.trim()) && value.trim() === value;
+}
+
+/**
+ * Black-Sky follow-up (F7 closure): resolve an open dispatch_outcome_unknown
+ * case from an OPERATOR ATTESTATION — a human checked the payout provider and
+ * records what it shows, with the provider's reference as evidence. Runs inside
+ * the admin action transaction (second approval + recent MFA are enforced by
+ * the control plane). No provider call, no money movement: it records truth the
+ * provider already holds, forward-only.
+ *   * processing | paid: the payout EXISTS at the provider -> the same path as a
+ *     provider-confirmed lookup (reference stored, reconcile scheduled).
+ *   * failed: the provider confirms NO transfer happened -> batch tree failed.
+ * Every attestation writes a seller_payout_attempts row and the case resolution
+ * carries the admin action id, requester/approver/executor and the reference.
+ */
+export async function resolveDispatchUnknownByAttestationInTx(c: any, args: {
+  payout_batch_id: string;
+  outcome: PayoutAttestedOutcome;
+  provider_reference: string;
+  admin_action_id: string;
+  executed_by: string;
+  requested_by: string | null;
+  approved_by: string | null;
+  note: string;
+}): Promise<{ ok: true; status: PayoutLifecycleStatus } | { ok: false; code: string }> {
+  if (!(PAYOUT_ATTESTED_OUTCOMES as readonly string[]).includes(args.outcome)) return { ok: false, code: "attested_outcome_invalid" };
+  if (!isValidAttestedProviderReference(args.provider_reference)) return { ok: false, code: "provider_reference_required" };
+  const batch = await lockBatchInTx(c, args.payout_batch_id);
+  if (!batch) return { ok: false, code: "payout_batch_not_found" };
+  const open = await c.query(
+    `SELECT payout_reconciliation_case_id FROM siton.seller_payout_reconciliation_cases
+     WHERE payout_batch_id=$1 AND case_type=$2 AND case_status='open' LIMIT 1`,
+    [args.payout_batch_id, DISPATCH_UNKNOWN_CASE_TYPE]
+  );
+  if (!open.rowCount) return { ok: false, code: "no_open_dispatch_unknown_case" };
+  if (String(batch.payout_status) !== "processing") return { ok: false, code: `payout_batch_not_processing:${batch.payout_status}` };
+
+  const correlationId = `admin-attestation:${args.admin_action_id}`;
+  const evidence = {
+    source: "operator_attestation",
+    admin_action_id: args.admin_action_id,
+    executed_by: args.executed_by,
+    requested_by: args.requested_by,
+    approved_by: args.approved_by,
+    attested_outcome: args.outcome,
+    attested_provider_reference: args.provider_reference,
+    note: String(args.note || "").slice(0, 500)
+  };
+  await c.query(
+    `INSERT INTO siton.seller_payout_attempts (
+       payout_batch_id, payout_item_id, attempt_type, result_class, payout_status, correlation_id, provider_reference, payload
+     ) VALUES ($1, NULL, 'get_payout_status', 'success', $2, $3, $4, $5)
+     ON CONFLICT (payout_batch_id, payout_item_id, attempt_type, correlation_id) DO NOTHING`,
+    [args.payout_batch_id, args.outcome, correlationId, args.provider_reference, JSON.stringify(evidence)]
+  );
+
+  if (args.outcome === "failed") {
+    await advanceBatchTreeInTx(c, args.payout_batch_id, "failed", {
+      batch: { set: "last_error=$4", params: ["operator_attested_failed"] },
+      settlement: { set: "failed_amount=payout_amount" }
+    });
+    await resolveDispatchUnknownCasesInTx(c, batch, { resolved_by: "operator_attestation", provider_payout_status: "failed", ...evidence });
+    return { ok: true, status: "failed" };
+  }
+  await applyProviderAcceptedInTx(c, batch, {
+    provider: "operator_attestation",
+    result_class: "success",
+    retryable: false,
+    payout_status: args.outcome,
+    payout_reference: args.provider_reference,
+    correlation_id: correlationId,
+    external_transfer_executed: true,
+    raw: evidence
+  }, "operator_attestation", evidence);
+  return { ok: true, status: args.outcome };
+}
+
 export function buildPayoutRail(deps: {
   withTx: WithTx;
   payoutProvider: PayoutProvider;
@@ -1156,57 +1297,6 @@ export function buildPayoutRail(deps: {
         provider_reference: result.payout_reference ?? null,
         dispatch_correlation_id: correlationId,
         required_action: "provider_lookup_or_manual_resolution_before_any_redispatch"
-      }
-    });
-  }
-
-  async function resolveDispatchUnknownCasesInTx(c: any, batch: any, resolution: Record<string, unknown>) {
-    await c.query(
-      `UPDATE siton.seller_payout_reconciliation_cases
-       SET case_status='resolved',
-           resolved_at=now(),
-           details=details || $3::jsonb
-       WHERE payout_batch_id=$1
-         AND case_type=$2
-         AND case_status='open'`,
-      [String(batch.payout_batch_id), DISPATCH_UNKNOWN_CASE_TYPE, JSON.stringify({ resolution })]
-    );
-    await refreshSettlementCaseFlagInTx(c, String(batch.trigger_deal_id));
-  }
-
-  /** Applies a provider-confirmed processing/paid state (forward-only) and schedules reconciliation. */
-  async function applyProviderAcceptedInTx(c: any, batch: any, result: NormalizedPayoutResult, source: string) {
-    const target: PayoutLifecycleStatus = result.payout_status === "paid" || result.payout_status === "reconciled"
-      ? "paid"
-      : "processing";
-    const reference = result.payout_reference ?? null;
-    const executed = Boolean(result.external_transfer_executed);
-    await advanceBatchTreeInTx(c, String(batch.payout_batch_id), target, {
-      batch: {
-        set: `provider_batch_reference=COALESCE($4::text, provider_batch_reference),
-              external_transfer_executed=$5::boolean,
-              created_payout_at=COALESCE(created_payout_at, now()),
-              last_error=NULL${target === "paid" ? ", paid_amount=payout_amount, paid_at=COALESCE(paid_at, now())" : ""}`,
-        params: [reference, executed]
-      },
-      item: {
-        set: `provider_item_reference=COALESCE($4::text, provider_item_reference), external_transfer_executed=$5::boolean`,
-        params: [reference, executed]
-      },
-      settlement: target === "paid" ? { set: "paid_amount=GREATEST(paid_amount, payout_amount)" } : undefined
-    });
-    await resolveDispatchUnknownCasesInTx(c, batch, {
-      resolved_by: source,
-      provider_payout_status: result.payout_status ?? null,
-      provider_reference: reference
-    });
-    await insertOutboxEventIfMissing(c, {
-      event_type: "seller_payout_reconcile",
-      aggregate_type: "seller_payout_batch",
-      aggregate_id: String(batch.payout_batch_id),
-      payload: {
-        payout_batch_id: String(batch.payout_batch_id),
-        payout_reference: reference
       }
     });
   }
