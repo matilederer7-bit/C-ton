@@ -11,6 +11,7 @@
 // signature bytes are ever logged.
 
 import { createPublicKey, verify as cryptoVerify } from "node:crypto";
+import { cachedRemoteJwks } from "./jwks_cache.js";
 
 export class AuthTokenError extends Error {
   readonly statusCode = 401;
@@ -225,7 +226,9 @@ export function buildSupabaseVerifier(env: NodeJS.ProcessEnv = process.env, jwks
   if (!url) return null;
   const issuer = `${url}/auth/v1`;
   const audience = String(env.SUPABASE_JWT_AUD || "authenticated").trim();
-  const jwks = jwksOverride || remoteJwks(`${url}/auth/v1/.well-known/jwks.json`);
+  // Black-Sky F-M4: stale-while-revalidate + single-flight + short timeout
+  // (src/jwks_cache.ts); remoteJwks stays exported for existing callers.
+  const jwks = jwksOverride || cachedRemoteJwks(`${url}/auth/v1/.well-known/jwks.json`);
   return {
     issuer,
     audience,
