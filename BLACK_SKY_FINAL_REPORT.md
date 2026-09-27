@@ -207,6 +207,8 @@ Clean full pass on the final code (local PostgreSQL 16, nothing else running):
 
 ## 7. Owner actions (cannot be done by an agent)
 
+> These are **Production Readiness** items, a separate owner-driven track. They do not reopen Black Sky Engineering, which is closed at 100%. The tracked checklist, with each REAL MONEY LAUNCH BLOCKER marked, lives in `PROJECT_STATUS.md` → TRACKS.
+
 Full detail: `docs/CREDENTIAL_COMPROMISE_RUNBOOK.md`, `docs/BACKUP_RESTORE_RUNBOOK.md`, `docs/CONFIG_INVENTORY.md`.
 
 1. ~~**Staging DB:** apply 077, 078, 079 + `supabase/staging/027`.~~ **DONE 2026-09-27** (before the #99 merge; ledger 72/72, verified). Never set `siton.allow_test_actions` on staging.
