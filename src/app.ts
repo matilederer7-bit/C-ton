@@ -24,7 +24,8 @@ import {
   buildPaymentAttemptHelpers,
   PaymentOperationInFlightError,
   type AttemptType as PaymentAttemptType,
-  type DispatchState as PaymentDispatchState
+  type DispatchState as PaymentDispatchState,
+  type ArmDealGate
 } from "./payment_attempt_helpers.js";
 import { buildPaymentProvider, getPaymentProviderSummary, providerAmbiguityPolicy, type PaymentExecutionResult, type PaymentStatusResult } from "./payment_provider.js";
 import { buildPaymentAuthorizationBindings, PaymentBindingError } from "./payment_binding.js";
@@ -2787,6 +2788,8 @@ async function armMoneyOperation(args: {
   expected_money_states: string[];
   expected_buyer_states?: string[];
   provider_reference?: string | null;
+  /** Black-Sky A-F2 — deal-level phase gate re-checked under the deal row lock in the arm transaction */
+  deal_gate?: ArmDealGate | null;
 }): Promise<boolean> {
   await assertOutboxLeaseForProviderIo(args.event);
   const armed = await armProviderDispatch({
@@ -2815,10 +2818,25 @@ async function armMoneyOperation(args: {
     // contract (Grow: never; legacy rows: never).
     negative_finality_authoritative: args.attempt_type === "charge_start" || args.attempt_type === "recovery"
       ? providerAmbiguityPolicy(paymentProvider).negative_status_authoritative
-      : null
+      : null,
+    deal_gate: args.deal_gate ?? null
   });
   if (armed === "armed") return true;
   if (armed === "lease_lost") throw new OutboxLeaseLostError(args.event.event_uuid);
+  if (armed === "deal_phase_closed") {
+    // Black-Sky A-F2 — the deal left the phase in which this operation is legal
+    // (terminal decision taken, completion window over) between the rail's
+    // first read and the arm: nothing was sent, so the minted identity is
+    // retired in place (never dispatched) and no money call is made. The
+    // terminal decision / release rail owns the participant from here.
+    await retireNeverDispatched({
+      participant_id: args.participant_id,
+      deal_id: args.deal_id,
+      attempt_types: [args.attempt_type],
+      reason: "arm_refused:deal_phase_closed"
+    }).catch(() => []);
+    app.log.warn({ participant_id: args.participant_id, deal_id: args.deal_id, attempt_type: args.attempt_type, correlation_id: args.correlation_id }, "money dispatch refused at arm: deal phase closed");
+  }
   return false;
 }
 
@@ -4114,7 +4132,11 @@ async function handleRecoveryDealEvent(
       correlation_id: correlation,
       expected_money_states: ["ChargeFailedRecovery"],
       expected_buyer_states: ["ChargeFailedCompletion"],
-      provider_reference: p.authorization_id || null
+      provider_reference: p.authorization_id || null,
+      // Black-Sky A-F2 — recovery exists only inside an OPEN completion window of
+      // a deal still in CompletionWindow: re-checked under the deal row lock at
+      // the last step before provider I/O (the rail's first read may be stale).
+      deal_gate: { states: ["CompletionWindow"], require_open_completion_window: true }
     });
     if (!armed) return "done" as const;
     const owner = { event_uuid: event.event_uuid, lease_generation: event.lease_generation };
@@ -4781,8 +4803,47 @@ async function handleFinalizeDealEvent(
     const captured = await sumCapturedUnits(c, dealId);
     return { captured, threshold: Number(dealRow.threshold_units) };
   });
+  const completes = decision.captured >= decision.threshold;
 
-  if (decision.captured >= decision.threshold) {
+  // Black-Sky A-F2 — the terminal decision is taken UNDER THE DEAL ROW LOCK.
+  // The transition serializes on the deal row (FOR UPDATE, before any write) and
+  // re-validates, inside that same transaction, everything the provisional
+  // reads above concluded: the window is over on the DB clock, no capture-side
+  // identity is unresolved (a recovery armed in the last instant of the window
+  // holds the deal row FOR SHARE, so it is durable before this check runs), and
+  // the captured-unit count still selects the SAME outcome. Anything else rolls
+  // the decision back and defers it — never Completed / Failed on stale money.
+  const revalidateDecisionUnderLock = async (c: PoolClient) => {
+    const window = await c.query(
+      `SELECT (completion_window_until IS NOT NULL AND completion_window_until <= clock_timestamp()) AS elapsed
+       FROM siton.deals WHERE deal_id=$1`,
+      [dealId]
+    );
+    if (window.rows[0]?.elapsed !== true) {
+      throw new DeferredEventError(`finalize_window_not_elapsed_under_lock deal ${dealId}`, new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS));
+    }
+    const unresolved = await c.query(
+      `SELECT count(*)::int AS n
+       FROM siton.payment_attempts pa
+       JOIN siton.participants p ON p.participant_id = pa.participant_id
+       WHERE pa.deal_id=$1 AND pa.attempt_type IN ('charge_start','recovery')
+         AND (pa.result_class='unknown'
+              OR (pa.result_class='success' AND p.money_state NOT IN ('ChargedSuccess','RecoveredCharge','Refunded')))`,
+      [dealId]
+    );
+    if (Number(unresolved.rows[0]?.n || 0) > 0) {
+      throw new DeferredEventError(`finalize_unresolved_capture_under_lock deal ${dealId}`, new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS));
+    }
+    const capturedNow = await sumCapturedUnits(c, dealId);
+    if ((capturedNow >= decision.threshold) !== completes) {
+      throw new DeferredEventError(
+        `finalize_decision_changed_under_lock deal ${dealId} (captured ${decision.captured} -> ${capturedNow}, threshold ${decision.threshold})`,
+        new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS)
+      );
+    }
+  };
+
+  if (completes) {
     await atomicTransition({
       entityType: "deal",
       entityId: dealId,
@@ -4794,7 +4855,9 @@ async function handleFinalizeDealEvent(
       requestId: `worker:${eventId}`,
       idempotencyKey: `deal-finalize-ok:${dealId}`,
       outbox: null,
-      payload: { decision }
+      payload: { decision },
+      serializeOnEntity: true,
+      insideTx: revalidateDecisionUnderLock
     });
 
     await applyCompletedDealOutcome(dealId, eventId);
@@ -4812,7 +4875,9 @@ async function handleFinalizeDealEvent(
     requestId: `worker:${eventId}`,
     idempotencyKey: `deal-finalize-fail:${dealId}`,
     outbox: { event_type: "refund_issue", aggregate_type: "deal", aggregate_id: dealId, payload: { deal_id: dealId } },
-    payload: { decision }
+    payload: { decision },
+    serializeOnEntity: true,
+    insideTx: revalidateDecisionUnderLock
   });
 
   await failAllParticipantsForDeal(dealId, `worker:${eventId}`);
