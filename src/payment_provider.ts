@@ -141,6 +141,8 @@ export type PaymentExecutionResult = {
    * is then UNKNOWN, never a retryable failure.
    */
   dispatched?: boolean;
+  /** Grow: the provider answered an auth/routing error (401/403/404/407) — an operator configuration signal, never a money verdict */
+  configuration_fault?: boolean;
   provider_reference?: string | null;
   correlation_id?: string | null;
   reconciliation_event_type?:
@@ -1811,6 +1813,10 @@ export function buildGrowCanonicalPaymentProvider(): PaymentProvider {
       // a temporary failure that is NOT proven pre-dispatch is treated as
       // UNKNOWN by the rails (never a fresh settle/refund).
       ...(typeof result.dispatched === "boolean" ? { dispatched: result.dispatched } : {}),
+      // A configuration fault (auth/routing HTTP 401/403/404/407) is an
+      // operator signal the adapter already classified; it must survive the
+      // mapping so the rails can name it (it never changes the verdict).
+      ...(result.configuration_fault === true ? { configuration_fault: true } : {}),
       provider_reference: result.provider_reference || null,
       correlation_id: correlationId,
       // A provider-declared outcome maps to exactly one canonical

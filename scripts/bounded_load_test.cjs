@@ -9,6 +9,8 @@ const { Client } = require("pg");
 const http = require("node:http");
 
 const BASE = (process.env.DR_BASE_URL || "postgresql://postgres:postgres@localhost:5432");
+// Creates and drops scratch databases: local/lab hosts only.
+require("./lib/destructive_target_guard.cjs").assertDestructiveTargetAllowed(BASE + "/postgres", { action: "bounded_load_test" });
 const DB = `siton_load_${process.pid}_${Date.now()}`;
 const PORT = Number(process.env.LOAD_PORT || 3199);
 const HOST = "127.0.0.1";

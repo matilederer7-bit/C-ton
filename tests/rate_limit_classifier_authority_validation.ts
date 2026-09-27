@@ -12,12 +12,10 @@
 // `onRequest` hook - so the limiter sees the rewritten path, which does not
 // match the `/api/deals` prefix, and the join mutation is classified "none".
 //
-// That is NOT fixed here, on purpose. Every fix that puts join into the
-// sensitive bucket applies a 20/min PER-IP limit to it, and a shared NAT - a
-// school, an office, a mobile carrier - is one IP for hundreds of legitimate
-// buyers. Throttling them is a product and identity decision, not a patch. The
-// proposed design is recorded in the audit document; this test makes the current
-// behaviour explicit so it cannot drift in either direction unnoticed.
+// Black-Sky closed that gap without putting join in the 20/min sensitive bucket
+// (a shared NAT is one IP for many legitimate buyers): the limiter now
+// classifies the ORIGINAL and the rewritten URL, and join has its own, looser
+// per-IP budget (RATE_LIMIT_JOIN_MAX, default 60/min).
 //
 // No money, no provider, no e-mail.
 
@@ -30,7 +28,7 @@ process.env.DISABLE_OUTBOX_WORKER = "1";
 process.env.SELLER_SESSION_SECRET = "seller-session-secret-classifier";
 process.env.ADMIN_API_KEY = "classifier-admin-key";
 
-const { rateLimitBucketFor } = await import("../src/app.js");
+const { rateLimitBucketFor, rateLimitBucketForRequest, normalizeRateLimitPath, rateLimitClientKey } = await import("../src/app.js");
 const { rewriteCanonicalApiAlias } = await import("../src/api_route_aliases.js");
 
 let passed = 0;
@@ -100,42 +98,51 @@ await run("the classifier is not fooled by trailing slashes, query strings or me
   assert.equal(rateLimitBucketFor("POST", "/api/otpx"), "none");
 });
 
-await run("KNOWN GAP, pinned: the /api join alias is rewritten out of the sensitive bucket", async () => {
-  // Documented rather than fixed. The rewrite happens before every onRequest
-  // hook, so the limiter never sees the /api form.
-  assert.equal(
-    rewriteCanonicalApiAlias("/api/deals/abc/join"),
-    "/deals/abc/join",
-    "the alias rewrite no longer maps join - re-evaluate this gap"
-  );
-  assert.equal(
-    rateLimitBucketFor("POST", "/api/deals/abc/join"),
-    "sensitive",
-    "the classifier would bucket the /api form correctly if it ever saw it"
-  );
-  assert.equal(
-    bucketAsServed("POST", "/api/deals/abc/join"),
-    "none",
-    "join is now bucketed - if this was an intentional fix, update the audit's OPEN item and check the shared-NAT impact"
-  );
-
-  // The bare collection route is rewritten too, so the mall listing also sits
-  // outside both budgets. Reads are cheap and the global per-IP bucket still
-  // applies, but it is part of the same gap and is pinned with it.
-  assert.equal(
-    bucketAsServed("GET", "/api/deals"),
-    "none",
-    "the /api deal listing is now bucketed - update the audit's OPEN item"
-  );
-
-  // Same for the other rewritten lifecycle mutations.
+await run("Black-Sky C4: the /api join alias is classified before AND after the rewrite into its own join budget", async () => {
+  assert.equal(rewriteCanonicalApiAlias("/api/deals/abc/join"), "/deals/abc/join", "the alias rewrite no longer maps join - re-evaluate");
+  // As served (rewritten) and as sent, join lands in the dedicated join bucket.
+  assert.equal(bucketAsServed("POST", "/api/deals/abc/join"), "join");
+  assert.equal(rateLimitBucketForRequest("POST", "/api/deals/abc/join", "/deals/abc/join"), "join");
+  // Seller lifecycle mutations (bare and alias) are in the identity-keyed
+  // seller bucket (owner decision C), never in "none".
   for (const action of ["publish", "close_joining", "reopen_joining", "prepare_charging", "cancel"]) {
-    assert.equal(
-      bucketAsServed("POST", `/api/deals/abc/${action}`),
-      "none",
-      `${action} bucketing changed - re-check the alias/limiter interaction`
-    );
+    assert.equal(bucketAsServed("POST", `/api/deals/abc/${action}`), "seller_mutation", action);
+    assert.equal(rateLimitBucketFor("POST", `/deals/abc/${action}`), "seller_mutation", action);
   }
+  // Reads stay in the read budget, never the mutation bucket.
+  // As sent, /api/deals is a public read; the bare served path is unbudgeted
+  // beyond the global cap, and the stricter (as-sent) classification wins.
+  assert.equal(rateLimitBucketFor("GET", "/api/deals"), "read");
+  assert.equal(rateLimitBucketForRequest("GET", "/api/deals", "/deals"), "read");
+});
+
+await run("Black-Sky B3: percent-encoded and double-slash paths cannot escape the budget", async () => {
+  assert.equal(rateLimitBucketFor("POST", "/api/%6Ftp/request"), "sensitive");
+  assert.equal(rateLimitBucketFor("POST", "/api/admin/%61uth/login"), "sensitive");
+  assert.equal(rateLimitBucketFor("POST", "//api//otp/request"), "sensitive");
+  assert.equal(rateLimitBucketFor("POST", "/api/otp/request?x=1"), "sensitive");
+  assert.equal(normalizeRateLimitPath("/api/%E0"), "/api/%E0", "a malformed escape must classify, not throw");
+});
+
+await run("Black-Sky C3/C6/C7: payments, logins, participants and analytics writers are budgeted", async () => {
+  assert.equal(rateLimitBucketFor("POST", "/api/payments/authorize"), "join", "authorize is one step of the per-buyer join flow");
+  assert.equal(rateLimitBucketFor("POST", "/api/payments/authorize-mock"), "join");
+  assert.equal(rateLimitBucketFor("POST", "/api/payments/status"), "sensitive");
+  assert.equal(rateLimitBucketFor("POST", "/api/seller/session/login"), "sensitive");
+  assert.equal(rateLimitBucketFor("POST", "/api/link-viewer/session/login"), "sensitive");
+  assert.equal(rateLimitBucketFor("POST", "/api/participants/abc/recovery"), "sensitive");
+  assert.equal(rateLimitBucketFor("GET", "/api/participants/abc/tracking"), "read");
+  for (const url of ["/api/mall/events", "/api/viral/events", "/api/affiliate/links/visit"]) {
+    assert.equal(rateLimitBucketFor("POST", url), "analytics", url);
+  }
+});
+
+await run("Black-Sky C12: IPv6 clients are keyed by /64, IPv4 and mapped addresses by address", async () => {
+  assert.equal(rateLimitClientKey("2001:db8:1:2:aaaa:bbbb:cccc:dddd"), "2001:db8:1:2::/64");
+  assert.equal(rateLimitClientKey("2001:db8:1:2::1"), rateLimitClientKey("2001:db8:1:2:ffff::9"));
+  assert.notEqual(rateLimitClientKey("2001:db8:1:2::1"), rateLimitClientKey("2001:db8:1:3::1"));
+  assert.equal(rateLimitClientKey("203.0.113.9"), "203.0.113.9");
+  assert.equal(rateLimitClientKey("::ffff:203.0.113.9"), "203.0.113.9");
 });
 
 await run("join is not unprotected, it is protected by something other than the IP bucket", async () => {

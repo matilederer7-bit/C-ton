@@ -70,11 +70,23 @@ function installExitHooks() {
   process.once("SIGTERM", () => cleanup("SIGTERM"));
 }
 
+// Test-only database switch (migration 078, Black-Sky D3/D2): 'test.%' action
+// names and the audited fixture-cleanup escape hatch on siton.deals exist only
+// where siton.allow_test_actions = '1'. It is set per DISPOSABLE test database
+// here and never on a staging/production database. A TEMPLATE clone does not
+// inherit database-level settings, so every clone must be enabled explicitly.
+async function enableTestActions(adminClient, databaseName) {
+  await adminClient.query("ALTER DATABASE " + quoteIdentifier(databaseName) + " SET siton.allow_test_actions = '1'");
+}
+
 /**
  * Create an isolated database. Returns { name, url, drop(), keep(), preserved }.
  * options.template   - clone from an existing database (CREATE DATABASE ... TEMPLATE)
  * options.purpose    - short label embedded in the name (default "test")
  * options.preserveOnFailure - keep the database when the process exits non-zero
+ * options.allowTestActions  - set siton.allow_test_actions='1' on the new
+ *                             database (default true; pass false for a
+ *                             production-shaped database)
  */
 async function createIsolatedDatabase(options = {}) {
   const baseUrl = options.baseUrl || process.env.DATABASE_URL;
@@ -86,6 +98,7 @@ async function createIsolatedDatabase(options = {}) {
   try {
     if (options.template) await admin.query("CREATE DATABASE " + quoteIdentifier(name) + " TEMPLATE " + quoteIdentifier(options.template));
     else await admin.query("CREATE DATABASE " + quoteIdentifier(name));
+    if (options.allowTestActions !== false) await enableTestActions(admin, name);
   } finally {
     await admin.end();
   }
@@ -200,4 +213,4 @@ function allocateFreePort() {
   });
 }
 
-module.exports = { createIsolatedDatabase, listStaleIsolatedDatabases, dropStaleIsolatedDatabases, parseIsolatedName, buildName, agentName, assertLocalBase, withDatabase, quoteIdentifier, allocateFreePort, LOCAL_HOSTS };
+module.exports = { createIsolatedDatabase, enableTestActions,listStaleIsolatedDatabases, dropStaleIsolatedDatabases, parseIsolatedName, buildName, agentName, assertLocalBase, withDatabase, quoteIdentifier, allocateFreePort, LOCAL_HOSTS };

@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { buildGrowReferenceKeyring, GROW_REFERENCE_KID_PATTERN, type GrowReferenceKey, type GrowReferenceKeyring } from "./grow_reference_keyring.js";
 import {
   APP_DEPLOYMENT_MODE,
   GROW_API_KEY,
@@ -72,6 +73,10 @@ export type GrowConfig = {
   page_code: string;
   api_key: string;
   reference_encryption_key: string;
+  /** Optional kid of the primary key (GROW_REFERENCE_ENCRYPTION_KEY_ID). */
+  reference_encryption_key_id?: string;
+  /** Optional decrypt-only previous keys (GROW_REFERENCE_ENCRYPTION_PREVIOUS_KEYS). */
+  reference_previous_keys?: string | string[];
   success_url: string;
   cancel_url: string;
   notify_url: string;
@@ -149,8 +154,23 @@ function responseData(payload: any): any {
     : {};
 }
 
-function growSucceeded(payload: any) {
-  return String(payload?.status ?? "") === "1";
+/**
+ * Verdict on a 2xx Grow reply body. Only a parseable JSON object carrying an
+ * explicit provider `status` of 1 (success) or 0 (provider-declared failure)
+ * is provider truth. Everything else — a non-JSON body (the fetch transport
+ * wraps it as {raw_body}), an empty body, JSON that is not an object, or an
+ * object without a recognizable status — is MALFORMED: it proves nothing
+ * about the money, so callers must treat it as UNKNOWN, never as a failure.
+ */
+type GrowReplyVerdict = "succeeded" | "declined" | "malformed";
+function growReplyVerdict(payload: unknown): GrowReplyVerdict {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "malformed";
+  const status = (payload as Record<string, unknown>).status;
+  if (typeof status !== "number" && typeof status !== "string") return "malformed";
+  const code = String(status).trim();
+  if (code === "1") return "succeeded";
+  if (code === "0") return "declined";
+  return "malformed";
 }
 
 function growError(payload: any) {
@@ -168,7 +188,19 @@ export function redactGrowLog(value: unknown): unknown {
   return value;
 }
 
+/**
+ * HTTP 401/403/404/407 are auth/routing answers (bad credentials, wrong path,
+ * proxy auth). They never prove what happened to the money, so they are
+ * UNKNOWN and tagged as a configuration fault for operators — never a
+ * provider-declared failure.
+ */
+const CONFIGURATION_FAULT_HTTP = new Set([401, 403, 404, 407]);
+function isConfigurationFaultHttp(status: number) {
+  return CONFIGURATION_FAULT_HTTP.has(status);
+}
+
 function classifyHttp(status: number): GrowResultClass {
+  if (isConfigurationFaultHttp(status)) return "unknown";
   if (status === 408 || status === 409 || status === 425 || status === 429 || status >= 500) return "temporary_fail";
   return "permanent_fail";
 }
@@ -227,25 +259,77 @@ function selectAuthoritativeTransaction(data: any): GrowTransactionRecord | null
   return byState("captured") || byState("refunded") || byState("authorized") || byState("failed") || list[list.length - 1] || null;
 }
 
+// ---------------------------------------------------------------------------
+// Sealed provider references — KEYRING with key ids and rotation.
+//
+// Formats (AES-256-GCM, key = sha256(secret), unchanged):
+//   grow_ref_v1.<iv>.<tag>.<ciphertext>          legacy, no key id
+//   grow_ref_v2.<kid>.<iv>.<tag>.<ciphertext>    current; AAD = "grow_ref_v2.<kid>"
+//
+// New seals always use v2 under the PRIMARY key. Opening accepts v2 by kid
+// (primary or any configured previous key) and v1 by trying the primary and
+// every previous key (GCM authentication makes a wrong key fail, never
+// return garbage). Any failure — unknown kid, tampered ciphertext, bad
+// framing, invalid payload — throws the same fail-closed
+// "grow_reference_invalid" error the adapter has always used.
+//
+// Configuration:
+//   GROW_REFERENCE_ENCRYPTION_KEY             primary secret (unchanged, >= 32 chars)
+//   GROW_REFERENCE_ENCRYPTION_KEY_ID          optional kid for the primary
+//                                             (default: derived, see below)
+//   GROW_REFERENCE_ENCRYPTION_PREVIOUS_KEYS   optional, comma-separated,
+//                                             each "key" or "kid:key";
+//                                             decryption only
+//
+// The default kid is the first 8 hex chars of sha256("grow_ref_kid:" + secret).
+// It is domain-separated on purpose: sha256(secret) IS the AES key, so a kid
+// taken from it directly would publish 32 bits of the key.
+// ---------------------------------------------------------------------------
+
+export type { GrowReferenceKey, GrowReferenceKeyring } from "./grow_reference_keyring.js";
+export { buildGrowReferenceKeyring, deriveGrowReferenceKeyId, parseGrowPreviousKeys } from "./grow_reference_keyring.js";
+
+const GROW_REF_V1 = "grow_ref_v1";
+const GROW_REF_V2 = "grow_ref_v2";
+
 function encryptionKey(secret: string) {
   if (String(secret || "").length < 32) throw new Error("grow_reference_encryption_key_missing");
   return createHash("sha256").update(secret).digest();
 }
 
-export function sealGrowReference(reference: GrowProviderReference, secret: string) {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", encryptionKey(secret), iv);
-  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(reference), "utf8"), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return `grow_ref_v1.${iv.toString("base64url")}.${tag.toString("base64url")}.${ciphertext.toString("base64url")}`;
+function asKeyring(keys: string | GrowReferenceKeyring): GrowReferenceKeyring {
+  return typeof keys === "string" ? buildGrowReferenceKeyring({ primary_key: keys }) : keys;
 }
 
-export function openGrowReference(value: string, secret: string): GrowProviderReference {
-  const [version, ivRaw, tagRaw, ciphertextRaw] = String(value || "").split(".");
-  if (version !== "grow_ref_v1" || !ivRaw || !tagRaw || !ciphertextRaw) throw new Error("grow_reference_invalid");
-  const decipher = createDecipheriv("aes-256-gcm", encryptionKey(secret), Buffer.from(ivRaw, "base64url"));
-  decipher.setAuthTag(Buffer.from(tagRaw, "base64url"));
-  const clear = Buffer.concat([decipher.update(Buffer.from(ciphertextRaw, "base64url")), decipher.final()]);
+/** Non-secret format inspection (inventory / re-seal tooling). */
+export function growReferenceFormat(value: string): { format: "v1" | "v2" | "unrecognized"; kid: string | null } {
+  const parts = String(value || "").split(".");
+  if (parts[0] === GROW_REF_V1 && parts.length === 4) return { format: "v1", kid: null };
+  if (parts[0] === GROW_REF_V2 && parts.length === 5 && GROW_REFERENCE_KID_PATTERN.test(parts[1] || "")) return { format: "v2", kid: parts[1]! };
+  return { format: "unrecognized", kid: null };
+}
+
+export function sealGrowReference(reference: GrowProviderReference, keys: string | GrowReferenceKeyring) {
+  const { primary } = asKeyring(keys);
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", encryptionKey(primary.secret), iv);
+  cipher.setAAD(Buffer.from(`${GROW_REF_V2}.${primary.kid}`, "utf8"));
+  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(reference), "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `${GROW_REF_V2}.${primary.kid}.${iv.toString("base64url")}.${tag.toString("base64url")}.${ciphertext.toString("base64url")}`;
+}
+
+function decryptWith(secret: string, aad: string | null, ivRaw: string, tagRaw: string, ciphertextRaw: string): Buffer {
+  const iv = Buffer.from(ivRaw, "base64url");
+  const tag = Buffer.from(tagRaw, "base64url");
+  if (iv.length !== 12 || tag.length !== 16) throw new Error("grow_reference_invalid");
+  const decipher = createDecipheriv("aes-256-gcm", encryptionKey(secret), iv);
+  if (aad !== null) decipher.setAAD(Buffer.from(aad, "utf8"));
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(Buffer.from(ciphertextRaw, "base64url")), decipher.final()]);
+}
+
+function referenceFromClear(clear: Buffer): GrowProviderReference {
   const parsed = JSON.parse(clear.toString("utf8"));
   if (!safeText(parsed?.process_id) || !safeText(parsed?.process_token)) throw new Error("grow_reference_invalid");
   return {
@@ -256,6 +340,62 @@ export function openGrowReference(value: string, secret: string): GrowProviderRe
   };
 }
 
+/**
+ * Open a sealed reference and report which key opened it (kid) and its
+ * format. Fail-closed: every failure throws "grow_reference_invalid".
+ */
+export function openGrowReferenceDetailed(value: string, keys: string | GrowReferenceKeyring): { reference: GrowProviderReference; format: "v1" | "v2"; kid: string } {
+  const ring = asKeyring(keys);
+  const all = [ring.primary, ...ring.previous];
+  try {
+    const parts = String(value || "").split(".");
+    if (parts[0] === GROW_REF_V2) {
+      const [, kid, ivRaw, tagRaw, ciphertextRaw] = parts;
+      if (parts.length !== 5 || !kid || !ivRaw || !tagRaw || !ciphertextRaw) throw new Error("grow_reference_invalid");
+      const key = all.find((item) => item.kid === kid);
+      if (!key) throw new Error("grow_reference_invalid");
+      return { reference: referenceFromClear(decryptWith(key.secret, `${GROW_REF_V2}.${kid}`, ivRaw, tagRaw, ciphertextRaw)), format: "v2", kid };
+    }
+    if (parts[0] === GROW_REF_V1) {
+      const [, ivRaw, tagRaw, ciphertextRaw] = parts;
+      if (parts.length !== 4 || !ivRaw || !tagRaw || !ciphertextRaw) throw new Error("grow_reference_invalid");
+      for (const key of all) {
+        let clear: Buffer;
+        try { clear = decryptWith(key.secret, null, ivRaw, tagRaw, ciphertextRaw); } catch { continue; }
+        return { reference: referenceFromClear(clear), format: "v1", kid: key.kid };
+      }
+    }
+  } catch {
+    // fall through to the uniform fail-closed error
+  }
+  throw new Error("grow_reference_invalid");
+}
+
+export function openGrowReference(value: string, keys: string | GrowReferenceKeyring): GrowProviderReference {
+  return openGrowReferenceDetailed(value, keys).reference;
+}
+
+/**
+ * Re-seal a stored reference under the PRIMARY key (v2). A value already in
+ * v2 under the primary kid is returned unchanged (no churn). Throws
+ * "grow_reference_invalid" when no configured key opens it.
+ */
+export function resealGrowReference(value: string, keys: string | GrowReferenceKeyring): { value: string; changed: boolean; from: { format: "v1" | "v2"; kid: string } } {
+  const ring = asKeyring(keys);
+  const opened = openGrowReferenceDetailed(value, ring);
+  const from = { format: opened.format, kid: opened.kid };
+  if (opened.format === "v2" && opened.kid === ring.primary.kid) return { value, changed: false, from };
+  return { value: sealGrowReference(opened.reference, ring), changed: true, from };
+}
+
+export function growReferenceKeyringFromConfig(config: Pick<GrowConfig, "reference_encryption_key" | "reference_encryption_key_id" | "reference_previous_keys">): GrowReferenceKeyring {
+  return buildGrowReferenceKeyring({
+    primary_key: config.reference_encryption_key,
+    primary_key_id: config.reference_encryption_key_id ?? null,
+    previous_keys: config.reference_previous_keys ?? null
+  });
+}
+
 export function growConfigFromEnv(): GrowConfig {
   return {
     base_url: cleanBaseUrl(PAYMENT_PROVIDER_BASE_URL),
@@ -264,6 +404,9 @@ export function growConfigFromEnv(): GrowConfig {
     page_code: GROW_PAGE_CODE,
     api_key: GROW_API_KEY,
     reference_encryption_key: GROW_REFERENCE_ENCRYPTION_KEY,
+    // Read at call time: rotation settings are optional and additive.
+    reference_encryption_key_id: String(process.env.GROW_REFERENCE_ENCRYPTION_KEY_ID || "").trim(),
+    reference_previous_keys: String(process.env.GROW_REFERENCE_ENCRYPTION_PREVIOUS_KEYS || ""),
     success_url: GROW_SUCCESS_URL,
     cancel_url: GROW_CANCEL_URL,
     notify_url: GROW_NOTIFY_URL,
@@ -294,6 +437,16 @@ export function assertGrowConfig(config: GrowConfig, requireUrls = true) {
   }
   if (String(config.reference_encryption_key || "").length > 0 && String(config.reference_encryption_key).length < 32) {
     throw new Error("GROW_REFERENCE_ENCRYPTION_KEY_must_be_at_least_32_characters");
+  }
+  if (String(config.reference_encryption_key || "").length >= 32) {
+    try {
+      growReferenceKeyringFromConfig(config);
+    } catch (error) {
+      const code = String((error as Error)?.message || "");
+      if (code === "grow_reference_previous_key_invalid") throw new Error("GROW_REFERENCE_ENCRYPTION_PREVIOUS_KEYS_entries_must_be_at_least_32_characters");
+      if (code === "grow_reference_key_id_conflict") throw new Error("GROW_REFERENCE_ENCRYPTION_key_id_conflict");
+      throw new Error("GROW_REFERENCE_ENCRYPTION_KEY_ID_invalid");
+    }
   }
   // Sandbox/live separation is fail-closed in BOTH directions: a declared
   // sandbox environment may only call the official Grow sandbox host, and a
@@ -343,6 +496,13 @@ export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transpor
   const config = options.config || growConfigFromEnv();
   const transport = options.transport || defaultGrowTransport;
   const configured = (() => { try { assertGrowConfig(config); return true; } catch { return false; } })();
+  // Built lazily (after assertGrowConfig at each entry point) so an invalid
+  // key never throws at adapter construction time.
+  let cachedKeyring: GrowReferenceKeyring | null = null;
+  function keyring(): GrowReferenceKeyring {
+    if (!cachedKeyring) cachedKeyring = growReferenceKeyringFromConfig(config);
+    return cachedKeyring;
+  }
 
   async function post(path: string, fields: Record<string, string | number | undefined>) {
     const body = new URLSearchParams();
@@ -365,17 +525,23 @@ export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transpor
    */
   async function lookup(reference: GrowProviderReference): Promise<
     | { ok: true; transaction: GrowTransactionRecord | null; reference: GrowProviderReference }
-    | { ok: false; result_class: GrowResultClass; error_code: string }
+    | { ok: false; result_class: GrowResultClass; error_code: string; declined?: true; configuration_fault?: true }
   > {
     const response = reference.transaction_id && reference.transaction_token
       ? await post(config.paths.transaction_info, { pageCode: config.page_code, transactionId: reference.transaction_id, transactionToken: reference.transaction_token })
       : await post(config.paths.process_info, { pageCode: config.page_code, processId: reference.process_id, processToken: reference.process_token });
     if (response.status === 0) return { ok: false, result_class: "unknown", error_code: "grow_status_transport_unknown" };
     if (response.status < 200 || response.status >= 300) {
+      if (isConfigurationFaultHttp(response.status)) {
+        return { ok: false, result_class: "unknown", error_code: `grow_status_http_${response.status}_configuration_fault`, configuration_fault: true };
+      }
       return { ok: false, result_class: classifyHttp(response.status), error_code: growError(response.body) };
     }
     const payload: any = response.body;
-    if (!growSucceeded(payload)) return { ok: false, result_class: "permanent_fail", error_code: growError(payload) };
+    const verdict = growReplyVerdict(payload);
+    if (verdict === "malformed") return { ok: false, result_class: "unknown", error_code: "grow_status_response_malformed" };
+    // Only an explicit, parseable provider rejection of the lookup is declared.
+    if (verdict === "declined") return { ok: false, result_class: "permanent_fail", error_code: growError(payload), declined: true };
     const transaction = selectAuthoritativeTransaction(responseData(payload));
     const updated: GrowProviderReference = {
       ...reference,
@@ -426,12 +592,17 @@ export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transpor
       if (response.status === 0) return { result_class: "unknown" as const, retryable: false, dispatched: true as const, error_code: "grow_start_transport_unknown" };
       const payload: any = response.body;
       if (response.status < 200 || response.status >= 300) {
+        if (isConfigurationFaultHttp(response.status)) {
+          return { result_class: "unknown" as const, retryable: false, dispatched: true as const, configuration_fault: true as const, error_code: `grow_start_http_${response.status}_configuration_fault` };
+        }
         const ambiguous = [408, 409, 425, 429].includes(response.status) || response.status >= 500;
         return ambiguous
           ? { result_class: "unknown" as const, retryable: false, dispatched: true as const, error_code: `grow_start_http_${response.status}_ambiguous` }
           : { result_class: "permanent_fail" as const, retryable: false, dispatched: true as const, error_code: growError(payload) };
       }
-      if (!growSucceeded(payload)) return { result_class: "permanent_fail" as const, retryable: false, dispatched: true as const, error_code: growError(payload) };
+      const verdict = growReplyVerdict(payload);
+      if (verdict === "malformed") return { result_class: "unknown" as const, retryable: false, dispatched: true as const, error_code: "grow_start_response_malformed" };
+      if (verdict === "declined") return { result_class: "permanent_fail" as const, retryable: false, dispatched: true as const, error_code: growError(payload) };
       const data = responseData(payload);
       if (!safeText(data.processId) || !safeText(data.processToken) || !safeText(data.url)) {
         return { result_class: "unknown" as const, retryable: false, dispatched: true as const, error_code: "grow_start_response_incomplete" };
@@ -442,29 +613,38 @@ export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transpor
         retryable: false,
         authorization_state: "pending_provider_confirmation" as const,
         payment_url: safeText(data.url, 2000),
-        provider_reference: sealGrowReference(reference, config.reference_encryption_key),
+        provider_reference: sealGrowReference(reference, keyring()),
         correlation_id: input.correlation_id
       };
     },
     async status(referenceValue: string) {
       assertGrowConfig(config, false);
       let reference: GrowProviderReference;
-      try { reference = openGrowReference(referenceValue, config.reference_encryption_key); }
+      try { reference = openGrowReference(referenceValue, keyring()); }
       catch { return { result_class: "permanent_fail" as const, state: "unknown" as const, final: false, error_code: "grow_reference_invalid" }; }
       const looked = await lookup(reference);
       if (!looked.ok) {
-        if (looked.result_class === "permanent_fail" && looked.error_code !== "grow_status_transport_unknown") {
-          // Grow authoritatively rejected the lookup (e.g. unknown process):
-          // report failed truthfully, never a guessed money state.
+        if (looked.declined) {
+          // Grow authoritatively rejected the lookup in a parseable reply
+          // (e.g. unknown process): report failed truthfully.
           return { result_class: "permanent_fail" as const, state: "failed" as const, final: true, error_code: looked.error_code };
         }
-        return { result_class: looked.result_class, state: "unknown" as const, final: false, error_code: looked.error_code };
+        // Transport loss, a malformed body, auth/routing (401/403/404/407) or
+        // any other non-2xx answer proves nothing about the money: non-final
+        // UNKNOWN, resolved later by reconciliation or a manual case.
+        return {
+          result_class: looked.result_class,
+          state: "unknown" as const,
+          final: false,
+          error_code: looked.error_code,
+          ...(looked.configuration_fault ? { configuration_fault: true as const } : {})
+        };
       }
       const status: GrowTransactionState = looked.transaction?.status || { state: "pending", final: false };
       return {
         result_class: "success" as const,
         ...status,
-        provider_reference: sealGrowReference(looked.reference, config.reference_encryption_key),
+        provider_reference: sealGrowReference(looked.reference, keyring()),
         amount_minor: looked.transaction?.amount_minor ?? null,
         error_code: null
       };
@@ -487,7 +667,7 @@ export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transpor
       return {
         valid: true as const,
         event_id: createHash("sha256").update(`${processId}:${reference.transaction_id || ""}:${statusCode}`).digest("hex"),
-        provider_reference: sealGrowReference(reference, config.reference_encryption_key),
+        provider_reference: sealGrowReference(reference, keyring()),
         reported_status_code: statusCode || null,
         reported_amount_minor: ilsToCents(input.sum),
         correlation_id: correlationId,
@@ -500,7 +680,7 @@ export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transpor
     },
     async capture(referenceValue: string, amountMinor: number) {
       assertGrowConfig(config, false);
-      let reference = openGrowReference(referenceValue, config.reference_encryption_key);
+      let reference = openGrowReference(referenceValue, keyring());
       if (!reference.transaction_id || !reference.transaction_token) {
         // Official settle identifies money by transaction credentials. Resolve
         // them with a READ-ONLY authoritative lookup first (never money I/O);
@@ -509,7 +689,21 @@ export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transpor
         if (!looked.ok) {
           // READ-ONLY lookup failed: no settle request exists yet — a definite
           // pre-dispatch failure, safe to retry with the SAME identity.
-          return { result_class: looked.result_class === "unknown" ? "temporary_fail" as const : looked.result_class, retryable: looked.result_class !== "permanent_fail", dispatched: false as const, error_code: looked.error_code };
+          // "Unknown unless proven": only an explicit, parseable Grow rejection
+          // of the lookup is a declared outcome. A bare HTTP 400/422 (or any
+          // other non-2xx) proves nothing about the money and is NOT a capture
+          // decline: it stays a bounded pre-dispatch retry (the outbox attempt
+          // cap + DLQ bound it) and never fabricates a charge_failed verdict.
+          if (looked.declined === true) {
+            return { result_class: "permanent_fail" as const, retryable: false, dispatched: false as const, error_code: looked.error_code };
+          }
+          return {
+            result_class: "temporary_fail" as const,
+            retryable: true,
+            dispatched: false as const,
+            error_code: looked.error_code,
+            ...(looked.configuration_fault ? { configuration_fault: true as const } : {})
+          };
         }
         reference = looked.reference;
         if (!reference.transaction_id || !reference.transaction_token) {
@@ -528,16 +722,28 @@ export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transpor
       // non-success that is not an explicit Grow rejection is UNKNOWN (never a
       // retryable temporary failure that could mint a second settle).
       if (response.status === 0) return { result_class: "unknown" as const, retryable: false, dispatched: true as const, error_code: "grow_capture_transport_unknown" };
-      if (response.status < 200 || response.status >= 300) return { result_class: "unknown" as const, retryable: false, dispatched: true as const, error_code: `grow_settle_http_${response.status}_ambiguous` };
+      if (response.status < 200 || response.status >= 300) {
+        return {
+          result_class: "unknown" as const,
+          retryable: false,
+          dispatched: true as const,
+          error_code: `grow_settle_http_${response.status}_ambiguous`,
+          ...(isConfigurationFaultHttp(response.status) ? { configuration_fault: true as const } : {})
+        };
+      }
       const payload: any = response.body;
-      if (!growSucceeded(payload)) return { result_class: "permanent_fail" as const, retryable: false, dispatched: true as const, error_code: growError(payload) };
+      // A 2xx that is not a parseable Grow answer is UNKNOWN — the settle may
+      // have executed. Only an explicit status-0 reply is a declared failure.
+      const verdict = growReplyVerdict(payload);
+      if (verdict === "malformed") return { result_class: "unknown" as const, retryable: false, dispatched: true as const, error_code: "grow_settle_response_malformed" };
+      if (verdict === "declined") return { result_class: "permanent_fail" as const, retryable: false, dispatched: true as const, error_code: growError(payload) };
       const data = responseData(payload);
       const next = { ...reference, ...(data.transactionId ? { transaction_id: safeText(data.transactionId, 100) } : {}), ...(data.transactionToken ? { transaction_token: safeText(data.transactionToken, 300) } : {}) };
-      return { result_class: "success" as const, retryable: false, dispatched: true as const, provider_reference: sealGrowReference(next, config.reference_encryption_key) };
+      return { result_class: "success" as const, retryable: false, dispatched: true as const, provider_reference: sealGrowReference(next, keyring()) };
     },
     async refund(referenceValue: string, amountMinor: number) {
       assertGrowConfig(config, false);
-      const reference = openGrowReference(referenceValue, config.reference_encryption_key);
+      const reference = openGrowReference(referenceValue, keyring());
       if (!reference.transaction_id || !reference.transaction_token) return { result_class: "permanent_fail" as const, retryable: false, dispatched: false as const, error_code: "grow_refund_transaction_reference_missing" };
       const response = await post(config.paths.refund, {
         userId: config.user_id,
@@ -549,9 +755,19 @@ export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transpor
       // R9C C2 — same rule as settle: after dispatch, only an explicit Grow
       // answer is a declared outcome; everything else is UNKNOWN.
       if (response.status === 0) return { result_class: "unknown" as const, retryable: false, dispatched: true as const, error_code: "grow_refund_transport_unknown" };
-      if (response.status < 200 || response.status >= 300) return { result_class: "unknown" as const, retryable: false, dispatched: true as const, error_code: `grow_refund_http_${response.status}_ambiguous` };
+      if (response.status < 200 || response.status >= 300) {
+        return {
+          result_class: "unknown" as const,
+          retryable: false,
+          dispatched: true as const,
+          error_code: `grow_refund_http_${response.status}_ambiguous`,
+          ...(isConfigurationFaultHttp(response.status) ? { configuration_fault: true as const } : {})
+        };
+      }
       const payload: any = response.body;
-      return growSucceeded(payload)
+      const verdict = growReplyVerdict(payload);
+      if (verdict === "malformed") return { result_class: "unknown" as const, retryable: false, dispatched: true as const, error_code: "grow_refund_response_malformed" };
+      return verdict === "succeeded"
         ? { result_class: "success" as const, retryable: false, dispatched: true as const, provider_reference: referenceValue }
         : { result_class: "permanent_fail" as const, retryable: false, dispatched: true as const, error_code: growError(payload) };
     },
@@ -567,7 +783,7 @@ export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transpor
     async observeRelease(referenceValue: string) {
       assertGrowConfig(config, false);
       let reference: GrowProviderReference;
-      try { reference = openGrowReference(referenceValue, config.reference_encryption_key); }
+      try { reference = openGrowReference(referenceValue, keyring()); }
       catch { return { result_class: "permanent_fail" as const, released: false, error_code: "grow_reference_invalid" }; }
       const looked = await lookup(reference);
       if (!looked.ok) return { result_class: looked.result_class, released: false, error_code: looked.error_code };
@@ -575,7 +791,7 @@ export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transpor
       if (state === "failed" || state === "refunded") {
         // Provider-declared: no active hold remains. This is authoritative
         // proof that no money is held.
-        return { result_class: "success" as const, released: true, error_code: null, provider_reference: sealGrowReference(looked.reference, config.reference_encryption_key) };
+        return { result_class: "success" as const, released: true, error_code: null, provider_reference: sealGrowReference(looked.reference, keyring()) };
       }
       if (state === "captured") {
         return { result_class: "permanent_fail" as const, released: false, error_code: "grow_release_hold_already_captured" };
@@ -603,6 +819,15 @@ export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transpor
         api_key_configured: Boolean(config.api_key),
         api_key_transmitted: false,
         encrypted_reference_configured: config.reference_encryption_key.length >= 32,
+        reference_seal_format: GROW_REF_V2,
+        ...(() => {
+          try {
+            const ring = keyring();
+            return { reference_primary_key_id: ring.primary.kid, reference_previous_key_count: ring.previous.length };
+          } catch {
+            return { reference_primary_key_id: null, reference_previous_key_count: 0 };
+          }
+        })(),
         callback_requires_authoritative_status_query: true,
         callback_native_authentication: "none_documented",
         approve_transaction_policy: "never_sent_for_j4j5",

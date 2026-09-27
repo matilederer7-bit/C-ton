@@ -11,6 +11,7 @@
     "SELLER_SESSION_SECRET": "0123456789abcdef0123456789abcdef0123456789",
     "BUYER_SESSION_SECRET": "fedcba9876543210fedcba9876543210fedcba98",
     "OTP_HASH_SALT": "9c8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b",
+    "OTP_TOKEN_SECRET": "5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d",
     "PAYMENT_WEBHOOK_SECRET": "whsec_real_looking_but_synthetic_value_1234567890",
     "DISABLE_OUTBOX_WORKER": "1",
     "STORAGE_ADAPTER": "supabase",
@@ -275,6 +276,42 @@
       "runtime_note": "The boot guard now refuses SUPABASE_SERVICE_ROLE_KEY in the production runtime environment: the app never needs the full-bypass key, so its presence is a custody failure the runtime can and must detect.",
       "policy_expect": "fail",
       "policy_message": "SUPABASE_SERVICE_ROLE_KEY must be absent"
+    },
+    {
+      "id": "production_management_api_token_present",
+      "title": "production runtime carrying SUPABASE_MANAGEMENT_API_TOKEN",
+      "role": "web",
+      "override": {
+        "SUPABASE_MANAGEMENT_API_TOKEN": "sbp_synthetic_management_token"
+      },
+      "runtime_expect": "reject",
+      "runtime_message": "SUPABASE_MANAGEMENT_API_TOKEN must not be present",
+      "policy_expect": "fail",
+      "policy_message": "SUPABASE_MANAGEMENT_API_TOKEN must be absent"
+    },
+    {
+      "id": "production_otp_token_secret_missing",
+      "title": "production without a dedicated OTP_TOKEN_SECRET",
+      "role": "web",
+      "override": {
+        "OTP_TOKEN_SECRET": ""
+      },
+      "runtime_expect": "reject",
+      "runtime_message": "OTP_TOKEN_SECRET is required in production",
+      "policy_expect": "fail",
+      "policy_message": "OTP_TOKEN_SECRET"
+    },
+    {
+      "id": "production_otp_token_secret_shared_with_seller_sessions",
+      "title": "production OTP_TOKEN_SECRET equal to SELLER_SESSION_SECRET",
+      "role": "web",
+      "override": {
+        "OTP_TOKEN_SECRET": "0123456789abcdef0123456789abcdef0123456789"
+      },
+      "runtime_expect": "reject",
+      "runtime_message": "OTP_TOKEN_SECRET must be distinct from SELLER_SESSION_SECRET",
+      "policy_expect": "pass_or_fail",
+      "policy_note": "the release policy has no cross-variable operator; the boot guard owns the distinctness refusal"
     },
     {
       "id": "production_real_notifications_without_adapter",

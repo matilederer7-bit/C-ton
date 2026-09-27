@@ -1,4 +1,7 @@
 import { createHash } from "node:crypto";
+import { incrementRuntimeCounter } from "./runtime_counters.js";
+import type { OutboxRetryClassName, OutboxRetryPolicy } from "./runtime_config.js";
+import { MONEY_LANE_EVENT_TYPES, INVOICE_LANE_EVENT_TYPES, PAYOUT_EVENT_TYPES, RECONCILE_LANE_EVENT_TYPES, outboxRetryClass } from "./worker_scheduler.js";
 
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
@@ -39,18 +42,43 @@ class OutboxAuditConflictError extends Error {
   }
 }
 
+/**
+ * Exponential retry delay: base*2^(attempt-1) (x1.5 for temporary errors),
+ * capped. With jitterRatio > 0 the delay is scaled by a random factor in
+ * [1-ratio, 1+ratio] (then re-capped) so events failed by the same incident
+ * do not retry in lockstep. jitterRatio 0 (the default) is deterministic.
+ */
 export function calculateOutboxRetryDelayMs(args: {
   attemptCount: number;
   baseMs: number;
   temporary: boolean;
   capMs?: number;
+  jitterRatio?: number;
+  random?: (() => number) | undefined;
 }) {
   const attempt = Math.max(1, Math.floor(Number(args.attemptCount || 1)));
   const base = Math.max(1, Math.floor(Number(args.baseMs || 1)));
   const cap = Math.max(base, Math.floor(Number(args.capMs || 15 * 60_000)));
   const exponential = Math.min(cap, base * (2 ** Math.min(20, attempt - 1)));
-  return Math.min(cap, args.temporary ? Math.ceil(exponential * 1.5) : exponential);
+  const computed = Math.min(cap, args.temporary ? Math.ceil(exponential * 1.5) : exponential);
+  const ratio = Math.min(1, Math.max(0, Number(args.jitterRatio || 0)));
+  if (ratio === 0) return computed;
+  const sample = Math.min(1, Math.max(0, Number((args.random || Math.random)())));
+  const factor = 1 + ratio * (2 * sample - 1);
+  return Math.max(1, Math.min(cap, Math.round(computed * factor)));
 }
+
+export type OutboxRetryPolicySet = {
+  policies: Record<OutboxRetryClassName, OutboxRetryPolicy>;
+  raiseRowMaxAttempts: boolean;
+};
+
+const NON_DEFAULT_RETRY_EVENT_TYPES: readonly string[] = [
+  ...MONEY_LANE_EVENT_TYPES,
+  ...RECONCILE_LANE_EVENT_TYPES,
+  ...INVOICE_LANE_EVENT_TYPES,
+  ...PAYOUT_EVENT_TYPES
+];
 
 function safeErrorCode(error: any) {
   const explicit = error?.code || error?.kind;
@@ -76,6 +104,25 @@ function requireLeaseGeneration(value: unknown) {
   return generation;
 }
 
+/**
+ * The attempt ceiling the worker applies to one event (same rule as the
+ * worker's effectiveMaxAttempts below): lane mode uses the event's retry-class
+ * budget, legacy mode LEAST(row max_attempts, class budget). Exposed so admin
+ * tooling judges "exhausted" exactly as the worker does.
+ */
+export function outboxEffectiveMaxAttempts(eventType: string, rowMaxAttempts: unknown, policy: OutboxRetryPolicySet): number {
+  const clamp = (value: unknown, fallback: number) => {
+    const n = Math.floor(Number(value));
+    return Number.isFinite(n) ? Math.min(50, Math.max(1, n)) : fallback;
+  };
+  const classPolicy = policy.policies[outboxRetryClass(String(eventType || ""))] || policy.policies.default;
+  const classMaximum = clamp(classPolicy.maxAttempts, 4);
+  if (policy.raiseRowMaxAttempts) return classMaximum;
+  const candidate = Number(rowMaxAttempts);
+  const eventMaximum = Number.isSafeInteger(candidate) && candidate >= 1 ? candidate : classMaximum;
+  return Math.min(eventMaximum, classMaximum);
+}
+
 export function buildOutboxWorkerHelpers(deps: {
   withTx: WithTx;
   outboxPollMs: number;
@@ -84,14 +131,79 @@ export function buildOutboxWorkerHelpers(deps: {
   DeferredEventErrorCtor: new (...args: any[]) => Error;
   workerId?: string;
   leaseMs?: number;
+  /**
+   * Per-retry-class policy. When omitted every class uses the legacy policy
+   * (base = outboxPollMs, cap 15 min, max = outboxMaxAttempts, no jitter).
+   */
+  retryPolicy?: OutboxRetryPolicySet;
+  random?: () => number;
+  /** Receives the per-row errors the sweep / claim / reclaim loops survive (F-L2). */
+  logger?: { warn: (obj: Record<string, unknown>, msg: string) => void };
 }) {
   const workerId = String(deps.workerId || `worker-${process.pid}`);
+  // Black-Sky F-L2: the per-row savepoint loops below survive a failing row so
+  // one poisoned event cannot block the batch - but they did so silently. Every
+  // swallowed row error is now counted and logged (no payloads, ids only).
+  const warn = (msg: string, event: { event_uuid?: string; event_type?: string }, error: unknown) => {
+    const payload = {
+      worker_id: workerId,
+      event_uuid: event?.event_uuid ?? null,
+      event_type: event?.event_type ?? null,
+      error_code: safeErrorCode(error),
+      error: errorMessage(error).slice(0, 200)
+    };
+    if (deps.logger) deps.logger.warn(payload, msg);
+    else console.warn(JSON.stringify({ level: "warn", msg, ...payload }));
+  };
   const configuredLeaseMs = Number(deps.leaseMs || 60_000);
   const leaseMs = Number.isFinite(configuredLeaseMs) ? Math.max(5_000, Math.floor(configuredLeaseMs)) : 60_000;
   const configuredMaxAttempts = Number(deps.outboxMaxAttempts);
   const workerMaxAttempts = Number.isSafeInteger(configuredMaxAttempts) && configuredMaxAttempts >= 1
     ? configuredMaxAttempts
     : 4;
+
+  const legacyPolicy: OutboxRetryPolicy = {
+    baseMs: Math.max(1, Math.floor(Number(deps.outboxPollMs) || 1)),
+    capMs: 15 * 60_000,
+    maxAttempts: workerMaxAttempts,
+    jitterRatio: 0
+  };
+  const retryPolicies: Record<OutboxRetryClassName, OutboxRetryPolicy> = deps.retryPolicy
+    ? deps.retryPolicy.policies
+    : { money: legacyPolicy, reconcile: legacyPolicy, invoice: legacyPolicy, default: legacyPolicy };
+  const raiseRowMaxAttempts = Boolean(deps.retryPolicy?.raiseRowMaxAttempts);
+  function clampAttempts(value: unknown) {
+    const n = Math.floor(Number(value));
+    return Number.isFinite(n) ? Math.min(50, Math.max(1, n)) : workerMaxAttempts;
+  }
+  function retryPolicyFor(eventType: string): OutboxRetryPolicy {
+    return retryPolicies[outboxRetryClass(String(eventType || ""))] || retryPolicies.default;
+  }
+  function classMaxAttempts(eventType: string) {
+    return clampAttempts(retryPolicyFor(eventType).maxAttempts);
+  }
+  // SQL: per-event-type class budget. Types outside the map use the default class.
+  const classMaxJson = JSON.stringify(Object.fromEntries(
+    NON_DEFAULT_RETRY_EVENT_TYPES.map((eventType) => [eventType, classMaxAttempts(eventType)])
+  ));
+  const defaultClassMax = clampAttempts(retryPolicies.default.maxAttempts);
+  function classMaxSql(mapParam: number, defaultParam: number) {
+    return `COALESCE(($${mapParam}::jsonb ->> event_type)::int, $${defaultParam}::int)`;
+  }
+  // Effective attempt ceiling for a row. Lane mode raises the row's stored
+  // max_attempts to the class budget at claim time (keeping the DB CHECK
+  // attempt_count <= max_attempts satisfied); legacy mode keeps the historical
+  // LEAST(row.max_attempts, worker maximum).
+  function effectiveMaxSql(mapParam: number, defaultParam: number) {
+    return raiseRowMaxAttempts
+      ? classMaxSql(mapParam, defaultParam)
+      : `LEAST(max_attempts, ${classMaxSql(mapParam, defaultParam)})`;
+  }
+  function claimMaxAttemptsSetSql(mapParam: number, defaultParam: number) {
+    return raiseRowMaxAttempts
+      ? `max_attempts=GREATEST(max_attempts, ${classMaxSql(mapParam, defaultParam)}),`
+      : "";
+  }
 
   function isTemporaryError(err: any) {
     const msg = String(err?.message || err || "");
@@ -106,10 +218,12 @@ export function buildOutboxWorkerHelpers(deps: {
     return err instanceof deps.DeferredEventErrorCtor;
   }
 
-  function effectiveMaxAttempts(eventMaxAttempts: unknown) {
-    const candidate = Number(eventMaxAttempts);
-    const eventMaximum = Number.isSafeInteger(candidate) && candidate >= 1 ? candidate : workerMaxAttempts;
-    return Math.min(eventMaximum, workerMaxAttempts);
+  function effectiveMaxAttempts(event: Pick<OutboxEventRow, "event_type" | "max_attempts">) {
+    const classMaximum = classMaxAttempts(event.event_type);
+    if (raiseRowMaxAttempts) return classMaximum;
+    const candidate = Number(event.max_attempts);
+    const eventMaximum = Number.isSafeInteger(candidate) && candidate >= 1 ? candidate : classMaximum;
+    return Math.min(eventMaximum, classMaximum);
   }
 
   async function appendLifecycleAudit(c: any, args: {
@@ -280,12 +394,12 @@ export function buildOutboxWorkerHelpers(deps: {
        FROM siton.outbox_events
        WHERE status='pending'
          AND available_at <= clock_timestamp()
-         AND attempt_count >= LEAST(max_attempts,$1)
+         AND attempt_count >= ${effectiveMaxSql(1, 4)}
          AND ($2::uuid IS NULL OR event_uuid=$2)
        ORDER BY created_at ASC
        FOR UPDATE SKIP LOCKED
        LIMIT $3`,
-      [workerMaxAttempts, eventId, eventId ? 1 : Math.min(500, Math.max(20, Math.floor(limit) * 10))]
+      [classMaxJson, eventId, eventId ? 1 : Math.min(500, Math.max(20, Math.floor(limit) * 10)), defaultClassMax]
     );
     let changed = 0;
     for (const [index, event] of (selected.rows as OutboxEventRow[]).entries()) {
@@ -315,9 +429,11 @@ export function buildOutboxWorkerHelpers(deps: {
           await quarantinePendingEvent(c, event, "pending_dlq_archive_conflict");
           await c.query(`RELEASE SAVEPOINT ${quarantineSavepoint}`);
           changed += 1;
-        } catch {
+        } catch (quarantineError) {
           await c.query(`ROLLBACK TO SAVEPOINT ${quarantineSavepoint}`);
           await c.query(`RELEASE SAVEPOINT ${quarantineSavepoint}`);
+          incrementRuntimeCounter("outbox_quarantine_failed_total");
+          warn("outbox_sweep_quarantine_failed", event, quarantineError);
         }
       }
     }
@@ -337,12 +453,12 @@ export function buildOutboxWorkerHelpers(deps: {
            FROM siton.outbox_events
            WHERE status='pending'
              AND available_at <= clock_timestamp()
-             AND attempt_count < LEAST(max_attempts,$1)
+             AND attempt_count < ${effectiveMaxSql(1, 3)}
              AND event_uuid <> ALL($2::uuid[])
            ORDER BY created_at ASC
            FOR UPDATE SKIP LOCKED
            LIMIT 1`,
-          [workerMaxAttempts, attemptedEventIds]
+          [classMaxJson, attemptedEventIds, defaultClassMax]
         );
         const candidate = selected.rows[0] as OutboxEventRow | undefined;
         if (!candidate) break;
@@ -356,11 +472,12 @@ export function buildOutboxWorkerHelpers(deps: {
              SET status='processing', processing_started_at=clock_timestamp(), claimed_at=clock_timestamp(),
                  lease_expires_at=clock_timestamp() + ($2::text || ' milliseconds')::interval,
                  worker_id=$3, last_attempt_at=clock_timestamp(), last_heartbeat_at=clock_timestamp(),
+                 ${claimMaxAttemptsSetSql(4, 5)}
                  attempt_count=attempt_count+1, lease_generation=lease_generation+1, updated_at=clock_timestamp()
              WHERE event_uuid=$1 AND status='pending' AND available_at <= clock_timestamp()
-               AND attempt_count < LEAST(max_attempts,$4)
+               AND attempt_count < ${effectiveMaxSql(4, 5)}
              RETURNING ${returningColumns}`,
-            [candidate.event_uuid, String(leaseMs), workerId, workerMaxAttempts]
+            [candidate.event_uuid, String(leaseMs), workerId, classMaxJson, defaultClassMax]
           );
           const row = updated.rows[0] as OutboxEventRow | undefined;
           if (!row) throw new OutboxLeaseLostError(candidate.event_uuid);
@@ -379,9 +496,11 @@ export function buildOutboxWorkerHelpers(deps: {
           try {
             await quarantinePendingEvent(c, candidate, "claim_audit_conflict");
             await c.query(`RELEASE SAVEPOINT ${quarantineSavepoint}`);
-          } catch {
+          } catch (quarantineError) {
             await c.query(`ROLLBACK TO SAVEPOINT ${quarantineSavepoint}`);
             await c.query(`RELEASE SAVEPOINT ${quarantineSavepoint}`);
+            incrementRuntimeCounter("outbox_quarantine_failed_total");
+            warn("outbox_claim_quarantine_failed", candidate, quarantineError);
           }
         }
       }
@@ -398,11 +517,12 @@ export function buildOutboxWorkerHelpers(deps: {
          SET status='processing', processing_started_at=clock_timestamp(), claimed_at=clock_timestamp(),
              lease_expires_at=clock_timestamp() + ($2::text || ' milliseconds')::interval,
              worker_id=$3, last_attempt_at=clock_timestamp(), last_heartbeat_at=clock_timestamp(),
+             ${claimMaxAttemptsSetSql(4, 5)}
              attempt_count=attempt_count+1, lease_generation=lease_generation+1, updated_at=clock_timestamp()
          WHERE event_uuid=$1 AND status='pending' AND available_at <= clock_timestamp()
-           AND attempt_count < LEAST(max_attempts,$4)
+           AND attempt_count < ${effectiveMaxSql(4, 5)}
          RETURNING ${returningColumns}`,
-        [eventId, String(leaseMs), workerId, workerMaxAttempts]
+        [eventId, String(leaseMs), workerId, classMaxJson, defaultClassMax]
       );
       const row = result.rows[0] as OutboxEventRow | undefined;
       if (row) await auditClaims(c, [row]);
@@ -439,7 +559,7 @@ export function buildOutboxWorkerHelpers(deps: {
             leaseGeneration: generation,
             attemptCount: Number(event.attempt_count || 0),
             fromStatus: "processing",
-            toStatus: Number(event.attempt_count || 0) >= effectiveMaxAttempts(event.max_attempts) ? "processing" : "pending",
+            toStatus: Number(event.attempt_count || 0) >= effectiveMaxAttempts(event) ? "processing" : "pending",
             reasonCode: "expired_worker_lease",
             metadata: {
               previous_worker_id_hash: evidenceHash(event.worker_id),
@@ -447,7 +567,7 @@ export function buildOutboxWorkerHelpers(deps: {
               previous_last_heartbeat_at: event.last_heartbeat_at || null
             }
           });
-          if (Number(event.attempt_count || 0) >= effectiveMaxAttempts(event.max_attempts)) {
+          if (Number(event.attempt_count || 0) >= effectiveMaxAttempts(event)) {
             await appendLifecycleAudit(c, {
               eventUuid: event.event_uuid,
               action: "failure",
@@ -472,9 +592,16 @@ export function buildOutboxWorkerHelpers(deps: {
           }
           await c.query(`RELEASE SAVEPOINT ${savepoint}`);
           changed += 1;
-        } catch {
+        } catch (error) {
           await c.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
           await c.query(`RELEASE SAVEPOINT ${savepoint}`);
+          if (error instanceof OutboxLeaseLostError) {
+            // Benign race: another worker renewed or finished the row first.
+            incrementRuntimeCounter("outbox_reclaim_lease_lost_total");
+          } else {
+            incrementRuntimeCounter("outbox_reclaim_row_failed_total");
+            warn("outbox_reclaim_row_failed", event, error);
+          }
         }
       }
       return changed;
@@ -557,7 +684,7 @@ export function buildOutboxWorkerHelpers(deps: {
       });
 
       const attemptCount = Math.max(0, Number(event.attempt_count || 0));
-      const maxAttempts = effectiveMaxAttempts(event.max_attempts);
+      const maxAttempts = effectiveMaxAttempts(event);
       if (isPermanentFail(err) || attemptCount >= maxAttempts) {
         await insertDlqFromLockedEvent(
           c,
@@ -595,9 +722,13 @@ export function buildOutboxWorkerHelpers(deps: {
         return;
       }
 
+      const policy = retryPolicyFor(event.event_type);
       const nextDelay = calculateOutboxRetryDelayMs({
         attemptCount,
-        baseMs: deps.outboxPollMs,
+        baseMs: policy.baseMs,
+        capMs: policy.capMs,
+        jitterRatio: policy.jitterRatio,
+        random: deps.random,
         temporary: isTemporaryError(err)
       });
       const result = await c.query(
@@ -696,6 +827,8 @@ export function buildOutboxWorkerHelpers(deps: {
     heartbeatOutboxLease,
     assertLeaseForProviderIo,
     workerId,
-    leaseMs
+    leaseMs,
+    retryPolicyFor,
+    effectiveMaxAttempts
   };
 }

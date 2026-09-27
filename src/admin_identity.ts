@@ -34,7 +34,10 @@ export const ADMIN_PERMISSIONS = [
   "emergency.pause",
   "invoice.retry",
   "notification.retry",
-  "outbox.requeue"
+  "outbox.requeue",
+  // Resolve a payout dispatch_outcome_unknown case from an operator
+  // attestation. SuperAdmin only (via ADMIN_PERMISSIONS).
+  "payout.resolve"
 ] as const;
 export type AdminPermission = typeof ADMIN_PERMISSIONS[number];
 
@@ -83,10 +86,12 @@ export const ADMIN_ACTION_PERMISSION: Record<string, AdminPermission> = {
   open_support_case: "support.manage",
   content_takedown_request: "support.manage",
   pause_joining_emergency: "emergency.pause",
-  pause_charging_emergency: "emergency.pause"
+  pause_charging_emergency: "emergency.pause",
+  resolve_payout_dispatch_unknown: "payout.resolve"
 };
 
 export const HIGH_TRUST_ADMIN_ACTIONS = new Set([
+  "resolve_payout_dispatch_unknown",
   "freeze_payouts",
   "unfreeze_payouts",
   "pause_joining_emergency",
@@ -103,7 +108,9 @@ export function parseCookieHeader(raw: unknown) {
   for (const part of String(raw || "").split(";")) {
     const idx = part.indexOf("=");
     if (idx <= 0) continue;
-    out[part.slice(0, idx).trim()] = decodeURIComponent(part.slice(idx + 1).trim());
+    const rawValue = part.slice(idx + 1).trim();
+    // Total: a malformed escape must not turn admin routes into a 500.
+    try { out[part.slice(0, idx).trim()] = decodeURIComponent(rawValue); } catch { out[part.slice(0, idx).trim()] = rawValue; }
   }
   return out;
 }
@@ -138,6 +145,14 @@ export async function hashAdminPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
   const derived = (await scrypt(password, salt, 64)) as Buffer;
   return `scrypt$${salt}$${derived.toString("hex")}`;
+}
+
+// Black-Sky B5: a real scrypt hash of a random secret, verified on the paths
+// that previously skipped scrypt (missing / inactive / locked account).
+let dummyAdminHash: Promise<string> | null = null;
+export function adminLoginDummyHash(): Promise<string> {
+  if (!dummyAdminHash) dummyAdminHash = hashAdminPassword(randomBytes(24).toString("hex"));
+  return dummyAdminHash;
 }
 
 export async function verifyAdminPassword(password: string, storedHash: string | null | undefined) {
@@ -203,14 +218,62 @@ export function isConfiguredOwnerClaimEmail(email: string): boolean {
   return Boolean(ownerEmail) && String(email || "").trim().toLowerCase() === ownerEmail;
 }
 
+// Black-Sky B2: the pre-bound owner identity. When SITON_OWNER_AUTH_USER_ID is
+// set, only a token whose subject IS that Supabase auth user may claim the
+// owner bindings — the e-mail claim alone never authorizes anything.
+export function configuredOwnerAuthUserId(): string {
+  return String(process.env.SITON_OWNER_AUTH_USER_ID || "").trim().toLowerCase();
+}
+
+export type OwnerClaimPrincipal = {
+  sub: string;
+  email: string;
+  token?: { is_anonymous?: boolean; email_verified?: boolean } | null;
+};
+
+export type OwnerClaimDecision =
+  | { eligible: true }
+  | { eligible: false; reason: "email_mismatch" | "anonymous_token" | "email_not_verified" | "auth_user_id_mismatch" | "owner_identity_not_pinned" };
+
+// Black-Sky B2: whether a verified Supabase principal may auto-claim the owner
+// (SuperAdmin + owner-seller) bindings. Fail-closed policy:
+//   * the e-mail claim must match SITON_OWNER_EMAIL (necessary, never sufficient);
+//   * anonymous sign-ins never qualify;
+//   * a token that explicitly says its e-mail is NOT verified never qualifies;
+//   * when SITON_OWNER_AUTH_USER_ID is configured the subject must equal it;
+//   * when it is NOT configured, the e-mail-only claim is accepted ONLY outside a
+//     production-like runtime. Whether Supabase issues tokens before e-mail
+//     confirmation is a dashboard setting this repository cannot verify, and
+//     third-party providers may assert unverified e-mails, so a hosted runtime
+//     must pin the identity (the production guard enforces the variable).
+export function decideOwnerClaim(principal: OwnerClaimPrincipal): OwnerClaimDecision {
+  if (!isConfiguredOwnerClaimEmail(principal.email)) return { eligible: false, reason: "email_mismatch" };
+  if (principal.token?.is_anonymous === true) return { eligible: false, reason: "anonymous_token" };
+  if (principal.token?.email_verified === false) return { eligible: false, reason: "email_not_verified" };
+  const pinned = configuredOwnerAuthUserId();
+  if (pinned) {
+    return String(principal.sub || "").trim().toLowerCase() === pinned
+      ? { eligible: true }
+      : { eligible: false, reason: "auth_user_id_mismatch" };
+  }
+  if (isProductionLikeEnv()) return { eligible: false, reason: "owner_identity_not_pinned" };
+  return { eligible: true };
+}
+
+export function isOwnerClaimEligible(principal: OwnerClaimPrincipal): boolean {
+  return decideOwnerClaim(principal).eligible;
+}
+
 export async function claimOwnerAdminBinding(c: Queryable, sub: string, email: string): Promise<void> {
   // Idempotent: binds by unique email; never overwrites a foreign binding.
+  // Black-Sky B2: a conflicting row that already exists (for example an admin
+  // the owner deliberately Suspended/Disabled) keeps its status — the claim
+  // may bind an unbound row to this auth user, it never re-activates one.
   await c.query(
     `INSERT INTO siton.admin_users (email, display_name, role, status, auth_user_id, mfa_required, provisioned_via, provisioned_at)
      VALUES ($1, 'Siton Owner', 'SuperAdmin', 'Active', $2, false, 'owner_email_claim', now())
      ON CONFLICT (email) DO UPDATE
        SET auth_user_id = EXCLUDED.auth_user_id,
-           status = 'Active',
            provisioned_via = 'owner_email_claim',
            provisioned_at = now(),
            updated_at = now()
@@ -232,7 +295,9 @@ export async function resolveAdminIdentity(req: any, c: Queryable): Promise<Admi
     try {
       let caps = await resolveSupabaseCapabilities(req, c as any, verifier);
       if (caps && !caps.admin) {
-        if (isConfiguredOwnerClaimEmail(caps.email)) {
+        // Black-Sky B2: e-mail match is necessary, never sufficient (pinned
+        // auth user id / anonymous / unverified checks live in decideOwnerClaim).
+        if (isOwnerClaimEligible(caps)) {
           await claimOwnerAdminBinding(c, caps.sub, caps.email);
           caps = await resolveSupabaseCapabilities(req, c as any, verifier);
         }

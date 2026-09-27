@@ -5,6 +5,7 @@ import { saveDealImage, readDealImage, deleteDealImageFile } from "./product_ima
 import { failure, loadReceiptOrder, receiptForOrder, redeemReceipt, receiptConfig, receiptMethodsLabel, validateReceiptConfig, publicSeller, safePublicName, RECEIPT_LABELS, type Db } from "./receipt_trust.js";
 import { CONTENT_SECTIONS, contractOf, publicContent, readContent, validateContent, verifyContentAssets } from "./site_content.js";
 import { CONTENT_UPLOAD_BODY_LIMIT, saveAdminContentAsset, sliceRange } from "./content_media.js";
+import { assertSellerContentAssetQuota } from "./seller_upload_quota.js";
 
 type Deps = {
   withTx: (fn: (c: any) => Promise<any>) => Promise<any>;
@@ -205,14 +206,21 @@ export function registerReceiptContentRoutes(app: FastifyInstance, deps: Deps) {
       return { ok: true, sections: await readContent(c) };
     });
   });
-  app.post("/api/seller/content-assets", async (req: any, reply: any) => {
+  // Explicit limit: the global body limit is 1 MiB (Black-Sky C9).
+  app.post("/api/seller/content-assets", { bodyLimit: 8 * 1024 * 1024 }, async (req: any, reply: any) => {
     const owner = await deps.withTx(c => deps.requireSeller(req, reply, c));
     if (!owner) return reply;
     const ref = owner.seller_id;
+    // Black-Sky B8: cheap pre-check before touching storage; the authoritative,
+    // serialized check runs again inside the recording transaction below.
+    await deps.withTx(c => assertSellerContentAssetQuota(c, ref));
     const id = randomUUID();
     const file = await saveDealImage({ dealId: id, mimeType: req.body?.mime_type, base64Data: req.body?.base64_data, originalFilename: req.body?.filename });
     try {
-      await deps.withTx(c => c.query(`INSERT INTO siton.content_assets(asset_id,owner_ref,storage_key,mime_type) VALUES($1,$2,$3,$4)`, [id, ref, file.storage_key, file.mime_type]));
+      await deps.withTx(async c => {
+        await assertSellerContentAssetQuota(c, ref);
+        await c.query(`INSERT INTO siton.content_assets(asset_id,owner_ref,storage_key,mime_type) VALUES($1,$2,$3,$4)`, [id, ref, file.storage_key, file.mime_type]);
+      });
     } catch (err) { await deleteDealImageFile(file.storage_key).catch(() => undefined); throw err; }
     return { ok: true, asset_id: id, url: `/api/content-assets/${id}` };
   });

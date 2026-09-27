@@ -206,7 +206,9 @@ What happens automatically:
 | Signup e-mail never arrives | Supabase Auth logs / SMTP cap | resend from the login screen; if still nothing, use the manual bind SQL (§1) after creating the user with "Invite user" in the Supabase dashboard |
 
 Never edit deals, participants or money tables by hand. If a deal must be
-stopped, use §5.
+stopped, use §5. For anything beyond this table (DB down, worker alerts,
+429 storms, credential leaks, total loss) start at
+`docs/INCIDENT_RESPONSE_RUNBOOK.md`.
 
 ---
 

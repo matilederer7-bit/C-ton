@@ -1,6 +1,14 @@
 import { assertRequiredTables } from "./schema_contract.js";
 import { randomUUID } from "crypto";
 import { createAdminControlFlag, releaseAdminControlFlag, isAdminFlagScopeType, type AdminFlagScopeType } from "./admin_intervention.js";
+import { outboxEffectiveMaxAttempts } from "./outbox_worker_helpers.js";
+import {
+  PAYOUT_ATTESTED_OUTCOMES,
+  isValidAttestedProviderReference,
+  resolveDispatchUnknownByAttestationInTx,
+  type PayoutAttestedOutcome
+} from "./payout_rail.js";
+import { resolveOutboxRetryPolicyConfig } from "./runtime_config.js";
 
 export const ADMIN_SAFE_ACTION_TYPES = [
   "trigger_reconcile",
@@ -12,7 +20,8 @@ export const ADMIN_SAFE_ACTION_TYPES = [
   "open_support_case",
   "content_takedown_request",
   "pause_joining_emergency",
-  "pause_charging_emergency"
+  "pause_charging_emergency",
+  "resolve_payout_dispatch_unknown"
 ] as const;
 
 export const ADMIN_ACTION_STATUSES = [
@@ -66,10 +75,14 @@ const FORBIDDEN_ACTIONS = new Set([
   "edit_product_eligibility"
 ]);
 
-const parsedAdminOutboxMaxAttempts = Number(process.env.OUTBOX_MAX_ATTEMPTS || 4);
-const ADMIN_OUTBOX_MAX_ATTEMPTS = Number.isSafeInteger(parsedAdminOutboxMaxAttempts) && parsedAdminOutboxMaxAttempts >= 1
-  ? parsedAdminOutboxMaxAttempts
-  : 4;
+// Black-Sky follow-up: an admin requeue is bounded by the SAME attempt ceiling
+// the worker applies (lane budget per retry class, or the legacy LEAST). It
+// used LEAST(max_attempts, OUTBOX_MAX_ATTEMPTS || 4), so a money event past
+// attempt 4 but still inside its 8-attempt lane budget could not be requeued.
+// Resolved per call so a test/runtime env change is honoured.
+function adminRequeueCeiling(eventType: string, rowMaxAttempts: unknown) {
+  return outboxEffectiveMaxAttempts(eventType, rowMaxAttempts, resolveOutboxRetryPolicyConfig());
+}
 
 type Queryable = {
   query: (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number }>;
@@ -107,6 +120,9 @@ export function actionRequiresSecondApproval(actionType: string, targetType: str
   return (
     actionType === "pause_charging_emergency" ||
     actionType === "unfreeze_payouts" ||
+    // Resolving an unknown payout dispatch records money truth from a human
+    // attestation: always four-eyes.
+    actionType === "resolve_payout_dispatch_unknown" ||
     (actionType === "freeze_payouts" && ["payout", "seller", "deal"].includes(targetType))
   );
 }
@@ -140,6 +156,21 @@ export function mapAdminTargetToFlagScope(targetType: string, flagType: string):
     return null;
   }
   if (isAdminFlagScopeType(targetType)) return targetType;
+  return null;
+}
+
+/**
+ * Action-specific input contract checked at creation (and again, fail closed,
+ * at execution). Returns an error code or null.
+ */
+export function adminActionInputError(actionType: string, targetType: string, targetId: string, metadata: Record<string, unknown> | null | undefined): string | null {
+  if (actionType === "resolve_payout_dispatch_unknown") {
+    if (targetType !== "payout") return "target_type_must_be_payout";
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetId)) return "payout_batch_id_invalid";
+    const outcome = String(metadata?.attested_outcome || "");
+    if (!(PAYOUT_ATTESTED_OUTCOMES as readonly string[]).includes(outcome)) return "attested_outcome_invalid";
+    if (!isValidAttestedProviderReference(metadata?.provider_reference)) return "provider_reference_required";
+  }
   return null;
 }
 
@@ -201,6 +232,13 @@ export async function executeAdminAction(c: Queryable, actionId: string, context
   let completed = false;
 
   if (action.action_type === "requeue_outbox_event") {
+    const target = await c.query(
+      `SELECT event_type, max_attempts FROM siton.outbox_events WHERE event_uuid::text=$1 FOR UPDATE`,
+      [action.target_id]
+    );
+    const ceiling = target.rowCount
+      ? adminRequeueCeiling(String(target.rows[0].event_type), target.rows[0].max_attempts)
+      : 0;
     const upd = await c.query(
       `WITH eligible AS (
          SELECT event_uuid, status AS from_status, attempt_count, lease_generation
@@ -208,7 +246,7 @@ export async function executeAdminAction(c: Queryable, actionId: string, context
          WHERE event_uuid::text=$1
            AND status IN ('pending','failed')
            AND sent=false AND sent_at IS NULL
-           AND attempt_count < LEAST(max_attempts,$6)
+           AND attempt_count < $6::int
          FOR UPDATE
        ), requeued AS (
          UPDATE siton.outbox_events o
@@ -238,12 +276,35 @@ export async function executeAdminAction(c: Queryable, actionId: string, context
         context.request_id,
         "admin:" + context.admin_id,
         "admin-action:" + actionId + ":outbox-retry",
-        ADMIN_OUTBOX_MAX_ATTEMPTS
+        ceiling
       ]
     );
     completed = (upd.rowCount ?? 0) > 0;
     resultCode = completed ? "Requeued" : "NoEligibleOutboxEvent";
     resultMessage = completed ? "אירוע outbox הוחזר ל-pending ללא מחיקה וללא איפוס היסטוריה." : "לא נמצא אירוע outbox מתאים או שהאירוע כבר הסתיים.";
+  } else if (action.action_type === "resolve_payout_dispatch_unknown") {
+    const metadata = (action.metadata_jsonb || {}) as Record<string, unknown>;
+    const inputError = adminActionInputError(action.action_type, action.target_type, String(action.target_id), metadata);
+    if (inputError) {
+      resultCode = "AttestationInvalid";
+      resultMessage = inputError;
+    } else {
+      const outcome = await resolveDispatchUnknownByAttestationInTx(c, {
+        payout_batch_id: String(action.target_id),
+        outcome: String(metadata.attested_outcome) as PayoutAttestedOutcome,
+        provider_reference: String(metadata.provider_reference),
+        admin_action_id: String(action.admin_action_id),
+        executed_by: context.admin_id,
+        requested_by: action.requested_by_admin_id ?? null,
+        approved_by: action.approved_by_admin_id ?? null,
+        note: String(action.reason || "")
+      });
+      completed = outcome.ok;
+      resultCode = outcome.ok ? "PayoutDispatchUnknownResolved" : "PayoutDispatchUnknownNotResolved";
+      resultMessage = outcome.ok
+        ? `תיק dispatch_outcome_unknown נסגר לפי אישור מפעיל (${outcome.status}, אסמכתת ספק ${String(metadata.provider_reference)}). לא בוצעה קריאה לספק ולא תנועת כסף.`
+        : outcome.code;
+    }
   } else if (action.action_type === "retry_notification") {
     const upd = await c.query(
       `UPDATE siton.notification_events

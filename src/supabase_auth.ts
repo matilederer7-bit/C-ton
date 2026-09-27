@@ -11,6 +11,7 @@
 // signature bytes are ever logged.
 
 import { createPublicKey, verify as cryptoVerify } from "node:crypto";
+import { cachedRemoteJwks } from "./jwks_cache.js";
 
 export class AuthTokenError extends Error {
   readonly statusCode = 401;
@@ -34,6 +35,10 @@ export interface VerifiedToken {
   // Supabase anonymous sign-ins carry role=authenticated with is_anonymous=true.
   // Surfaced so provisioning paths can refuse them explicitly (never authority).
   is_anonymous?: boolean;
+  // Top-level `email_verified` claim when the issuer emits one. Only an
+  // explicit `false` is acted on (refusal); `true`/absent grants nothing.
+  // user_metadata is deliberately NOT consulted: it is caller-supplied.
+  email_verified?: boolean;
 }
 
 export type Jwk = {
@@ -168,6 +173,7 @@ export async function verifySupabaseAccessToken(token: unknown, opts: VerifyOpti
   if (payload?.phone) out.phone = String(payload.phone);
   if (payload?.aal) out.aal = String(payload.aal);
   if (payload?.is_anonymous === true) out.is_anonymous = true;
+  if (typeof payload?.email_verified === "boolean") out.email_verified = payload.email_verified;
   return out;
 }
 
@@ -225,7 +231,9 @@ export function buildSupabaseVerifier(env: NodeJS.ProcessEnv = process.env, jwks
   if (!url) return null;
   const issuer = `${url}/auth/v1`;
   const audience = String(env.SUPABASE_JWT_AUD || "authenticated").trim();
-  const jwks = jwksOverride || remoteJwks(`${url}/auth/v1/.well-known/jwks.json`);
+  // Black-Sky F-M4: stale-while-revalidate + single-flight + short timeout
+  // (src/jwks_cache.ts); remoteJwks stays exported for existing callers.
+  const jwks = jwksOverride || cachedRemoteJwks(`${url}/auth/v1/.well-known/jwks.json`);
   return {
     issuer,
     audience,

@@ -9,7 +9,7 @@
 //   Draft            -> PendingTarget, Cancelled
 //   PendingTarget    -> TargetReached, Failed, ClosedForJoining
 //   TargetReached    -> ClosedForJoining
-//   ClosedForJoining -> ReadyForCharging, PendingTarget, TargetReached
+//   ClosedForJoining -> ReadyForCharging, PendingTarget, TargetReached, Failed (deadline, 077)
 //   Completed | Failed | Cancelled -> (terminal)
 //
 // Every race below is judged against that table, not against a hand-written

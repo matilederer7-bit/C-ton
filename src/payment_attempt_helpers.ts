@@ -94,7 +94,18 @@ export type BeginProviderAttemptResult =
   /** 064 — a capture-side failure inferred from status may still settle until `until` (or can never be resolved automatically: `permanent`): no recovery / release identity before that */
   | { kind: "fenced"; reason: string; until: Date | null; permanent: boolean };
 
-export type ArmProviderDispatchResult = "armed" | "lease_lost" | "participant_state_changed" | "in_flight_elsewhere" | "resolved_elsewhere";
+export type ArmProviderDispatchResult = "armed" | "lease_lost" | "participant_state_changed" | "deal_phase_closed" | "in_flight_elsewhere" | "resolved_elsewhere";
+
+/**
+ * Black-Sky A-F2 — the DEAL-level money gate of a capture-side dispatch,
+ * evaluated under the deal row lock (FOR SHARE) inside the arm transaction:
+ * the deal must be in one of `states` and, when `require_open_completion_window`
+ * is set, its completion window must still be open on the DB clock. The row
+ * lock serializes the arm against the terminal finalize decision (which takes
+ * the same row FOR UPDATE), so a recovery capture can never be dispatched
+ * against a deal that is committing Completed / Failed, nor after the window.
+ */
+export type ArmDealGate = { states: ReadonlyArray<string>; require_open_completion_window?: boolean };
 
 /**
  * SR-1 — outcome of an owner-fenced settlement.
@@ -511,6 +522,8 @@ export function buildPaymentAttemptHelpers(deps: {
     settlement_horizon_ms?: number | null;
     /** 064 — the provider contract's negative-finality authority recorded on the identity at dispatch (capture-side rails) */
     negative_finality_authoritative?: boolean | null;
+    /** Black-Sky A-F2 — deal-level phase gate re-checked under the deal row lock (see ArmDealGate) */
+    deal_gate?: ArmDealGate | null;
   }): Promise<ArmProviderDispatchResult> {
     const generation = Number(args.lease_generation);
     if (!Number.isInteger(generation) || generation < 1) return "lease_lost";
@@ -526,6 +539,25 @@ export function buildPaymentAttemptHelpers(deps: {
         [args.event_uuid, generation, args.worker_id, String(Math.max(0, Math.floor(args.min_lease_remaining_ms)))]
       );
       if (Number(lease.rowCount || 0) !== 1) return "lease_lost" as const;
+      if (args.deal_gate) {
+        // Black-Sky A-F2 — the deal row is locked FOR SHARE: a finalize that is
+        // deciding Completed / Failed holds it FOR UPDATE, so this arm waits for
+        // the decision and then sees the committed terminal state (refuse), and
+        // a finalize that starts after this arm waits for the dispatch to be
+        // durable (its in-lock guard then defers on the in-flight identity).
+        // The window is judged on the DB clock, never on a value read earlier.
+        const deal = await c.query(
+          `SELECT state,
+                  (completion_window_until IS NOT NULL AND clock_timestamp() < completion_window_until) AS window_open
+           FROM siton.deals
+           WHERE deal_id=$1
+           FOR SHARE`,
+          [args.deal_id]
+        );
+        const dealRow = deal.rows[0];
+        if (!dealRow || !args.deal_gate.states.includes(String(dealRow.state))) return "deal_phase_closed" as const;
+        if (args.deal_gate.require_open_completion_window && dealRow.window_open !== true) return "deal_phase_closed" as const;
+      }
       const participant = await c.query(
         `SELECT buyer_state, money_state FROM siton.participants WHERE participant_id=$1 AND deal_id=$2`,
         [args.participant_id, args.deal_id]

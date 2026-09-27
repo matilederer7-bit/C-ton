@@ -19,6 +19,7 @@
 
 import assert from "node:assert/strict";
 import { bootBlackBox, makeRunner } from "./blackbox/harness.js";
+import { withForcedTx, forcedDealStep } from "./helpers/forced_state.js";
 
 const bb = await bootBlackBox({ tag: "bb-events", port: 3304, env: { COMPLETION_WINDOW_MINUTES: "30" } });
 const { run, summary } = makeRunner("payment_blackbox_evidence_atomicity_events");
@@ -165,7 +166,23 @@ await run("B10c duplicate refund_issued deliveries → one Refunded, one refund 
   const p = d.participants[0]!;
   assert.equal((await bb.processOutboxEventById(await bb.enqueueCharge(d.deal_id)))?.status, "sent");
   assert.equal((await bb.participant(p.participant_id)).money_state, "ChargedSuccess");
-  const refund = await bb.processOutboxEventById(await bb.enqueueRefund(d.deal_id, "blackbox_refund"));
+  // Black-Sky A-F9: a refund is legal only for a deal-level failure, so the
+  // deal is failed first (audited forced step, as a below-threshold finalize
+  // would); the refund job is then the system-mandated one this case needs.
+  await withForcedTx(bb.pool, "test.blackbox_refund_deal_failed", async (client) => {
+    await forcedDealStep(client, d.deal_id, "Failed", "test.blackbox_refund_deal_failed");
+  });
+  // Migration 078 (Black-Sky D3): the forced CompletionWindow -> Failed step
+  // enqueued the mandated refund_issue job (parked); release THAT job rather
+  // than inserting a duplicate, as finalize_failed does in production.
+  const releasedRefund = await bb.pool.query(
+    `UPDATE siton.outbox_events SET payload=$2, available_at=now()
+     WHERE aggregate_type='deal' AND aggregate_id=$1 AND event_type='refund_issue' AND status='pending'
+     RETURNING event_uuid`,
+    [d.deal_id, JSON.stringify({ deal_id: d.deal_id, reason: "blackbox_refund" })]
+  );
+  assert.equal(releasedRefund.rowCount, 1, "exactly one pending refund_issue job for the failed deal");
+  const refund = await bb.processOutboxEventById(String(releasedRefund.rows[0].event_uuid));
   console.log(`  B10c refund job: ${JSON.stringify(refund)}`);
   await bb.drain({ dealIds: [d.deal_id], skip: (e) => e.event_type === "finalize_deal" });
   const refundRow = (await bb.attempts(p.participant_id, "refund"))[0];

@@ -2,6 +2,7 @@ import { assertRequiredTables } from "./schema_contract.js";
 import { readMoneyAmount, MONEY_EPSILON } from "./money_input.js";
 import { pickupOptionsMissingLocation } from "./pickup_location.js";
 import Fastify from "fastify";
+import { errorLogSerializer } from "./log_redaction.js";
 import { pool } from "./db.js";
 import {
   assertCanonicalRuntimeReady,
@@ -23,13 +24,21 @@ import {
   buildPaymentAttemptHelpers,
   PaymentOperationInFlightError,
   type AttemptType as PaymentAttemptType,
-  type DispatchState as PaymentDispatchState
+  type DispatchState as PaymentDispatchState,
+  type ArmDealGate
 } from "./payment_attempt_helpers.js";
 import { buildPaymentProvider, getPaymentProviderSummary, providerAmbiguityPolicy, type PaymentExecutionResult, type PaymentStatusResult } from "./payment_provider.js";
 import { buildPaymentAuthorizationBindings, PaymentBindingError } from "./payment_binding.js";
 import { assessAuthorizationUsability, isAuthorizationUnusableResult, reauthorizationIdentity } from "./authorization_lifecycle.js";
 import { computeCustomerChargeVat } from "./vat_authority.js";
-import { resolveCompletionWindowMinutes, isProductionLikeEnv, resolveTrustProxyHops } from "./runtime_config.js";
+import {
+  resolveCompletionWindowMinutes,
+  isProductionLikeEnv,
+  resolveTrustProxyHops,
+  resolveOutboxRetryPolicyConfig,
+  resolveUnknownOutboxEventDeferMs,
+  resolveWorkerEventTimeoutMs
+} from "./runtime_config.js";
 import { contentSecurityPolicy, isHtmlContentType } from "./content_security_policy.js";
 import { buildNotificationService, getNotificationServiceSummary } from "./notification_service.js";
 import {
@@ -52,6 +61,9 @@ import {
 } from "./invoice_dispatch.js";
 import { registerFrontendExperience } from "./frontend_runtime.js";
 import { applicationRequestTelemetry } from "./infrastructure_metrics.js";
+import { createReadinessProbe } from "./readiness_probe.js";
+import { rateLimitClientKey } from "./public_write_caps.js";
+import { countHttpStatus } from "./runtime_counters.js";
 import { assertProductionRuntimeGuards } from "./production_guards.js";
 import { rewriteCanonicalApiAlias } from "./api_route_aliases.js";
 import { ensureJoinOtpVerified, ensureOtpRailTables, OtpValidationError } from "./otp_rail.js";
@@ -112,6 +124,7 @@ import {
   readDealImage,
   saveDealImage
 } from "./product_image_storage.js";
+import { assertSellerDealImageQuota, base64DecodedLength } from "./seller_upload_quota.js";
 import type { StorageProviderCode } from "./storage_adapter.js";
 import { buildPayoutProvider } from "./payout_provider.js";
 import { buildPayoutRail, ensurePayoutRailTables } from "./payout_rail.js";
@@ -155,6 +168,10 @@ const HOST = String(process.env.HOST || "0.0.0.0");
 const COMPLETION_WINDOW_MINUTES = resolveCompletionWindowMinutes();
 const OUTBOX_POLL_MS = Number(process.env.OUTBOX_POLL_MS || 1000);
 const OUTBOX_MAX_ATTEMPTS = Number(process.env.OUTBOX_MAX_ATTEMPTS || 4);
+// Per-retry-class outbox policy (money/reconcile/invoice/payout: long jittered
+// budget; others modest). Automated tests (NODE_ENV=test) keep the legacy
+// OUTBOX_POLL_MS/OUTBOX_MAX_ATTEMPTS policy — see resolveOutboxRetryPolicyConfig.
+const OUTBOX_RETRY_POLICY = resolveOutboxRetryPolicyConfig();
 
 // Deal deadline bounds come from ONE policy module (src/deadline_policy.ts):
 // a 2-hour product minimum and a technical sanity ceiling. There is no
@@ -488,7 +505,9 @@ export const DEAL_TRANSITIONS: Record<string, string[]> = {
   Draft: ["PendingTarget", "Cancelled"],
   PendingTarget: ["TargetReached", "Failed", "ClosedForJoining"],
   TargetReached: ["ClosedForJoining"],
-  ClosedForJoining: ["ReadyForCharging", "PendingTarget", "TargetReached"],
+  // Black-Sky A-F1 (migration 077): a paused deal still below threshold at its
+  // deadline fails like an open one.
+  ClosedForJoining: ["ReadyForCharging", "PendingTarget", "TargetReached", "Failed"],
   ReadyForCharging: ["Charging"],
   Charging: ["CompletionWindow"],
   CompletionWindow: ["Completed", "Failed"],
@@ -671,10 +690,13 @@ const {
   withTx,
   outboxPollMs: OUTBOX_POLL_MS,
   outboxMaxAttempts: OUTBOX_MAX_ATTEMPTS,
+  retryPolicy: OUTBOX_RETRY_POLICY,
   workerId: process.env.WORKER_ID || `siton-worker-${process.pid}-${randomUUID()}`,
   leaseMs: Number(process.env.WORKER_LEASE_MS || 60_000),
   PermanentFailErrorCtor: PermanentFailError,
-  DeferredEventErrorCtor: DeferredEventError
+  DeferredEventErrorCtor: DeferredEventError,
+  // Resolved at call time (app is created later in this module).
+  logger: { warn: (obj, msg) => app.log.warn(obj, msg) }
 });
 
 const {
@@ -1235,10 +1257,36 @@ async function applyPaymentWebhookClassification(args: {
     status: "processed" | "ignored" | "failed";
     reason: string;
   };
-}) {
+}): Promise<{ held: true; reason: string } | void> {
   if (args.classification.status !== "processed" || !args.target) return;
   const target = args.target; // narrowed once; closures below cannot re-narrow args.target
   await ensurePlatformFeeMoneyTables(withTx);
+
+  // Black-Sky A-F8 — a provider capture event that DECLARES an amount or a
+  // currency must match the obligation it would settle. A mismatch is not a
+  // success: no state, no ledger, no attempt verdict is written (the identity
+  // stays as it is and the reconcile rail / an operator owns the truth) and a
+  // payment-mismatch case is opened. Events that declare no amount (the
+  // worker's own provider-answer ingests, providers whose events carry none)
+  // are unaffected.
+  if (args.event.event_type === "charge_captured" || args.event.event_type === "recovery_captured") {
+    const declared = declaredEventMoney(args.event.payload);
+    if (declared.amount_minor !== null || declared.currency !== null || declared.malformed) {
+      const expected = await expectedCaptureObligation(target.participant_id, target.deal_id);
+      const amountMismatch = declared.amount_minor !== null && (expected.amount_minor === null || declared.amount_minor !== expected.amount_minor);
+      const currencyMismatch = declared.currency !== null && declared.currency !== expected.currency;
+      const malformed = declared.malformed;
+      if (amountMismatch || currencyMismatch || malformed) {
+        await openPaymentOperationalCase({
+          autoKey: `payment-capture-event-amount-mismatch:${target.participant_id}:${args.event.provider}:${args.event.event_id}`.slice(0, 200),
+          subject: `Capture event amount/currency mismatch for participant ${target.participant_id}`,
+          description: `Provider ${args.event.provider} event ${args.event.event_id} (${args.event.event_type}, reference ${args.event.provider_reference || "n/a"}, correlation ${args.event.correlation_id || target.correlation_id || "n/a"}) declares ${declared.raw_amount ?? "n/a"} ${declared.raw_currency ?? "n/a"}; the obligation is ${expected.amount_minor ?? "n/a"} ${expected.currency}. The event was NOT applied: no success, no state change, no ledger entry; the capture identity stays unresolved for reconciliation. Verify at the provider.`,
+          correlationId: args.event.correlation_id || target.correlation_id || null
+        });
+        return { held: true, reason: "capture_amount_mismatch_held_for_review" };
+      }
+    }
+  }
 
   // R9C — the operation's durable outcome commits in the SAME transaction as
   // the canonical state (and ledger). A negative outcome cannot be written
@@ -1493,6 +1541,56 @@ async function applyPaymentWebhookClassification(args: {
   }
 }
 
+function declaredEventMoney(payload: Record<string, unknown> | undefined): {
+  amount_minor: number | null;
+  currency: string | null;
+  malformed: boolean;
+  raw_amount: string | null;
+  raw_currency: string | null;
+} {
+  const source = (payload && typeof payload === "object" ? payload : {}) as Record<string, unknown>;
+  const rawAmount = source.amount_minor ?? source.amount_received ?? null;
+  const rawCurrency = source.currency ?? null;
+  let amount: number | null = null;
+  let malformed = false;
+  if (rawAmount !== null && rawAmount !== undefined && rawAmount !== "") {
+    const parsed = typeof rawAmount === "number" ? rawAmount : Number(String(rawAmount).trim());
+    if (Number.isInteger(parsed) && parsed >= 0) amount = parsed;
+    else malformed = true;
+  }
+  let currency: string | null = null;
+  if (rawCurrency !== null && rawCurrency !== undefined && String(rawCurrency).trim() !== "") {
+    currency = String(rawCurrency).trim().toUpperCase();
+  }
+  return {
+    amount_minor: amount,
+    currency,
+    malformed,
+    raw_amount: rawAmount === null || rawAmount === undefined ? null : String(rawAmount).slice(0, 40),
+    raw_currency: rawCurrency === null || rawCurrency === undefined ? null : String(rawCurrency).slice(0, 10)
+  };
+}
+
+/** The authoritative capture obligation: the consumed binding's amount, else the participant's server-side amount. */
+async function expectedCaptureObligation(participantId: string, dealId: string): Promise<{ amount_minor: number | null; currency: string }> {
+  return withTx(async (c) => {
+    const r = await c.query(
+      `SELECT p.qty, p.delivery_cost, d.price_per_unit, pab.amount_minor AS binding_amount_minor, pab.currency AS binding_currency
+       FROM siton.participants p
+       JOIN siton.deals d ON d.deal_id = p.deal_id
+       LEFT JOIN siton.payment_authorization_bindings pab ON pab.consumed_by_participant_id = p.participant_id
+       WHERE p.participant_id=$1 AND p.deal_id=$2`,
+      [participantId, dealId]
+    );
+    const row = r.rows[0];
+    if (!row) return { amount_minor: null, currency: "ILS" };
+    const amount = row.binding_amount_minor !== null && row.binding_amount_minor !== undefined
+      ? Number(row.binding_amount_minor)
+      : paymentMinorAmount({ qty: Number(row.qty || 0), pricePerUnit: Number(row.price_per_unit || 0), deliveryCost: Number(row.delivery_cost || 0) });
+    return { amount_minor: amount, currency: String(row.binding_currency || "ILS").toUpperCase() };
+  });
+}
+
 async function ingestAndProcessPaymentEvent(args: {
   provider: string;
   event_id: string;
@@ -1549,8 +1647,9 @@ async function ingestAndProcessPaymentEvent(args: {
       });
     }
 
+    let finalClassification: { status: "processed" | "ignored" | "failed"; reason: string } = classification;
     if (classification.status === "processed") {
-      await applyPaymentWebhookClassification({
+      const applied = await applyPaymentWebhookClassification({
         event: {
           provider: args.provider,
           event_id: args.event_id,
@@ -1564,13 +1663,14 @@ async function ingestAndProcessPaymentEvent(args: {
         target,
         classification
       });
+      if (applied && applied.held) finalClassification = { status: "ignored", reason: applied.reason };
     }
 
-    await webhookIngestion.markEvent(args.provider, args.event_id, classification.status, classification.reason);
+    await webhookIngestion.markEvent(args.provider, args.event_id, finalClassification.status, finalClassification.reason);
     return {
       duplicate: Boolean(ingested.duplicate),
-      status: classification.status,
-      reason: classification.reason
+      status: finalClassification.status,
+      reason: finalClassification.reason
     };
   } catch (error) {
     const failureReason = String(error instanceof Error ? error.message : error || "webhook_processing_failed").slice(0, 240);
@@ -1729,6 +1829,29 @@ async function handleRefundEvent(
   eventId: string
 ) {
   const dealId = event.aggregate_id;
+
+  // Black-Sky A-F9 — docs/REFUND_POLICY.md: a refund exists ONLY as the
+  // automatic consequence of a deal-level failure (a Failed deal — including a
+  // CompletionWindow deal finalized below the 90% threshold after charges — or
+  // a Cancelled deal for cancel_refund). Both are terminal states, so a plain
+  // read is authoritative. A refund job for any other deal (Completed, still
+  // Charging, ...) moves no money: it is refused with a case and acknowledged.
+  const refundDeal = await withTx(async (c) => {
+    const r = await c.query(`SELECT state FROM siton.deals WHERE deal_id=$1`, [dealId]);
+    return r.rows[0] as { state: DealState } | undefined;
+  });
+  if (!refundDeal) throw new PermanentFailError(`${event.event_type} deal not found ${dealId}`);
+  const refundLegalStates: ReadonlyArray<string> = event.event_type === "cancel_refund" ? ["Failed", "Cancelled"] : ["Failed"];
+  if (!refundLegalStates.includes(String(refundDeal.state))) {
+    await openPaymentOperationalCase({
+      autoKey: `refund-refused-deal-not-failed:${dealId}:${event.event_type}`,
+      subject: `Refund refused: deal ${dealId} is ${refundDeal.state}, not a deal-level failure`,
+      description: `A ${event.event_type} job (worker event ${eventId}) targeted deal ${dealId} in state ${refundDeal.state}. Refunds are system-mandated only as a consequence of a deal-level failure (${refundLegalStates.join(" / ")}); no refund was sent to the provider and no participant state changed. Investigate how the job was enqueued.`,
+      correlationId: null
+    });
+    app.log.warn({ deal_id: dealId, deal_state: refundDeal.state, event_type: event.event_type, event_id: eventId }, "refund refused: deal is not in a deal-level failure state");
+    return;
+  }
 
   const needRefundWithTrace = await withTx(async (c) => {
     const r = await c.query(
@@ -1889,7 +2012,7 @@ async function handleRefundEvent(
       // The refund may have been issued (5xx/429/timeout/transport loss after
       // dispatch, or a success without a declared event). Never re-fire the
       // refund blindly and never mint a new identity — reconcile the SAME one.
-      await settle("unknown", outcome === "success" ? "success_without_reconciliation_event" : `provider_outcome_unknown:${result.result_class}`);
+      await settle("unknown", outcome === "success" ? "success_without_reconciliation_event" : `provider_outcome_unknown:${result.result_class}${result.configuration_fault ? ":configuration_fault" : ""}`);
       await schedulePaymentReconcile({
         participant_id: p.participant_id,
         deal_id: dealId,
@@ -2772,6 +2895,8 @@ async function armMoneyOperation(args: {
   expected_money_states: string[];
   expected_buyer_states?: string[];
   provider_reference?: string | null;
+  /** Black-Sky A-F2 — deal-level phase gate re-checked under the deal row lock in the arm transaction */
+  deal_gate?: ArmDealGate | null;
 }): Promise<boolean> {
   await assertOutboxLeaseForProviderIo(args.event);
   const armed = await armProviderDispatch({
@@ -2800,10 +2925,25 @@ async function armMoneyOperation(args: {
     // contract (Grow: never; legacy rows: never).
     negative_finality_authoritative: args.attempt_type === "charge_start" || args.attempt_type === "recovery"
       ? providerAmbiguityPolicy(paymentProvider).negative_status_authoritative
-      : null
+      : null,
+    deal_gate: args.deal_gate ?? null
   });
   if (armed === "armed") return true;
   if (armed === "lease_lost") throw new OutboxLeaseLostError(args.event.event_uuid);
+  if (armed === "deal_phase_closed") {
+    // Black-Sky A-F2 — the deal left the phase in which this operation is legal
+    // (terminal decision taken, completion window over) between the rail's
+    // first read and the arm: nothing was sent, so the minted identity is
+    // retired in place (never dispatched) and no money call is made. The
+    // terminal decision / release rail owns the participant from here.
+    await retireNeverDispatched({
+      participant_id: args.participant_id,
+      deal_id: args.deal_id,
+      attempt_types: [args.attempt_type],
+      reason: "arm_refused:deal_phase_closed"
+    }).catch(() => []);
+    app.log.warn({ participant_id: args.participant_id, deal_id: args.deal_id, attempt_type: args.attempt_type, correlation_id: args.correlation_id }, "money dispatch refused at arm: deal phase closed");
+  }
   return false;
 }
 
@@ -3187,7 +3327,7 @@ async function handlePaymentReleaseEvent(
   if (outcome === "unknown") {
     // R9C C2 — 5xx/429/timeout/transport loss AFTER dispatch: the release may
     // have happened. Durable UNKNOWN on the SAME identity, reconcile decides.
-    await settle("unknown", `provider_outcome_unknown:${result.result_class}`);
+    await settle("unknown", `provider_outcome_unknown:${result.result_class}${result.configuration_fault ? ":configuration_fault" : ""}`);
     await schedulePaymentReconcile({
       participant_id: participantId,
       deal_id: dealId,
@@ -3650,7 +3790,7 @@ async function handleChargeDealEvent(
     // provider may have moved money: NEVER retry blindly and NEVER mint a new
     // identity — record UNKNOWN durably on the SAME identity and hand it to
     // the Worker-owned reconciliation rail (authoritative status lookup).
-    await settle("unknown", result.result_class === "success" ? "success_without_reconciliation_event" : `provider_outcome_unknown:${result.result_class}`);
+    await settle("unknown", result.result_class === "success" ? "success_without_reconciliation_event" : `provider_outcome_unknown:${result.result_class}${result.configuration_fault ? ":configuration_fault" : ""}`);
     await schedulePaymentReconcile({
       participant_id: p.participant_id,
       deal_id: dealId,
@@ -4099,7 +4239,11 @@ async function handleRecoveryDealEvent(
       correlation_id: correlation,
       expected_money_states: ["ChargeFailedRecovery"],
       expected_buyer_states: ["ChargeFailedCompletion"],
-      provider_reference: p.authorization_id || null
+      provider_reference: p.authorization_id || null,
+      // Black-Sky A-F2 — recovery exists only inside an OPEN completion window of
+      // a deal still in CompletionWindow: re-checked under the deal row lock at
+      // the last step before provider I/O (the rail's first read may be stale).
+      deal_gate: { states: ["CompletionWindow"], require_open_completion_window: true }
     });
     if (!armed) return "done" as const;
     const owner = { event_uuid: event.event_uuid, lease_generation: event.lease_generation };
@@ -4164,7 +4308,7 @@ async function handleRecoveryDealEvent(
     // No provider-declared canonical outcome — durable UNKNOWN on the SAME
     // identity, then the reconciliation rail. Never a blind retry, never a
     // fresh identity after possible money movement.
-    await settle("unknown", result.result_class === "success" ? "success_without_reconciliation_event" : `provider_outcome_unknown:${result.result_class}`);
+    await settle("unknown", result.result_class === "success" ? "success_without_reconciliation_event" : `provider_outcome_unknown:${result.result_class}${result.configuration_fault ? ":configuration_fault" : ""}`);
     await schedulePaymentReconcile({
       participant_id: p.participant_id,
       deal_id: dealId,
@@ -4766,8 +4910,47 @@ async function handleFinalizeDealEvent(
     const captured = await sumCapturedUnits(c, dealId);
     return { captured, threshold: Number(dealRow.threshold_units) };
   });
+  const completes = decision.captured >= decision.threshold;
 
-  if (decision.captured >= decision.threshold) {
+  // Black-Sky A-F2 — the terminal decision is taken UNDER THE DEAL ROW LOCK.
+  // The transition serializes on the deal row (FOR UPDATE, before any write) and
+  // re-validates, inside that same transaction, everything the provisional
+  // reads above concluded: the window is over on the DB clock, no capture-side
+  // identity is unresolved (a recovery armed in the last instant of the window
+  // holds the deal row FOR SHARE, so it is durable before this check runs), and
+  // the captured-unit count still selects the SAME outcome. Anything else rolls
+  // the decision back and defers it — never Completed / Failed on stale money.
+  const revalidateDecisionUnderLock = async (c: PoolClient) => {
+    const window = await c.query(
+      `SELECT (completion_window_until IS NOT NULL AND completion_window_until <= clock_timestamp()) AS elapsed
+       FROM siton.deals WHERE deal_id=$1`,
+      [dealId]
+    );
+    if (window.rows[0]?.elapsed !== true) {
+      throw new DeferredEventError(`finalize_window_not_elapsed_under_lock deal ${dealId}`, new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS));
+    }
+    const unresolved = await c.query(
+      `SELECT count(*)::int AS n
+       FROM siton.payment_attempts pa
+       JOIN siton.participants p ON p.participant_id = pa.participant_id
+       WHERE pa.deal_id=$1 AND pa.attempt_type IN ('charge_start','recovery')
+         AND (pa.result_class='unknown'
+              OR (pa.result_class='success' AND p.money_state NOT IN ('ChargedSuccess','RecoveredCharge','Refunded')))`,
+      [dealId]
+    );
+    if (Number(unresolved.rows[0]?.n || 0) > 0) {
+      throw new DeferredEventError(`finalize_unresolved_capture_under_lock deal ${dealId}`, new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS));
+    }
+    const capturedNow = await sumCapturedUnits(c, dealId);
+    if ((capturedNow >= decision.threshold) !== completes) {
+      throw new DeferredEventError(
+        `finalize_decision_changed_under_lock deal ${dealId} (captured ${decision.captured} -> ${capturedNow}, threshold ${decision.threshold})`,
+        new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS)
+      );
+    }
+  };
+
+  if (completes) {
     await atomicTransition({
       entityType: "deal",
       entityId: dealId,
@@ -4779,7 +4962,9 @@ async function handleFinalizeDealEvent(
       requestId: `worker:${eventId}`,
       idempotencyKey: `deal-finalize-ok:${dealId}`,
       outbox: null,
-      payload: { decision }
+      payload: { decision },
+      serializeOnEntity: true,
+      insideTx: revalidateDecisionUnderLock
     });
 
     await applyCompletedDealOutcome(dealId, eventId);
@@ -4797,7 +4982,9 @@ async function handleFinalizeDealEvent(
     requestId: `worker:${eventId}`,
     idempotencyKey: `deal-finalize-fail:${dealId}`,
     outbox: { event_type: "refund_issue", aggregate_type: "deal", aggregate_id: dealId, payload: { deal_id: dealId } },
-    payload: { decision }
+    payload: { decision },
+    serializeOnEntity: true,
+    insideTx: revalidateDecisionUnderLock
   });
 
   await failAllParticipantsForDeal(dealId, `worker:${eventId}`);
@@ -4851,12 +5038,19 @@ async function workerProcessEvent(event: {
       return r.rows[0] as { state: DealState; deadline: string; threshold_units: number };
     });
 
-    if (deal.state !== "PendingTarget") return;
+    // Black-Sky A-F1: a deal still awaiting its deadline decision is either
+    // open (PendingTarget) or joining-paused (ClosedForJoining). Before, the
+    // state filter ran BEFORE the deferral: a deal paused before its deadline
+    // consumed this job, never failed, kept every buyer hold, and could later be
+    // charged below threshold. Anything else (target reached, charging, a
+    // terminal state) is not decided here.
+    if (deal.state !== "PendingTarget" && deal.state !== "ClosedForJoining") return;
 
     // A deadline check may only fail a deal AFTER its deadline has passed. If the
     // deadline is still in the future (e.g. this check was enqueued at publish
     // time and processed immediately by the continuous worker), defer it until
     // the deadline instead of failing a freshly published, still-joinable deal.
+    // The deferral keeps the job alive across a pause and a later reopen.
     const deadlineMs = new Date(String(deal.deadline || "")).getTime();
     if (Number.isFinite(deadlineMs) && Date.now() < deadlineMs) {
       throw new DeferredEventError("deadline_not_reached", new Date(deadlineMs));
@@ -4870,7 +5064,7 @@ async function workerProcessEvent(event: {
       entityId: dealId,
       dealId,
       stateType: "deal_state",
-      fromState: "PendingTarget",
+      fromState: deal.state,
       toState: "Failed",
       actionName: "deal.deadline_check",
       requestId: `worker:${eventId}`,
@@ -4987,7 +5181,13 @@ async function workerProcessEvent(event: {
     return;
   }
 
-  throw new PermanentFailError(`unsupported outbox event type: ${event.event_type}`);
+  // An event type this build does not know is most likely produced by a newer
+  // deploy that is still rolling out: defer it (bounded by the attempt budget,
+  // after which it lands in the DLQ) instead of dead-lettering it immediately.
+  throw new DeferredEventError(
+    `unsupported_outbox_event_type_deferred: ${event.event_type}`,
+    new Date(Date.now() + resolveUnknownOutboxEventDeferMs())
+  );
 }
 
 export async function processNextPendingOutboxEvent(limit = 1) {
@@ -5002,19 +5202,77 @@ export async function claimPendingOutboxBatch(limit: number) {
   return claimOutboxBatch(limit);
 }
 
+// A fault injected at worker.after_claim keeps its historical semantics (it
+// propagates to the caller without marking the event failed).
+class WorkerPreHandlerFault {
+  constructor(readonly error: unknown) {}
+}
+
+let abandonedWorkerJobsInFlight = 0;
+/** Jobs whose handler outlived the per-job deadline and is still running detached. */
+export function workerAbandonedJobsInFlight() {
+  return abandonedWorkerJobsInFlight;
+}
+
 export async function processClaimedOutboxEvent(event: Awaited<ReturnType<typeof claimOutboxBatch>>[number]) {
-  await hitTestFault("worker.after_claim");
   let ownershipLost = false;
+  let abandoned = false;
   let heartbeatInFlight = Promise.resolve();
   const heartbeat = setInterval(() => {
+    if (abandoned) return;
     heartbeatInFlight = heartbeatInFlight.then(async () => {
       const renewed = await heartbeatOutboxLease(event.event_uuid, event.lease_generation).catch(() => false);
       if (!renewed) ownershipLost = true;
     });
   }, Math.max(1_000, Math.floor(Number(process.env.WORKER_LEASE_MS || 60_000) / 3)));
   heartbeat.unref();
-  try {
+  // Per-job deadline (WORKER_EVENT_TIMEOUT_MS). On expiry the worker stops
+  // WAITING; it never acks the job sent or failed, because a money handler may
+  // already have dispatched a provider call and a JS timeout is not evidence
+  // of failure. The lease stops being renewed, so it expires and the
+  // lease-expiry reclaim hands the job to a new lease generation; the detached
+  // run can no longer ack (markOutboxSent/markOutboxFailed are never called for
+  // it) and its provider I/O is fenced by assertLeaseForProviderIo.
+  const deadlineMs = resolveWorkerEventTimeoutMs();
+  let deadlineTimer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<"deadline">((resolveDeadline) => {
+    deadlineTimer = setTimeout(() => resolveDeadline("deadline"), deadlineMs);
+    deadlineTimer.unref();
+  });
+  const work = (async () => {
+    try {
+      await hitTestFault("worker.after_claim");
+    } catch (error) {
+      throw new WorkerPreHandlerFault(error);
+    }
     await workerProcessEvent(event);
+    return "done" as const;
+  })();
+  try {
+    const outcome = await Promise.race([work, deadline]);
+    if (outcome === "deadline") {
+      abandoned = true;
+      clearInterval(heartbeat);
+      abandonedWorkerJobsInFlight += 1;
+      app.log.error({
+        event_uuid: event.event_uuid,
+        event_type: event.event_type,
+        lease_generation: event.lease_generation,
+        deadline_ms: deadlineMs
+      }, "worker_event_deadline_exceeded");
+      work.then(
+        () => app.log.warn({ event_uuid: event.event_uuid, event_type: event.event_type, lease_generation: event.lease_generation }, "worker_abandoned_event_completed_late_not_acked"),
+        (error) => app.log.warn({ event_uuid: event.event_uuid, event_type: event.event_type, lease_generation: event.lease_generation, err: error instanceof WorkerPreHandlerFault ? error.error : error }, "worker_abandoned_event_failed_late_not_acked")
+      ).finally(() => {
+        abandonedWorkerJobsInFlight = Math.max(0, abandonedWorkerJobsInFlight - 1);
+      });
+      return {
+        event_uuid: event.event_uuid,
+        event_type: event.event_type,
+        status: "deadline_exceeded" as const,
+        error: "worker_event_deadline_exceeded"
+      };
+    }
     await heartbeatInFlight;
     if (ownershipLost) throw new OutboxLeaseLostError(event.event_uuid);
     await hitTestFault("worker.before_ack");
@@ -5025,6 +5283,7 @@ export async function processClaimedOutboxEvent(event: Awaited<ReturnType<typeof
       status: "sent" as const
     };
   } catch (error) {
+    if (error instanceof WorkerPreHandlerFault) throw error.error;
     if (ownershipLost || error instanceof OutboxLeaseLostError) {
       return {
         event_uuid: event.event_uuid,
@@ -5053,6 +5312,7 @@ export async function processClaimedOutboxEvent(event: Awaited<ReturnType<typeof
       error: String(error instanceof Error ? error.message : error)
     };
   } finally {
+    if (deadlineTimer) clearTimeout(deadlineTimer);
     clearInterval(heartbeat);
     await heartbeatInFlight.catch(() => undefined);
   }
@@ -5063,10 +5323,10 @@ export async function processOutboxEventById(eventId: string) {
   if (!claimed) return null;
   return processClaimedOutboxEvent(claimed);
 }
-const WORKER_EVENT_TIMEOUT_MS = 30_000;
-// Events stuck in 'processing' longer than this are recycled back to 'pending'.
-// Set to 2× WORKER_EVENT_TIMEOUT_MS so a legitimately-slow event can finish
-// before the reclaim window opens.
+// The per-job deadline is WORKER_EVENT_TIMEOUT_MS (resolveWorkerEventTimeoutMs,
+// enforced in processClaimedOutboxEvent). Stuck 'processing' rows are
+// recycled by LEASE EXPIRY (reclaimStuckProcessing), not by this age value,
+// which is kept for the invoice-document reclaim.
 const WORKER_STUCK_TIMEOUT_MS = Number(process.env.WORKER_STUCK_TIMEOUT_MS || 60_000);
 export async function reclaimWorkerJobs(timeoutMs = WORKER_STUCK_TIMEOUT_MS) {
   const outbox = await reclaimStuckProcessing(timeoutMs);
@@ -5158,11 +5418,74 @@ export async function processStorageCleanupBatch(limit = 10, leaseMs = 60_000) {
   }
   return processed;
 }
+/**
+ * F-M5 — a hosted (Grow) authorization binding stays 'pending_provider_confirmation'
+ * until an authoritative server-side status lookup confirms it. A callback whose
+ * lookup failed, or a callback that never arrived, used to leave it pending for
+ * ever. This bounded sweep re-reads pending bindings (READ-ONLY provider status,
+ * never a money call) and confirms them through the same amount-checked path as
+ * the callback / status route. A create intent still unresolved (no provider
+ * reference yet) and an expired hold are never touched; each binding is re-read
+ * at most once per backoff interval (its updated_at is bumped before the read).
+ */
+export async function reconcilePendingAuthorizationBindings(limit = 20, backoffMs = 60_000, minAgeMs = 30_000): Promise<{ examined: number; confirmed: number }> {
+  if (paymentProvider.providerCode !== "grow" || !paymentProvider.status) return { examined: 0, confirmed: 0 };
+  const due = await withTx(async (c) => {
+    const r = await c.query(
+      `UPDATE siton.payment_authorization_bindings b
+       SET updated_at = clock_timestamp()
+       WHERE b.binding_id IN (
+         SELECT binding_id FROM siton.payment_authorization_bindings
+         WHERE provider_code=$1
+           AND status='pending_provider_confirmation'
+           AND authorization_id NOT LIKE 'siton_create_pending:%'
+           AND (expires_at IS NULL OR expires_at > clock_timestamp())
+           AND created_at <= clock_timestamp() - ($3::text || ' milliseconds')::interval
+           AND updated_at <= clock_timestamp() - ($4::text || ' milliseconds')::interval
+         ORDER BY updated_at ASC
+         LIMIT $2
+         FOR UPDATE SKIP LOCKED
+       )
+       RETURNING b.binding_id, b.authorization_id, b.provider_reference`,
+      [paymentProvider.providerCode, Math.max(1, Math.floor(limit)), String(Math.max(0, Math.floor(minAgeMs))), String(Math.max(0, Math.floor(backoffMs)))]
+    );
+    return r.rows as Array<{ binding_id: string; authorization_id: string; provider_reference: string | null }>;
+  });
+  let confirmed = 0;
+  for (const row of due) {
+    try {
+      const status = await paymentProvider.status!({
+        provider_reference: row.provider_reference || row.authorization_id,
+        operation: "authorization",
+        correlation_id: `binding-sweep:${row.authorization_id.slice(0, 40)}`
+      });
+      if (status.state !== "authorized") continue; // not proven: try again after the backoff
+      const result = await paymentBindings.confirmBindingAuthorized({
+        provider_code: paymentProvider.providerCode,
+        authorization_id: row.authorization_id,
+        provider_amount_minor: status.amount_minor,
+        provider_reference: status.provider_reference
+      });
+      if (result?.status === "authorized") confirmed += 1;
+    } catch (error) {
+      // an amount contradiction already failed the binding closed; anything
+      // else is retried after the backoff
+      if (!(error instanceof PaymentBindingError)) app.log.warn({ binding_id: row.binding_id, err: error }, "pending binding sweep: status lookup failed");
+    }
+  }
+  return { examined: due.length, confirmed };
+}
+
 export async function runWorkerMaintenance() {
   // F-4 — no UNKNOWN money identity may stay without a live reconcile.
   await reconcileOrphanedUnknownIdentities().catch(() => 0);
   // F-2b — no deal past its completion window may stay without a live finalize.
   await rescheduleStalledFinalizations().catch(() => 0);
+  // Black-Sky A-F3 — a webhook claim whose processor died is returned to
+  // 'pending' (bounded, idempotent) so the provider's replay is not swallowed.
+  await webhookIngestion.reclaimStaleProcessing().catch(() => 0);
+  // F-M5 — pending hosted authorizations are re-read (status only) until proven.
+  await reconcilePendingAuthorizationBindings().catch(() => ({ examined: 0, confirmed: 0 }));
   // Crash recovery for the notification rail: stranded 'processing' rows are
   // reclaimed with a bounded attempt budget before the next flush.
   await reclaimStrandedNotifications(pool, Number(process.env.NOTIFICATION_STUCK_TIMEOUT_MS || 5 * 60_000)).catch(() => 0);
@@ -5180,6 +5503,9 @@ export function getWorkerIdentity() {
 }
 
 export async function closeWorkerDatabase() {
+  // The pool is gone: every cached readiness verdict and the grace anchor
+  // describe a connection that no longer exists.
+  readinessProbe.reset();
   await pool.end();
 }
 // Run the stuck-event reclaim every N poll cycles to amortise its cost.
@@ -5251,6 +5577,8 @@ export function redactUrlForLogs(rawUrl: unknown): string {
 }
 
 const TRUST_PROXY_HOPS = resolveTrustProxyHops();
+export const GLOBAL_BODY_LIMIT_BYTES = 1024 * 1024;
+export const IMAGE_UPLOAD_BODY_LIMIT_BYTES = 8 * 1024 * 1024;
 const app = Fastify({
   logger: {
     serializers: {
@@ -5269,7 +5597,13 @@ const app = Fastify({
         } catch {
           return { method: "?", url: "[unserializable-request]" };
         }
-      }
+      },
+      // Black-Sky (observability without leakage): pino's default `err`
+      // serializer copies every enumerable property of an error — provider
+      // payloads, pg `detail`, buyer data — into the log line. The worker
+      // logger already used the scrubbing serializer; the web logger (and
+      // every worker path that logs through app.log) now does too.
+      err: errorLogSerializer as any
     }
   },
   // ONE request id, normalised ONCE, at creation. The application treats
@@ -5293,8 +5627,19 @@ const app = Fastify({
   // exactly TRUST_PROXY_HOPS hops are trusted, identical to Fastify's numeric
   // form but typed for this Fastify major.
   trustProxy: ((_address: string, hop: number) => hop < TRUST_PROXY_HOPS),
-  bodyLimit: 8 * 1024 * 1024,
+  // Black-Sky C9 (availability): 1 MiB global body limit. JSON API bodies are
+  // small; the JSON preParsing hook buffers the raw body and Fastify parses it
+  // again, so an 8 MiB global limit let ~20 concurrent requests allocate
+  // ~800 MB on a 512 MB instance. Image upload routes raise it explicitly.
+  bodyLimit: GLOBAL_BODY_LIMIT_BYTES,
+  // Slow-body (slowloris) protection: a request that has not finished
+  // arriving within 60 s is aborted (Fastify 5 disables Node's default).
+  requestTimeout: 60_000,
   rewriteUrl(req) {
+    // The rate limiter classifies on BOTH the caller's original URL and the
+    // rewritten one (Black-Sky C4/B3): the alias rewrite used to move
+    // /api/deals/:id/join out of every per-IP budget before onRequest ran.
+    (req as any).sitonOriginalUrl = String(req.url || "/");
     return rewriteCanonicalApiAlias(String(req.url || "/"));
   }
 });
@@ -5413,6 +5758,8 @@ app.addHook("onSend", (_req: any, reply: any, payload: unknown, done) => {
 });
 app.addHook("onResponse", (req: any, reply: any, done) => {
   applicationRequestTelemetry.finish(req, Number(reply.statusCode || 200));
+  // Black-Sky F-M6: 401 / 403 / 429 counters (limiter refusals included).
+  countHttpStatus(Number(reply.statusCode || 200));
   done();
 });
 export { app, issueFulfillmentForCompletedDeal };
@@ -5449,7 +5796,87 @@ export const RATE_LIMIT_SCALE_MODE = process.env.RATE_LIMIT_SCALE_MODE || "singl
 // MFA verify) shares the tight per-IP mutation budget now that the client IP
 // is spoof-proof (A2); the per-account lockout in frontend_runtime is the
 // IP-independent backstop.
-const SENSITIVE_PATHS = ["/api/otp", "/api/deals/join", "/api/deals", "/api/support", "/api/admin/auth"];
+// Black-Sky C3/C4/B3: payment authorize/status (unauthenticated provider
+// calls), seller and link-viewer password login and participant recovery join
+// the tight per-IP budget. Seller lifecycle and editing mutations have their
+// own identity-keyed budget (SELLER_MUTATION_PATHS below).
+const SENSITIVE_PATHS = [
+  "/api/otp",
+  "/api/deals",
+  "/api/support",
+  "/api/admin/auth",
+  "/api/payments/status",
+  "/api/seller/session",
+  "/api/link-viewer/session",
+  "/api/participants"
+];
+// Unauthenticated analytics writers: each request inserts rows. Their own
+// per-IP budget bounds row growth without starving the mutation bucket.
+const ANALYTICS_PATHS = ["/api/mall/events", "/api/viral/events", "/api/affiliate/links/visit"];
+// Buyer join gets its OWN per-IP budget, looser than the sensitive one: a
+// shared NAT (school, office, mobile carrier CGNAT) is one IP for many real
+// buyers on a hot deal. Before, join had no per-IP budget at all.
+// Payment authorization is one step of the same per-buyer join flow (OTP ->
+// authorize -> join), so it shares the join budget rather than the tight
+// public bucket: one real buyer costs one authorize per join. Before
+// Black-Sky it had no budget at all; /api/payments/status stays tight.
+const JOIN_PATH_RE = /^(?:\/(?:api\/)?deals\/[^/]+\/join|\/api\/payments\/authorize(?:-mock)?)$/;
+// Like the read budget, the join and analytics budgets are never stricter than
+// the mutation budget: an operator who lifts RATE_LIMIT_SENSITIVE_MAX for bulk
+// traffic lifts these with it. 0 still switches a budget off explicitly.
+const RATE_LIMIT_JOIN_MAX_CONFIGURED = Number(process.env.RATE_LIMIT_JOIN_MAX ?? 60);
+const RATE_LIMIT_JOIN_MAX = RATE_LIMIT_JOIN_MAX_CONFIGURED <= 0 ? 0 : Math.max(RATE_LIMIT_JOIN_MAX_CONFIGURED, RATE_LIMIT_SENSITIVE_MAX);
+const RATE_LIMIT_ANALYTICS_MAX_CONFIGURED = Number(process.env.RATE_LIMIT_ANALYTICS_MAX ?? 60);
+const RATE_LIMIT_ANALYTICS_MAX = RATE_LIMIT_ANALYTICS_MAX_CONFIGURED <= 0 ? 0 : Math.max(RATE_LIMIT_ANALYTICS_MAX_CONFIGURED, RATE_LIMIT_SENSITIVE_MAX);
+// Black-Sky C4 (owner decision C): seller mutations — deal create / draft edit
+// / delivery / images / publish / pause / reopen / prepare / charging start /
+// cancel on the bare /deals lifecycle paths (and their /api alias) and the
+// /api/seller/deals editing surface — get their OWN budget, keyed by the
+// AUTHENTICATED SELLER IDENTITY first and by IP second:
+//   * per identity (RATE_LIMIT_SELLER_MUTATION_MAX, default 90/min): the web
+//     seller UI has no autosave — every save, upload, reorder and lifecycle
+//     action is an explicit click — so a real seller stays far below 1.5/s,
+//     while the heaviest suite that runs without its own limiter override
+//     issues ~50 seller mutations per run. 90 is the conservative ceiling
+//     above both; abuse (scripted create/publish churn) is bounded per seller
+//     even from rotating IPs.
+//   * per IP (RATE_LIMIT_SELLER_MUTATION_IP_MAX, default 150/min): an office
+//     NAT shared by a few sellers, still below the global 200/min so it fires
+//     first for a seller surface; also bounds forged/rotated identities.
+//   * a request carrying NO seller identity signal is an unauthenticated write
+//     to a seller surface: it stays in the tight sensitive bucket (it answers
+//     401 anyway). Public writes under /api/deals (chat, inquiries, feedback)
+//     and buyer join keep their existing budgets untouched.
+// The identity key never hits the database: a session cookie is keyed by its
+// keyed hash (the same hash the session lookup uses), a Supabase bearer by a
+// hash of the token, and the demo-preview / internal x-seller-id header by
+// the normalised seller id. Both budgets follow the read-budget convention
+// (never stricter than RATE_LIMIT_SENSITIVE_MAX; 0 switches them off).
+const SELLER_MUTATION_PATHS = ["/deals", "/api/seller/deals"];
+const RATE_LIMIT_SELLER_MUTATION_MAX_CONFIGURED = Number(process.env.RATE_LIMIT_SELLER_MUTATION_MAX ?? 90);
+const RATE_LIMIT_SELLER_MUTATION_MAX = RATE_LIMIT_SELLER_MUTATION_MAX_CONFIGURED <= 0 ? 0 : Math.max(RATE_LIMIT_SELLER_MUTATION_MAX_CONFIGURED, RATE_LIMIT_SENSITIVE_MAX);
+const RATE_LIMIT_SELLER_MUTATION_IP_MAX_CONFIGURED = Number(process.env.RATE_LIMIT_SELLER_MUTATION_IP_MAX ?? 150);
+const RATE_LIMIT_SELLER_MUTATION_IP_MAX = RATE_LIMIT_SELLER_MUTATION_IP_MAX_CONFIGURED <= 0 ? 0 : Math.max(RATE_LIMIT_SELLER_MUTATION_IP_MAX_CONFIGURED, RATE_LIMIT_SENSITIVE_MAX);
+
+// The seller identity signal a request carries, without a database lookup.
+// null = no signal at all (unauthenticated write to a seller surface).
+export function sellerMutationIdentityKey(headers: Record<string, unknown> | undefined, demoPreview = IS_DEMO_PREVIEW): string | null {
+  const h = headers || {};
+  const bearer = String(h["authorization"] || "").trim();
+  if (/^bearer\s+\S+/i.test(bearer)) {
+    return `b:${createHash("sha256").update(bearer.slice(bearer.indexOf(" ") + 1).trim()).digest("hex").slice(0, 32)}`;
+  }
+  const cookies = parseCookies(h["cookie"]);
+  const sessionToken = String(cookies[SELLER_SESSION_COOKIE] || "").trim();
+  if (sessionToken) {
+    const hashed = SELLER_SESSION_SECRET ? hashSellerSessionToken(sessionToken, SELLER_SESSION_SECRET) : null;
+    return `c:${(hashed || createHash("sha256").update(sessionToken).digest("hex")).slice(0, 32)}`;
+  }
+  // Demo preview has no seller authentication: every request acts as the
+  // (normalised, defaulted) header seller, so that IS the identity there.
+  if (demoPreview) return `id:${normalizeSellerId(h["x-seller-id"])}`;
+  return null;
+}
 
 type RateLimitEntry = { count: number; resetAt: number };
 interface RateLimiterStore {
@@ -5488,24 +5915,65 @@ const rateLimitPurge = setInterval(() => {
 }, 5 * 60_000);
 rateLimitPurge.unref();
 
-function isSensitivePath(url: string): boolean {
-  return SENSITIVE_PATHS.some((p) => url === p || url.startsWith(p + "/") || url.startsWith(p + "?"));
+// Classification works on a NORMALISED path: query stripped, percent-escapes
+// decoded once (the router decodes, so /api/%6Ftp/request IS /api/otp/request),
+// and repeated slashes collapsed. Before, the raw encoded URL was compared and
+// /api/%6Ftp/request escaped the budget while routing to the OTP handler.
+export function normalizeRateLimitPath(url: string): string {
+  let path = String(url || "/");
+  const q = path.search(/[?#]/);
+  if (q !== -1) path = path.slice(0, q);
+  try { path = decodeURIComponent(path); } catch { /* malformed escape: classify the raw form */ }
+  path = path.replace(/\/{2,}/g, "/");
+  return path || "/";
 }
 
-// The sensitive bucket is for MUTATIONS (OTP, join, create, inquiry, support);
-// a read-only method on the same prefix is public read polling.
-export function rateLimitBucketFor(method: string, url: string): "sensitive" | "read" | "none" {
-  if (!isSensitivePath(url)) return "none";
-  return READ_ONLY_METHODS.has(String(method || "").toUpperCase()) ? "read" : "sensitive";
+function matchesPrefix(path: string, prefixes: string[]): boolean {
+  return prefixes.some((p) => path === p || path.startsWith(p + "/"));
 }
+
+type RateLimitBucket = "sensitive" | "join" | "seller_mutation" | "analytics" | "read" | "none";
+
+// The sensitive bucket is for public MUTATIONS (OTP, inquiry, support,
+// payments, logins); a read-only method on the same prefix is public read
+// polling. Join, seller mutations and analytics writers have their own
+// budgets. The /api lifecycle alias is a pure rewrite onto the bare /deals
+// handler, so it is classified as the path it is served on.
+export function rateLimitBucketFor(method: string, url: string): RateLimitBucket {
+  const path = normalizeRateLimitPath(url);
+  const readOnly = READ_ONLY_METHODS.has(String(method || "").toUpperCase());
+  if (!readOnly && JOIN_PATH_RE.test(path)) return "join";
+  if (!readOnly && matchesPrefix(path, ANALYTICS_PATHS)) return "analytics";
+  // Mutations only: the alias rewrite is applied so /api/deals/:id/publish is
+  // the seller mutation it is served as; public reads under /api/deals keep
+  // the read budget.
+  if (!readOnly && matchesPrefix(normalizeRateLimitPath(rewriteCanonicalApiAlias(path)), SELLER_MUTATION_PATHS)) return "seller_mutation";
+  if (!matchesPrefix(path, SENSITIVE_PATHS)) return "none";
+  return readOnly ? "read" : "sensitive";
+}
+
+const BUCKET_STRICTNESS: Record<RateLimitBucket, number> = { sensitive: 5, join: 4, seller_mutation: 3, analytics: 2, read: 1, none: 0 };
+
+// Classify the request as BOTH the caller sent it and as it is served after the
+// alias rewrite, and apply the stricter bucket.
+export function rateLimitBucketForRequest(method: string, originalUrl: string, servedUrl: string): RateLimitBucket {
+  const a = rateLimitBucketFor(method, originalUrl);
+  const b = rateLimitBucketFor(method, servedUrl);
+  return BUCKET_STRICTNESS[a] >= BUCKET_STRICTNESS[b] ? a : b;
+}
+
+// IPv6 clients are keyed by their /64 (src/public_write_caps.ts holds the one
+// implementation, shared with the per-client public-write caps).
+export { rateLimitClientKey };
 
 if (RATE_LIMIT_MAX > 0) {
   app.addHook("onRequest", async (req, reply) => {
     // req.ip is the client address resolved through the configured trusted
     // proxy hop count (A2): the value the outermost trusted proxy appended to
     // X-Forwarded-For, never a caller-supplied prefix.
-    const ip = req.ip || "unknown";
+    const ip = rateLimitClientKey(req.ip || "unknown");
     const url = req.url || "";
+    const originalUrl = String((req as any).sitonOriginalUrl || url);
     const now = Date.now();
 
     // Global limit bucket
@@ -5522,8 +5990,42 @@ if (RATE_LIMIT_MAX > 0) {
 
     // Sensitive-endpoint stricter bucket (mutations only) — read-only requests
     // on the same prefixes use their own bounded read budget (P0.7C).
-    const bucket = rateLimitBucketFor(String(req.method || "GET"), url);
-    if (bucket === "sensitive" && RATE_LIMIT_SENSITIVE_MAX > 0) {
+    const bucket = rateLimitBucketForRequest(String(req.method || "GET"), originalUrl, url);
+    const extraBudget = bucket === "join" ? RATE_LIMIT_JOIN_MAX : bucket === "analytics" ? RATE_LIMIT_ANALYTICS_MAX : 0;
+    if ((bucket === "join" || bucket === "analytics") && extraBudget > 0) {
+      const extraKey = `${bucket === "join" ? "j" : "a"}:${ip}`;
+      const extraEntry = rateLimitStore.hit(extraKey, now, RATE_LIMIT_WINDOW_MS);
+      if (extraEntry.count > extraBudget) {
+        const retryAfterSecs = Math.ceil((extraEntry.resetAt - now) / 1000);
+        void reply
+          .code(429)
+          .header("Retry-After", String(retryAfterSecs))
+          .send({ ok: false, error: "rate_limit_exceeded", retry_after: retryAfterSecs });
+      }
+    } else if (bucket === "seller_mutation" && sellerMutationIdentityKey(req.headers as any) !== null) {
+      // Identity budget first (abuse is bounded per seller even across IPs),
+      // then the wider per-IP ceiling. Both counted before the handler runs,
+      // so a refused request still costs the caller its budget.
+      const identity = sellerMutationIdentityKey(req.headers as any) as string;
+      let refusedAt: RateLimitEntry | null = null;
+      if (RATE_LIMIT_SELLER_MUTATION_MAX > 0) {
+        const sellerEntry = rateLimitStore.hit(`sm:${identity}`, now, RATE_LIMIT_WINDOW_MS);
+        if (sellerEntry.count > RATE_LIMIT_SELLER_MUTATION_MAX) refusedAt = sellerEntry;
+      }
+      if (RATE_LIMIT_SELLER_MUTATION_IP_MAX > 0) {
+        const ipEntry = rateLimitStore.hit(`smi:${ip}`, now, RATE_LIMIT_WINDOW_MS);
+        if (!refusedAt && ipEntry.count > RATE_LIMIT_SELLER_MUTATION_IP_MAX) refusedAt = ipEntry;
+      }
+      if (refusedAt) {
+        const retryAfterSecs = Math.ceil((refusedAt.resetAt - now) / 1000);
+        void reply
+          .code(429)
+          .header("Retry-After", String(retryAfterSecs))
+          .send({ ok: false, error: "rate_limit_exceeded", retry_after: retryAfterSecs });
+      }
+    } else if ((bucket === "sensitive" || bucket === "seller_mutation") && RATE_LIMIT_SENSITIVE_MAX > 0) {
+      // A seller-surface write with no identity signal is an unauthenticated
+      // public write: tight bucket.
       const sensitiveKey = `s:${ip}`;
       const sensitiveEntry = rateLimitStore.hit(sensitiveKey, now, RATE_LIMIT_WINDOW_MS);
       if (sensitiveEntry.count > RATE_LIMIT_SENSITIVE_MAX) {
@@ -5701,17 +6203,29 @@ app.post("/api/client-errors", { bodyLimit: 16 * 1024 }, async (req: any, reply:
   return reply.send();
 });
 
-app.get("/readiness", async (req: any, reply: any) => {
-  try {
-    const ready = await assertCanonicalRuntimeReady(pool, "web");
-    // Operational aid for the proxy hop configuration (A2): the address the
-    // runtime attributes to THIS caller. Lets an operator confirm from a
-    // browser that TRUST_PROXY_HOPS resolves their real address (not a proxy,
-    // not a spoofed X-Forwarded-For prefix). It is the caller's own address.
-    return { ...ready, client_ip: String(req.ip || ""), trust_proxy_hops: resolveTrustProxyHops() };
-  } catch {
-    return reply.code(503).send({ ok: false, code: "not_ready" });
+// Black-Sky F-H4: /health is LIVENESS (process answers, no database), and
+// /readiness is the cached, bounded, grace-aware DB verdict (readiness_probe.ts).
+// Render's health check points at /readiness (render.yaml explains why); the
+// cache means a probe storm costs one database check per TTL, and a transient
+// connection failure inside the grace period no longer restarts the service.
+export const readinessProbe = createReadinessProbe({
+  check: () => assertCanonicalRuntimeReady(pool, "web"),
+  onEvent: (event) => {
+    if (event.kind === "recovered") app.log.info({ readiness: event }, "readiness_recovered");
+    else app.log.warn({ readiness: event }, `readiness_${event.kind}`);
   }
+});
+
+app.get("/readiness", async (req: any, reply: any) => {
+  const verdict = await readinessProbe.probe();
+  reply.header("x-readiness-cache", verdict.cached ? "hit" : "miss");
+  reply.header("x-readiness-age-ms", String(verdict.age_ms));
+  if (!verdict.ok) return reply.code(503).send(verdict.body);
+  // Operational aid for the proxy hop configuration (A2): the address the
+  // runtime attributes to THIS caller. Lets an operator confirm from a
+  // browser that TRUST_PROXY_HOPS resolves their real address (not a proxy,
+  // not a spoofed X-Forwarded-For prefix). It is the caller's own address.
+  return { ...verdict.body, client_ip: String(req.ip || ""), trust_proxy_hops: resolveTrustProxyHops() };
 });
 
 function parseImageUploadBody(body: any) {
@@ -6671,7 +7185,7 @@ app.post("/api/seller/deals/:dealId/duplicate", async (req: any) => {
   });
 });
 
-app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
+app.post("/api/seller/deals/:dealId/images", { bodyLimit: IMAGE_UPLOAD_BODY_LIMIT_BYTES }, async (req: any, reply: any) => {
   await ensureRemainingProductSurfaceTables(withTx);
   const dealId = String(req.params.dealId || "");
 
@@ -6757,6 +7271,11 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
     const requestedPrimary = isAccepted(body.is_primary) || existingImages.rowCount === 0 || !existingImages.rows.some((row: any) => Boolean(row.is_primary));
     const sortOrderRaw = Number(body.sort_order);
     const sortOrder = Number.isInteger(sortOrderRaw) && sortOrderRaw >= 0 ? Math.min(sortOrderRaw, DEAL_IMAGE_LIMIT - 1) : existingImages.rowCount;
+
+    // Black-Sky B8: the per-deal cap above bounds ONE deal; this bounds what
+    // ONE seller may accumulate across all deals (count + bytes), serialized
+    // per seller, before any byte reaches storage.
+    await assertSellerDealImageQuota(c, sellerAuthority.seller_id, base64DecodedLength(parsed.base64Data));
 
     const saved = await saveDealImage({
       dealId,
@@ -6977,6 +7496,10 @@ app.delete("/api/seller/deals/:dealId/images/:imageId", async (req: any, reply: 
 //     attempts, authorization bindings, fee-ledger rows, webhook evidence)
 //   * Draft always qualifies; a published deal qualifies only while completely
 //     untouched
+//   * Black-Sky D2 (migration 078): the DB re-checks this with a BEFORE DELETE
+//     guard (untouched Draft / Cancelled / PendingTarget only; money FKs are
+//     ON DELETE RESTRICT). A refusal there (deal_delete_refused, SQLSTATE
+//     23001) is answered as the same clean 409 as the checks below.
 // Anything with history uses the canonical cancellation path instead.
 // audit_log / legal_acceptances / operational_cases rows are deliberately
 // KEPT (soft references — the compliance trail survives the deal row).
@@ -7052,8 +7575,21 @@ app.delete("/api/seller/deals/:dealId", async (req: any, reply: any) => {
       ]
     );
     // The deal row itself — FKs cascade the content tables (images, options,
-    // terms, chat, viral rows); nothing financial exists by the guard above.
-    await c.query(`DELETE FROM siton.deals WHERE deal_id=$1`, [dealId]);
+    // terms, chat, viral rows); nothing financial exists by the guard above
+    // (money FKs are ON DELETE RESTRICT since migration 078).
+    try {
+      await c.query(`DELETE FROM siton.deals WHERE deal_id=$1`, [dealId]);
+    } catch (error: any) {
+      // migration 078 delete guard / RESTRICT FKs: the deal is past open
+      // joining or carries money history — a conflict, not a fault
+      if (error?.code === "23001" || error?.code === "23503") {
+        throw Object.assign(new Error("deal has participation or financial history and cannot be deleted"), {
+          statusCode: 409,
+          code: "deal_delete_not_allowed"
+        });
+      }
+      throw error;
+    }
     return { ok: true, deleted: true, deal_id: dealId, previous_state: state };
   }, true);
   return reply.send(result);
@@ -7410,7 +7946,8 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     // back exactly as before. The deal state is re-read UNDER the lock before
     // capacity is decided; the unlocked read below only rejects early.
     const dealRow = await c.query(
-      `SELECT deal_id, state, max_units, threshold_units, seller_id, title, price_per_unit, deal_type, published_at
+      `SELECT deal_id, state, max_units, threshold_units, seller_id, title, price_per_unit, deal_type, published_at,
+              (deadline <= clock_timestamp()) AS deadline_passed
        FROM siton.deals WHERE deal_id=$1`,
       [dealId]
     );
@@ -7432,6 +7969,19 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       }
     };
     assertOpenForJoining(dealState);
+    // Black-Sky A-F5: the deadline is the end of joining. Before, a join that
+    // arrived after the deadline but before the deadline_check job ran was
+    // accepted (and could even flip the deal to TargetReached). The deadline
+    // is judged by the DATABASE clock, re-checked under the deal lock below.
+    const assertBeforeDeadline = (passed: unknown) => {
+      if (passed === true) {
+        const err: any = new Error("deal deadline has passed");
+        err.statusCode = 409;
+        err.code = "deal_deadline_passed";
+        throw err;
+      }
+    };
+    assertBeforeDeadline(dealRow.rows[0].deadline_passed);
 
     const assertJoiningNotPaused = async () => {
       if (await isFlagActive(c, "pause_joining_emergency", "deal", dealId)
@@ -7702,7 +8252,7 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     // compatible with KEY SHARE, so joins serialise on it cleanly. The state
     // UPDATEs below take the same lock mode implicitly.
     const lockedDeal = await c.query(
-      `SELECT state FROM siton.deals WHERE deal_id=$1 FOR NO KEY UPDATE`,
+      `SELECT state, (deadline <= clock_timestamp()) AS deadline_passed FROM siton.deals WHERE deal_id=$1 FOR NO KEY UPDATE`,
       [dealId]
     );
     if (!lockedDeal.rowCount) {
@@ -7714,6 +8264,7 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     // committed while the pre-lock work ran must still refuse this join.
     const lockedState = String(lockedDeal.rows[0].state) as DealState;
     assertOpenForJoining(lockedState);
+    assertBeforeDeadline(lockedDeal.rows[0].deadline_passed);
     await assertJoiningNotPaused();
 
     const inventory = canonicalInventoryRuntime ? buildInventoryRepository(c) : null;
@@ -8152,12 +8703,29 @@ app.post("/deals/:id/prepare_charging", SELLER_AUTHORITY_ROUTE, async (req: any)
       ops.push({ entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", fromState: "ClosedForJoining", toState: "ReadyForCharging" });
 
       const parts = await c.query(
-        `SELECT participant_id, buyer_state, money_state
+        `SELECT participant_id, buyer_state, money_state, qty
          FROM siton.participants
          WHERE deal_id=$1
          FOR UPDATE`,
         [dealId]
       );
+
+      // Black-Sky A-F1: charge only a deal that closed AT/ABOVE its threshold.
+      // A manual pause is legal below the target (P0.3); before this guard the
+      // paused deal could go straight to ReadyForCharging and charge buyers of
+      // a deal that never reached its minimum. Counted under the row locks:
+      // only live joined holds (the rows this transition locks in).
+      const lockedUnits = (parts.rows as Array<{ buyer_state: string; money_state: string; qty: number | string }>)
+        .filter((p) => p.buyer_state === "JoinedAuthorized" && p.money_state === "AuthHeld")
+        .reduce((sum, p) => sum + Number(p.qty || 0), 0);
+      const thresholdRow = await c.query(`SELECT threshold_units FROM siton.deals WHERE deal_id=$1`, [dealId]);
+      const thresholdUnits = Number(thresholdRow.rows[0]?.threshold_units);
+      if (!Number.isFinite(thresholdUnits) || lockedUnits < thresholdUnits) {
+        const err: any = new Error("deal did not reach its threshold");
+        err.statusCode = 409;
+        err.code = "threshold_not_reached";
+        throw err;
+      }
 
       for (const p of parts.rows as Array<{ participant_id: string; buyer_state: BuyerState; money_state: MoneyState }>) {
         if (p.buyer_state === "JoinedAuthorized") {

@@ -110,7 +110,7 @@ test("startup config matrix runs green with the documented runtime gaps as warni
 
 const NO_MONEY_FIXTURE = [
   "config", "render.yaml", "docker-compose.yml", "docker-compose.ci.yml", "Dockerfile", ".env.demo.example", ".github/workflows", "package.json",
-  "scripts/lib", "scripts/probes/production_guards_probe.ts", "scripts/runtime_environment_gate.cjs", "scripts/proof_no_real_money.cjs", "src/production_guards.ts"
+  "scripts/lib", "scripts/probes/production_guards_probe.ts", "scripts/runtime_environment_gate.cjs", "scripts/proof_no_real_money.cjs", "src/production_guards.ts", "src/grow_reference_keyring.ts"
 ];
 
 test("no-real-money proof passes on the repository and fails when a target config or the governance file turns live", () => {

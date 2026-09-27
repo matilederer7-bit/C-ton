@@ -19,8 +19,25 @@ services:
     plan: free
     branch: master
     dockerfilePath: ./Dockerfile
+    # Health check (Black-Sky F-H4). Two probes exist:
+    #   * GET /health    - LIVENESS: the process answers, no database touched.
+    #   * GET /readiness - READINESS: the canonical DB verdict (migrations,
+    #     schema, runtime role, inventory RPC), served from a short-TTL cache
+    #     (READINESS_CACHE_TTL_MS, default 5 s) with a bounded check timeout
+    #     (READINESS_CHECK_TIMEOUT_MS, default 3 s). A TRANSIENT connection
+    #     failure (reset, refused, failover, connect timeout) inside the grace
+    #     period (READINESS_TRANSIENT_GRACE_MS, default 60 s) after the last
+    #     good check answers 200 with database=degraded; a schema/role/contract
+    #     failure or an outage longer than the grace answers 503.
+    # Render restarts a service whose health check fails, so the check stays on
+    # /readiness deliberately: a deploy whose schema or role is wrong must fail
+    # its health check (fail closed), while a database blip is absorbed by the
+    # cache + grace instead of becoming a restart storm. Pointing the check at
+    # /health would keep a mis-deployed instance in rotation.
     healthCheckPath: /readiness
-    autoDeploy: true
+    # Black-Sky E8: deploy a new master commit only after its GitHub checks
+    # pass (never on push alone). Blueprint field: autoDeployTrigger.
+    autoDeployTrigger: checksPass
     envVars:
       - key: APP_DEPLOYMENT_MODE
         value: staging
@@ -90,7 +107,9 @@ services:
     branch: master
     dockerfilePath: ./Dockerfile
     dockerCommand: node .demo_dist/src/worker.js
-    autoDeploy: true
+    # Black-Sky E8: deploy a new master commit only after its GitHub checks
+    # pass (never on push alone). Blueprint field: autoDeployTrigger.
+    autoDeployTrigger: checksPass
     envVars:
       - key: APP_DEPLOYMENT_MODE
         value: staging

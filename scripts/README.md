@@ -12,7 +12,6 @@ Utility / reference:
 - `inspect_db.cjs`
 - `run_outbox_select.cjs`
 - `drop_create_db.cjs`
-- `drop_create_db.js`
 - `init_db.sql`:
   legacy bootstrap reference only, not the canonical live schema source of truth
 

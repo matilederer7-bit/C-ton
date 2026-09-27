@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { Client } = require("pg");
-const { checksum, checksumCrlfVariant, classifyChecksum, canonicalBody } = require("../run_migrations.cjs");
+const { checksum, checksumCrlfVariant, classifyChecksum, canonicalBody, topLevelSql } = require("../run_migrations.cjs");
 
 // Ordering anomalies that are known and deliberate. Anything else is a
 // finding. Keep this list short and justified.
@@ -222,4 +222,123 @@ function compareLedger(ledgerRows, analysis) {
   return { rows, missing, dirty, counts, database_count: rows.length, repository_count: analysis.files.length };
 }
 
-module.exports = { KNOWN_ORDERING_ANOMALIES, RETIRED_NON_MANIFEST_FILES, loadManifest, analyzeManifest, materializeRef, readLedger, schemaSnapshot, diffSnapshots, compareLedger, withClient, checksum, checksumCrlfVariant, classifyChecksum, canonicalBody };
+// ---------------------------------------------------------------------------
+// Object fingerprint of one migration file: the objects it creates, and a
+// READ-ONLY check of which of them exist. Used by the doctor and by
+// `migrations:repair --clear-running` to decide whether a migration whose
+// ledger row is stuck at 'running' was actually applied.
+const IDENT = String.raw`(?:"(?:[^"]|"")+"|[A-Za-z_][A-Za-z0-9_$]*)`;
+const QNAME = String.raw`(${IDENT}(?:\s*\.\s*${IDENT})?)`;
+function unquote(part) {
+  const trimmed = part.trim();
+  return trimmed.startsWith("\"") ? trimmed.slice(1, -1).replace(/""/g, "\"") : trimmed.toLowerCase();
+}
+function splitName(qualified) {
+  const parts = qualified.match(new RegExp(IDENT, "g")).map(unquote);
+  return parts.length === 2 ? { schema: parts[0], name: parts[1] } : { schema: null, name: parts[0] };
+}
+
+/**
+ * Pure: objects a migration body creates. Each entry:
+ * { kind, schema, name, table?, column?, idempotent } where idempotent marks
+ * IF NOT EXISTS / OR REPLACE (its presence may predate this migration).
+ */
+function migrationObjectFingerprint(body) {
+  const sql = topLevelSql(body);
+  const objects = [];
+  const seen = new Set();
+  const push = (entry) => {
+    const key = [entry.kind, entry.schema, entry.name, entry.table && entry.table.schema, entry.table && entry.table.name, entry.column].join("|");
+    if (seen.has(key)) return;
+    seen.add(key);
+    objects.push(entry);
+  };
+  const statements = sql.split(";");
+  for (const statement of statements) {
+    const text = statement.replace(/\s+/g, " ").trim();
+    let match;
+    if ((match = new RegExp(String.raw`^CREATE (?:(?:UNLOGGED|GLOBAL TEMPORARY|TEMPORARY|TEMP) )?TABLE (IF NOT EXISTS )?${QNAME}`, "i").exec(text))) {
+      push({ kind: "relation", ...splitName(match[2]), idempotent: Boolean(match[1]) });
+    } else if ((match = new RegExp(String.raw`^CREATE (UNIQUE )?INDEX (?:CONCURRENTLY )?(IF NOT EXISTS )?(${IDENT}) ON (?:ONLY )?${QNAME}`, "i").exec(text))) {
+      const table = splitName(match[4]);
+      push({ kind: "relation", schema: table.schema, name: unquote(match[3]), idempotent: Boolean(match[2]) });
+    } else if ((match = new RegExp(String.raw`^CREATE (OR REPLACE )?(?:MATERIALIZED )?VIEW (IF NOT EXISTS )?${QNAME}`, "i").exec(text))) {
+      push({ kind: "relation", ...splitName(match[3]), idempotent: Boolean(match[1] || match[2]) });
+    } else if ((match = new RegExp(String.raw`^CREATE SEQUENCE (IF NOT EXISTS )?${QNAME}`, "i").exec(text))) {
+      push({ kind: "relation", ...splitName(match[2]), idempotent: Boolean(match[1]) });
+    } else if ((match = new RegExp(String.raw`^CREATE (OR REPLACE )?(?:FUNCTION|PROCEDURE) ${QNAME}\s*\(`, "i").exec(text))) {
+      push({ kind: "function", ...splitName(match[2]), idempotent: Boolean(match[1]) });
+    } else if ((match = new RegExp(String.raw`^CREATE TYPE ${QNAME}`, "i").exec(text))) {
+      push({ kind: "type", ...splitName(match[1]), idempotent: false });
+    } else if ((match = new RegExp(String.raw`^CREATE SCHEMA (IF NOT EXISTS )?(${IDENT})`, "i").exec(text))) {
+      push({ kind: "schema", schema: null, name: unquote(match[2]), idempotent: Boolean(match[1]) });
+    } else if ((match = new RegExp(String.raw`^CREATE (OR REPLACE )?(?:CONSTRAINT )?TRIGGER (${IDENT}) .*? ON (?:ONLY )?${QNAME}`, "i").exec(text))) {
+      push({ kind: "trigger", schema: null, name: unquote(match[2]), table: splitName(match[3]), idempotent: Boolean(match[1]) });
+    }
+    if ((match = new RegExp(String.raw`^ALTER TABLE (?:IF EXISTS )?(?:ONLY )?${QNAME} (.*)$`, "i").exec(text))) {
+      const table = splitName(match[1]);
+      const rest = match[2];
+      for (const column of rest.matchAll(new RegExp(String.raw`\bADD COLUMN (IF NOT EXISTS )?(${IDENT})`, "gi"))) {
+        push({ kind: "column", schema: null, name: unquote(column[2]), table, column: unquote(column[2]), idempotent: Boolean(column[1]) });
+      }
+      for (const constraint of rest.matchAll(new RegExp(String.raw`\bADD CONSTRAINT (${IDENT})`, "gi"))) {
+        push({ kind: "constraint", schema: null, name: unquote(constraint[1]), table, idempotent: false });
+      }
+    }
+  }
+  return objects;
+}
+
+/**
+ * READ-ONLY: check which fingerprinted objects exist. Verdict:
+ *   applied       every object exists and at least one is not IF NOT EXISTS / OR REPLACE
+ *   absent        no object exists
+ *   partial       some exist, some do not (never auto-resolved)
+ *   undetermined  nothing fingerprintable, or every object is idempotent and
+ *                 present (its presence could predate this migration)
+ */
+async function verifyMigrationObjects(connectionString, body) {
+  const objects = migrationObjectFingerprint(body);
+  const checks = await withClient(connectionString, async (client) => {
+    const schemas = (await client.query("SELECT current_schemas(false) AS s")).rows[0].s;
+    const out = [];
+    for (const object of objects) {
+      const candidateSchemas = (schema) => (schema ? [schema] : schemas);
+      let present = false;
+      if (object.kind === "relation") {
+        present = (await client.query("SELECT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relname=$1 AND n.nspname = ANY($2::text[])) AS p", [object.name, candidateSchemas(object.schema)])).rows[0].p;
+      } else if (object.kind === "function") {
+        present = (await client.query("SELECT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE p.proname=$1 AND n.nspname = ANY($2::text[])) AS p", [object.name, candidateSchemas(object.schema)])).rows[0].p;
+      } else if (object.kind === "type") {
+        present = (await client.query("SELECT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace WHERE t.typname=$1 AND n.nspname = ANY($2::text[])) AS p", [object.name, candidateSchemas(object.schema)])).rows[0].p;
+      } else if (object.kind === "schema") {
+        present = (await client.query("SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname=$1) AS p", [object.name])).rows[0].p;
+      } else if (object.kind === "trigger") {
+        present = (await client.query("SELECT EXISTS (SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE t.tgname=$1 AND c.relname=$2 AND n.nspname = ANY($3::text[])) AS p", [object.name, object.table.name, candidateSchemas(object.table.schema)])).rows[0].p;
+      } else if (object.kind === "column") {
+        present = (await client.query("SELECT EXISTS (SELECT 1 FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE a.attname=$1 AND NOT a.attisdropped AND c.relname=$2 AND n.nspname = ANY($3::text[])) AS p", [object.column, object.table.name, candidateSchemas(object.table.schema)])).rows[0].p;
+      } else if (object.kind === "constraint") {
+        present = (await client.query("SELECT EXISTS (SELECT 1 FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE k.conname=$1 AND c.relname=$2 AND n.nspname = ANY($3::text[])) AS p", [object.name, object.table.name, candidateSchemas(object.table.schema)])).rows[0].p;
+      }
+      out.push({ ...object, present: Boolean(present) });
+    }
+    return out;
+  });
+  const presentCount = checks.filter((item) => item.present).length;
+  let verdict;
+  if (!checks.length) verdict = "undetermined";
+  else if (presentCount === 0) verdict = "absent";
+  else if (presentCount < checks.length) verdict = "partial";
+  else if (checks.some((item) => !item.idempotent)) verdict = "applied";
+  else verdict = "undetermined";
+  return { verdict, objects: checks, present: presentCount, total: checks.length };
+}
+
+function describeObject(object) {
+  const qualified = (schema, name) => (schema ? schema + "." : "") + name;
+  if (object.kind === "column") return "column " + qualified(object.table.schema, object.table.name) + "." + object.column;
+  if (object.kind === "constraint" || object.kind === "trigger") return object.kind + " " + object.name + " on " + qualified(object.table.schema, object.table.name);
+  return object.kind + " " + qualified(object.schema, object.name);
+}
+
+module.exports = { KNOWN_ORDERING_ANOMALIES, RETIRED_NON_MANIFEST_FILES, loadManifest, analyzeManifest, materializeRef, readLedger, schemaSnapshot, diffSnapshots, compareLedger, withClient, checksum, checksumCrlfVariant, classifyChecksum, canonicalBody, migrationObjectFingerprint, verifyMigrationObjects, describeObject };

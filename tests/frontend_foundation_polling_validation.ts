@@ -251,13 +251,18 @@ await run("I: deal page wiring — activity/chat/inquiries use the bounded polle
 await run("server: read-only requests on the sensitive prefixes get their own bounded budget; mutations keep the strict bucket", () => {
   assert.match(appTs, /const RATE_LIMIT_READ_MAX_CONFIGURED = Number\(process\.env\.RATE_LIMIT_READ_MAX \?\? 120\);/);
   assert.match(appTs, /Math\.max\(RATE_LIMIT_READ_MAX_CONFIGURED, RATE_LIMIT_SENSITIVE_MAX\)/, "read budget is never stricter than the mutation budget");
-  assert.match(appTs, /export function rateLimitBucketFor\(method: string, url: string\): "sensitive" \| "read" \| "none"/);
-  assert.match(appTs, /READ_ONLY_METHODS\.has\(String\(method \|\| ""\)\.toUpperCase\(\)\) \? "read" : "sensitive"/);
+  assert.match(appTs, /export function rateLimitBucketFor\(method: string, url: string\): RateLimitBucket/);
+  assert.match(appTs, /return readOnly \? "read" : "sensitive";/);
   assert.match(appTs, /const readKey = `r:\$\{ip\}`;/);
   assert.match(appTs, /const sensitiveKey = `s:\$\{ip\}`;/);
   // Red-team A3 added the admin authentication surface to the strict bucket
   // (its GET /session read still lands in the read budget by method).
-  assert.match(appTs, /const SENSITIVE_PATHS = \["\/api\/otp", "\/api\/deals\/join", "\/api\/deals", "\/api\/support", "\/api\/admin\/auth"\];/, "sensitive prefixes unchanged");
+  // The public mutation prefixes still carry OTP, deals, support and admin
+  // auth (Black-Sky added payments, logins and participants; seller
+  // mutations moved to their own identity-keyed bucket).
+  for (const prefix of ["/api/otp", "/api/deals", "/api/support", "/api/admin/auth"]) {
+    assert.ok(new RegExp(`const SENSITIVE_PATHS = \\[[^\\]]*"${prefix.replace(/\//g, "\\/")}"`).test(appTs), `sensitive prefix ${prefix} present`);
+  }
   assert.match(appTs, /const RATE_LIMIT_SENSITIVE_MAX = Number\(process\.env\.RATE_LIMIT_SENSITIVE_MAX \?\? 20\);/, "mutation budget unchanged");
 });
 

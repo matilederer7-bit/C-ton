@@ -18,7 +18,6 @@
   - `scripts/inspect_db.cjs`
   - `scripts/run_outbox_select.cjs`
   - `scripts/drop_create_db.cjs`
-  - `scripts/drop_create_db.js`
 - legacy bootstrap reference:
   - `scripts/init_db.sql`
 - active runtime:

@@ -125,8 +125,7 @@ import {
   sellerAuthFailurePayload,
   serializeExpiredSellerSessionCookie,
   serializeSellerSessionCookie,
-  verifySellerAccessSecret
-} from "./seller_auth.js";
+  verifySellerAccessSecret, verifySellerAccessSecretAsync, sellerLoginDummyHash } from "./seller_auth.js";
 import {
   BUYER_SESSION_TTL_SECONDS,
   buyerSessionConfigured,
@@ -160,6 +159,7 @@ import {
   buildMissionWebhookTrace
 } from "./admin_mission_control.js";
 import {
+  adminActionInputError,
   adminRequestContext,
   ensureAdminControlPlaneTables,
   executeAdminAction,
@@ -174,7 +174,7 @@ import {
   HIGH_TRUST_ADMIN_ACTIONS,
   adminPublicIdentity,
   claimOwnerAdminBinding,
-  isConfiguredOwnerClaimEmail,
+  isOwnerClaimEligible,
   parseCookieHeader,
   createAdminMfaCode,
   ADMIN_MFA_MAX_ATTEMPTS,
@@ -192,8 +192,7 @@ import {
   safeAdminId,
   serializeAdminSessionCookie,
   serializeExpiredAdminSessionCookie,
-  verifyAdminPassword
-} from "./admin_identity.js";
+  verifyAdminPassword, adminLoginDummyHash } from "./admin_identity.js";
 import {
   ensureParticipantTrackingTables,
   extractTrackingToken,
@@ -242,6 +241,8 @@ import { LEGAL_NAV_LABEL_KEYS, LEGAL_PAGE_ORDER, LEGAL_PAGES, resolveLegalPage, 
 import { htmlAttrs, localeFromRequest, ogLocale, ts, type Locale } from "./server_i18n.js";
 import { isBuyerVerificationRequired, buyerVerificationPolicySummary } from "./buyer_verification_policy.js";
 import { buildSupabaseVerifier } from "./supabase_auth.js";
+import { publicWriteCaps } from "./public_write_caps.js";
+import { incrementRuntimeCounter, runtimeCountersSnapshot } from "./runtime_counters.js";
 import { resolveSupabaseCapabilities, bearerToken } from "./actor_resolver.js";
 import {
   recordViralFunnelEvent,
@@ -1381,6 +1382,37 @@ function buildTrackingActivityFeed(args: {
     .slice(0, 12);
 }
 
+// Linear-time multipart field parser (field parts only; file parts ignored).
+// Each part's header block is the text before the first blank line; only that
+// bounded block is inspected, line by line, with indexOf — no regex runs over
+// attacker-sized input.
+export function parseMultipartFields(contentType: string, body: string): Record<string, string> {
+  const fields: Record<string, string> = {};
+  const boundaryMatch = contentType.slice(0, 1024).match(/boundary="?([^";]{1,200})"?/i);
+  if (!boundaryMatch) return fields;
+  const delimiter = `--${boundaryMatch[1]}`;
+  for (const part of body.split(delimiter)) {
+    const headerEnd = part.indexOf("\r\n\r\n");
+    if (headerEnd === -1 || headerEnd > 4096) continue;
+    const headerBlock = part.slice(0, headerEnd);
+    let name: string | null = null;
+    let isFile = false;
+    for (const line of headerBlock.split("\r\n")) {
+      if (!line.toLowerCase().startsWith("content-disposition:")) continue;
+      const lower = line.toLowerCase();
+      if (lower.includes("filename=")) isFile = true;
+      const at = lower.indexOf('name="');
+      if (at === -1) continue;
+      const valueStart = at + 6;
+      const valueEnd = line.indexOf('"', valueStart);
+      if (valueEnd > valueStart) name = line.slice(valueStart, valueEnd);
+    }
+    if (!name || isFile) continue;
+    fields[name] = part.slice(headerEnd + 4).replace(/\r\n--\s*$/, "").replace(/\r\n$/, "").trim();
+  }
+  return fields;
+}
+
 export function registerFrontendExperience(
   app: FastifyInstance,
   deps: {
@@ -1458,7 +1490,7 @@ export function registerFrontendExperience(
         status: "processed" | "ignored" | "failed";
         reason: string;
       };
-    }) => Promise<void>;
+    }) => Promise<{ held: true; reason: string } | void>;
   }
 ) {
   const computeManager = new SupabaseComputeManager();
@@ -1472,7 +1504,25 @@ export function registerFrontendExperience(
   // createPaymentProcess, no JSON). Parse form bodies into plain objects while
   // preserving the raw body for structural verification. Field-only parsing:
   // file parts are ignored, bounded by Fastify's body limit.
-  app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, (request: any, body: string, done: (err: Error | null, result?: unknown) => void) => {
+  // Black-Sky (availability): form bodies are accepted ONLY on the Grow
+  // notifyUrl callback, capped at FORM_BODY_LIMIT_BYTES, and parsed in linear
+  // time. Before, both parsers were global (every POST/PUT, anonymous ones
+  // included) under the 8 MB body limit, and the multipart field-name regex
+  // `content-disposition:[^\n]*name="..."` backtracked quadratically: one
+  // crafted 8 MB request blocked the single event loop for minutes.
+  const FORM_BODY_ROUTES = new Set(["/webhooks/payments/grow"]);
+  const FORM_BODY_LIMIT_BYTES = 64 * 1024;
+  const refuseFormBody = (request: any): Error | null => {
+    const route = String(request.routeOptions?.url || "");
+    if (FORM_BODY_ROUTES.has(route)) return null;
+    const err: any = new Error("unsupported_media_type");
+    err.statusCode = 415;
+    err.code = "FST_ERR_CTP_INVALID_MEDIA_TYPE";
+    return err;
+  };
+  app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string", bodyLimit: FORM_BODY_LIMIT_BYTES }, (request: any, body: string, done: (err: Error | null, result?: unknown) => void) => {
+    const refused = refuseFormBody(request);
+    if (refused) return done(refused);
     request.rawBody = String(body || "");
     try {
       done(null, Object.fromEntries(new URLSearchParams(String(body || ""))));
@@ -1480,22 +1530,12 @@ export function registerFrontendExperience(
       done(error as Error);
     }
   });
-  app.addContentTypeParser("multipart/form-data", { parseAs: "string" }, (request: any, body: string, done: (err: Error | null, result?: unknown) => void) => {
+  app.addContentTypeParser("multipart/form-data", { parseAs: "string", bodyLimit: FORM_BODY_LIMIT_BYTES }, (request: any, body: string, done: (err: Error | null, result?: unknown) => void) => {
+    const refused = refuseFormBody(request);
+    if (refused) return done(refused);
     request.rawBody = String(body || "");
     try {
-      const contentType = String(request.headers?.["content-type"] || "");
-      const boundaryMatch = contentType.match(/boundary="?([^";]+)"?/i);
-      const fields: Record<string, string> = {};
-      if (boundaryMatch) {
-        for (const part of String(body || "").split(`--${boundaryMatch[1]}`)) {
-          const nameMatch = part.match(/content-disposition:[^\n]*name="([^"]+)"/i);
-          if (!nameMatch || /filename=/i.test(part)) continue;
-          const valueStart = part.indexOf("\r\n\r\n");
-          if (valueStart === -1) continue;
-          fields[String(nameMatch[1])] = part.slice(valueStart + 4).replace(/\r\n--\s*$/, "").replace(/\r\n$/, "").trim();
-        }
-      }
-      done(null, fields);
+      done(null, parseMultipartFields(String(request.headers?.["content-type"] || ""), String(body || "")));
     } catch (error) {
       done(error as Error);
     }
@@ -1520,13 +1560,32 @@ export function registerFrontendExperience(
     done(null, pass);
   });
 
-  const ensureProductSurfaces = () => ensureRemainingProductSurfaceTables(deps.withTx);
-  const ensurePayoutTables = () => ensurePayoutRailTables(deps.withTx);
-  const ensureNotificationTables = () => ensureNotificationRailTables(deps.withTx);
-  const ensureOtpTables = () => ensureOtpRailTables(deps.withTx);
-  const ensureAdminControlPlane = () => ensureAdminControlPlaneTables(deps.withTx);
-  const ensureAdminIdentity = () => ensureAdminIdentityTables(deps.withTx);
-  const ensureParticipantTracking = () => ensureParticipantTrackingTables(deps.withTx);
+  // Black-Sky C2 (availability): every ensure*Tables() is a catalog check that
+  // takes its OWN pool connection. Called per request — and in several routes
+  // from INSIDE a transaction that already holds a connection — ~10
+  // concurrent requests exhausted the 10-connection web pool and deadlocked it
+  // (each holding one connection, all waiting for an 11th). Each check now runs
+  // at most once per process after it first succeeds (a failure is not cached,
+  // so a missing table keeps failing closed), and the in-transaction call sites
+  // were hoisted before the transaction.
+  const memoizeSchemaCheck = <T>(check: () => Promise<T>) => {
+    let verified = false;
+    let inflight: Promise<void> | null = null;
+    return async (): Promise<void> => {
+      if (verified) return;
+      if (!inflight) {
+        inflight = check().then(() => { verified = true; }).finally(() => { inflight = null; });
+      }
+      return inflight;
+    };
+  };
+  const ensureProductSurfaces = memoizeSchemaCheck(() => ensureRemainingProductSurfaceTables(deps.withTx));
+  const ensurePayoutTables = memoizeSchemaCheck(() => ensurePayoutRailTables(deps.withTx));
+  const ensureNotificationTables = memoizeSchemaCheck(() => ensureNotificationRailTables(deps.withTx));
+  const ensureOtpTables = memoizeSchemaCheck(() => ensureOtpRailTables(deps.withTx));
+  const ensureAdminControlPlane = memoizeSchemaCheck(() => ensureAdminControlPlaneTables(deps.withTx));
+  const ensureAdminIdentity = memoizeSchemaCheck(() => ensureAdminIdentityTables(deps.withTx));
+  const ensureParticipantTracking = memoizeSchemaCheck(() => ensureParticipantTrackingTables(deps.withTx));
   const otpProvider: OtpProvider = buildOtpProvider();
   // Legacy compatibility: the old /api/otp/start → /api/otp/verify pair returns
   // { buyer_id: <phone digits> } in verify, which existing tests and the
@@ -1541,13 +1600,12 @@ export function registerFrontendExperience(
     }
   };
   setInterval(purgeLegacy, 5 * 60_000).unref();
-  const ensureInvoiceWebhookTables = async () => {
-  await deps.withTx(async c=>assertRequiredTables(c,["invoice_webhook_events","invoice_webhook_security_events"]));
-};
-  const ensureLegalAcceptanceTables = async () => {
-  await deps.withTx(async c=>assertRequiredTables(c,["legal_acceptances"]));
-};
+  const ensureInvoiceWebhookTables = memoizeSchemaCheck(() => deps.withTx(async c=>assertRequiredTables(c,["invoice_webhook_events","invoice_webhook_security_events"])));
+  const ensureLegalAcceptanceTables = memoizeSchemaCheck(() => deps.withTx(async c=>assertRequiredTables(c,["legal_acceptances"])));
   const recordInvoiceWebhookSecurityFailure = async (args: { provider: string; event_id?: string | null; failure_reason: string; remote_hint?: string }) => {
+    // Black-Sky F-M6: counted in-process before the durable write, so the
+    // signal survives even when the database write fails.
+    if (/signature/.test(args.failure_reason)) incrementRuntimeCounter("invoice_webhook_signature_failed_total");
     await ensureInvoiceWebhookTables();
     await deps.withTx(async (c) => {
       await c.query(
@@ -1557,10 +1615,10 @@ export function registerFrontendExperience(
       );
     });
   };
-  const ensurePaymentOpsTables = async () => {
-  await deps.withTx(async c=>assertRequiredTables(c,["payment_webhook_security_events","buyer_payment_methods"]));
-};
+  const ensurePaymentOpsTables = memoizeSchemaCheck(() => deps.withTx(async c=>assertRequiredTables(c,["payment_webhook_security_events","buyer_payment_methods"])));
   const recordWebhookSecurityFailure = async (args: { provider: string; event_id?: string | null; failure_reason: string; remote_hint?: string }) => {
+    incrementRuntimeCounter("webhook_rejected_total");
+    if (/signature/.test(args.failure_reason)) incrementRuntimeCounter("webhook_signature_failed_total");
     await ensurePaymentOpsTables();
     await deps.withTx(async (c) => {
       await c.query(
@@ -1591,12 +1649,15 @@ export function registerFrontendExperience(
            $4,now(),now()
          )
          ON CONFLICT (provider_code, provider_payment_method_id) DO UPDATE
-         SET buyer_id=EXCLUDED.buyer_id,
-             status=CASE WHEN $6 THEN 'invalid' ELSE 'active' END,
+         SET status=CASE WHEN $6 THEN 'invalid' ELSE 'active' END,
              last_authorized_at=CASE WHEN $5 THEN now() ELSE buyer_payment_methods.last_authorized_at END,
              last_failed_at=CASE WHEN $6 THEN now() ELSE buyer_payment_methods.last_failed_at END,
              correlation_id=EXCLUDED.correlation_id,
-             updated_at=now()`,
+             updated_at=now()
+         -- Black-Sky A-F4: a stored method is owned by the buyer that first
+         -- registered it; a conflicting write by another buyer never
+         -- reassigns ownership (no-op here; the routes refuse it with 409).
+         WHERE buyer_payment_methods.buyer_id = EXCLUDED.buyer_id`,
         [
           args.buyer_id,
           args.provider_code,
@@ -1607,6 +1668,25 @@ export function registerFrontendExperience(
         ]
       );
     });
+  };
+  /**
+   * Black-Sky A-F4 — `payment_method_id` arrives from the client. A stored
+   * method registered to ANOTHER buyer (or, with no buyer identity at all, to
+   * anyone) is refused before any provider I/O or durable write: it must never
+   * be re-bound to the caller (the renewal path picks the buyer's stored
+   * method by buyer_id and the binding's payment_method_ref).
+   */
+  const assertPaymentMethodOwnershipInTx = async (c: any, args: { provider_code: string; provider_payment_method_id: string; buyer_id: string | null }) => {
+    const owner = await c.query(
+      `SELECT buyer_id FROM siton.buyer_payment_methods WHERE provider_code=$1 AND provider_payment_method_id=$2`,
+      [args.provider_code, args.provider_payment_method_id]
+    );
+    if (!owner.rowCount) return;
+    if (args.buyer_id && String(owner.rows[0].buyer_id) === args.buyer_id) return;
+    const err: any = new Error("payment method belongs to another buyer");
+    err.statusCode = 409;
+    err.code = "payment_method_not_owned";
+    throw err;
   };
   const payoutProvider = deps.payoutProvider ?? buildPayoutProvider();
   const operationalReadiness = () =>
@@ -2109,6 +2189,11 @@ export function registerFrontendExperience(
     const sellerId = selfSignupSellerId(email, caps.sub);
     const displayName = normalizeSellerDisplayName(email.split("@")[0], sellerId);
     if (SELLER_SELF_SIGNUP_HOURLY_CAP > 0) {
+      // Black-Sky D12: serialize count-then-insert. Under READ COMMITTED every
+      // concurrent first login otherwise counts the same committed rows and a
+      // burst of N identities binds N sellers regardless of the cap. The lock
+      // is transaction-scoped and taken only on the self-signup branch.
+      await c.query(`SELECT pg_advisory_xact_lock(hashtextextended('siton:seller-self-signup-cap', 0))`);
       // counted from the append-only audit rail, not from admin_note (the
       // approval decision rewrites admin_note, which must not reset the cap)
       const recent = await c.query(
@@ -2161,13 +2246,18 @@ export function registerFrontendExperience(
     if (!verifier || !bearerToken(req)) {
       return reply.code(401).send({ ok: false, error: "authentication_required" });
     }
+    await ensureProductSurfaces();  // Black-Sky C2: schema check BEFORE taking the transaction's connection
     return deps.withTx(async (c) => {
-      await ensureProductSurfaces();
       let caps: Awaited<ReturnType<typeof resolveSupabaseCapabilities>> = null;
       try { caps = await resolveSupabaseCapabilities(req, c, verifier); } catch { caps = null; }
       if (!caps) return reply.code(401).send({ ok: false, error: "invalid_token" });
       let sellerBinding: SellerSelfBindingOutcome | "owner" | "existing" = "existing";
-      if (isConfiguredOwnerClaimEmail(caps.email)) {
+      // Black-Sky B2: the owner claim needs more than the e-mail string — the
+      // subject must be the pinned SITON_OWNER_AUTH_USER_ID on a hosted
+      // runtime (decideOwnerClaim). A matching e-mail that fails the pin is
+      // treated like any other identity (pending self-service seller at most),
+      // never as the owner.
+      if (isOwnerClaimEligible(caps)) {
         sellerBinding = "owner";
         if (!caps.admin) await claimOwnerAdminBinding(c, caps.sub, caps.email);
         if (!caps.seller) await claimOwnerSellerBinding(c, caps.sub, caps.email);
@@ -2216,9 +2306,16 @@ export function registerFrontendExperience(
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(dealId)) {
       return reply.redirect("/preview/", 302);
     }
-    const proto = String(req.headers["x-forwarded-proto"] || "").split(",")[0]!.trim() || "https";
-    const host = String(req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0]!.trim();
-    const origin = host ? `${proto}://${host}` : "";
+    // Black-Sky B7: this response is publicly cacheable, so the absolute
+    // og:url / og:image origin must come from the deployment's configured
+    // public origin (PUBLIC_BASE_URL, else Render's RENDER_EXTERNAL_URL) and
+    // never from caller-controlled Host / X-Forwarded-Host headers — a
+    // poisoned cache entry would otherwise point every crawler and preview at
+    // an attacker host. The header fallback inside publicOrigin() applies only
+    // when nothing is configured (local development), and there the page is
+    // served without a public cache lifetime.
+    const origin = publicOrigin(req);
+    const originConfigured = Boolean(String(process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || "").trim());
     const refRaw = typeof req.query?.ref === "string" ? String(req.query.ref).trim().slice(0, 120) : "";
     const spaPath = `/preview/${refRaw ? `?ref=${encodeURIComponent(refRaw)}` : ""}#/deal/${dealId}`;
     const row = await deps.withTx(async (c) => {
@@ -2279,7 +2376,9 @@ export function registerFrontendExperience(
 <body><p><a style="color:#115e59" href="${safeSpa}">${escapeHtml(ts(shareLocale, "deal.share.redirecting"))}</a></p></body>
 </html>`;
     return reply
-      .header("cache-control", "public, max-age=300")
+      // Black-Sky B7: a public cache lifetime only when the absolute URLs came
+      // from configuration; a header-derived origin must never be cached.
+      .header("cache-control", originConfigured ? "public, max-age=300" : "no-store")
       .type("text/html; charset=utf-8")
       .send(html);
   });
@@ -2325,8 +2424,8 @@ export function registerFrontendExperience(
   }));
 
   app.get("/api/seller/session", async (req: any, reply: any) => {
+    await ensureProductSurfaces();  // Black-Sky C2: schema check BEFORE taking the transaction's connection
     return deps.withTx(async (c) => {
-      await ensureProductSurfaces();
       const sellerContext = await resolveOptionalSellerContext(req, c, { autoCreate: true });
       if (!deps.isDemoPreview && !SELLER_AUTH_CONFIGURED) {
         return rejectSellerAuthUnavailable(reply, req);
@@ -2358,8 +2457,8 @@ export function registerFrontendExperience(
       return rejectSellerAuthUnavailable(reply, req);
     }
 
+    await ensureProductSurfaces();  // Black-Sky C2: schema check BEFORE taking the transaction's connection
     return deps.withTx(async (c) => {
-      await ensureProductSurfaces();
       const identifier = String(req.body?.identifier || req.body?.seller_id || req.body?.login_email || "").trim();
       const accessCode = String(req.body?.access_code || req.body?.password || "").trim();
       const sellerAccount = await findSellerLoginAccount(c, identifier);
@@ -2370,23 +2469,33 @@ export function registerFrontendExperience(
       // account — the same 401 below still answers a missing account, so this
       // adds no account-existence oracle the credential check did not already
       // carry.
+      // Black-Sky B4/B5: a locked account answers the SAME 401 as a wrong
+      // password or an unknown identifier (the distinct 429 was an
+      // account-existence oracle, exactly the one closed for admins in A3),
+      // and the password hash runs on every path — against a fixed dummy hash
+      // when the account is missing, disabled or locked — so response timing
+      // does not reveal account existence or lock state either.
+      let locked = false;
       if (sellerAccount && sellerAccount.auth_enabled) {
+        // Black-Sky: serialize attempts per account. Without it every
+        // concurrent guess read the same pre-lock failure count (N parallel
+        // guesses = N verified passwords), and because the 401 leaves before
+        // this transaction commits, even a strictly sequential next attempt
+        // could count one failure short and verify the password of a locked
+        // account. The lock is held to COMMIT, so the next attempt for this
+        // account sees every committed failure.
+        await c.query(`SELECT pg_advisory_xact_lock(hashtextextended('siton:seller_login:' || $1, 0))`, [String(sellerAccount.seller_id)]);
         const failures = await recentSellerLoginFailures(c, String(sellerAccount.seller_id));
-        if (failures >= SELLER_LOGIN_MAX_FAILURES) {
-          return reply.code(429).send({
-            ok: false,
-            error: "seller_auth_rate_limited",
-            code: "SELLER_AUTH_RATE_LIMITED",
-            message: "too many failed login attempts for this account; try again later"
-          });
-        }
+        locked = failures >= SELLER_LOGIN_MAX_FAILURES;
       }
+      const verifiable = Boolean(sellerAccount && sellerAccount.auth_enabled && !locked);
+      const passwordOk = await verifySellerAccessSecretAsync(accessCode, verifiable ? sellerAccount!.auth_secret_hash : sellerLoginDummyHash());
 
-      if (!sellerAccount || !sellerAccount.auth_enabled || !verifySellerAccessSecret(accessCode, sellerAccount.auth_secret_hash)) {
+      if (!verifiable || !passwordOk) {
         // Record the failure against a real account so repeated guessing trips
         // the lockout above. A missing or auth-disabled account has no row to
         // write to (and needs none — there is nothing to brute-force).
-        if (sellerAccount && sellerAccount.auth_enabled) {
+        if (sellerAccount && sellerAccount.auth_enabled && !locked) {
           await recordSellerLoginFailure(c, String(sellerAccount.seller_id), req);
         }
         return reply.code(401).send({
@@ -2425,8 +2534,8 @@ export function registerFrontendExperience(
 
   app.post("/api/seller/session/logout", async (req: any, reply: any) => {
     if (!deps.isDemoPreview && SELLER_AUTH_CONFIGURED) {
+      await ensureProductSurfaces();  // Black-Sky C2: schema check BEFORE taking the transaction's connection
       await deps.withTx(async (c) => {
-        await ensureProductSurfaces();
         await revokeSellerSession(c, req, "logout");
       });
     }
@@ -2625,7 +2734,23 @@ export function registerFrontendExperience(
       // account exists. The password is not even verified while locked, so a
       // correct guess during the window grants nothing and leaks nothing.
       const locked = Boolean(row && row.status === "Active" && row.login_locked_until && Date.parse(String(row.login_locked_until)) > Date.now());
-      if (locked || !row || row.status !== "Active" || !(await verifyAdminPassword(password, row.password_hash))) {
+      // Black-Sky B5: always pay for one scrypt (a fixed dummy hash when the
+      // account is missing, inactive or locked) so timing matches a wrong password.
+      const adminVerifiable = Boolean(!locked && row && row.status === "Active");
+      const adminPasswordOk = await verifyAdminPassword(password, adminVerifiable ? row.password_hash : await adminLoginDummyHash());
+      if (!adminVerifiable || !adminPasswordOk) {
+        // Black-Sky F-M6: every failed admin login is a security event: counted
+        // in-process and logged with a keyed-free hash of the presented e-mail
+        // (never the e-mail, never the password), the outcome class and the
+        // request id. The HTTP answer is unchanged (same 401 for every case).
+        const outcome = locked ? "locked" : !row ? "unknown_account" : row.status !== "Active" ? "inactive_account" : "bad_password";
+        incrementRuntimeCounter("admin_login_failed_total");
+        req.log?.warn?.({
+          security_event: "admin.login.failed",
+          outcome,
+          email_hash: createHash("sha256").update(`admin-login:${email}`).digest("hex").slice(0, 24),
+          request_id: String(req.id || "")
+        }, "admin_login_failed");
         if (locked) {
           return reply.code(401).send({ ok: false, error: "admin_invalid_credentials" });
         }
@@ -2635,6 +2760,8 @@ export function registerFrontendExperience(
           const windowFresh = Number.isFinite(windowStartedAt) && Date.now() - windowStartedAt < ADMIN_LOGIN_FAILURE_WINDOW_MINUTES * 60_000;
           const failures = (windowFresh ? Number(row.failed_login_count || 0) : 0) + 1;
           if (failures >= ADMIN_LOGIN_MAX_FAILURES) {
+            incrementRuntimeCounter("admin_login_locked_total");
+            req.log?.warn?.({ security_event: "admin.login.locked", admin_user_id: row.admin_user_id, request_id: String(req.id || "") }, "admin_login_locked");
             await c.query(
               `UPDATE siton.admin_users
                SET failed_login_count=0, failed_login_window_started_at=NULL,
@@ -2720,6 +2847,8 @@ export function registerFrontendExperience(
       // the 6-digit code cannot be brute-forced within its window. The SELECT
       // holds FOR UPDATE, so the increment and the lock decision are race-safe.
       if (row.code_hash !== hashAdminOtp(code)) {
+        incrementRuntimeCounter("admin_mfa_failed_total");
+        req.log?.warn?.({ security_event: "admin.mfa.failed", admin_user_id: row.admin_user_id, request_id: String(req.id || "") }, "admin_mfa_failed");
         const nextAttempts = Number(row.attempts || 0) + 1;
         if (nextAttempts >= ADMIN_MFA_MAX_ATTEMPTS) {
           await c.query(`UPDATE siton.admin_mfa_challenges SET attempts=$2, status='Revoked' WHERE mfa_challenge_id=$1`, [challengeId, nextAttempts]);
@@ -2906,8 +3035,8 @@ export function registerFrontendExperience(
   });
 
   app.get("/api/site/home", async (req: any) => {
+    await ensureProductSurfaces();  // Black-Sky C2: schema check BEFORE taking the transaction's connection
     return deps.withTx(async (c) => {
-      await ensureProductSurfaces();
       const sellerContext = await resolveOptionalSellerContext(req, c, { autoCreate: true });
       const totals = await c.query(
         `SELECT
@@ -3274,7 +3403,7 @@ export function registerFrontendExperience(
   // product, the DEAL determines the seller (no browser-supplied seller id), the
   // thread is the authoritative conversation, and the seller merely receives a
   // pointer notification through the canonical rail (src/seller_inquiries.ts).
-  const ensureInquiryTables = () => ensureSellerInquiryTables(deps.withTx);
+  const ensureInquiryTables = memoizeSchemaCheck(() => ensureSellerInquiryTables(deps.withTx));
 
   type InquiryThreadRow = {
     thread_id: string;
@@ -3318,6 +3447,11 @@ export function registerFrontendExperience(
     requestId: string;
   }) {
     const { reply } = args;
+    // Black-Sky C5: per-client budget in front of the platform-wide cap, so one
+    // client cannot exhaust the 200/h global budget for every buyer.
+    if (!publicWriteCaps.consume("inquiry", String(args.req?.ip || "unknown"))) {
+      return { ok: false as const, rate_limited: true as const };
+    }
     const limits = await c.query(
       `SELECT count(*) FILTER (WHERE t.customer_ref = $1)::int AS per_customer,
               count(*) FILTER (WHERE t.deal_id = $2)::int AS per_deal,
@@ -3575,7 +3709,7 @@ export function registerFrontendExperience(
         return reply.code(404).send({ ok: false, error: "inquiry not found", code: "inquiry_not_found" });
       }
       const thread = existing.rows[0];
-      return appendCustomerInquiryMessage(c, {
+      const appended: any = await appendCustomerInquiryMessage(c, {
         req, reply,
         dealId: String(thread.deal_id),
         dealTitle: String(thread.title || ""),
@@ -3586,6 +3720,11 @@ export function registerFrontendExperience(
         message,
         requestId
       });
+      // A throttled follow-up is a 429 like the first message (it answered 200 { ok:false }).
+      if (appended?.rate_limited) {
+        return reply.code(429).send({ ok: false, error: "inquiry rate limited", code: "inquiry_rate_limited" });
+      }
+      return appended;
     });
   });
 
@@ -3596,8 +3735,8 @@ export function registerFrontendExperience(
     const rawLimit = Number(req.query?.limit ?? 50);
     const limit = Math.max(1, Math.min(100, Number.isFinite(rawLimit) ? Math.floor(rawLimit) : 50));
 
+    await ensureProductSurfaces();  // Black-Sky C2: schema check BEFORE taking the transaction's connection
     return deps.withTx(async (c) => {
-      await ensureProductSurfaces();
       const dealResult = await c.query(`SELECT deal_id, state FROM siton.deals WHERE deal_id=$1`, [dealId]);
       if (!dealResult.rowCount) {
         const err: any = new Error("deal not found");
@@ -3675,8 +3814,8 @@ export function registerFrontendExperience(
       return reply.code(400).send({ ok: false, error: "body must be 500 characters or fewer", code: "invalid_input" });
     }
 
+    await ensureProductSurfaces();  // Black-Sky C2: schema check BEFORE taking the transaction's connection
     return deps.withTx(async (c) => {
-      await ensureProductSurfaces();
       const dealResult = await c.query(`SELECT deal_id, state FROM siton.deals WHERE deal_id=$1`, [dealId]);
       if (!dealResult.rowCount) {
         const err: any = new Error("deal not found");
@@ -3739,8 +3878,8 @@ export function registerFrontendExperience(
       return reply.code(400).send({ ok: false, error: "visitor identity required", code: "reaction_identity_required" });
     }
 
+    await ensureProductSurfaces();  // Black-Sky C2: schema check BEFORE taking the transaction's connection
     return deps.withTx(async (c) => {
-      await ensureProductSurfaces();
       const message = await c.query(
         `SELECT m.message_id, d.state
          FROM siton.deal_chat_messages m
@@ -6057,8 +6196,9 @@ export function registerFrontendExperience(
         });
       }
 
+      let finalClassification: { status: "processed" | "ignored" | "failed"; reason: string } = classification;
       if (classification.status === "processed" && deps.applyPaymentWebhookClassification) {
-        await deps.applyPaymentWebhookClassification({
+        const applied = await deps.applyPaymentWebhookClassification({
           event: {
             provider,
             event_id: eventId,
@@ -6072,16 +6212,19 @@ export function registerFrontendExperience(
           target,
           classification
         });
+        // Black-Sky A-F8 — a capture event whose declared amount/currency does
+        // not match the obligation is held for review, never applied.
+        if (applied && applied.held) finalClassification = { status: "ignored", reason: applied.reason };
       }
 
-      await webhookIngestion.markEvent(provider, eventId, classification.status, classification.reason);
+      await webhookIngestion.markEvent(provider, eventId, finalClassification.status, finalClassification.reason);
 
       return reply.code(200).send({
         ok: true,
         duplicate: Boolean(ingested.duplicate),
         event_id: eventId,
-        status: classification.status,
-        reason: classification.reason
+        status: finalClassification.status,
+        reason: finalClassification.reason
       });
     } catch (error) {
       const failureReason = String((error as Error)?.message || error || "webhook_processing_failed").slice(0, 240);
@@ -6188,6 +6331,11 @@ export function registerFrontendExperience(
     // durable sealed reference. Pending bindings may flip to authorized ONLY
     // through this lookup (amount contradiction fails the binding closed).
     let lookupOutcome: string = "not_required";
+    // F-M5 — a lookup that proved nothing (transport loss, non-2xx, a
+    // not-yet-final state) must not consume the callback: the event is stored
+    // as 'failed' (re-claimable by the provider's redelivery) and the worker
+    // maintenance sweep re-reads every pending binding on its own.
+    let lookupRetryable = false;
     if (binding.status === "pending_provider_confirmation" && deps.paymentProvider.status) {
       try {
         const status = await deps.paymentProvider.status({
@@ -6196,6 +6344,10 @@ export function registerFrontendExperience(
           correlation_id: `grow-callback:${event.event_id.slice(0, 48)}`
         });
         lookupOutcome = `provider_state_${status.state}`;
+        if (status.state !== "authorized" && !status.final) {
+          lookupRetryable = true;
+          lookupOutcome = `provider_state_${status.state}_not_final${status.error_code ? `:${status.error_code}` : ""}`;
+        }
         if (status.state === "authorized") {
           await paymentBindings.confirmBindingAuthorized({
             provider_code: deps.paymentProvider.providerCode,
@@ -6206,6 +6358,7 @@ export function registerFrontendExperience(
         }
       } catch (error) {
         lookupOutcome = error instanceof PaymentBindingError ? `binding_${error.code}` : "authoritative_lookup_failed";
+        if (!(error instanceof PaymentBindingError)) lookupRetryable = true;
       }
     } else if (binding.status !== "pending_provider_confirmation") {
       // Post-authorization callbacks (capture/late/duplicate hints) stay
@@ -6213,11 +6366,13 @@ export function registerFrontendExperience(
       lookupOutcome = `binding_${binding.status}_evidence_only`;
     }
 
-    await webhookIngestion.markEvent("grow", event.event_id, "processed", `callback_hint:${lookupOutcome}`.slice(0, 240));
+    const callbackStatus = lookupRetryable ? "failed" as const : "processed" as const;
+    await webhookIngestion.markEvent("grow", event.event_id, callbackStatus, `callback_hint:${lookupOutcome}`.slice(0, 240));
     return reply.code(200).send({
       ok: true,
-      status: "processed",
+      status: callbackStatus,
       reason: lookupOutcome,
+      retryable: lookupRetryable,
       money_from_callback: false,
       authoritative_source: "server_status_lookup"
     });
@@ -7319,6 +7474,8 @@ export function registerFrontendExperience(
     if (!targetId) return reply.code(400).send({ ok: false, error: "target_id_required" });
     if (!reason) return reply.code(400).send({ ok: false, error: "reason_required" });
     if (!idempotencyKey) return reply.code(400).send({ ok: false, error: "idempotency_key_required" });
+    const inputError = adminActionInputError(actionType, targetType, targetId, body.metadata && typeof body.metadata === "object" ? body.metadata : {});
+    if (inputError) return reply.code(400).send({ ok: false, error: inputError });
     const context = adminRequestContext(req);
     return deps.withTx(async (c) => {
       const permission = ADMIN_ACTION_PERMISSION[actionType] || "admin_actions.create";
@@ -7328,17 +7485,30 @@ export function registerFrontendExperience(
         recentMfa: HIGH_TRUST_ADMIN_ACTIONS.has(actionType)
       });
       if (!identity) return reply;
-      const action = await insertAdminAction(c, {
-        action_type: actionType,
-        target_type: targetType,
-        target_id: targetId,
-        reason,
-        idempotency_key: idempotencyKey,
-        metadata: body.metadata && typeof body.metadata === "object" ? body.metadata : {},
-        request_id: context.request_id,
-        correlation_id: context.correlation_id,
-        admin_id: safeAdminId(identity)
-      });
+      // An action type added in code before the DB CHECK list is widened
+      // (migration 079) answers a clear 409, never a 500.
+      await c.query("SAVEPOINT admin_action_insert");
+      let action: any;
+      try {
+        action = await insertAdminAction(c, {
+          action_type: actionType,
+          target_type: targetType,
+          target_id: targetId,
+          reason,
+          idempotency_key: idempotencyKey,
+          metadata: body.metadata && typeof body.metadata === "object" ? body.metadata : {},
+          request_id: context.request_id,
+          correlation_id: context.correlation_id,
+          admin_id: safeAdminId(identity)
+        });
+        await c.query("RELEASE SAVEPOINT admin_action_insert");
+      } catch (error: any) {
+        await c.query("ROLLBACK TO SAVEPOINT admin_action_insert");
+        if (error?.code === "23514" && error?.constraint === "admin_actions_action_type_check") {
+          return reply.code(409).send({ ok: false, error: "admin_action_type_requires_migration", action_type: actionType });
+        }
+        throw error;
+      }
       return { ok: true, action };
     });
   });
@@ -7769,6 +7939,10 @@ export function registerFrontendExperience(
           app_health: {
             ok: true
           },
+          // Black-Sky F-M6: in-process security / reliability counters of THIS
+          // web instance (401/403/429, admin login + MFA failures, webhook
+          // signature rejections, swallowed outbox row errors).
+          security_counters: runtimeCountersSnapshot(),
           deployment: {
             mode: deps.deploymentMode,
             is_demo_preview: deps.isDemoPreview
@@ -8926,6 +9100,10 @@ export function registerFrontendExperience(
     if (supportCategoryRequiresDeal(categoryKey) && !dealReference) {
       return reply.code(400).send({ ok: false, error: "contact_deal_reference_required" });
     }
+    // Black-Sky C5: per-client budget before the platform-wide 30/h cap.
+    if (!publicWriteCaps.consume("support_contact", String(req.ip || "unknown"))) {
+      return reply.code(429).send({ ok: false, error: "support contact rate limited", code: "support_rate_limited" });
+    }
 
     const created = await deps.withTx(async (c) => {
       const counts = await c.query(
@@ -9927,19 +10105,28 @@ export function registerFrontendExperience(
       // the saved-token model stays in sync. Raw card data already rejected
       // above. Tokens are issued by /api/payments/tokenize.
       if (paymentMethodId) {
-        await c.query(
+        // Black-Sky A-F4 — never re-bind another buyer's stored method.
+        await assertPaymentMethodOwnershipInTx(c, { provider_code: providerCode, provider_payment_method_id: paymentMethodId, buyer_id: String(row.buyer_id) });
+        const stored = await c.query(
           `INSERT INTO siton.buyer_payment_methods (
              buyer_id, provider_code, provider_payment_method_id, status,
              last_authorized_at, correlation_id, created_at, updated_at
            ) VALUES ($1,$2,$3,'active', now(), $4, now(), now())
            ON CONFLICT (provider_code, provider_payment_method_id) DO UPDATE
-           SET buyer_id=EXCLUDED.buyer_id,
-               status='active',
+           SET status='active',
                last_authorized_at=now(),
                correlation_id=EXCLUDED.correlation_id,
-               updated_at=now()`,
+               updated_at=now()
+           WHERE buyer_payment_methods.buyer_id = EXCLUDED.buyer_id`,
           [String(row.buyer_id), providerCode, paymentMethodId, `recovery:${participantId}:${idempotencyKey}`]
         );
+        if (Number(stored.rowCount || 0) !== 1) {
+          // lost a race against another buyer's first registration
+          const err: any = new Error("payment method belongs to another buyer");
+          err.statusCode = 409;
+          err.code = "payment_method_not_owned";
+          throw err;
+        }
       }
 
       // Enqueue the deal-level recovery_deal job. The partial unique index
@@ -10230,6 +10417,20 @@ export function registerFrontendExperience(
       requireUuid(dealId, "deal_id");
       const qty = parsePositiveIntegerQuantity(body.qty);
 
+      if (body.payment_method_id) {
+        // Black-Sky A-F4 — a deal-scoped authorization records the method on
+        // the binding (the renewal source) and upserts it for the buyer: the
+        // ownership of a client-supplied stored method is checked BEFORE the
+        // provider is asked to authorize on it. (A non-deal authorization
+        // creates no binding, and the post-authorize upsert never reassigns.)
+        await ensurePaymentOpsTables();
+        await deps.withTx((c) => assertPaymentMethodOwnershipInTx(c, {
+          provider_code: deps.paymentProvider.providerCode,
+          provider_payment_method_id: String(body.payment_method_id),
+          buyer_id: String(body.buyer_id || "").trim() || null
+        }));
+      }
+
       // A deal-scoped authorization must bind a buyer identity server-side so
       // Join can verify it. Mock-backed demo flows may keep the legacy loose
       // contract; every real provider mode requires the binding.
@@ -10259,7 +10460,8 @@ export function registerFrontendExperience(
 
       const serverMoney = await deps.withTx(async (c) => {
         const dealResult = await c.query(
-          `SELECT deal_id, state, max_units, price_per_unit
+          `SELECT deal_id, state, max_units, price_per_unit,
+                  (deadline <= clock_timestamp()) AS deadline_passed
            FROM siton.deals
            WHERE deal_id=$1
            FOR UPDATE`,
@@ -10280,6 +10482,13 @@ export function registerFrontendExperience(
           const err: any = new Error("deal is not open for payment authorization");
           err.statusCode = 409;
           err.code = "deal_not_open_for_authorization";
+          throw err;
+        }
+        // Black-Sky A-F5: no new hold after the deadline (DB clock, under the lock).
+        if ((dealResult.rows[0] as any).deadline_passed === true) {
+          const err: any = new Error("deal deadline has passed");
+          err.statusCode = 409;
+          err.code = "deal_deadline_passed";
           throw err;
         }
 
@@ -10501,11 +10710,37 @@ export function registerFrontendExperience(
     if (!deps.paymentProvider.status) return reply.code(501).send({ ok: false, error: "payment_status_not_supported" });
     const body = req.body || {};
     const providerReference = String(body.provider_reference || "").trim();
-    const correlationId = String(body.correlation_id || req.headers?.["x-request-id"] || req.id || "").trim();
+    const presentedCorrelationId = String(body.correlation_id || "").trim();
     const operation = String(body.operation || "authorization") as "authorization" | "capture" | "release" | "refund";
     if (!providerReference || providerReference.length > 4096 || !["authorization", "capture", "release", "refund"].includes(operation)) {
       return reply.code(400).send({ ok: false, error: "payment_status_request_invalid" });
     }
+    // Black-Sky C8: this route is unauthenticated, and each call is an
+    // outbound provider request. It was a provider amplifier: any caller could
+    // make the server query ANY provider reference. The caller must now
+    // present the server-issued binding handle it received from authorize
+    // (correlation_id), and the provider reference must belong to THAT
+    // binding of THIS provider, before any provider call. Unknown handle,
+    // foreign reference and wrong provider are one indistinguishable 404.
+    if (!presentedCorrelationId || presentedCorrelationId.length > 200) {
+      return reply.code(400).send({ ok: false, error: "payment_status_binding_required" });
+    }
+    const binding = await paymentBindings.getBindingByCorrelation(presentedCorrelationId);
+    const bindingMatches = Boolean(
+      binding &&
+      binding.provider_code === deps.paymentProvider.providerCode &&
+      (binding.authorization_id === providerReference || binding.provider_reference === providerReference)
+    );
+    if (!binding || !bindingMatches) {
+      return reply.code(404).send({ ok: false, error: "payment_status_binding_not_found" });
+    }
+    // An authorization lookup only has a purpose while the binding still waits
+    // for (or holds) provider confirmation; terminal bindings are answered
+    // locally without a provider call.
+    if (operation === "authorization" && !["pending_provider_confirmation", "authorized"].includes(binding.status)) {
+      return reply.code(409).send({ ok: false, error: "payment_status_binding_not_pending", binding_status: binding.status });
+    }
+    const correlationId = binding.correlation_id;
     const result = await deps.paymentProvider.status({ provider_reference: providerReference, correlation_id: correlationId, operation });
 
     // Hosted-payment completion is asynchronous and server-authoritative: a
@@ -10617,6 +10852,10 @@ export function registerFrontendExperience(
     const text = String(body.text || "").replace(/\s+/g, " ").trim();
     if (text.length > BUYER_FEEDBACK_TEXT_MAX) {
       return reply.code(400).send({ ok: false, error: "feedback text too long", code: "feedback_text_too_long" });
+    }
+    // Black-Sky C5: per-client budget before the per-deal / platform-wide caps.
+    if (!publicWriteCaps.consume("feedback", String(req.ip || "unknown"))) {
+      return reply.code(429).send({ ok: false, error: "feedback rate limited", code: "feedback_rate_limited" });
     }
     // The HTTP reply is sent only after withTx has COMMITTED, so a caller that
     // receives the 201 can read the returned feedback_id on another connection.
@@ -10810,9 +11049,9 @@ export function registerFrontendExperience(
     const daysRaw = Number(req.query?.days);
     const days = Number.isFinite(daysRaw) && daysRaw > 0 ? Math.min(365, Math.floor(daysRaw)) : 30;
     const since = `now() - ($1::int * interval '1 day')`;
+    await ensureProductSurfaces();  // Black-Sky C2: schema check BEFORE taking the transaction's connection
+    await ensureInquiryTables();
     return deps.withTx(async (c) => {
-      await ensureProductSurfaces();
-      await ensureInquiryTables();
       const [sellers, deals, events, joins, inquiries, feedbackByCategory, feedbackRecent, perSeller] = await Promise.all([
         c.query(
           `WITH s AS (

@@ -15,6 +15,8 @@ Companion: [PRODUCTION_DATA_ACCESS_BOUNDARIES.md](PRODUCTION_DATA_ACCESS_BOUNDAR
 (money incidents are out of scope here),
 [INFORMATION_SECURITY_POLICY.md](INFORMATION_SECURITY_POLICY.md).
 
+Per-secret rotation matrix (blast radius, containment, exact env names, invalidation, verification): [CREDENTIAL_COMPROMISE_RUNBOOK.md](CREDENTIAL_COMPROMISE_RUNBOOK.md). Severity, roles and first 15 minutes for every incident type: [INCIDENT_RESPONSE_RUNBOOK.md](INCIDENT_RESPONSE_RUNBOOK.md).
+
 ## 1. Rules that apply to every incident
 
 1. Never paste a secret value into a chat, a ticket, a commit, a log line or a
@@ -80,7 +82,7 @@ Which secret invalidates what. "Consumer" is where the value must be updated.
 | `SUPABASE_SERVICE_ROLE_KEY` | ONLY the Edge Function runtime (`index.ts:26-30`); must be ABSENT from every app runtime (`config/runtime-environment-policy.json`, every target) | the broker's storage client; Supabase dashboard/API access for anyone holding it | rotation is a Supabase project action (hosted action). No Render env needs updating. | IMPLEMENTED boundary, EXPECTED procedure |
 | `SUPABASE_ANON_KEY` / `SUPABASE_PUBLISHABLE_KEY` | Render web (read at request time, `src/frontend_runtime.ts:1887-1897`), published to the browser by design | browser Supabase Auth calls (seller/admin login through Supabase) | not a secret; server verifies tokens against the project JWKS, never against this key (`src/supabase_auth.ts:223-232`) | IMPLEMENTED |
 | `PAYMENT_WEBHOOK_SECRET` | Render web | generic HMAC webhook verification (`src/frontend_runtime.ts:1574-1627`) | staging runs `mockpay`/`mock-backed` where verification is skipped by design (`:1600-1605`); Grow callbacks are unsigned and never money truth; Stripe verifies its own header | IMPLEMENTED |
-| `GROW_REFERENCE_ENCRYPTION_KEY` | Render (only when `PAYMENT_PROVIDER=grow`) | **decryptability of every stored Grow provider reference** (AES-256-GCM sealed with sha256(key), `src/grow_payment_adapter.ts:222-241`; used at `:424-548`) -> settle/refund/status on existing attempts fails with `grow_reference_invalid` | do NOT rotate while Grow attempts are in flight; requires a re-seal migration that does not exist | IMPLEMENTED encryption; OPEN re-seal tooling |
+| `GROW_REFERENCE_ENCRYPTION_KEY` | Render (only when `PAYMENT_PROVIDER=grow`) | **decryptability of every stored Grow provider reference** (AES-256-GCM sealed with sha256(key), `src/grow_payment_adapter.ts:222-241`; used at `:424-548`) -> settle/refund/status on existing attempts fails with `grow_reference_invalid` | rotate by keyring, never by replacement: new key as `GROW_REFERENCE_ENCRYPTION_KEY` (+ `_KEY_ID`), old key in `GROW_REFERENCE_ENCRYPTION_PREVIOUS_KEYS`, then `node scripts/grow_reference_reseal.cjs` (dry run) / `--apply`, retire the old key only when `retire_safe` — `docs/CREDENTIAL_COMPROMISE_RUNBOOK.md` §3.7 | IMPLEMENTED encryption + keyring + re-seal tool |
 | `GROW_USER_ID` / `GROW_PAGE_CODE` / `GROW_API_KEY` | Render (Grow stage only) | provider calls | issued by Grow support (hosted action - Grow support) | EXPECTED |
 | Render API key (`rnd_`) | operator machine only | Render API automation | never in repo (`scripts/secret_pii_scan.cjs` detector `render-api-key`) | IMPLEMENTED detection |
 | GitHub `stripe-sandbox` environment secrets | `.github/workflows/stripe-sandbox-proof.yml:27`, `:34-36` | the manual Stripe sandbox proof only | test-mode keys; rotate in Stripe dashboard + GitHub environment (hosted action) | IMPLEMENTED |
@@ -210,6 +212,6 @@ that the incident touched.
 | Admin surface to revoke/reissue participant tracking tokens (helper exists, no caller) | app | OPEN |
 | `OTP_HASH_SALT`, `BUYER_SESSION_SECRET`, `OTP_TOKEN_SECRET` not declared in `render.yaml` (staging relies on fallbacks; production gate FAILs without them) | render.yaml / runtime | OPEN |
 | Runtime does not fail closed on `OTP_HASH_SALT` default, `TRACKING_LEGACY_COMPAT=1`, or `DEBUG_SURFACES_ENABLED=1` in production (only the release gate does) | `config/runtime-environment-policy.json` "runtime_gaps" | OPEN |
-| Grow reference re-seal tooling for `GROW_REFERENCE_ENCRYPTION_KEY` rotation | app/scripts | OPEN |
+| Grow reference re-seal tooling for `GROW_REFERENCE_ENCRYPTION_KEY` rotation | `scripts/grow_reference_reseal.cjs` | DONE |
 | Hosted log export/purge, Supabase PITR, key rotation and deploy freeze procedures are console actions with no repository automation (Render MCP / Supabase MCP exist but require interactive auth) | hosted | EXPECTED |
 | `docs/HTTP_SECURITY_SURFACE.md`, `docs/HEALTH_CHECK_CONTRACT.md`, `docs/LOGGING_DATA_CLASSIFICATION.md` are referenced by release scripts but absent in this worktree | docs | OPEN |

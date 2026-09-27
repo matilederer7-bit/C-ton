@@ -1,4 +1,7 @@
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from "crypto";
+import { createHash, randomBytes, scrypt as scryptCallback, scryptSync, timingSafeEqual } from "crypto";
+import { promisify } from "util";
+
+const scryptAsync = promisify(scryptCallback) as (password: string, salt: string, keylen: number) => Promise<Buffer>;
 
 export type SellerAuthCredential = {
   seller_id: string;
@@ -159,7 +162,10 @@ export function parseCookies(headerValue: unknown) {
     const [rawName, ...rawValueParts] = chunk.split("=");
     const name = String(rawName || "").trim();
     if (!name) continue;
-    cookies[name] = decodeURIComponent(rawValueParts.join("=").trim());
+    // Total: a malformed escape (e.g. `x=%E0`, possibly planted by a sibling
+    // subdomain) must not turn every cookie-reading route into a 500.
+    const rawValue = rawValueParts.join("=").trim();
+    try { cookies[name] = decodeURIComponent(rawValue); } catch { cookies[name] = rawValue; }
   }
   return cookies;
 }
@@ -201,6 +207,34 @@ export function verifySellerAccessSecret(secret: unknown, storedHash: unknown) {
   } catch {
     return false;
   }
+}
+
+// Async twin of verifySellerAccessSecret (Black-Sky C6): scryptSync blocked
+// the single event loop while the login handler held a pool connection.
+export async function verifySellerAccessSecretAsync(secret: unknown, storedHash: unknown): Promise<boolean> {
+  const rawSecret = String(secret || "");
+  const rawHash = String(storedHash || "").trim();
+  if (!rawSecret || !rawHash) return false;
+  const [scheme, salt, encodedDigest] = rawHash.split("$");
+  if (scheme !== "scrypt" || !salt || !encodedDigest) return false;
+  try {
+    const expectedDigest = Buffer.from(encodedDigest, "base64url");
+    if (!expectedDigest.length) return false;
+    const providedDigest = await scryptAsync(rawSecret, salt, expectedDigest.length);
+    return expectedDigest.length === providedDigest.length && timingSafeEqual(expectedDigest, providedDigest);
+  } catch {
+    return false;
+  }
+}
+
+// A real scrypt hash of a random secret nobody knows. Verifying against it
+// when the account is missing, disabled or locked makes those paths cost the
+// same as a wrong password (Black-Sky B5: skipping scrypt was a timing oracle
+// for account existence and lock state).
+let dummySellerHash: string | null = null;
+export function sellerLoginDummyHash(): string {
+  if (!dummySellerHash) dummySellerHash = hashSellerAccessSecret(randomBytes(24).toString("hex"));
+  return dummySellerHash;
 }
 
 export function serializeSellerSessionCookie(
