@@ -56,6 +56,10 @@ const server = createServer(async (req, res) => {
   if (req.method === "POST" && req.url === "/documents") {
     if (body.document_key === "permfail") return send(res, 400, { error: "invalid_document", message: "bad document" });
     if (body.document_key === "tempfail") return send(res, 429, { error: "rate_limited", message: "retry later" });
+    // Black-Sky F-L1: 2xx replies that carry no document id.
+    if (body.document_key === "garbage-html") { res.statusCode = 200; res.setHeader("content-type", "text/html"); return res.end("<html>maintenance</html>"); }
+    if (body.document_key === "garbage-empty") { res.statusCode = 200; return res.end(""); }
+    if (body.document_key === "garbage-json") return send(res, 200, { ok: true, message: "accepted" });
     return send(res, 200, {
       id: `morning-doc-${body.document_id}`,
       status: "issued",
@@ -195,6 +199,35 @@ await runTest("Morning invoice adapter issues, looks up, cancels, reconciles, an
   });
   assert.equal(temporary.result_class, "temporary_fail");
   assert.equal(temporary.retryable, true);
+
+  // Black-Sky F-L1: a 2xx without a document id is UNKNOWN, never an issued document.
+  for (const key of ["garbage-html", "garbage-empty", "garbage-json"]) {
+    const garbage = await provider.createDocument!({
+      documentId: randomUUID(),
+      documentKey: key,
+      idempotencyKey: key,
+      providerCode: "morning",
+      documentType: "charge_receipt",
+      dealId: randomUUID(),
+      participantId: randomUUID(),
+      dealTitle: "Garbage",
+      qty: 1,
+      grossAmount: 1,
+      sitonFeeAmount: 0,
+      sellerNetAmount: 1,
+      moneyStateAtIssue: "ChargedSuccess",
+      correlationId: key
+    });
+    assert.equal(garbage.result_class, "unknown", key);
+    assert.equal(garbage.retryable, true, key);
+    assert.equal(garbage.external_document_issued, false, key);
+    assert.notEqual(garbage.document_status, "issued", key);
+    assert.equal(garbage.provider_document_id, null, key);
+    await assert.rejects(() => provider.issueDocument({
+      documentKey: key, dealId: randomUUID(), participantId: randomUUID(), dealTitle: "Garbage", qty: 1,
+      grossAmount: 1, sitonFeeAmount: 0, sellerNetAmount: 1, moneyStateAtIssue: "ChargedSuccess", correlationId: key
+    } as any), /invoice_provider_unknown/, `${key}: issueDocument never returns a null id`);
+  }
 });
 
 await runTest("Invoice webhook verifies raw body, dedupes, persists, and enqueues reconcile only", async () => {

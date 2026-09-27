@@ -489,7 +489,22 @@ class MorningInvoiceProvider implements InvoiceProvider {
         input.idempotencyKey,
         input.correlationId || input.idempotencyKey
       );
-      return this.normalizeResult(responsePayload, response.status, "issued", input.correlationId || input.idempotencyKey);
+      const normalized = this.normalizeResult(responsePayload, response.status, "issued", input.correlationId || input.idempotencyKey);
+      // Black-Sky F-L1: a 2xx without a provider document id (empty body,
+      // HTML error page, a JSON shape we do not recognise) is NOT proof that a
+      // document was issued. It was recorded as success with a null id; it is
+      // now UNKNOWN (retryable with the same idempotency key, never "issued").
+      if (normalized.result_class === "success" && !normalized.provider_document_id) {
+        return {
+          ...normalized,
+          result_class: "unknown",
+          retryable: true,
+          document_status: "processing",
+          external_document_issued: false,
+          raw: { ...(normalized.raw || {}), error: "provider_success_without_document_id" }
+        };
+      }
+      return normalized;
     } catch (error: any) {
       return {
         provider: this.providerCode,
