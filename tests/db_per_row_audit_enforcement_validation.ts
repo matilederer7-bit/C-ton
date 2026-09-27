@@ -72,12 +72,16 @@ async function auditRow(client: pg.PoolClient, args: { entityType: "deal" | "par
   );
 }
 
-async function outboxRow(client: pg.PoolClient, dealId: string, eventType = "charge_deal") {
-  await client.query(
-    `INSERT INTO siton.outbox_events (event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at, sent, sent_at)
-     VALUES ($2,'deal',$1,'{"c1":true}','sent',1,now(),true,now())`,
+async function outboxRow(client: pg.PoolClient, dealId: string, eventType = "charge_deal", status: "pending" | "sent" = "pending") {
+  const r = await client.query(
+    status === "sent"
+      ? `INSERT INTO siton.outbox_events (event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at, sent, sent_at)
+         VALUES ($2,'deal',$1,'{"c1":true}','sent',1,now(),true,now()) RETURNING event_uuid`
+      : `INSERT INTO siton.outbox_events (event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at)
+         VALUES ($2,'deal',$1,'{"c1":true}','pending',0,now() + interval '100 years') RETURNING event_uuid`,
     [dealId, eventType]
   );
+  return String(r.rows[0].event_uuid);
 }
 
 await runTest("deal: a forged audit flag with NO audit row is rejected per-row", async () => {
@@ -304,6 +308,25 @@ await runTest("outbox: UPDATING an old, already-sent job of the required type is
     assert.equal(row.can_insert, false, `${row.rolname} must not insert evidence`);
     assert.equal(row.can_update, false, `${row.rolname} must not update evidence`);
     assert.equal(row.can_delete, false, `${row.rolname} must not delete evidence`);
+  }
+  // A job inserted already 'sent' is not a runnable job.
+  const insertedSent = await inTx(async (c) => {
+    await arm(c, "charging.start");
+    await auditRow(c, { entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", from: "ReadyForCharging", to: "Charging", action: "charging.start" });
+    await outboxRow(c, dealId, "charge_deal", "sent");
+    await c.query(`UPDATE siton.deals SET state='Charging' WHERE deal_id=$1`, [dealId]);
+  });
+  assert.match(String(insertedSent), /requires a charge_deal outbox_events row for this deal/);
+  // A live row whose type or aggregate was rewritten after the insert does not count either.
+  for (const rewrite of [`event_type='deadline_check'`, `aggregate_id=gen_random_uuid()`, `status='sent', sent=true, sent_at=now()`]) {
+    const rewritten = await inTx(async (c) => {
+      await arm(c, "charging.start");
+      await auditRow(c, { entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", from: "ReadyForCharging", to: "Charging", action: "charging.start" });
+      const uuid = await outboxRow(c, dealId, "charge_deal");
+      await c.query(`UPDATE siton.outbox_events SET ${rewrite} WHERE event_uuid=$1`, [uuid]);
+      await c.query(`UPDATE siton.deals SET state='Charging' WHERE deal_id=$1`, [dealId]);
+    });
+    assert.match(String(rewritten), /requires a charge_deal outbox_events row for this deal/, rewrite);
   }
   // Insert-then-delete in the same transaction leaves evidence but no job:
   // the probe joins the evidence to the LIVE outbox row, so it is rejected.

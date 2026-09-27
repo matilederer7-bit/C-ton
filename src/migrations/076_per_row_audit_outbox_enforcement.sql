@@ -178,10 +178,12 @@ $evidence_grants$;
 -- The outbox job must have been INSERTED in this transaction, for THIS deal,
 -- with the event type the action requires (a same-deal row of any other
 -- type, e.g. a sent deadline_check, must not let a deal enter Charging
--- without its charge_deal job) — AND it must still exist: the evidence is
--- joined back to the live outbox row, so an insert that was deleted again in
--- the same transaction (the worker role may DELETE outbox rows) proves
--- nothing (Codex on PR #97).
+-- without its charge_deal job) — AND it must still exist as a RUNNABLE job:
+-- the evidence is joined back to the live outbox row on every identifying
+-- column and the live row must be status='pending', sent=false. An insert
+-- that was deleted again in the same transaction (the worker role may DELETE
+-- outbox rows), a row inserted already 'sent', or a live row whose type or
+-- aggregate was rewritten after the insert proves nothing (Codex on PR #97).
 CREATE OR REPLACE FUNCTION siton.outbox_row_written_in_tx(
   p_aggregate_type text,
   p_aggregate_id uuid,
@@ -196,7 +198,13 @@ AS $$
   SELECT EXISTS (
     SELECT 1
     FROM siton.outbox_enqueue_evidence e
-    JOIN siton.outbox_events o ON o.event_uuid = e.event_uuid
+    JOIN siton.outbox_events o
+      ON o.event_uuid = e.event_uuid
+     AND o.aggregate_type = e.aggregate_type
+     AND o.aggregate_id = e.aggregate_id
+     AND o.event_type = e.event_type
+     AND o.status = 'pending'
+     AND o.sent = false
     WHERE e.aggregate_id = p_aggregate_id
       AND e.aggregate_type = p_aggregate_type
       AND e.event_type = p_event_type

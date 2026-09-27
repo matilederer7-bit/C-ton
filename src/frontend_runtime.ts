@@ -9753,7 +9753,43 @@ export function registerFrontendExperience(
         }
       }
 
-      // Idempotency replay (action_name = participant.recovery_request).
+      // Red-team hardening (A5): a recovery request is a MONEY action; it is
+      // never accepted on a bare participant id. The tracking/recovery
+      // credential is mandatory in every runtime (legacy path retired) and it
+      // is verified BEFORE the idempotency replay below — otherwise a cached
+      // response (deal title, quantity, amount, states) could be replayed to
+      // an unauthenticated caller who only knows the participant id, because
+      // the default idempotency key is the predictable recovery:<id> (Codex
+      // on PR #97).
+      const accessToken = extractTrackingToken(req);
+      if (!accessToken) {
+        const err: any = new Error("tracking_token_required");
+        err.statusCode = 401;
+        err.code = "tracking_token_required";
+        throw err;
+      }
+      const participantScope = await c.query(`SELECT deal_id FROM siton.participants WHERE participant_id=$1`, [participantId]);
+      if (!participantScope.rowCount) {
+        const err: any = new Error("participant not found");
+        err.statusCode = 404;
+        err.code = "participant_not_found";
+        throw err;
+      }
+      const access = await verifyParticipantTrackingAccess(c, {
+        participant_id: participantId,
+        deal_id: String(participantScope.rows[0].deal_id),
+        token: accessToken,
+        purposes: ["recovery", "tracking"]
+      });
+      if (!access.ok) {
+        const err: any = new Error(access.error);
+        err.statusCode = 403;
+        err.code = access.error;
+        throw err;
+      }
+
+      // Idempotency replay (action_name = participant.recovery_request) —
+      // only for an authenticated caller.
       const idem = await c.query(
         `SELECT response_jsonb
          FROM siton.idempotency_log
@@ -9807,29 +9843,7 @@ export function registerFrontendExperience(
         price_per_unit: number;
         deal_title: string;
       };
-      // Red-team hardening (A5): a recovery request is a MONEY action; it is
-      // never accepted on a bare participant id. The tracking/recovery
-      // credential is mandatory in every runtime (legacy path retired).
-      const accessToken = extractTrackingToken(req);
-      if (!accessToken) {
-        const err: any = new Error("tracking_token_required");
-        err.statusCode = 401;
-        err.code = "tracking_token_required";
-        throw err;
-      }
-      const access = await verifyParticipantTrackingAccess(c, {
-        participant_id: participantId,
-        deal_id: row.deal_id,
-        token: accessToken,
-        purposes: ["recovery", "tracking"]
-      });
-      if (!access.ok) {
-        const err: any = new Error(access.error);
-        err.statusCode = 403;
-        err.code = access.error;
-        throw err;
-      }
-
+      // (credential already verified above, before the idempotency replay)
       const completionAmount = roundMoney(
         Number(row.qty || 0) * Number(row.price_per_unit || 0) + Number(row.delivery_cost || 0)
       );

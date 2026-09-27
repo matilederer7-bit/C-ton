@@ -69,13 +69,13 @@ export async function forcedDealStep(
   );
   const requiredEventType = OUTBOX_REQUIRED_DEAL_ACTIONS.get(actionName);
   if (requiredEventType) {
-    // An already-sent row of the REQUIRED type satisfies "the action's outbox
-    // job for THIS deal was written in this transaction" without leaving
-    // pending work for the worker.
+    // The DB requires a RUNNABLE (pending, unsent) job of the required type
+    // for THIS deal, inserted in this transaction. Fixtures schedule it far
+    // in the future so the outbox worker never picks it up.
     await client.query(
       `INSERT INTO siton.outbox_events
-         (event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at, sent, sent_at)
-       VALUES ($3,'deal',$1,$2,'sent',1,now(),true,now())`,
+         (event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at)
+       VALUES ($3,'deal',$1,$2,'pending',0,now() + interval '100 years')`,
       [dealId, JSON.stringify({ deal_id: dealId, fixture: true, action: actionName }), requiredEventType]
     );
   }

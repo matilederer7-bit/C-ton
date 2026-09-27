@@ -463,6 +463,25 @@ async function main() {
     assert.equal(second.statusCode, 200);
     assert.deepEqual(first.json(), second.json());
 
+    // The stored replay is only served to an AUTHENTICATED caller (Codex on
+    // PR #97): the same key without the tracking credential is refused before
+    // the idempotency lookup, and a wrong credential is refused too — neither
+    // sees the cached deal title / amount / states.
+    const noToken = await app.inject({ method: "POST", url: `/api/participants/${pid}/recovery`, headers: { "idempotency-key": key }, payload: {} });
+    assert.equal(noToken.statusCode, 401, noToken.body);
+    assert.equal(noToken.json().error, "tracking_token_required");
+    assert.equal(noToken.json().completion_amount, undefined);
+    // The DEFAULT key (recovery:<participant id>) is predictable: store a
+    // response under it with the credential, then probe without it.
+    const defaultKeyed = await app.inject({ method: "POST", url: `/api/participants/${pid}/recovery`, headers: { ...trackingAuth(pid) }, payload: {} });
+    assert.equal(defaultKeyed.statusCode, 200, defaultKeyed.body);
+    const bare = await app.inject({ method: "POST", url: `/api/participants/${pid}/recovery`, payload: {} });
+    assert.equal(bare.statusCode, 401, bare.body);
+    assert.doesNotMatch(bare.body, /completion_amount|deal_title/);
+    const wrongToken = await app.inject({ method: "POST", url: `/api/participants/${pid}/recovery`, headers: { authorization: "Bearer not-a-valid-token" }, payload: {} });
+    assert.equal(wrongToken.statusCode, 403, wrongToken.body);
+    assert.doesNotMatch(wrongToken.body, /completion_amount|deal_title/);
+
     const events = await readOutboxRecoveryEvents(dealOk);
     assert.equal(events.length, 1, "should not enqueue a second recovery_deal job for the same idempotency key");
   });
@@ -532,11 +551,21 @@ async function main() {
     assert.ok(methods.some((m: any) => m.provider_payment_method_id === tokenId && m.status === "active"));
   });
 
-  await runTest("recovery API rejects unknown participant id with 404", async () => {
-    const r = await app.inject({
+  await runTest("recovery API rejects unknown participant id: 401 without a credential, 404 with one", async () => {
+    // No credential: refused before any lookup (no existence oracle).
+    const bare = await app.inject({
       method: "POST",
       url: `/api/participants/00000000-0000-0000-0000-000000000000/recovery`,
       headers: { "idempotency-key": `missing-${Date.now()}` },
+      payload: {}
+    });
+    assert.equal(bare.statusCode, 401);
+    assert.equal((bare.json() as any).error, "tracking_token_required");
+    // With a credential presented, the unknown id is a 404.
+    const r = await app.inject({
+      method: "POST",
+      url: `/api/participants/00000000-0000-0000-0000-000000000000/recovery`,
+      headers: { "idempotency-key": `missing-${Date.now()}`, authorization: "Bearer some-token" },
       payload: {}
     });
     assert.equal(r.statusCode, 404);
