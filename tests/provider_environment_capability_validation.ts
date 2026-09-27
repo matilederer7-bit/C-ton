@@ -24,6 +24,7 @@ const { assertProductionRuntimeGuards } = await import(`../src/production_guards
 function productionEnv(overrides: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
   return {
     APP_DEPLOYMENT_MODE: "production",
+    CANONICAL_POSTGRES_RUNTIME: "1",
     PAYMENT_ENVIRONMENT: "live",
     PAYMENT_PROVIDER: "stripe",
     PAYMENT_PROVIDER_MODE: "stripe",

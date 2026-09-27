@@ -224,6 +224,10 @@ The owner's follow-up instruction was unambiguous: nothing stays on the shelf. E
 | **DEP** `exceljs → uuid` moderates | 2 moderate prod advisories | `uuid` pinned to `^11` for `exceljs` via npm `overrides` (workbook write verified); **git-history secret scan** added (`scripts/git_history_secret_scan.cjs`, runs inside `npm run scan:secrets`; 1,065 commits clean) | package.json, CI secrets gate | `tests/release_tools/git_history_secret_scan.test.cjs` |
 | **CSP** | not set | `Content-Security-Policy` on every HTML response, derived per document (SHA-256 of its inline scripts; no `unsafe-inline`/`unsafe-eval` for scripts; `frame-ancestors 'none'`, `object-src 'none'`, `base-uri 'self'`; connect only to self + Supabase + payment hosts + Sentry ingest). Verified in headless Chromium against the built app: React shell and legacy shell render with **0 CSP refusals** | `src/content_security_policy.ts` + `onSend` hook | `tests/security_csp_validation.ts` |
 
+### Test results (closure round, local Postgres 16)
+
+unit 17/17 · integration 47/47 · db 9/9 · api 50/50 · workers 15/15 · payments 45/45 · security 53/53 · concurrency 10/10 · failure 9/9 · e2e 17/17 (272 files; the 8 assertion-level fallout files from the new controls — readiness shape, sensitive-path list, canonical-runtime fixtures, distributor route expectations, token-only tracking in the browser smoke, admin login budget — were corrected and re-run green). Static gates and release-tool unit tests PASS. CI runs the same matrix on the PR.
+
 ### Second adversarial pass over the new controls
 
 - **A2:** tried prefixing/rotating X-Forwarded-For with 1, 2 and 6 values behind one trusted hop — every request landed in the same bucket. Tried `TRUST_PROXY_HOPS=true`/`all`/`99`/`-1` — resolver falls back to 1 and the boot guard refuses them. Residual: an operator who sets the hop count *higher* than the real depth re-opens the spoof for that extra hop; the readiness echo exists precisely so the value is verified live, not assumed.

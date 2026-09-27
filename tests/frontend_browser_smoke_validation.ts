@@ -899,6 +899,7 @@ async function assertBuyerDomFlowAndSafeResume(dealId: string, affiliateRef = ""
       return {
         path: location.pathname,
         participantId: flow.participantId || '',
+        trackingToken: flow.trackingAccessToken || '',
         success: Boolean(document.querySelector('.cton-success-card, .success-screen')),
         authorizationId: flow.authorizationId || '',
         body: document.body.innerText
@@ -922,7 +923,10 @@ async function assertBuyerDomFlowAndSafeResume(dealId: string, affiliateRef = ""
     }))()`);
     assert.equal(tracking.rendered, true, "buyer tracking should render after the browser join flow");
     assert.ok(tracking.overflow <= 1, `mobile tracking should not overflow horizontally: ${JSON.stringify(tracking)}`);
-    return { participantId: String(confirmation.participantId) };
+    // Red-team A5: the tracking view is token-only in every runtime. The
+    // browser flow above holds the credential in its own storage; the desktop
+    // and mobile route sweeps open fresh contexts, so they carry it in the URL.
+    return { participantId: String(confirmation.participantId), trackingToken: String(confirmation.trackingToken || "") };
   });
 }
 
@@ -1191,7 +1195,7 @@ async function main() {
       },
       {
         name: "buyer tracking",
-        path: `/app/track/${joined.participantId}`,
+        path: `/app/track/${joined.participantId}?t=${encodeURIComponent(joined.trackingToken)}`,
         expect: ["cton-tracking-page", "ההצטרפות שלך", "לא בוצע חיוב בפועל"]
       },
       {
@@ -1249,7 +1253,7 @@ async function main() {
       },
       {
         name: "buyer tracking mobile",
-        path: `/app/track/${joined.participantId}`,
+        path: `/app/track/${joined.participantId}?t=${encodeURIComponent(joined.trackingToken)}`,
         expect: ["cton-tracking-page", "ההצטרפות שלך"]
       },
       {

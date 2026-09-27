@@ -5,6 +5,7 @@ import { assertProductionRuntimeGuards } from "../src/production_guards.js";
 function base(role: "web" | "worker") {
   return {
     APP_DEPLOYMENT_MODE: "production",
+    CANONICAL_POSTGRES_RUNTIME: "1",
     PAYMENT_ENVIRONMENT: "live",
     PAYMENT_PROVIDER: "stripe",
     PAYMENT_PROVIDER_MODE: "stripe",
