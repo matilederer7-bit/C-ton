@@ -5316,6 +5316,9 @@ export async function runWorkerMaintenance() {
   await reconcileOrphanedUnknownIdentities().catch(() => 0);
   // F-2b — no deal past its completion window may stay without a live finalize.
   await rescheduleStalledFinalizations().catch(() => 0);
+  // Black-Sky A-F3 — a webhook claim whose processor died is returned to
+  // 'pending' (bounded, idempotent) so the provider's replay is not swallowed.
+  await webhookIngestion.reclaimStaleProcessing().catch(() => 0);
   // Crash recovery for the notification rail: stranded 'processing' rows are
   // reclaimed with a bounded attempt budget before the next flush.
   await reclaimStrandedNotifications(pool, Number(process.env.NOTIFICATION_STUCK_TIMEOUT_MS || 5 * 60_000)).catch(() => 0);
