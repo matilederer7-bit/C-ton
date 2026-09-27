@@ -10,7 +10,7 @@ Supabase staging (`siton-staging`, hnptacfzuqebfgeshadq): migrations through **0
 ## TRACKS (owner decision 2026-09-27: two separate percentages)
 
 - **Black Sky Engineering: 100% — CLOSED.** All code fixes merged (#99 `c1c361f`, #117 `f02414b`, #116 `73026b4`); CI green on master `73026b4`; the latest Codex review of each final head is clean (#117 `26a6f82`, #116 `1534bde`); migrations 077–079 + grant file 027 applied to staging (ledger 72/72); staging live and checked on `73026b4`; recovery / failure / money / DB suites pass (314 files / 0 failures, `RECOVERY_PROOF_PASS`, `DB_BACKUP_RESTORE_REHEARSAL_PASS`). No further hardening, adversarial round or scope expansion on this track unless a new concrete finding appears.
-- **Production Readiness: 17% (3 of 18 items done) — OPEN, owner-driven.** External actions, not code changes. Items marked **REAL MONEY LAUNCH BLOCKER** (10 open) must be closed before any real charge; real-money activation stays BLOCKED by policy until then.
+- **Production Readiness: 17% (3 of 18 items done) — OPEN, owner-driven.** External actions, not code changes. Items marked **REAL MONEY LAUNCH BLOCKER** (10 open) must be closed before any real charge; real-money activation stays BLOCKED by policy until then. By owner decision these deployment/provisioning actions (incl. report E1 CRIT off-site backups and E5 HIGH storage broker, whose code is done) are the scope of this track, not completion criteria of Black Sky Engineering.
 
 ### Production Readiness checklist
 
@@ -30,7 +30,7 @@ Supabase staging (`siton-staging`, hnptacfzuqebfgeshadq): migrations through **0
 | PR-12 | Decision: handling of a partly charged deal whose charge retries are exhausted | OPEN | **REAL MONEY LAUNCH BLOCKER** |
 | PR-13 | Grow real-money certification (F-13) and the owner's explicit real-money activation | OPEN | **REAL MONEY LAUNCH BLOCKER** |
 | PR-14 | Supabase "Confirm email" on | OPEN | launch prerequisite |
-| PR-15 | `SITON_BROKER_ALLOWED_PREFIXES` set and `storage-broker` edge function redeployed | OPEN | launch prerequisite |
+| PR-15 | `SITON_BROKER_ALLOWED_PREFIXES` set and `storage-broker` edge function redeployed (report E5, HIGH: code fixed, deploy pending) | OPEN | launch prerequisite (security) |
 | PR-16 | GitHub: Dependabot security updates on, required checks kept on master | OPEN | recommended |
 | PR-17 | WAF/CDN in front of Render | OPEN | recommended |
 | PR-18 | Delete or reconfigure the orphan Render service `siton-staging-web-atp1` | OPEN | cleanup |

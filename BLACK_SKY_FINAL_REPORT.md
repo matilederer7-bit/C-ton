@@ -129,13 +129,13 @@ Format per row: **THREAT/FAILURE** · PROOF · SEVERITY · BEFORE → FIX · TES
 
 | ID | Threat | Sev | Fix | Status |
 |---|---|---|---|---|
-| E1 | No off-platform backup; hosted backups unverified | CRIT | Secrets-gated daily encrypted off-site dump workflow (age, sha256 round-trip), rehearsal with content hashes and grant diff | Code DONE; **provisioning is an owner action (§7)** |
-| E2 | `SUPABASE_MANAGEMENT_API_TOKEN` readable by the web runtime | CRIT | Web/worker refuse to boot on hosted/production if it is set | FIXED; residual UNCONFIRMED: whether it is set on Render today |
+| E1 | No off-platform backup; hosted backups unverified | CRIT | Secrets-gated daily encrypted off-site dump workflow (age, sha256 round-trip), rehearsal with content hashes and grant diff | Code DONE; **provisioning + restore verification: Production Readiness PR-6/PR-7 (REAL MONEY LAUNCH BLOCKER)** |
+| E2 | `SUPABASE_MANAGEMENT_API_TOKEN` readable by the web runtime | CRIT | Web/worker refuse to boot on hosted/production if it is set | FIXED; verified absent on Render (hosted boot guard passed on `c1c361f`, `f02414b`, `73026b4`) |
 | E3 | Agent workflow commits run repository hooks with a write token | HIGH | Hook-free commits from a clean control checkout (complements open PR #78) | FIXED |
 | E4 | Single Grow reference key, no rotation | HIGH | Key ring `v2.<kid>`, reseal script, boot-time validation via the standalone `grow_reference_keyring` module | FIXED |
-| E5 | Storage broker can delete/list the whole bucket | HIGH | Namespaced key/prefix enforcement (`scope.ts`) | Code FIXED; **edge function not deployed (owner)** |
+| E5 | Storage broker can delete/list the whole bucket | HIGH | Namespaced key/prefix enforcement (`scope.ts`) | Code FIXED; **edge function deploy: Production Readiness PR-15 (launch prerequisite, HIGH)** |
 | E6 / E7 | Weak restore drill; unguarded destructive scripts | MED | 18-step rehearsal; `destructive_target_guard` on every DB-destroying script | FIXED |
-| E8 | Auto-deploy without CI | MED | `autoDeployTrigger: checksPass` | FIXED (takes effect after blueprint sync) |
+| E8 | Auto-deploy without CI | MED | `autoDeployTrigger: checksPass` | FIXED; live (`autoDeployTrigger: checksPass`, deploys of `f02414b` and `73026b4` started only after master CI passed) |
 | E9 | Dev deps in image, tag-pinned base, no audit | MED | Digest-pinned base, `npm prune --omit=dev`, `npm audit` gate, Dependabot | FIXED |
 | E10 | OTP token secret falls back to the session secret | LOW-MED | Production requires a distinct `OTP_TOKEN_SECRET` | FIXED |
 | E11 | Config outside git undocumented | MED | `docs/CONFIG_INVENTORY.md` | FIXED |
