@@ -6,13 +6,15 @@
 --    rail and fulfillment_units were ON DELETE CASCADE. Now:
 --      * those money FKs are ON DELETE RESTRICT (dropped and re-added by name,
 --        NOT VALID then VALIDATE);
---      * a BEFORE DELETE guard on siton.deals refuses any deal that was ever
---        published, is past Draft/Cancelled, or has participant/money rows
+--      * a BEFORE DELETE guard on siton.deals refuses any deal past
+--        PendingTarget (TargetReached, ClosedForJoining, charging and terminal
+--        states other than Cancelled) and any deal with participant/money rows
 --        (participants, payment attempts, fee ledger, webhook evidence,
---        authorization bindings, invoice documents). A never-published draft
---        with none of those stays deletable and its CONTENT rows (images,
---        delivery options, terms, chat, field-change audit of the draft) still
---        cascade exactly as before;
+--        authorization bindings, invoice documents). An UNTOUCHED Draft,
+--        Cancelled or PendingTarget deal stays deletable — a published deal
+--        cannot be cancelled, so the seller draft-delete route is the way out
+--        of a mistaken publish — and its CONTENT rows (images, delivery
+--        options, terms, chat, field-change audit) still cascade as before;
 --      * test fixtures keep their cleanup through an explicit escape hatch that
 --        exists ONLY when siton.allow_test_actions = '1' (set per disposable
 --        test database by the isolation helpers, never on staging/production)
@@ -231,7 +233,11 @@ BEGIN
     OR EXISTS (SELECT 1 FROM siton.payment_authorization_bindings WHERE deal_id = OLD.deal_id)
     OR EXISTS (SELECT 1 FROM siton.invoice_documents WHERE deal_id = OLD.deal_id);
 
-  IF OLD.published_at IS NULL AND OLD.state::text IN ('Draft', 'Cancelled') AND NOT v_history THEN
+  -- An UNTOUCHED deal that is still a draft, a cancelled draft, or open for
+  -- joining with nobody in it stays deletable (lead decision: a published
+  -- deal cannot be cancelled — Cancelled is reachable only from Draft — so
+  -- delete is the seller's only way out of a mistaken publish).
+  IF OLD.state::text IN ('Draft', 'Cancelled', 'PendingTarget') AND NOT v_history THEN
     RETURN OLD;
   END IF;
 
@@ -247,7 +253,7 @@ BEGIN
       WHERE me.rolname IN (current_user::text, session_user::text) AND NOT me.rolsuper
     );
   IF NOT v_hatch THEN
-    RAISE EXCEPTION 'deal_delete_refused: deal % (state=%, published_at=%) was published or carries participant/money history; such a deal is cancelled or failed, never deleted',
+    RAISE EXCEPTION 'deal_delete_refused: deal % (state=%, published_at=%) is past open joining or carries participant/money history; such a deal is cancelled or failed, never deleted',
       OLD.deal_id, OLD.state, OLD.published_at
       USING ERRCODE = 'restrict_violation';
   END IF;

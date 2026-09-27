@@ -2,9 +2,10 @@
 //
 //   D2  a deal delete can no longer cascade money/audit history away: money
 //       FKs are ON DELETE RESTRICT and a BEFORE DELETE guard on siton.deals
-//       refuses any deal that was ever published or has participant/money
-//       rows. Never-published drafts stay deletable (seller draft-delete
-//       route). Test fixtures keep a cleanup path through an explicit, audited
+//       refuses any deal past PendingTarget or with participant/money rows.
+//       Untouched Draft/Cancelled/PendingTarget deals stay deletable (a
+//       published deal cannot be cancelled, so the seller delete route is the
+//       way out of a mistaken publish). Test fixtures keep a cleanup path through an explicit, audited
 //       escape hatch that exists only when siton.allow_test_actions = '1' and
 //       never for a runtime role.
 //   D3  'test.%' action names are valid only when siton.allow_test_actions =
@@ -78,6 +79,18 @@ async function seedPublished() {
   return dealId;
 }
 
+/** A published deal walked (audited) to TargetReached or ClosedForJoining with NO participants. */
+async function seedPastOpen(state: "TargetReached" | "ClosedForJoining") {
+  const dealId = await seedPublished();
+  const err = await inTx(async (c) => {
+    await c.query(`SELECT set_config('siton.in_atomic','true',true)`);
+    await forcedDealStep(c, dealId, "TargetReached", "deal.target_reached");
+    if (state === "ClosedForJoining") await forcedDealStep(c, dealId, "ClosedForJoining", "deal.close_joining");
+  }, { commit: true });
+  if (err) throw err;
+  return dealId;
+}
+
 async function seedParticipant(dealId: string, buyerState = "JoinedAuthorized", moneyState = "AuthHeld") {
   const participantId = randomUUID();
   await pool.query(
@@ -136,11 +149,36 @@ await runTest("D2: outside test mode a published deal with money history cannot 
   assert.equal(await count(`SELECT count(*)::int AS n FROM siton.participants WHERE deal_id=$1`, [dealId]), 1);
 });
 
-await runTest("D2: outside test mode an untouched but PUBLISHED deal is refused too", async () => {
-  const dealId = await seedPublished();
-  const err = await inTx(async (c) => { await c.query(`DELETE FROM siton.deals WHERE deal_id=$1`, [dealId]); }, { testActions: "0", commit: true });
+await runTest("D2: outside test mode a published deal with ANY participant/money history is refused", async () => {
+  const withParticipant = await seedPublished();
+  await seedParticipant(withParticipant, "JoinedAuthorized", "AuthHeld");
+  const err = await inTx(async (c) => { await c.query(`DELETE FROM siton.deals WHERE deal_id=$1`, [withParticipant]); }, { testActions: "0", commit: true });
   assert.match(String(err), /deal_delete_refused/);
-  assert.equal(await count(`SELECT count(*)::int AS n FROM siton.deals WHERE deal_id=$1`, [dealId]), 1);
+  assert.equal(await count(`SELECT count(*)::int AS n FROM siton.deals WHERE deal_id=$1`, [withParticipant]), 1);
+  // history without a participant row (a webhook that named the deal) also counts
+  const withWebhook = await seedPublished();
+  await pool.query(`INSERT INTO siton.webhook_events (provider, event_id, payload_jsonb, status, deal_id) VALUES ('mockpay',$1,'{}','pending',$2)`, [`bs078-${randomUUID()}`, withWebhook]);
+  const err2 = await inTx(async (c) => { await c.query(`DELETE FROM siton.deals WHERE deal_id=$1`, [withWebhook]); }, { testActions: "0", commit: true });
+  assert.match(String(err2), /deal_delete_refused/);
+});
+
+await runTest("D2: outside test mode a deal past open joining (TargetReached / ClosedForJoining) is refused even untouched", async () => {
+  for (const state of ["TargetReached", "ClosedForJoining"] as const) {
+    const dealId = await seedPastOpen(state);
+    const err = await inTx(async (c) => { await c.query(`DELETE FROM siton.deals WHERE deal_id=$1`, [dealId]); }, { testActions: "0", commit: true });
+    assert.match(String(err), /deal_delete_refused/, state);
+    assert.equal(await count(`SELECT count(*)::int AS n FROM siton.deals WHERE deal_id=$1`, [dealId]), 1, state);
+  }
+});
+
+await runTest("D2 positive: outside test mode an UNTOUCHED published (PendingTarget) deal stays deletable", async () => {
+  const dealId = await seedPublished();
+  await pool.query(`INSERT INTO siton.deal_images (deal_id, storage_key, mime_type, size_bytes) VALUES ($1,$2,'image/png',100)`, [dealId, `bs078-${randomUUID()}`]);
+  const err = await inTx(async (c) => { await c.query(`DELETE FROM siton.deals WHERE deal_id=$1`, [dealId]); }, { testActions: "0", commit: true });
+  assert.equal(err, null, String(err));
+  assert.equal(await count(`SELECT count(*)::int AS n FROM siton.deals WHERE deal_id=$1`, [dealId]), 0);
+  assert.equal(await count(`SELECT count(*)::int AS n FROM siton.deal_images WHERE deal_id=$1`, [dealId]), 0, "content still cascades");
+  assert.equal(await count(`SELECT count(*)::int AS n FROM siton.fixture_purge_audit WHERE deal_id=$1`, [dealId]), 0, "a legitimate delete does not use the fixture hatch");
 });
 
 await runTest("D2 negative control: a never-published draft without money rows stays deletable (content still cascades)", async () => {
@@ -175,7 +213,9 @@ await runTest("D2: the escape hatch is never available to a runtime role, even w
     await pool.query(`GRANT USAGE ON SCHEMA siton TO ${probe}`);
     await pool.query(`GRANT SELECT, DELETE ON siton.deals TO ${probe}`);
     await pool.query(`GRANT SELECT ON siton.participants, siton.payment_attempts, siton.platform_fee_money_events, siton.webhook_events, siton.payment_authorization_bindings, siton.invoice_documents TO ${probe}`);
+    // a deal the normal rule refuses (it has a participant) — only the hatch could delete it
     const dealId = await seedPublished();
+    await seedParticipant(dealId, "JoinedAuthorized", "AuthHeld");
     const err = await inTx(async (c) => {
       await c.query(`SET LOCAL ROLE ${probe}`);
       await c.query(`SELECT set_config('siton.allow_test_actions','1',true)`);
@@ -206,19 +246,43 @@ await runTest("D2: the escape hatch is never available to a runtime role, even w
   }
 });
 
-await runTest("D2: the seller delete route refuses a published (even untouched) deal and still deletes a draft", async () => {
+await runTest("D2: the seller delete route deletes an untouched draft or open deal and answers the DB guard with a clean 409", async () => {
+  // The app's own connections must see a PRODUCTION-shaped database (no
+  // fixture hatch) so the DB guard, not the hatch, decides. Database-level
+  // settings apply to NEW sessions; the app pool opens its first one below.
+  const dbName = new URL(String(process.env.DATABASE_URL)).pathname.replace(/^\//, "");
+  await pool.query(`ALTER DATABASE "${dbName}" SET siton.allow_test_actions = '0'`);
   const { app } = await import("../src/app.js");
-  const headers = { "x-seller-id": SELLER };
-  const published = await seedPublished();
-  const refused = await app.inject({ method: "DELETE", url: `/api/seller/deals/${published}`, headers });
-  assert.equal(refused.statusCode, 409, refused.body);
-  assert.equal(refused.json().code, "deal_delete_not_allowed");
-  assert.equal(await count(`SELECT count(*)::int AS n FROM siton.deals WHERE deal_id=$1`, [published]), 1);
-  const draft = await seedDraft();
-  const ok = await app.inject({ method: "DELETE", url: `/api/seller/deals/${draft}`, headers });
-  assert.equal(ok.statusCode, 200, ok.body);
-  assert.equal(await count(`SELECT count(*)::int AS n FROM siton.deals WHERE deal_id=$1`, [draft]), 0);
-  await app.close().catch(() => undefined);
+  try {
+    const headers = { "x-seller-id": SELLER };
+    const draft = await seedDraft();
+    const okDraft = await app.inject({ method: "DELETE", url: `/api/seller/deals/${draft}`, headers });
+    assert.equal(okDraft.statusCode, 200, okDraft.body);
+    assert.equal(await count(`SELECT count(*)::int AS n FROM siton.deals WHERE deal_id=$1`, [draft]), 0);
+
+    const open = await seedPublished();
+    const okOpen = await app.inject({ method: "DELETE", url: `/api/seller/deals/${open}`, headers });
+    assert.equal(okOpen.statusCode, 200, `an untouched published deal stays deletable: ${okOpen.body}`);
+    assert.equal(await count(`SELECT count(*)::int AS n FROM siton.deals WHERE deal_id=$1`, [open]), 0);
+
+    // A manually paused deal with nobody in it passes the route's activity
+    // check; the DB guard refuses it and the route answers 409, not 500.
+    const paused = await seedPastOpen("ClosedForJoining");
+    const refused = await app.inject({ method: "DELETE", url: `/api/seller/deals/${paused}`, headers });
+    assert.equal(refused.statusCode, 409, refused.body);
+    assert.equal(refused.json().code, "deal_delete_not_allowed");
+    assert.equal(await count(`SELECT count(*)::int AS n FROM siton.deals WHERE deal_id=$1`, [paused]), 1);
+
+    // ...and a deal with a participant is refused by the route's own check.
+    const joined = await seedPublished();
+    await seedParticipant(joined, "JoinedAuthorized", "AuthHeld");
+    const refusedJoined = await app.inject({ method: "DELETE", url: `/api/seller/deals/${joined}`, headers });
+    assert.equal(refusedJoined.statusCode, 409, refusedJoined.body);
+    assert.equal(refusedJoined.json().code, "deal_delete_not_allowed");
+  } finally {
+    await app.close().catch(() => undefined);
+    await pool.query(`ALTER DATABASE "${dbName}" SET siton.allow_test_actions = '1'`);
+  }
 });
 
 // ── D3 ────────────────────────────────────────────────────────────────────

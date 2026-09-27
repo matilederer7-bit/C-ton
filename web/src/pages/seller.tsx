@@ -1926,9 +1926,7 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
   const gross = chargedRows.reduce((s, p) => s + Number(p.qty) * Number(deal.price_per_unit) + Number(p.delivery_cost || 0), 0);
   const fee = Math.round(gross * 0.08 * 100) / 100;
   const vm = viral?.metrics as Json | null;
-  // Only a never-published draft can be deleted (Black-Sky D2, migration 078:
-  // the server and the database refuse deleting a published deal).
-  const deletable = isDraft;
+  const deletable = isDraft || (isOpen && participants.length === 0);
   // P0.3-14 — a MANUAL close is a reversible pause (deadline still ahead,
   // capacity not full, nothing charged); deadline/capacity/system closes are not.
   const paused = state === "ClosedForJoining" && String(deal.close_reason || "") === "manual";
