@@ -305,6 +305,20 @@ await runTest("outbox: UPDATING an old, already-sent job of the required type is
     assert.equal(row.can_update, false, `${row.rolname} must not update evidence`);
     assert.equal(row.can_delete, false, `${row.rolname} must not delete evidence`);
   }
+  // Insert-then-delete in the same transaction leaves evidence but no job:
+  // the probe joins the evidence to the LIVE outbox row, so it is rejected.
+  const deletedAgain = await inTx(async (c) => {
+    await arm(c, "charging.start");
+    await auditRow(c, { entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", from: "ReadyForCharging", to: "Charging", action: "charging.start" });
+    const inserted = await c.query(
+      `INSERT INTO siton.outbox_events (event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at)
+       VALUES ('charge_deal','deal',$1,'{"c1":true}','pending',0,now()) RETURNING event_uuid`,
+      [dealId]
+    );
+    await c.query(`DELETE FROM siton.outbox_events WHERE event_uuid=$1`, [inserted.rows[0].event_uuid]);
+    await c.query(`UPDATE siton.deals SET state='Charging' WHERE deal_id=$1`, [dealId]);
+  });
+  assert.match(String(deletedAgain), /requires a charge_deal outbox_events row for this deal/);
   const me = await pool.query(`SELECT rolsuper FROM pg_roles WHERE rolname = current_user`);
   if (!me.rows[0]?.rolsuper) {
     const forgedEvidence = await inTx(async (c) => {

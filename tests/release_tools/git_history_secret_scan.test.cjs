@@ -137,6 +137,21 @@ test("a Luhn-valid card number committed and later deleted is found (real-card-p
   assert.equal(pan.match, "453914******6467", "the PAN is reported masked");
 });
 
+test("deleted PANs of every card length (13, 14, 17, 18, 19 digits) are found in history", () => {
+  const dir = tempRepo();
+  const file = path.join(dir, "cards.txt");
+  const pans = ["4105987511758", "55733818719908", "43714041014380902", "532999082567378271", "4868965756214235778"];
+  fs.writeFileSync(file, pans.map((p, i) => `card${i}: ${p}`).join("\n") + "\n");
+  git(dir, "add", "-A");
+  git(dir, "commit", "-q", "-m", "leak");
+  fs.writeFileSync(file, "redacted\n");
+  git(dir, "add", "-A");
+  git(dir, "commit", "-q", "-m", "fix");
+  const result = scan.run({ root: dir, allowList: [] });
+  const found = result.findings.filter((f) => f.detector === "real-card-pan").map((f) => f.line).sort();
+  assert.deepEqual(found, [1, 2, 3, 4, 5], JSON.stringify(result.findings));
+});
+
 test("allow-listed synthetic values are ignored", () => {
   const dir = tempRepo();
   fs.writeFileSync(path.join(dir, "fixture.js"), "const key = 'AKIA" + "ABCDEFGHIJKLMNOP';\n");

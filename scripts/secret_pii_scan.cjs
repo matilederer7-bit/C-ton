@@ -80,11 +80,11 @@ const DETECTORS = [
   },
   {
     id: "real-card-pan", severity: "FAIL", scope: "all",
-    // 15-16 digit runs (optionally space/dash separated) that start like a
+    // 13-19 digit runs (optionally space/dash separated) that start like a
     // Visa/Mastercard/Amex/Discover PAN, pass Luhn, and are not a documented
-    // test PAN or a repeated digit. Timestamps (13 digits, leading 1) and
-    // hex ids never qualify.
-    run: (text) => matches(text, /(?<!\d)(?:\d[ -]?){15,16}(?!\d)/g).map((hit) => ({ ...hit, digits: hit.match.replace(/\D/g, "") })).filter((hit) => (hit.digits.length === 15 || hit.digits.length === 16) && /^[3456]/.test(hit.digits) && luhn(hit.digits) && !KNOWN_TEST_PANS.has(hit.digits) && !/^(\d)\1+$/.test(hit.digits) && !insideUuid(text, hit)).map((hit) => ({ ...hit, match: hit.digits.slice(0, 6) + "******" + hit.digits.slice(-4) }))
+    // test PAN, a repeated digit or part of a UUID. Timestamps (13 digits,
+    // leading 1) and hex ids never qualify.
+    run: (text) => matches(text, /(?<!\d)(?:\d[ -]?){13,19}(?!\d)/g).map((hit) => ({ ...hit, digits: hit.match.replace(/\D/g, "") })).filter((hit) => hit.digits.length >= 13 && hit.digits.length <= 19 && /^[3456]/.test(hit.digits) && luhn(hit.digits) && !KNOWN_TEST_PANS.has(hit.digits) && !/^(\d)\1+$/.test(hit.digits) && !insideUuid(text, hit)).map((hit) => ({ ...hit, match: hit.digits.slice(0, 6) + "******" + hit.digits.slice(-4) }))
   },
   {
     id: "pii-in-runtime", severity: "WARNING", scope: "runtime",
