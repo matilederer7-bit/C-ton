@@ -62,6 +62,7 @@ import { registerFrontendExperience } from "./frontend_runtime.js";
 import { applicationRequestTelemetry } from "./infrastructure_metrics.js";
 import { createReadinessProbe } from "./readiness_probe.js";
 import { rateLimitClientKey } from "./public_write_caps.js";
+import { countHttpStatus } from "./runtime_counters.js";
 import { assertProductionRuntimeGuards } from "./production_guards.js";
 import { rewriteCanonicalApiAlias } from "./api_route_aliases.js";
 import { ensureJoinOtpVerified, ensureOtpRailTables, OtpValidationError } from "./otp_rail.js";
@@ -691,7 +692,9 @@ const {
   workerId: process.env.WORKER_ID || `siton-worker-${process.pid}-${randomUUID()}`,
   leaseMs: Number(process.env.WORKER_LEASE_MS || 60_000),
   PermanentFailErrorCtor: PermanentFailError,
-  DeferredEventErrorCtor: DeferredEventError
+  DeferredEventErrorCtor: DeferredEventError,
+  // Resolved at call time (app is created later in this module).
+  logger: { warn: (obj, msg) => app.log.warn(obj, msg) }
 });
 
 const {
@@ -5525,6 +5528,8 @@ app.addHook("onSend", (_req: any, reply: any, payload: unknown, done) => {
 });
 app.addHook("onResponse", (req: any, reply: any, done) => {
   applicationRequestTelemetry.finish(req, Number(reply.statusCode || 200));
+  // Black-Sky F-M6: 401 / 403 / 429 counters (limiter refusals included).
+  countHttpStatus(Number(reply.statusCode || 200));
   done();
 });
 export { app, issueFulfillmentForCompletedDeal };

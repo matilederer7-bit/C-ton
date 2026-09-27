@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { incrementRuntimeCounter } from "./runtime_counters.js";
 import type { OutboxRetryClassName, OutboxRetryPolicy } from "./runtime_config.js";
 import { MONEY_LANE_EVENT_TYPES, INVOICE_LANE_EVENT_TYPES, PAYOUT_EVENT_TYPES, RECONCILE_LANE_EVENT_TYPES, outboxRetryClass } from "./worker_scheduler.js";
 
@@ -117,8 +118,24 @@ export function buildOutboxWorkerHelpers(deps: {
    */
   retryPolicy?: OutboxRetryPolicySet;
   random?: () => number;
+  /** Receives the per-row errors the sweep / claim / reclaim loops survive (F-L2). */
+  logger?: { warn: (obj: Record<string, unknown>, msg: string) => void };
 }) {
   const workerId = String(deps.workerId || `worker-${process.pid}`);
+  // Black-Sky F-L2: the per-row savepoint loops below survive a failing row so
+  // one poisoned event cannot block the batch - but they did so silently. Every
+  // swallowed row error is now counted and logged (no payloads, ids only).
+  const warn = (msg: string, event: { event_uuid?: string; event_type?: string }, error: unknown) => {
+    const payload = {
+      worker_id: workerId,
+      event_uuid: event?.event_uuid ?? null,
+      event_type: event?.event_type ?? null,
+      error_code: safeErrorCode(error),
+      error: errorMessage(error).slice(0, 200)
+    };
+    if (deps.logger) deps.logger.warn(payload, msg);
+    else console.warn(JSON.stringify({ level: "warn", msg, ...payload }));
+  };
   const configuredLeaseMs = Number(deps.leaseMs || 60_000);
   const leaseMs = Number.isFinite(configuredLeaseMs) ? Math.max(5_000, Math.floor(configuredLeaseMs)) : 60_000;
   const configuredMaxAttempts = Number(deps.outboxMaxAttempts);
@@ -393,9 +410,11 @@ export function buildOutboxWorkerHelpers(deps: {
           await quarantinePendingEvent(c, event, "pending_dlq_archive_conflict");
           await c.query(`RELEASE SAVEPOINT ${quarantineSavepoint}`);
           changed += 1;
-        } catch {
+        } catch (quarantineError) {
           await c.query(`ROLLBACK TO SAVEPOINT ${quarantineSavepoint}`);
           await c.query(`RELEASE SAVEPOINT ${quarantineSavepoint}`);
+          incrementRuntimeCounter("outbox_quarantine_failed_total");
+          warn("outbox_sweep_quarantine_failed", event, quarantineError);
         }
       }
     }
@@ -458,9 +477,11 @@ export function buildOutboxWorkerHelpers(deps: {
           try {
             await quarantinePendingEvent(c, candidate, "claim_audit_conflict");
             await c.query(`RELEASE SAVEPOINT ${quarantineSavepoint}`);
-          } catch {
+          } catch (quarantineError) {
             await c.query(`ROLLBACK TO SAVEPOINT ${quarantineSavepoint}`);
             await c.query(`RELEASE SAVEPOINT ${quarantineSavepoint}`);
+            incrementRuntimeCounter("outbox_quarantine_failed_total");
+            warn("outbox_claim_quarantine_failed", candidate, quarantineError);
           }
         }
       }
@@ -552,9 +573,16 @@ export function buildOutboxWorkerHelpers(deps: {
           }
           await c.query(`RELEASE SAVEPOINT ${savepoint}`);
           changed += 1;
-        } catch {
+        } catch (error) {
           await c.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
           await c.query(`RELEASE SAVEPOINT ${savepoint}`);
+          if (error instanceof OutboxLeaseLostError) {
+            // Benign race: another worker renewed or finished the row first.
+            incrementRuntimeCounter("outbox_reclaim_lease_lost_total");
+          } else {
+            incrementRuntimeCounter("outbox_reclaim_row_failed_total");
+            warn("outbox_reclaim_row_failed", event, error);
+          }
         }
       }
       return changed;
