@@ -815,15 +815,15 @@ Prior rounds (retained for history — the fields below describe earlier milesto
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
 
 <!-- AGENT_STATUS:chatgpt:START -->
-### ChatGPT latest milestone — automatic Codex re-review on every updated PR head
+### ChatGPT latest milestone — Cloud Agent Manager fresh-runner isolation follow-up to PR #124
 
-- UPDATED: 2026-09-26
-- BRANCH: `chatgpt/codex-rereview-latest-head-20260926`
-- COMPLETED: added `.github/workflows/codex-rereview.yml`. Every non-draft same-repository Pull Request `synchronize` event and every `ready_for_review` transition requests `@codex review` for the exact current head SHA, with per-SHA deduplication; fork PRs are excluded from automatic spend. `AGENTS.md` and `AI_WORKFLOW.md` now state that a review attached only to an older commit is stale after fixes are pushed.
-- TESTED: the workflow is permission-minimal and does not checkout or execute PR code: `contents: read`, `pull-requests: read`, `issues: write` only. The request is keyed by an HTML marker containing the exact head SHA, and deduplication trusts only markers authored by `github-actions[bot]`, so a PR author cannot forge the marker to suppress review.
-- OPEN: the workflow becomes active only after merge to `master`. One live post-merge `synchronize` event is still required to prove that the Codex GitHub App responds to a GitHub-Actions-authored `@codex review` comment.
-- PERCENTAGE: 90% until merged and one live trigger is observed.
-- NEXT STEP: open and review the PR, merge after applicable checks, then observe the first subsequent updated PR and confirm Codex reviews its latest SHA.
+- UPDATED: 2026-09-28
+- BRANCH: `chatgpt/reviewer-job-isolation-followup-20260928` from merged master `0ca2e5b`.
+- COMPLETED: split the cloud manager into five security boundaries: `managed-build`, `review1`, `fix`, `review2` when needed, and `finalize`. Builder code, reviewer code, the bounded fix pass and lifecycle credentials no longer share one GitHub-hosted runner. Candidate code crosses boundaries only as Actions artifacts. Claude's read-only guard is pinned before importing untrusted patches on each fresh review runner. `SITON_AGENT_GITHUB_TOKEN` is used only in the fresh finalization job; the build job receives only a presence boolean.
+- TESTED / CHECKED: release-tools regression added for the five-job topology, artifact handoffs, fresh review boundaries, isolated bounded fix, lifecycle-token placement and the requirement that `fix` succeed before finalization. Existing hook-free pristine-control checkout assertions were updated to job outputs. Hosted CI and independent current-head review are still pending.
+- OPEN: hosted CI; independent Codex review; any findings from those checks; merge and post-merge confirmation. This changes only orchestration/tests/status, not product runtime, DB, payments, Grow or real-money state.
+- PERCENTAGE: 75%.
+- NEXT: open PR against master, obtain FULL CI and independent review, fix findings without weakening gates, then merge only on a clean final head.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 
