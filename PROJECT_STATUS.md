@@ -363,9 +363,45 @@ Current invariants:
 - TESTED: release-tools suite 221/221 after review fixes (220/220 before) (new: `agent_model_tiers.test.cjs` 19, guard suite 13 incl. a real-shell disposable-repo proof). Mutations caught: PR #79's guard fails 5 guard tests; exact-match instead of prefix matching fails 1; downgrade check removed fails 1; downward fallback fails 4. Live CLI proofs: scout without Bash cannot write; reviewer config with the guard allows `git log`, blocks `git diff --output`. Lint, secret/PII scan, YAML parse pass. `release:preflight:static` locally fails only `mobile-pwa-gate` because `web/node_modules` is not installed in this container (CI installs it).
 - REVIEW (PR #124): independent senior reviewer (opus, read-only) returned BLOCK with a proven P0: a value-taking option consumes `--`/`--end-of-options` as its value and Git keeps parsing options, so `git diff --src-prefix --end-of-options --output=<file>` passed the guard; writing `.git/config` this way reached code execution on the next `git status`. Fixed: `--end-of-options` refused and every word scanned (also after `--`); the reviewer's reproductions are regression tests, one executed in a real shell. Its P2s, fixed: Codex pins equal to a lower tier's model are refused; the guard is now captured into a step output (not disk) before any agent and re-materialized with a sha256 check immediately before each review, so a builder cannot swap it (also Codex P2). Codex P2 on telemetry fixed: `claude_reviewer_model` is recorded separately and each role records `none` when Claude does not play it. Re-review of the fixes by the same reviewer: SAFE TO MERGE (P0 closed, all reproductions refused). It left one question open, and a live test answered it: a builder-written `.claude/settings.json`, `.claude/settings.local.json` or `~/.claude/settings.json` with `disableAllHooks` DID switch off the `--settings` guard (the file was written); `--setting-sources user` still failed to the user-level variant. Fixed with `--setting-sources=` (no user/project/local sources) on both Claude review steps; the same attack is then blocked, proven live. Codex re-review of `e68b02c` (4 × P2): fixed three: Codex pins are compared with the EFFECTIVE lower-tier models (defaults and pins); a fallback is never a weaker family than an administrator's stronger pin (and never equal to the primary); telemetry now records `claude_model_requested` and `claude_model_executed` separately for builder and reviewer, the executed models parsed from the claude-code-action execution files (after a `--fallback-model` switch they differ). Not fixed, answered: a hostile Claude BUILDER in the same job can poison `GITHUB_PATH`/`GITHUB_ENV`, the tool cache or system binaries before the review; no in-job step can re-establish trust (hosted runners give the builder sudo), so this needs the Claude review moved to a separate job on a fresh runner — an architectural change to the manager lifecycle, proposed as a follow-up. Residual, documented: Claude pins are checked by family, not version; Codex pins only against lower-tier defaults (repository variables are admin-only, trusted configuration); the guard pinning defeats between-step edits, not a background process left by the builder in the same job (full isolation needs a separate review job); unquoted `^`/mid-word `~` would be glob operators under zsh EXTENDED_GLOB (the guard runs only in bash CI today).
 - COORDINATION: Codex (owner-requested, on PR #124) takes ownership of the Codex column AFTER #124 merges: `CODEX_TIER_MODELS`, the swarm matrix, Codex capability/availability preflight and their tests; #124 keeps the tier mechanism, Claude aliases, router/workflow wiring, guard and `.claude/agents`. Its proposed `gpt-6-*` mapping is not in #124 (unverified per environment; its own audit found the installed Codex CLI does not list GPT-6). Codex also reported a router gap, confirmed and fixed here: state-machine/idempotency tasks and a mislabelled task type (a migration declared `frontend`) routed to Standard; sensitive task text now forces the Senior floor regardless of declared type (test added).
+- OWNER DECISION (2026-09-28): merge #124; the separate Claude review job (reviewer isolation from a hostile same-job builder) is a follow-up PR.
 - OPEN: CI on the fixed head; PR #79 should be reduced to its bootstrap/installer/docs part or closed as superseded (owner's call); PR #78 needs a rebase onto the tier module if it is still wanted. Swarm lanes in `cloud-analysis-swarm.yml` still name Codex models literally (reviewed with the tier table).
 - PERCENTAGE: 90% (implementation, tests, live proofs done; review, CI, merge pending).
-- NEXT STEP: independent review + Codex findings fixed → CI green → squash-merge.
+- NEXT STEP: squash-merge #124 (owner-approved), hand the Codex column to Codex, then the separate review-job follow-up.
+
+### Claude Code latest milestone — CI fast path: risk classifier, parallel lanes, one ci-verdict (PR #126)
+
+- UPDATED: 2026-09-28
+- BRANCH / PR: `claude/zen-brown-ufd0cm` from master `904f72e` → PR [#126](https://github.com/matilederer7-bit/C-ton/pull/126). Plan `docs/team-plans/2026-09-28-ci-fast-path.json`. It returned TEAM_PLAN_FAIL, which I accepted and recorded: the only overlaps are the Dependabot action bumps on the replaced workflow files and another slot of this status file. PR #123 was not touched. The Codex model-infrastructure work confirmed on the PR that it stays off these paths.
+- COMPLETED:
+  - `.github/workflows/ci.yml` ("Siton CI") replaces `backend-quality-gates.yml`, `release-readiness.yml` and `web-runtime-depth.yml`. The flow is classify → static-gates + 10 parallel test lanes + web-runtime-core / resilience / docker-smoke / docker-release-lab / preflight-database → `ci-verdict`, the single required check.
+  - Classifier `scripts/ci_change_classifier.cjs` maps each diff to trivial/low/normal/high/critical and then to FAST / STANDARD / FULL:
+    - It is an allowlist: anything unmatched is FULL.
+    - It fails closed on diff parsing.
+    - A proposed profile (`CI-Profile:` or a `ci:*` label) can only escalate.
+    - Push, nightly and manual runs are always FULL.
+  - Verdict `scripts/ci_verdict.cjs` checks that every required job succeeded and every skip was declared. From the per-lane manifests it proves the whole inventory ran exactly once and passed.
+  - Runner changes: `TEST_SHARD`, a `focused` group, and `TEST_RESULTS_FILE`.
+  - Duplication removed:
+    - the static preflight gates ran up to 3× per PR, now once;
+    - `lint` and `scan:backend` are the same script and ran twice, now once;
+    - `test:all` re-ran all ten groups on every master push (15 min); that repetition is now a nightly FULL run.
+  - `docs/CI_TEST_STRATEGY.md` is rewritten, and `docs/CLAUDE_TEAM_LEAD.md` gains a fast-path section: local depth by profile, reviewer in parallel with CI, no swarm for simple tasks.
+  - No test was deleted, no assertion weakened, no gate made non-blocking.
+- TESTED:
+  - Classifier, verdict and shard suite: 52 cases, including negative disguise cases. Every one of these comes out FULL: docs renamed into a migration and back, a one-line `refund` or `FOR UPDATE` edit, a removed lock, a deleted or renamed test, a weakened payments test, a symlink in docs, an active SVG, native security config, a spaced-path money edit, and a FAST proposal on a payment change.
+  - Release-tool tests 251/251. Static preflight PASS, warnings unchanged. DB preflight `--only` 6/6. The e2e, security, payments and api groups pass locally with the new runner.
+  - Real history replayed through the classifier: the docs-only status commit `ea04f31` → FAST (1 focused test); the UI change `49de3d6` → STANDARD; the MFA security change `e6a5b18` → FULL.
+  - Real CI: run 36473206258 (FULL) finished in **3m39s wall-clock**, against 17m54s before (run 36463288440) and 34m06s on master (run 36465477706). `ci-verdict` reported 321/321 test files run. It correctly went red on a static-gates failure (a test name in the durations file hit the distributor gate), which was fixed.
+- REVIEW:
+  - Codex made 2 P2 findings, both fixed and resolved.
+  - The independent senior reviewer asked for changes: 3 high, 4 medium, 4 low. All were fixed in `2158ecf`, and the reviewer approved `2158ecf`. Its three minor follow-ups (SVG regex, extra native config files, `--only` ids must be in the standard profile) are fixed on the final head.
+- OPEN:
+  - CI green on the final head, then merge.
+  - Real FAST and STANDARD proof PRs after the merge.
+  - Owner: require only `ci-verdict` if branch protection is enabled (it is currently off).
+  - Dependabot will regenerate its action-bump PRs against `ci.yml`.
+- PERCENTAGE: 90% (implementation, tests, both reviews and a real FULL run done; the final-head CI, the merge and the real FAST/STANDARD proof runs are pending).
+- NEXT STEP: CI green on the final head → squash-merge → open a docs-only proof PR and a frontend proof PR, record their profile and wall-clock, close them unmerged → verify the master FULL run and the staging deploy.
 
 ### Claude Code latest milestone — Home "איך זה עובד?" infographic, editable in the content editor (words + icons) — LIVE on staging (`904f72e`), 100%
 
