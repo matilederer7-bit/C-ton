@@ -132,8 +132,18 @@
       "role": "reviewer",
       "senior": true,
       "scope": "independent read-only senior review of the combined diff: gate integrity, enforcement soundness, false-negative hunting on the new rules, and documentation truthfulness",
-      "reviews": ["B0", "B1", "B2", "B3"],
-      "depends_on": ["B0", "B1", "B2", "B3"],
+      "reviews": [
+        "B0",
+        "B1",
+        "B2",
+        "B3"
+      ],
+      "depends_on": [
+        "B0",
+        "B1",
+        "B2",
+        "B3"
+      ],
       "dod": [
         "verdict with concrete failure scenarios, or an explicit statement that none were found",
         "explicit confirmation that no existing gate was weakened",
@@ -141,5 +151,6 @@
       ]
     }
   ],
-  "overlap_decision": "The checker reports one open_work_overlap: CLAUDE.md is also touched by origin/codex/bootstrap-reconcile-20260924 (PR #79, last commit 2026-09-24, 26 commits behind master). The owner asked for CLAUDE.md explicitly, and under the AGENTS.md source-of-truth order the owner's current task outranks the inter-agent scope lock. The collision is made harmless rather than merely accepted: PR #79 appends a single Optional specialist team section at end of file, B3 inserts strictly above the final completion-report section and leaves the last three lines byte-identical, so the two hunks are disjoint. This is proven mechanically before merge with a trial three-way merge that must report zero conflicts. The other two listed branches touch only PROJECT_STATUS.md, and B0 writes only the claude slot."
+  "overlap_decision": "The checker reports one open_work_overlap: CLAUDE.md is also touched by origin/codex/bootstrap-reconcile-20260924 (PR #79, last commit 2026-09-24, 26 commits behind master). The owner asked for CLAUDE.md explicitly, and under the AGENTS.md source-of-truth order the owner's current task outranks the inter-agent scope lock. The collision is made harmless rather than merely accepted: PR #79 appends a single Optional specialist team section at end of file, B3 inserts strictly above the final completion-report section and leaves the last three lines byte-identical, so the two hunks are disjoint. This is proven mechanically before merge with a trial three-way merge that must report zero conflicts. The other two listed branches touch only PROJECT_STATUS.md, and B0 writes only the claude slot.",
+  "retroactive_finding_note": "On 2026-09-28, later in the same change that produced this plan, scripts/team_plan_check.cjs reclassified tests/release_tools/team_plan_check.test.cjs as ci-gates, because a CI step now runs that file to enforce this very gate and whoever can empty its assertions can switch the gate off. The builder in this plan that holds that file declares model sonnet, so the current checker reports model_underpowered against this plan. The recorded model is deliberately NOT being changed to opus: that builder really did run on sonnet, and editing a record to satisfy a rule created after the run is precisely the model_fabricated behaviour this same change added a detector for. The rule is right, this plan violated it, and both facts are left visible. Senior review was satisfied in this plan; only the model-tier floor is unmet. Recorded in PROJECT_STATUS.md and in docs/team-plans/2026-09-28-orchestration-enforcement-round3.json."
 }

@@ -7,7 +7,10 @@
     "origin/claude/festive-wright-kx4e5a",
     "origin/claude/homepage-how-it-works-infographic-ed3is4"
   ],
-  "accepted_overlaps": ["CLAUDE.md", "PROJECT_STATUS.md"],
+  "accepted_overlaps": [
+    "CLAUDE.md",
+    "PROJECT_STATUS.md"
+  ],
   "overlap_decision": "Two overlaps are accepted and neither is speculative. CLAUDE.md is also touched by origin/codex/bootstrap-reconcile-20260924 (PR #79): that branch appends one section at end of file, this branch inserts strictly above the closing section and leaves the final three lines byte-identical, and the trial three-way merge of this branch against it returns exit 0 with zero conflicts, re-run on every head. PROJECT_STATUS.md is touched by two open claude branches, but each agent owns its own marked slot and this branch writes only the claude slot; that file already conflicts between master and origin/claude/festive-wright-kx4e5a independently of this work, which was verified by merging master against it directly.",
   "interface_contract": {
     "ci-gates family": "pattern becomes /^\\.github\\/workflows\\/|^scripts\\//, so EVERY script under scripts/ is gate tooling, named individually or granted as a directory. HIGH_RISK_PREFIXES ci-gates stays ['.github/workflows/', 'scripts/'].",
@@ -35,7 +38,14 @@
         "docs/team-plans/2026-09-28-orchestration-enforcement-round2.json",
         "PROJECT_STATUS.md"
       ],
-      "forbidden": ["scripts/", "tests/", "CLAUDE.md", "docs/CLAUDE_TEAM_LEAD.md", ".github/", "package.json"],
+      "forbidden": [
+        "scripts/",
+        "tests/",
+        "CLAUDE.md",
+        "docs/CLAUDE_TEAM_LEAD.md",
+        ".github/",
+        "package.json"
+      ],
       "depends_on": [],
       "dod": [
         "plan passes the round-one checker except for overlaps listed in accepted_overlaps",
@@ -48,8 +58,19 @@
       "model": "opus",
       "role": "builder",
       "scope": "every logic fix from the senior review inside the work-plan checker",
-      "allowed": ["scripts/team_plan_check.cjs"],
-      "forbidden": ["tests/", "docs/", "CLAUDE.md", "PROJECT_STATUS.md", ".github/", "package.json", "src/", ".claude/"],
+      "allowed": [
+        "scripts/team_plan_check.cjs"
+      ],
+      "forbidden": [
+        "tests/",
+        "docs/",
+        "CLAUDE.md",
+        "PROJECT_STATUS.md",
+        ".github/",
+        "package.json",
+        "src/",
+        ".claude/"
+      ],
       "depends_on": [],
       "dod": [
         "P0-1, P1-2, P1-3, P1-4, P1-5 and P1-7 are closed exactly as the interface contract states",
@@ -64,8 +85,18 @@
       "model": "sonnet",
       "role": "builder",
       "scope": "controls that pin every review finding closed, each failing on the round-one code",
-      "allowed": ["tests/release_tools/team_plan_check.test.cjs"],
-      "forbidden": ["scripts/", "docs/", "CLAUDE.md", "PROJECT_STATUS.md", ".github/", "package.json", "src/"],
+      "allowed": [
+        "tests/release_tools/team_plan_check.test.cjs"
+      ],
+      "forbidden": [
+        "scripts/",
+        "docs/",
+        "CLAUDE.md",
+        "PROJECT_STATUS.md",
+        ".github/",
+        "package.json",
+        "src/"
+      ],
       "depends_on": [],
       "dod": [
         "a control reproducing the reviewer's exploit plan and asserting it now fails",
@@ -84,7 +115,16 @@
         "CLAUDE.md",
         "docs/team-plans/2026-09-24-smoke-worker-log-scrub.json"
       ],
-      "forbidden": ["scripts/", "tests/", "PROJECT_STATUS.md", ".github/", "package.json", "src/", ".claude/", "AGENTS.md"],
+      "forbidden": [
+        "scripts/",
+        "tests/",
+        "PROJECT_STATUS.md",
+        ".github/",
+        "package.json",
+        "src/",
+        ".claude/",
+        "AGENTS.md"
+      ],
       "depends_on": [],
       "dod": [
         "the R2 Codex reviewer no longer carries a fabricated Anthropic model and the backfill note says so",
@@ -99,8 +139,19 @@
       "model": "opus",
       "role": "builder",
       "scope": "make the gate executable in CI rather than procedural",
-      "allowed": [".github/workflows/backend-quality-gates.yml", "package.json"],
-      "forbidden": ["scripts/", "tests/", "docs/", "CLAUDE.md", "PROJECT_STATUS.md", "src/", ".claude/"],
+      "allowed": [
+        ".github/workflows/backend-quality-gates.yml",
+        "package.json"
+      ],
+      "forbidden": [
+        "scripts/",
+        "tests/",
+        "docs/",
+        "CLAUDE.md",
+        "PROJECT_STATUS.md",
+        "src/",
+        ".claude/"
+      ],
       "depends_on": [],
       "dod": [
         "npm run team:plan-check exists and runs the checker",
@@ -116,13 +167,26 @@
       "role": "reviewer",
       "senior": true,
       "scope": "independent read-only senior re-review: confirm each round-one finding is closed at the root rather than papered over, and hunt new false negatives created by the fixes",
-      "reviews": ["C0", "C1", "C2", "C3", "C4"],
-      "depends_on": ["C0", "C1", "C2", "C3", "C4"],
+      "reviews": [
+        "C0",
+        "C1",
+        "C2",
+        "C3",
+        "C4"
+      ],
+      "depends_on": [
+        "C0",
+        "C1",
+        "C2",
+        "C3",
+        "C4"
+      ],
       "dod": [
         "per-finding verdict: closed, partially closed or still open, each with evidence",
         "new false negatives introduced by the fixes, or an explicit statement that none were found after listing what was attacked",
         "explicit list of what was not reviewed"
       ]
     }
-  ]
+  ],
+  "retroactive_finding_note": "On 2026-09-28, later in the same change that produced this plan, scripts/team_plan_check.cjs reclassified tests/release_tools/team_plan_check.test.cjs as ci-gates, because a CI step now runs that file to enforce this very gate and whoever can empty its assertions can switch the gate off. The builder in this plan that holds that file declares model sonnet, so the current checker reports model_underpowered against this plan. The recorded model is deliberately NOT being changed to opus: that builder really did run on sonnet, and editing a record to satisfy a rule created after the run is precisely the model_fabricated behaviour this same change added a detector for. The rule is right, this plan violated it, and both facts are left visible. Senior review was satisfied in this plan; only the model-tier floor is unmet. Recorded in PROJECT_STATUS.md and in docs/team-plans/2026-09-28-orchestration-enforcement-round3.json."
 }

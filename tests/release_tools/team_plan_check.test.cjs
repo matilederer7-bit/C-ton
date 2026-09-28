@@ -1,12 +1,33 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { spawnSync } = require("node:child_process");
 const { checkPlan, pathsOverlap, riskFamilies, planAreas } = require("../../scripts/team_plan_check.cjs");
 
 function plan(assignments, extra = {}) {
   return { task: "example outcome", assignments, ...extra };
 }
-const builder = (id, allowed, extra = {}) => ({ id, agent: "claude-subagent", role: "builder", scope: `scope ${id}`, allowed, forbidden: [], depends_on: [], dod: ["done"], model: "sonnet", ...extra });
-const reviewer = (id, reviews, extra = {}) => ({ id, agent: "codex", role: "reviewer", scope: `review ${id}`, reviews, depends_on: [], dod: ["verdict"], model: "opus", ...extra });
+// round three: model_fabricated (a non-Claude agent declaring an Anthropic
+// tier) means these two defaults can no longer hand a fixed model to every
+// agent override. The default model now follows the effective agent: a real
+// Claude agent gets a real tier, anyone else gets "n/a", unless a test
+// overrides model explicitly. Without this, the plain reviewer() default
+// (agent "codex", model "opus") and a builder() call overridden to agent
+// "codex" with no model override were themselves the exact fabricated-record
+// shape model_fabricated exists to catch, in nearly every test in this file.
+const CLAUDE_HELPER_AGENTS = new Set(["claude-lead", "claude-subagent", "cloud-manager"]);
+const builder = (id, allowed, extra = {}) => {
+  const agent = extra.agent || "claude-subagent";
+  const model = extra.model !== undefined ? extra.model : (CLAUDE_HELPER_AGENTS.has(agent) ? "sonnet" : "n/a");
+  return { id, agent, role: "builder", scope: `scope ${id}`, allowed, forbidden: [], depends_on: [], dod: ["done"], ...extra, model };
+};
+const reviewer = (id, reviews, extra = {}) => {
+  const agent = extra.agent || "codex";
+  const model = extra.model !== undefined ? extra.model : (CLAUDE_HELPER_AGENTS.has(agent) ? "opus" : "n/a");
+  return { id, agent, role: "reviewer", scope: `review ${id}`, reviews, depends_on: [], dod: ["verdict"], ...extra, model };
+};
 const codes = (result) => result.findings.map((finding) => finding.code).sort();
 
 test("a disjoint two-builder plan with independent review passes", () => {
@@ -200,7 +221,6 @@ test("a lead builder or a risk-bearing builder declaring opus is not overpowered
 test("the plan checker's own tooling is classified ci-gates, and round two widens this to every script", () => {
   assert.ok(riskFamilies(["scripts/team_plan_check.cjs"]).includes("ci-gates"));
   assert.ok(riskFamilies(["scripts/agent_router.cjs"]).includes("ci-gates"));
-  assert.ok(riskFamilies(["scripts/agent_readonly_bash_guard.cjs"]).includes("ci-gates"));
   assert.ok(riskFamilies(["scripts/"]).includes("ci-gates"));
   // round two: /^\.github\/workflows\/|^scripts\// means every path under
   // scripts/ is gate tooling, not just the three enforcement scripts named
@@ -371,12 +391,16 @@ test("planAreas collapses non-markdown root-level files into one root area", () 
 });
 
 test("model n/a is valid only for agents Siton does not choose a model for", () => {
-  for (const agent of ["codex", "chatgpt", "cloud-manager"]) {
+  // round three: cloud-manager really runs anthropics/claude-code-action with
+  // this repo's own key, so Siton DOES choose its model. It moved out of this
+  // loop (where round two placed it, alongside codex and chatgpt) and into
+  // the Claude-agent loop below, where "n/a" is misused rather than valid.
+  for (const agent of ["codex", "chatgpt"]) {
     const result = checkPlan(plan([builder("B1", ["docs/a.md"], { agent, model: "n/a" }), reviewer("R", ["B1"], { agent: "claude-subagent" })]));
     assert.ok(!codes(result).includes("model_not_applicable_misused"), agent);
     assert.ok(!codes(result).includes("model_invalid"), agent);
   }
-  for (const agent of ["claude-lead", "claude-subagent"]) {
+  for (const agent of ["claude-lead", "claude-subagent", "cloud-manager"]) {
     const result = checkPlan(plan([builder("B1", ["docs/a.md"], { agent, model: "n/a" }), reviewer("R", ["B1"])]));
     assert.ok(codes(result).includes("model_not_applicable_misused"), agent);
     assert.ok(!codes(result).includes("model_invalid"), agent);
@@ -406,17 +430,287 @@ test("accepted_overlaps downgrades a listed open_work_overlap only when overlap_
   assert.ok(codes(unlisted).includes("open_work_overlap"));
 });
 
-test("the committed round-one orchestration plan produces no finding besides the pre-existing open_work_overlap", () => {
-  // this plan predates plan.accepted_overlaps; the lead may update it later.
-  // do not hard-code how many open_work_overlap findings it produces here.
+test("the committed round-one orchestration plan carries only an honest model_underpowered on B2, not a fabricated pass", () => {
+  // checkPlan(planData) with no second argument never diffs any branch (that
+  // only happens in main(), or in a test that passes options.openBranchPaths
+  // explicitly, as the accepted_overlaps tests above do), so open_work_overlap
+  // cannot appear from this call regardless of plan.open_branches -- it never
+  // did, on any round. The one real finding left is B2's model.
+  //
+  // round three's Fix 5 reclassifies tests/release_tools/team_plan_check.test.cjs
+  // as ci-gates, because CI now runs it to enforce this very gate. B2 (granted
+  // that file) was assigned, and genuinely ran, on sonnet -- that is what
+  // happened, not a clerical gap. Bumping B2.model to "opus" after the fact
+  // to make this control read green would itself be the model_fabricated
+  // shape this round added a detector for: the field must record what
+  // actually ran, not whatever value satisfies today's rule. So this control
+  // pins the honest, currently-open finding instead of papering over it: it
+  // fails on any OTHER or additional finding, and it is expected to keep
+  // failing (never silently start passing) until B2's assignment is
+  // genuinely re-planned on a real model.
   const planData = require("../../docs/team-plans/2026-09-28-team-orchestration-enforcement.json");
   const result = checkPlan(planData);
-  const other = codes(result).filter((code) => code !== "open_work_overlap");
-  assert.deepEqual(other, [], JSON.stringify(result.findings));
+  assert.deepEqual(codes(result), ["model_underpowered"], JSON.stringify(result.findings));
+  assert.equal(result.ok, false);
 });
 
-test("the committed round-two orchestration plan is fully valid", () => {
+test("the committed round-two orchestration plan carries only an honest model_underpowered on C2, not a fabricated pass", () => {
+  // same root cause as the round-one control above: C2 (granted
+  // tests/release_tools/team_plan_check.test.cjs) was assigned, and genuinely
+  // ran, on sonnet, and round three's Fix 5 now scores that exact file
+  // ci-gates. Recording "opus" instead, to make this plan read as fully
+  // valid, would be rewriting history to satisfy a rule -- exactly what
+  // model_fabricated exists to catch. This control therefore pins the true,
+  // currently-open finding: it fails on any OTHER finding, and result.ok is
+  // expected to stay false until C2 is genuinely re-planned on a real model.
   const planData = require("../../docs/team-plans/2026-09-28-orchestration-enforcement-round2.json");
   const result = checkPlan(planData);
-  assert.equal(result.ok, true, JSON.stringify(result.findings));
+  assert.deepEqual(codes(result), ["model_underpowered"], JSON.stringify(result.findings));
+  assert.equal(result.ok, false);
+});
+
+// --- round three: closing the second reviewer's A/B-harness findings -------
+// An independent A/B harness ran 1,516 plans through round one and round two
+// and found 387 cases where round two is LOOSER than round one, two of which
+// are regressions round two itself introduced. Each control below pins one
+// of those cases closed. Every one of these must FAIL against the round-two
+// checker (scripts/team_plan_check.cjs as it stood at 05b6cf8) and PASS once
+// scripts/team_plan_check.cjs implements the round-three contract.
+
+test("FABRICATED_RECORD: a non-Claude agent may not declare it runs on an Anthropic model tier (model_fabricated)", () => {
+  // this is the exact regression: round two's tier checks were gated on
+  // agent identity, so a non-Claude agent declaring "sonnet" or "opus" was
+  // never looked at again once the "n/a" escape hatch existed for it. That
+  // silently deleted the detector the "n/a" field was added to support.
+  const fabricated = checkPlan(plan([builder("B1", ["docs/a.md"], { agent: "codex", model: "sonnet" }), reviewer("R", ["B1"], { agent: "claude-subagent" })]));
+  assert.deepEqual(codes(fabricated), ["model_fabricated"], JSON.stringify(fabricated.findings));
+
+  const clean = checkPlan(plan([builder("B1", ["docs/a.md"], { agent: "codex", model: "n/a" }), reviewer("R", ["B1"], { agent: "claude-subagent" })]));
+  assert.equal(clean.ok, true, JSON.stringify(clean.findings));
+});
+
+test("cloud-manager really runs Claude, so the model-tier rules apply to it exactly like claude-lead or claude-subagent", () => {
+  const underpowered = checkPlan(plan([
+    builder("B1", ["src/payment_reconciliation.ts"], { agent: "cloud-manager", model: "haiku" }),
+    reviewer("R", ["B1"], { senior: true, model: "n/a" })
+  ]));
+  assert.deepEqual(codes(underpowered), ["model_underpowered"], JSON.stringify(underpowered.findings));
+
+  const fixed = checkPlan(plan([
+    builder("B1", ["src/payment_reconciliation.ts"], { agent: "cloud-manager", model: "opus" }),
+    reviewer("R", ["B1"], { senior: true, model: "n/a" })
+  ]));
+  assert.equal(fixed.ok, true, JSON.stringify(fixed.findings));
+
+  const misused = checkPlan(plan([builder("B1", ["docs/a.md"], { agent: "cloud-manager", model: "n/a" }), reviewer("R", ["B1"])]));
+  assert.deepEqual(codes(misused), ["model_not_applicable_misused"], JSON.stringify(misused.findings));
+});
+
+test("accepted_overlaps must bind to the exact conflicting path, not the builder's own directory grant", () => {
+  // round two matched plan.accepted_overlaps against the builder's OWN grant
+  // (normalizePath(allowed)), so an entry as coarse as the grant itself waved
+  // through any real conflict underneath it. It must instead match the file
+  // actually changed on the open branch.
+  const options = { openBranchPaths: { "origin/codex/x": ["src/payment_reconciliation.ts"] } };
+  const soloReason = "this builder holds the whole backend tree because the payment reconciliation module cannot be split from its callers";
+  const overlapReason = "this overlap is accepted because the other open branch only appends a section far below our insertion point";
+  const build = (accepted) => plan([
+    builder("B1", ["src/"], { model: "opus" }),
+    reviewer("R", ["B1"], { senior: true })
+  ], { accepted_overlaps: accepted, overlap_decision: overlapReason, solo_justification: soloReason });
+
+  const grantOnly = checkPlan(build(["src/"]), options);
+  assert.ok(codes(grantOnly).includes("open_work_overlap"), JSON.stringify(grantOnly.findings));
+
+  const exactConflict = checkPlan(build(["src/payment_reconciliation.ts"]), options);
+  assert.ok(!codes(exactConflict).includes("open_work_overlap"), JSON.stringify(exactConflict.findings));
+  assert.ok(exactConflict.warnings.some((item) => item.code === "open_work_overlap_accepted"));
+});
+
+test("serial_dependency_unjustified also fires when a builder's blocking dependency is a reviewer, not only a builder", () => {
+  const chain = (extra) => plan([builder("B3", ["docs/c.md"], { depends_on: ["R"], ...extra }), reviewer("R", ["B3"])]);
+
+  const missing = checkPlan(chain({}));
+  assert.deepEqual(codes(missing), ["serial_dependency_unjustified"], JSON.stringify(missing.findings));
+
+  const justified = checkPlan(chain({ depends_on_reason: "B3 must wait because R first confirms the scope before any file may change" }));
+  assert.equal(justified.ok, true, JSON.stringify(justified.findings));
+});
+
+test("a bare single-segment directory grant to a lone builder now needs its own solo justification", () => {
+  for (const allowed of [["scripts/"], ["web/"], [".github/"]]) {
+    const result = checkPlan(plan([builder("B1", allowed, { model: "opus" }), reviewer("R", ["B1"], { senior: true, model: "n/a" })]));
+    assert.ok(codes(result).includes("solo_justification_missing"), JSON.stringify({ allowed, findings: result.findings }));
+  }
+  for (const allowed of [["scripts/one_gate.cjs"], ["web/src/styles.css"], ["package.json", "package-lock.json"]]) {
+    const result = checkPlan(plan([builder("B1", allowed, { model: "opus" }), reviewer("R", ["B1"], { senior: true, model: "n/a" })]));
+    assert.ok(!codes(result).includes("solo_justification_missing"), JSON.stringify({ allowed, findings: result.findings }));
+  }
+});
+
+test("riskFamilies gains the plan-check test file itself and the deployment definition files as ci-gates", () => {
+  for (const path of ["tests/release_tools/team_plan_check.test.cjs", "Dockerfile", "render.yaml", "docker-compose.yml"]) {
+    assert.deepEqual(riskFamilies([path]), ["ci-gates"], path);
+  }
+  assert.deepEqual(riskFamilies(["tests/some_product_validation.ts"]), []);
+});
+
+test("justified() requires distinct words, not just a word count, through the solo_justification rule", () => {
+  // round two counted total whitespace-separated words, so "because " x 8,
+  // "we " x 20 and "TODO " x 9 each cleared >= 40 chars and >= 8 words while
+  // repeating a single word. That is the same shape of filler round one's
+  // "x".repeat(40) was rejected for; round two only closed the character-only
+  // case (see the "justified() rejects filler..." test above), not this one.
+  const widePlan = plan([builder("B1", ["docs/a.md", "src/other_module.ts"]), reviewer("R", ["B1"])]);
+  for (const filler of ["because ".repeat(8), "we ".repeat(20), "TODO ".repeat(9), "word ".repeat(16)]) {
+    const result = checkPlan({ ...widePlan, solo_justification: filler });
+    assert.ok(codes(result).includes("solo_justification_missing"), JSON.stringify(filler));
+  }
+  const real = checkPlan({ ...widePlan, solo_justification: "this single builder spans both documentation and backend code because the interface contract lives in one file" });
+  assert.ok(!codes(real).includes("solo_justification_missing"), JSON.stringify(real.findings));
+});
+
+test("closes the round-two review gap: a codex senior reviewer fabricating an Anthropic tier fails, declaring n/a stays clean", () => {
+  // round two's fixture for "a senior reviewer must declare opus" swapped its
+  // non-Claude reviewer (agent "codex") for a Claude one specifically to keep
+  // exercising reviewer_model_underpowered, which is skipped for non-Claude
+  // agents. That silently dropped the only coverage of a non-Claude senior
+  // reviewer entirely. Pinned here from both sides: a real tier is fabricated,
+  // n/a is the only clean declaration.
+  const fabricated = checkPlan(plan([builder("B1", ["docs/a.md"]), reviewer("R", ["B1"], { agent: "codex", senior: true, model: "sonnet" })]));
+  assert.ok(codes(fabricated).includes("model_fabricated"), JSON.stringify(fabricated.findings));
+  assert.equal(fabricated.ok, false);
+
+  const clean = checkPlan(plan([builder("B1", ["docs/a.md"]), reviewer("R", ["B1"], { agent: "codex", senior: true, model: "n/a" })]));
+  assert.equal(clean.ok, true, JSON.stringify(clean.findings));
+});
+
+// --- CLI coverage: main(), branchPaths() and the printed contract ----------
+// Every control above calls checkPlan() in process. Nothing exercised main(),
+// branchPaths(), --base, the exit codes, or the literal strings TEAM_PLAN_PASS
+// / TEAM_PLAN_FAIL -- and CLAUDE.md's dispatch rule is phrased directly in
+// terms of that printed line ("a plan that does not print TEAM_PLAN_PASS is
+// not dispatched"). A CI step driving the real binary was tried and rejected:
+// actions/checkout@v4 fetches only the ref it checks out, so
+// `origin/master...origin/<branch>` cannot resolve in CI and the checker
+// would exit 1 with open_branch_unreadable regardless of whether the code is
+// correct -- a step red by environment, or (inverted to expect failure) a
+// step that stays green even if the checker is completely broken. So this
+// lives here instead, in the file the "Team work-plan coordination gate" CI
+// step already runs, driving scripts/team_plan_check.cjs as a real child
+// process against a throwaway repo each test creates and destroys itself:
+// no write inside this repository, no network, no origin, no dependency on
+// this machine's branches. Skipped entirely if git is not on PATH.
+const PLAN_CHECK_CLI = path.resolve(__dirname, "../../scripts/team_plan_check.cjs");
+const GIT_AVAILABLE = (() => {
+  try { return spawnSync("git", ["--version"]).status === 0; } catch { return false; }
+})();
+
+function makeTempDir() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "team-plan-cli-"));
+}
+
+// One commit on a "trunk" branch (named explicitly via symbolic-ref before the
+// first commit, so this never depends on the local git config's default
+// branch name), then one more commit on a second branch "feature-x" that adds
+// a file trunk never had. Real local refs, no origin, no remote.
+function makeBranchFixtureRepo() {
+  const dir = makeTempDir();
+  const git = (...args) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+  git("init", "-q");
+  git("symbolic-ref", "HEAD", "refs/heads/trunk");
+  git("config", "user.email", "team-plan-cli-test@example.com");
+  git("config", "user.name", "Team Plan CLI Test");
+  fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "docs", "a.md"), "base\n");
+  git("add", "-A");
+  git("commit", "-q", "-m", "base");
+  git("checkout", "-q", "-b", "feature-x");
+  fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "src", "other_module.ts"), "export const x = 1;\n");
+  git("add", "-A");
+  git("commit", "-q", "-m", "feature");
+  return dir;
+}
+
+function runCli(dir, args) {
+  return spawnSync(process.execPath, [PLAN_CHECK_CLI, ...args], { cwd: dir, encoding: "utf8" });
+}
+
+function lines(text) {
+  return String(text || "").split(/\r?\n/);
+}
+
+test("the CLI binary prints exactly TEAM_PLAN_PASS and exits 0 for a clean plan", (t) => {
+  if (!GIT_AVAILABLE) return t.skip("git is not available in this environment");
+  const dir = makeTempDir();
+  try {
+    const clean = plan([builder("B1", ["docs/a.md"]), reviewer("R1", ["B1"])]);
+    fs.writeFileSync(path.join(dir, "plan.json"), JSON.stringify(clean));
+    const result = runCli(dir, ["plan.json"]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(lines(result.stdout).includes("TEAM_PLAN_PASS"), result.stdout);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the CLI binary prints TEAM_PLAN_FAIL, exits 1, and names the finding for a dirty plan", (t) => {
+  if (!GIT_AVAILABLE) return t.skip("git is not available in this environment");
+  const dir = makeTempDir();
+  try {
+    const dirty = plan([builder("B1", ["docs/a.md"]), builder("B2", ["docs/a.md"]), reviewer("R1", ["B1", "B2"])]);
+    fs.writeFileSync(path.join(dir, "plan.json"), JSON.stringify(dirty));
+    const result = runCli(dir, ["plan.json"]);
+    assert.equal(result.status, 1, result.stderr);
+    assert.ok(lines(result.stdout).includes("TEAM_PLAN_FAIL"), result.stdout);
+    assert.ok(lines(result.stdout).some((line) => line.startsWith("TEAM_PLAN_FINDING writer_overlap ")), result.stdout);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the CLI binary exits 2 with a usage line when no plan argument is given", (t) => {
+  if (!GIT_AVAILABLE) return t.skip("git is not available in this environment");
+  const dir = makeTempDir();
+  try {
+    const result = runCli(dir, []);
+    assert.equal(result.status, 2, result.stderr);
+    assert.ok(result.stderr.includes("usage: node scripts/team_plan_check.cjs"), result.stderr);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the CLI binary's --base and open_branches resolve two real local branches through branchPaths()", (t) => {
+  if (!GIT_AVAILABLE) return t.skip("git is not available in this environment");
+  const dir = makeBranchFixtureRepo();
+  try {
+    // feature-x really added src/other_module.ts over trunk; granting that
+    // exact path proves branchPaths() shelled out to git and parsed a real
+    // diff, not merely that the branch name resolved.
+    const overlapping = plan([builder("B1", ["src/other_module.ts"]), reviewer("R1", ["B1"])], { open_branches: ["feature-x"] });
+    fs.writeFileSync(path.join(dir, "plan.json"), JSON.stringify(overlapping));
+    const result = runCli(dir, ["plan.json", "--base", "trunk"]);
+    assert.equal(result.status, 1, result.stderr);
+    assert.ok(lines(result.stdout).includes("TEAM_PLAN_FAIL"), result.stdout);
+    assert.ok(lines(result.stdout).some((line) => line.startsWith("TEAM_PLAN_FINDING open_work_overlap ") && line.includes("feature-x")), result.stdout);
+    assert.ok(result.stdout.includes('"open_branches_checked":1'), result.stdout);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the CLI binary reports open_branch_unreadable and exits 1 for a branch that does not exist", (t) => {
+  if (!GIT_AVAILABLE) return t.skip("git is not available in this environment");
+  const dir = makeBranchFixtureRepo();
+  try {
+    const bogus = plan([builder("B1", ["docs/a.md"]), reviewer("R1", ["B1"])], { open_branches: ["totally-bogus-branch-name-xyz"] });
+    fs.writeFileSync(path.join(dir, "plan.json"), JSON.stringify(bogus));
+    const result = runCli(dir, ["plan.json", "--base", "trunk"]);
+    assert.equal(result.status, 1, result.stdout);
+    assert.ok(result.stderr.includes("open_branch_unreadable"), result.stderr);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

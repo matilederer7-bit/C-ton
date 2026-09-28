@@ -22,21 +22,34 @@
 //     or `n/a` for an agent whose model this project does not choose)
 //   - the model matches the risk tier: senior-risk builders and senior
 //     reviewers run on opus, and standard-risk work on opus is flagged as a
-//     (non-failing) warning so the lead can downshift it; no tier is asserted
-//     for a non-Claude agent, because Siton does not pick its model
+//     (non-failing) warning so the lead can downshift it. The tier rules are
+//     keyed on the DECLARED model and skipped only for `n/a`; an agent whose
+//     model this project does not choose may not declare an Anthropic tier
 //   - independent workstreams are dispatched in parallel: with two or more
 //     builders at least two real agent identities must be able to start at
 //     once, unless the plan carries a `serialization_justification`
 //   - a builder that waits on another builder argues it in `depends_on_reason`:
 //     a dependent builder is normally handed a fixed interface contract and
 //     authors in parallel anyway, so a true serial chain has to be defended
-//   - a lone builder spanning two or more areas, or one whole-tree grant that
-//     carries two or more risk families, needs a `solo_justification`;
+//   - a lone builder spanning two or more areas, one whole-tree grant that
+//     carries two or more risk families, or a bare single-segment directory
+//     grant such as `scripts/` or `web/`, needs a `solo_justification`;
 //     otherwise the work is split across parallel builders
-//   - every justification carries an argument: >= 40 characters and >= 8 words
+//   - every justification carries an argument: >= 40 characters and >= 8
+//     distinct words (repetition is filler, not an argument)
 //   - an overlap with open work is tolerated only when the plan lists the exact
-//     path in `accepted_overlaps` and argues it in `overlap_decision`; the
-//     finding is then downgraded to a warning, never silently dropped
+//     CONFLICTING file - the path already changed on the open branch, not the
+//     builder's grant - in `accepted_overlaps` and argues it in
+//     `overlap_decision`; the finding is then downgraded to a warning, never
+//     silently dropped
+//
+// Known limit, left deliberately: an `accepted_overlaps` entry is a bare path,
+// scoped neither to a branch nor to a builder, so one entry accepts that same
+// file's collision on every open branch and for every builder in the plan, and
+// one justified `overlap_decision` covers all entries rather than one each.
+// Tightening either needs a richer entry shape than a string, which is a
+// plan-format change; until then read an entry as "this file is accepted",
+// not "this file, on this branch, for this builder".
 //
 // Exit 1 on any violation; warnings never fail the gate.
 // Output is one line per finding, one per warning, plus a JSON summary.
@@ -50,12 +63,17 @@ const AGENTS = new Set(["claude-lead", "claude-subagent", "codex", "chatgpt", "c
 // Declared model per assignment. Cheap work must not silently run on opus and
 // risky work must not silently run on haiku, so the plan states it explicitly.
 // "n/a" exists for agents whose model this project does not choose (Codex,
-// ChatGPT, the cloud manager): making them record an Anthropic tier would
-// write a fabricated claim about another vendor into the historic record.
+// ChatGPT): making them record an Anthropic tier would write a fabricated
+// claim about another vendor into the historic record.
 const MODELS = new Set(["haiku", "sonnet", "opus", "n/a"]);
-// The only agents running on a model Siton picks; the model-tier rules apply
-// to these and to nobody else.
-const CLAUDE_AGENTS = new Set(["claude-lead", "claude-subagent"]);
+// The agents that run on a model Siton itself picks. "cloud-manager" belongs
+// here: .github/workflows/cloud-agent-manager.yml dispatches its Claude
+// builder, both Claude review passes and its bounded fix pass through
+// anthropics/claude-code-action@v1 with this repository's own
+// ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN. Siton does choose that model, so
+// a cloud-manager builder on haiku holding src/payment_reconciliation.ts is a
+// real, checkable mistake and not another vendor's business.
+const CLAUDE_AGENTS = new Set(["claude-lead", "claude-subagent", "cloud-manager"]);
 
 // High-risk path families. Touching any of them makes the builder "senior":
 // it needs an independent reviewer with `senior: true` before merge.
@@ -71,7 +89,17 @@ const HIGH_RISK = [
   // a policy or migration tooling, and whoever edits one of them can switch
   // another off. Naming three files here let a plan grant the real-money proof
   // and the legal gate by name and still be scored standard risk.
-  { family: "ci-gates", pattern: /^\.github\/workflows\/|^scripts\// }
+  //
+  // Two more kinds of control file live outside those two directories:
+  //   - tests/release_tools/team_plan_check.test.cjs is not an ordinary test.
+  //     A workflow step runs it, and that step IS the enforcement of this
+  //     gate, so emptying its assertions turns the step green forever while
+  //     the checker still "runs". A control file that a workflow names is gate
+  //     tooling whatever directory it happens to sit in.
+  //   - Dockerfile, docker-compose*.yml and render.yaml define the production
+  //     image and the Render service. They decide what actually runs in
+  //     production, which is at least as load-bearing as a workflow file.
+  { family: "ci-gates", pattern: /^\.github\/workflows\/|^scripts\/|^tests\/release_tools\/team_plan_check\.test\.cjs$|^Dockerfile$|^docker-compose[^/]*\.ya?ml$|^render\.ya?ml$/ }
 ];
 
 function declaredModel(item) {
@@ -82,11 +110,16 @@ function isClaudeAgent(item) {
   return CLAUDE_AGENTS.has(item?.agent);
 }
 
-// A justification has to carry an argument, not filler: under a length-only
-// bar both "." x 40 and "because " x 6 counted as a reasoned decision.
+// A justification has to carry an argument, not filler. A length-only bar
+// passed "." x 40; adding a word count passed "because " x 6, and two more
+// repeats cleared that too ("because " x 8, "we " x 20, "TODO " x 9, or one
+// word repeated 16 times). Repetition is the tell, so the bar counts DISTINCT
+// words as well: filler repeats itself, an argument does not.
 function justified(value) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
-  return text.length >= 40 && text.split(" ").filter(Boolean).length >= 8;
+  const words = text.split(" ").filter(Boolean);
+  const distinct = new Set(words.map((word) => word.toLowerCase())).size;
+  return text.length >= 40 && words.length >= 8 && distinct >= 8;
 }
 
 function normalizePath(value) {
@@ -111,7 +144,10 @@ const HIGH_RISK_PREFIXES = {
   "state-machine": ["src/"],
   // A broad `scripts/` grant is treated as gate-risk the same way a broad
   // `src/` grant is treated as money/security risk.
-  "ci-gates": [".github/workflows/", "scripts/"]
+  // tests/release_tools/ is listed so that a directory grant of tests/ (or of
+  // tests/release_tools/) is scored gate-risk too: the gate's own control file
+  // lives under it.
+  "ci-gates": [".github/workflows/", "scripts/", "tests/release_tools/"]
 };
 
 // A directory grant is conservatively risky if a high-risk file could live
@@ -188,6 +224,12 @@ function checkPlan(plan, options = {}) {
     if (!model) fail("model_missing", `${id}: model must be declared (haiku, sonnet, opus, or n/a for an agent whose model this project does not choose)`);
     else if (!MODELS.has(model)) fail("model_invalid", `${id}: model must be one of ${[...MODELS].join(", ")}`);
     else if (model === "n/a" && isClaudeAgent(item)) fail("model_not_applicable_misused", `${id}: model n/a is only for agents whose model this project does not choose; a Claude agent must declare haiku, sonnet or opus`);
+    // The mirror image, and the hole the "n/a" value was introduced to close:
+    // Siton does not select this agent's model, so naming an Anthropic tier for
+    // it is an unverifiable claim about another vendor's product. A fabricated
+    // {agent: "codex", model: "sonnet"} is exactly how one reached a committed
+    // record, and keying the tier rules on the agent then let it validate clean.
+    else if (model !== "n/a" && !isClaudeAgent(item)) fail("model_fabricated", `${id}: agent ${item.agent} runs on a model this project does not choose, so declaring the Anthropic tier ${model} states an unverifiable fact about another vendor; declare model n/a`);
     if (item.role === "builder") {
       if (!Array.isArray(item.allowed) || !item.allowed.length) fail("allowed_missing", `${id}: builder must declare allowed paths`);
       if (!Array.isArray(item.forbidden)) fail("forbidden_missing", `${id}: builder must declare forbidden paths (may be empty only deliberately)`);
@@ -252,20 +294,29 @@ function checkPlan(plan, options = {}) {
   const openBranchPaths = options.openBranchPaths || {};
   for (const [branch, paths] of Object.entries(openBranchPaths)) {
     for (const builder of builders) {
+      // EVERY conflicting file under the grant, not just the first one. With
+      // acceptance keyed on the conflict, stopping at the first hit would let a
+      // single entry keep waving through the rest of a directory collision: the
+      // first hit would be accepted and the loop would move on without ever
+      // looking at the others.
       for (const allowed of builder.allowed) {
-        const hit = paths.find((changed) => pathsOverlap(allowed, changed));
-        if (!hit) continue;
-        const message = `${builder.id}: ${normalizePath(allowed)} overlaps ${hit}, already changed on open branch ${branch}`;
-        // Exact granted path, not a prefix: an entry of "src/" must not wave
-        // through every overlap under it.
-        const entry = acceptedOverlaps.find((accepted) => accepted === normalizePath(allowed));
-        if (entry && overlapDecisionOk) { usedOverlapEntries.add(entry); warn("open_work_overlap_accepted", `${message}; accepted by plan.accepted_overlaps entry ${entry}`); continue; }
-        if (entry) unjustifiedAcceptance = true;
-        fail("open_work_overlap", message);
+        for (const hit of paths.filter((changed) => pathsOverlap(allowed, changed))) {
+          const message = `${builder.id}: ${normalizePath(allowed)} overlaps ${hit}, already changed on open branch ${branch}`;
+          // Match the CONFLICT, not the grant. Matching the granted path meant a
+          // grant of "src/" plus a single accepted_overlaps entry of "src/" waved
+          // through every collision beneath it - a migration and
+          // src/payment_reconciliation.ts included - from one line. The entry has
+          // to name the file actually changed on the open branch, by exact
+          // normalized equality, so a directory grant must list each conflict.
+          const entry = acceptedOverlaps.find((accepted) => accepted === normalizePath(hit));
+          if (entry && overlapDecisionOk) { usedOverlapEntries.add(entry); warn("open_work_overlap_accepted", `${message}; accepted by plan.accepted_overlaps entry ${entry}`); continue; }
+          if (entry) unjustifiedAcceptance = true;
+          fail("open_work_overlap", message);
+        }
       }
     }
   }
-  if (unjustifiedAcceptance) fail("overlap_decision_missing", "plan.accepted_overlaps claims an overlap with open work, but plan.overlap_decision does not argue it (>= 40 characters and >= 8 words); the overlaps above stand");
+  if (unjustifiedAcceptance) fail("overlap_decision_missing", "plan.accepted_overlaps claims an overlap with open work, but plan.overlap_decision does not argue it (>= 40 characters and >= 8 distinct words); the overlaps above stand");
   // An entry that matched nothing is stale rather than wrong: it is reported
   // so the reader can see the plan carries an acceptance it never used.
   const acceptedOverlapsUnused = acceptedOverlaps.length - usedOverlapEntries.size;
@@ -300,15 +351,20 @@ function checkPlan(plan, options = {}) {
   const workstreams = new Set([...builderIds].map(find)).size;
 
   if (builders.length >= 2 && parallelIdentities < 2 && !justified(plan?.serialization_justification)) {
-    fail("parallel_dispatch_missing", `${builders.length} builders but only ${parallelIdentities} can start in parallel; split the independent workstreams or set plan.serialization_justification (>= 40 characters and >= 8 words)`);
+    fail("parallel_dispatch_missing", `${builders.length} builders but only ${parallelIdentities} can start in parallel; split the independent workstreams or set plan.serialization_justification (>= 40 characters and >= 8 distinct words)`);
   }
   // Chaining one builder behind another is the thing parallel dispatch exists
   // to avoid. The lead's own procedure hands a dependent builder a fixed
   // interface contract so its authoring still runs at the same time, so a real
   // serial dependency is an argument to make, not an assertion to record.
+  // Every declared blocking dependency counts, not only a builder one: running
+  // over builder ids alone let a builder dodge the rule by depending on a
+  // REVIEWER of the builder it really waits for, which is a strictly longer
+  // serial chain (finish, then be reviewed) and needed no argument at all.
   for (const builder of builders) {
-    for (const dep of builderDeps(builder)) {
-      if (!justified(builder.depends_on_reason)) fail("serial_dependency_unjustified", `${builder.id}: waits on builder ${dep}; author against a fixed interface contract in parallel, or set ${builder.id}.depends_on_reason (>= 40 characters and >= 8 words) explaining why it cannot`);
+    for (const dep of blockingDeps(builder)) {
+      const depRole = byId.get(dep)?.role === "reviewer" ? "reviewer" : "builder";
+      if (!justified(builder.depends_on_reason)) fail("serial_dependency_unjustified", `${builder.id}: waits on ${depRole} ${dep}; author against a fixed interface contract in parallel, or set ${builder.id}.depends_on_reason (>= 40 characters and >= 8 distinct words) explaining why it cannot`);
     }
   }
   if (builders.length === 1) {
@@ -316,16 +372,26 @@ function checkPlan(plan, options = {}) {
     // One area can still be the whole of it: src/ is a single area and every
     // risk family at once. Two or more families count as an extra span, so a
     // whole-tree grant fires here while one gate script does not.
-    const span = areas.length + (riskFamilies(builders[0].allowed).length >= 2 ? 1 : 0);
+    // Area count alone is blind to width INSIDE one area: scripts/ (all gate,
+    // proof and policy scripts), web/ (the whole frontend), .github/ (every
+    // workflow), supabase/, config/, tests/, docs/ and frontend/ are each a
+    // single area carrying at most one risk family, so none of them used to
+    // need an argument. A bare single-segment directory grant is a whole
+    // top-level tree and counts as an extra span on its own. Narrower grants
+    // do not match: "scripts/one_gate.cjs", "web/src/styles.css" and root
+    // files such as package.json all stay at span 1.
+    const wholeTopLevelTree = builders[0].allowed.some((raw) => /^[^/]+\/$/.test(normalizePath(raw)));
+    const span = areas.length + (riskFamilies(builders[0].allowed).length >= 2 ? 1 : 0) + (wholeTopLevelTree ? 1 : 0);
     if (span >= 2 && !justified(plan?.solo_justification)) {
-      fail("solo_justification_missing", `${builders[0].id}: one builder spans ${areas.join(", ")}; split the areas across parallel builders or set plan.solo_justification (>= 40 characters and >= 8 words)`);
+      fail("solo_justification_missing", `${builders[0].id}: one builder spans ${areas.join(", ")}; split the areas across parallel builders or set plan.solo_justification (>= 40 characters and >= 8 distinct words)`);
     }
   }
 
   for (const reviewer of reviewers) {
-    // Skipped for a non-Claude reviewer: Siton does not select its model, so
-    // demanding a tier from it would only produce a made-up declaration.
-    if (reviewer.senior === true && isClaudeAgent(reviewer) && declaredModel(reviewer) !== "opus") fail("reviewer_model_underpowered", `${reviewer.id}: senior reviewer requires model: opus`);
+    // Keyed on the DECLARED model, skipped only for an honest "n/a". Keying it
+    // on the agent meant a reviewer that fabricated a tier escaped the tier
+    // rule; a stated tier is a claim, and a claim is held to the bar.
+    if (reviewer.senior === true && declaredModel(reviewer) !== "n/a" && declaredModel(reviewer) !== "opus") fail("reviewer_model_underpowered", `${reviewer.id}: senior reviewer requires model: opus`);
   }
 
   const summary = [];
@@ -341,13 +407,18 @@ function checkPlan(plan, options = {}) {
     if (families.length && !independent.some((reviewer) => reviewer.senior === true)) {
       fail("senior_review_missing", `${builder.id}: touches ${families.join(", ")}; an independent reviewer with senior: true is required before merge`);
     }
-    // Both tier rules apply to Claude agents only, for the same reason the
-    // "n/a" model exists: this project does not choose another vendor's model.
-    if (families.length && isClaudeAgent(builder) && model !== "opus") {
+    // Both tier rules are keyed on the DECLARED model and skip only "n/a".
+    // Keying them on the agent was the round-two regression: it made the very
+    // value the "n/a" rule exists to prevent - a non-Claude agent declaring an
+    // Anthropic tier - skip the tier check, so {agent: "codex", model: "sonnet"}
+    // validated clean on a payments path. An agent that states a tier is held
+    // to it (and pays model_fabricated above for stating it at all).
+    if (families.length && model !== "n/a" && model !== "opus") {
       fail("model_underpowered", `${builder.id}: touches ${families.join(", ")}; senior-risk builders require model: opus`);
     }
+    // "opus" is by definition not "n/a", so no extra skip is needed here.
     // The lead itself is always opus, so it never counts as over-provisioned.
-    if (!families.length && model === "opus" && isClaudeAgent(builder) && builder.agent !== "claude-lead") {
+    if (!families.length && model === "opus" && builder.agent !== "claude-lead") {
       warn("model_overpowered", `${builder.id}: standard-risk work (${planAreas(builder.allowed).join(", ")}) on opus; a cheaper model is likely sufficient`);
     }
     summary.push({ id: builder.id, agent: builder.agent, model, risk: families.length ? "senior" : "standard", families, reviewers: covering.map((reviewer) => reviewer.id) });
