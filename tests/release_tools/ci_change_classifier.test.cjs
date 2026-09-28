@@ -82,13 +82,13 @@ test("FAST always runs the focused-tests job (release-tool tests read the canoni
 test("an SVG is never a FAST visual change; an active SVG is FULL; raster images stay FAST", () => {
   assert.equal(classify([add("web/public/logo.png", [])]).profile, "FAST");
   assert.equal(classify([add("web/public/logo.svg", ['<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0h1"/></svg>'])]).profile, "STANDARD");
-  for (const line of ['<svg><script>fetch("/api/admin")</script></svg>', '<svg onload="x()"></svg>', '<svg><a href="javascript:x()"/></svg>', "<svg><foreignObject/></svg>"]) {
+  for (const line of ['<svg><script>fetch("/api/admin")</script></svg>', '<svg onload="x()"></svg>', '<svg><a href="javascript:x()"/></svg>', "<svg><foreignObject/></svg>", 'onload="alert(1)">', '<x:script xmlns:x="http://www.w3.org/2000/svg">']) {
     assert.equal(classify([add("web/public/logo.svg", [line])]).profile, "FULL", line);
   }
 });
 
 test("native mobile security configuration is FULL", () => {
-  for (const p of ["android/app/src/main/AndroidManifest.xml", "android/app/src/main/res/xml/network_security_config.xml", "ios/App/App/App.entitlements", "ios/App/App/Info.plist", "android/app/build.gradle"]) {
+  for (const p of ["android/app/src/main/AndroidManifest.xml", "android/app/src/main/res/xml/network_security_config.xml", "ios/App/App/App.entitlements", "ios/App/App/Info.plist", "android/app/build.gradle", "android/app/src/main/res/xml/file_paths.xml", "ios/App/App/PrivacyInfo.xcprivacy"]) {
     assert.equal(classify([mod(p, ['cleartextTrafficPermitted="true"'], [])]).profile, "FULL", p);
   }
   assert.equal(classify([mod("android/app/src/main/res/values/strings.xml", ["<string name=\"a\">b</string>"], [])]).profile, "STANDARD");
@@ -483,7 +483,11 @@ test("every standard-profile release gate runs in exactly one Siton CI job (no g
     const homes = [staticIds.has(gate.id), onlyIds.includes(gate.id), elsewhere.has(gate.id)].filter(Boolean).length;
     assert.equal(homes, 1, `${gate.id} must run in exactly one CI job (found ${homes})`);
   }
-  for (const id of onlyIds) assert.ok(catalogue.gates.some((gate) => gate.id === id), `unknown gate id ${id}`);
+  for (const id of onlyIds) {
+    const gate = catalogue.gates.find((item) => item.id === id);
+    assert.ok(gate, `unknown gate id ${id}`);
+    assert.ok(gate.profiles.includes("standard"), `${id} is not in the standard profile and would be reported NOT_APPLICABLE`);
+  }
 });
 
 test("release preflight refuses unknown gate ids instead of silently dropping them", () => {

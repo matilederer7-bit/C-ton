@@ -61,7 +61,7 @@ const IMAGE = /\.(png|jpe?g|gif|webp|avif|ico|svg)$/i;
 // Raster images only: an SVG is a document that can carry script and is
 // served from the site's own origin, so it is never a FAST "visual" change.
 const RASTER_IMAGE = /\.(png|jpe?g|gif|webp|avif|ico)$/i;
-const ACTIVE_SVG = /(<script|\son\w+\s*=|javascript:|<foreignObject|<iframe|<embed|<object|xlink:href\s*=\s*["']\s*(?!#))/i;
+const ACTIVE_SVG = /(<(\w+:)?script|(^|[\s"'/])on\w+\s*=|javascript:|<(\w+:)?foreignObject|<(\w+:)?iframe|<(\w+:)?embed|<(\w+:)?object|xlink:href\s*=\s*["']\s*(?!#))/i;
 
 // Ordered path rules. The first matching rule gives the file's level.
 // Anything that no rule matches is critical ("unclassified").
@@ -74,7 +74,7 @@ const PATH_RULES = [
   { level: "critical", id: "database", test: (p) => /^(src\/migrations\/|supabase\/)|\.sql$/i.test(p) || /^(scripts|tests\/release_tools)\/[^/]*(migrat|schema|db_|_db|database|backup|restore)[^/]*$/i.test(p) },
   { level: "critical", id: "money-or-security-tooling", test: (p) => /^(scripts|tests\/release_tools)\/[^/]*(money|payment|refund|payout|secret|real_money|route_auth|protected_route|security|compliance|legal|tax|destructive|runtime_env|startup)[^/]*$/i.test(p) },
   { level: "critical", id: "policy-config", test: (p) => /^config\//.test(p) },
-  { level: "critical", id: "native-security-config", test: (p) => /^(android|ios|mobile|mobile-plugins)\/.*(AndroidManifest\.xml|network_security_config[^/]*\.xml|\.entitlements|Info\.plist|\.gradle(\.kts)?|Package\.swift|Podfile|\.pbxproj|proguard[^/]*|capacitor\.config\.[a-z]+)$/i.test(p) },
+  { level: "critical", id: "native-security-config", test: (p) => /^(android|ios|mobile|mobile-plugins)\/.*(AndroidManifest\.xml|network_security_config[^/]*\.xml|\.entitlements|Info\.plist|\.gradle(\.kts)?|Package\.swift|Podfile|\.pbxproj|proguard[^/]*|capacitor\.config\.[a-z]+|file_paths\.xml|\.xcprivacy|data_extraction_rules\.xml|backup_rules\.xml)$/i.test(p) },
   { level: "critical", id: "legacy-excluded-surfaces", test: (p) => /^(base44|legacy)\//.test(p) },
   { level: "critical", id: "high-risk-family", test: (p) => riskFamilies([p]).length > 0 },
 
