@@ -813,15 +813,15 @@ Prior rounds (retained for history — the fields below describe earlier milesto
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
 
 <!-- AGENT_STATUS:chatgpt:START -->
-### ChatGPT latest milestone — automatic Codex re-review on every updated PR head
+### ChatGPT latest milestone — Cloud Agent Manager fresh-runner isolation follow-up to PR #124
 
-- UPDATED: 2026-09-26
-- BRANCH: `chatgpt/codex-rereview-latest-head-20260926`
-- COMPLETED: added `.github/workflows/codex-rereview.yml`. Every non-draft same-repository Pull Request `synchronize` event and every `ready_for_review` transition requests `@codex review` for the exact current head SHA, with per-SHA deduplication; fork PRs are excluded from automatic spend. `AGENTS.md` and `AI_WORKFLOW.md` now state that a review attached only to an older commit is stale after fixes are pushed.
-- TESTED: the workflow is permission-minimal and does not checkout or execute PR code: `contents: read`, `pull-requests: read`, `issues: write` only. The request is keyed by an HTML marker containing the exact head SHA, and deduplication trusts only markers authored by `github-actions[bot]`, so a PR author cannot forge the marker to suppress review.
-- OPEN: the workflow becomes active only after merge to `master`. One live post-merge `synchronize` event is still required to prove that the Codex GitHub App responds to a GitHub-Actions-authored `@codex review` comment.
-- PERCENTAGE: 90% until merged and one live trigger is observed.
-- NEXT STEP: open and review the PR, merge after applicable checks, then observe the first subsequent updated PR and confirm Codex reviews its latest SHA.
+- UPDATED: 2026-09-28
+- BRANCH: `chatgpt/reviewer-job-isolation-20260928`, stacked on PR #124 head `9df59b1`.
+- COMPLETED: restructured `.github/workflows/cloud-agent-manager.yml` so untrusted agent execution and lifecycle authority no longer share one GitHub-hosted runner. The run is split into five security boundaries: `managed-build`, `review1`, `fix`, `review2` when needed, and `finalize`. Candidate code crosses boundaries only as Actions artifacts. The Claude read-only guard is pinned on each fresh review runner before the untrusted patch is imported. The dedicated `SITON_AGENT_GITHUB_TOKEN` is used only in the fresh finalization job; the builder receives only a presence boolean, never the lifecycle token. The one bounded fix pass now also runs on its own fresh runner, so it cannot poison review pass 2.
+- TESTED / CHECKED: added a release-tools topology regression requiring the five jobs, the artifact handoffs, no builder/fix process in reviewer jobs, no coding-agent action in finalization, and a successful `fix` job before finalization. Existing hook-free pristine-control checkout checks were updated for job outputs. Manual diff inspection confirms only the manager workflow and its release-tools test are code/test changes in this follow-up. Full hosted CI and independent Codex review are not yet complete.
+- OPEN: hosted CI on the current head; independent review of the current head; integration into PR #124; after integration, PR #124 itself still needs current-head CI/review and merge. No claim of operational completion yet.
+- PERCENTAGE: 70%.
+- NEXT: open the follow-up PR, obtain current-head CI and independent review, fix any findings without weakening gates, then integrate into PR #124 and re-verify its new head.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 
