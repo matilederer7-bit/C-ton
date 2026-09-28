@@ -2458,7 +2458,7 @@ function BusinessProfilePage({ navigate }: { navigate: (h: string) => void }) {
       </div>
 
       {error ? <div className="notice err">{error}</div> : null}
-      <div className="row" style={{ justifyContent: "flex-end", marginBottom: 24 }}>
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 14, marginBottom: 24 }}>
         <button className="btn btn-primary btn-lg" data-testid="business-profile-save" disabled={busy} onClick={save}>
           {busy ? t("seller.saving") : t("seller.save_business_profile")}
         </button>

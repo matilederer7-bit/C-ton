@@ -2,7 +2,6 @@ import { ContentAdmin } from "../receiptContent";
 ﻿import React, { useEffect, useMemo, useState } from "react";
 import { api, clearAuthSession, getAdminToken, Json } from "../api";
 import { clearOwnerSession } from "../ownerMode";
-import { lockAdmin } from "../adminGate";
 import { revokeSurface } from "../session";
 import { AuthPanel } from "../auth";
 import { BrandLoader, Countdown, EmptyState, Modal, Spinner, StatTile, StatusPill, Toast, useToast } from "../components";
@@ -1623,8 +1622,10 @@ export function AdminArea({ sub, navigate }: { sub: string[]; navigate: (h: stri
             ))}
           </React.Fragment>
         ))}
-        <button style={{ marginTop: "auto", opacity: .7 }} data-testid="admin-lock" onClick={() => { lockAdmin(); window.location.hash = "#/"; window.location.reload(); }}>{t("admin.lock_admin")}</button>
-        <button style={{ opacity: .7 }} onClick={() => { clearAuthSession(); clearOwnerSession(); window.location.hash = "#/"; window.location.reload(); }}>{t("admin.sign_out")}</button>
+        {/* The only exit: ends the session (tokens, capabilities, the admin unlock marker).
+            The former "נעילת מנהל" only removed the client-side unlock marker while the
+            session stayed signed in — a second, unclear exit with no server-side effect. */}
+        <button style={{ marginTop: "auto", opacity: .7 }} data-testid="admin-sign-out" onClick={() => { clearAuthSession(); clearOwnerSession(); window.location.hash = "#/"; window.location.reload(); }}>{t("admin.sign_out")}</button>
       </nav>
       <main className="admin-main">
         {screen === "overview" ? <Overview navigate={navigate} /> : null}
