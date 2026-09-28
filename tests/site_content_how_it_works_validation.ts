@@ -82,6 +82,12 @@ try {
     assert.equal(page.blocks[1]!.type, "how_it_works");
     assert.ok(!page.blocks.some(b => b.type === "steps"));
     assert.deepEqual(howItWorksContentOf(page.blocks[1]!.fields, HOW_IT_WORKS_EN), HOW_IT_WORKS_HE);
+    // the former "לקונים / למוכרים" columns block is RETIRED: not in the defaults, dropped from a stored page, refused on write
+    assert.ok(!contract.defaults().some(b => b.id === "audiences"), "the audiences columns block is no longer a default");
+    const withAudiences = normalizePage({ blocks: [...contract.defaults(), { id: "audiences", type: "columns", enabled: true, fields: { title: "" }, items: [{ title: LANDING_HE.forBuyers.title, body: LANDING_HE.forBuyers.body, cta_label: "", cta_link: "" }] }] }, contract);
+    assert.ok(!withAudiences.blocks.some(b => b.id === "audiences"), "a stored audiences block is dropped on read");
+    assert.equal(codes({ blocks: [...contract.defaults(), { id: "audiences", type: "columns", enabled: true, fields: { title: "" }, items: [{ title: "x", body: "", cta_label: "", cta_link: "" }] }] }), "template_not_allowed");
+    assert.equal(codes({ blocks: [...contract.defaults(), { id: "columns_1", type: "columns", enabled: true, fields: { title: "" }, items: [{ title: "x", body: "", cta_label: "", cta_link: "" }] }] }), "ok", "other columns blocks stay addable");
     // a stored page with NO how block at all gets it too
     const without = normalizePage({ blocks: contract.defaults().filter(b => b.id !== HOW_IT_WORKS_BLOCK_ID) }, contract);
     assert.equal(without.blocks[1]!.id, HOW_IT_WORKS_BLOCK_ID);
@@ -119,6 +125,7 @@ try {
     assert.equal((await pool.query(`SELECT 1 FROM siton.site_content WHERE content_key='home'`)).rowCount, 0, "precondition: no stored home page");
     const pub = await home();
     assert.equal(pub.blocks[1].id, HOW_IT_WORKS_BLOCK_ID); assert.equal(pub.blocks[1].type, "how_it_works");
+    assert.deepEqual(pub.blocks.map((b: any) => b.id), ["hero", "how", "trust", "faq", "contact"], "the infographic sits where the audience columns were; nothing else left the page");
     assert.deepEqual(howItWorksContentOf(pub.blocks[1].fields, HOW_IT_WORKS_EN), HOW_IT_WORKS_HE);
     assert.equal(pub.blocks[1].fields_en[F.stepText("buyers", 2)], HOW_IT_WORKS_EN.buyers.steps[1]!.text, "the shipped English is served");
     const section = await reload();

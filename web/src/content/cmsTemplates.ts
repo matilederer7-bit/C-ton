@@ -88,6 +88,12 @@ export interface PageContract {
   locked: LockedBlock[];
   /** templates the admin may add to this page (empty = fixed composition) */
   addable: TemplateId[];
+  /**
+   * Block ids RETIRED from this page: a stored page still carrying one drops
+   * it on read (lenient) and is refused on write (strict), so a block the
+   * product replaced can never come back beside its replacement.
+   */
+  retired?: string[];
   maxBlocks: number;
   /** legacy flat field → (block id, field) mapping, for content stored before the block model */
   legacy: Record<string, [string, string]>;
@@ -330,6 +336,10 @@ export const PAGE_CONTRACTS: Record<string, PageContract> = {
     // from before the infographic shows it in the same place — and never both.
     locked: [{ id: "hero", type: "hero" }, { id: HOW_IT_WORKS_BLOCK_ID, type: "how_it_works" }],
     addable: ["text", "image_text", "cta", "steps", "faq", "columns"],
+    // The infographic REPLACES the former "לקונים / למוכרים" columns block
+    // (owner decision 2026-09-28): the same explanation never appears twice
+    // in two formats, so a page stored with that block drops it.
+    retired: ["audiences"],
     maxBlocks: 20,
     legacy: { title: ["hero", "title"], sub: ["hero", "subtitle"], intro: ["hero", "body"], image: ["hero", "image"], login_cta: ["hero", "primary_cta_label"], signup_cta: ["hero", "secondary_cta_label"] },
     defaults: () => [
@@ -338,13 +348,6 @@ export const PAGE_CONTRACTS: Record<string, PageContract> = {
       { id: "why", type: "text", enabled: false,
         fields: { title: LANDING_HE.whyGroupBuying.title, body: LANDING_HE.whyGroupBuying.body },
         fields_en: { title: LANDING_EN.whyGroupBuying.title, body: LANDING_EN.whyGroupBuying.body } },
-      { id: "audiences", type: "columns", enabled: true, fields: { title: "" }, fields_en: { title: "" }, items: [
-        { title: LANDING_HE.forBuyers.title, body: LANDING_HE.forBuyers.body, cta_label: "", cta_link: "" },
-        { title: LANDING_HE.forSellers.title, body: LANDING_HE.forSellers.body, cta_label: he("cms.defaults.home.seller_signup"), cta_link: "#/seller?signup=1" }
-      ], items_en: [
-        { title: LANDING_EN.forBuyers.title, body: LANDING_EN.forBuyers.body, cta_label: "" },
-        { title: LANDING_EN.forSellers.title, body: LANDING_EN.forSellers.body, cta_label: en("cms.defaults.home.seller_signup") }
-      ] },
       { id: "trust", type: "text", enabled: true,
         fields: { title: LANDING_HE.trust.title, body: LANDING_HE.trust.body },
         fields_en: { title: LANDING_EN.trust.title, body: LANDING_EN.trust.body } },
@@ -606,6 +609,7 @@ export function normalizePage(raw: unknown, contract: PageContract): PageContent
   for (const item of source) {
     const block = normalizeBlock(item, contract);
     if (!block || seen.has(block.id)) continue;
+    if (contract.retired?.includes(block.id)) continue;
     const locked = contract.locked.find(l => l.id === block.id);
     if (locked && locked.type !== block.type) continue;
     if (!locked && !contract.addable.includes(block.type)) continue;
@@ -649,6 +653,7 @@ export function validatePage(raw: unknown, contract: PageContract): PageContent 
     ids.add(id);
     const type = item.type;
     if (typeof type !== "string" || !has(TEMPLATES, type)) fail("unknown_template", path);
+    if (contract.retired?.includes(id)) fail("template_not_allowed", path);
     const locked = contract.locked.find(l => l.id === id);
     if (locked ? locked.type !== type : !contract.addable.includes(type as TemplateId)) fail("template_not_allowed", path);
     if (typeof item.enabled !== "boolean") fail("invalid_block_enabled", path);

@@ -91,6 +91,9 @@ const SNAPSHOT = `(() => {
     afterHero: !!hero && s.previousElementSibling === hero, width: Math.round(r.width), visible: r.height > 0,
     buttons: s.querySelectorAll('button, a').length, svgs: s.querySelectorAll('svg').length,
     oldSteps: document.querySelectorAll('[data-block-type="steps"]').length,
+    oldColumns: document.querySelectorAll('[data-block-type="columns"], [data-testid="landing-block-audiences"]').length,
+    nextBlock: s.nextElementSibling ? s.nextElementSibling.getAttribute('data-testid') : null,
+    blocks: [...document.querySelectorAll('[data-testid^="landing-block-"]')].map(e => e.getAttribute('data-testid').replace('landing-block-', '')),
     sellerButtonsOutside: [...document.querySelectorAll('button')].filter(b => !s.contains(b) && /פתיחת חשבון מוכר/.test(b.textContent)).length,
     overflow: document.documentElement.scrollWidth > innerWidth + 1,
     buyers: track('buyers'), sellers: track('sellers')
@@ -103,6 +106,9 @@ function assertDefaultContent(snap: any, viewport: { width: number }) {
   assert.equal(snap.afterHero, true, "the infographic is not right after the hero");
   assert.equal(snap.visible, true);
   assert.equal(snap.oldSteps, 0, "the former text steps section is still on the page");
+  assert.equal(snap.oldColumns, 0, "the former buyers/sellers columns block must be gone (the infographic replaces it, no duplicate explanation)");
+  assert.deepEqual(snap.blocks, ["hero", "how", "trust", "faq", "contact"], "the home flow: hero → infographic → trust → FAQ → contact");
+  assert.equal(snap.nextBlock, "landing-block-trust", "the infographic takes the columns block's place, before the trust section");
   assert.equal(snap.buttons, 0, "no button or link belongs inside the infographic (the seller sign-up button lives elsewhere)");
   assert.ok(snap.sellerButtonsOutside >= 1, "the seller sign-up button must still exist elsewhere on the page");
   assert.equal(snap.svgs, 10, "8 step icons + 2 summary icons");

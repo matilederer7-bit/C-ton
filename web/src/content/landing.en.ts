@@ -37,12 +37,12 @@ export const LANDING_EN = {
 
   forBuyers: {
     title: "For buyers",
-    body: "You join through the deal link, with no account. From the moment you join you have a personal tracking screen and a share link of your own — everyone who joins through you is credited to you."
+    body: "You join a deal through a link, choose a quantity and a delivery method — and at that point only a card authorization is placed, with no charge. From the moment you join you have a personal tracking screen with the live state of the deal, and a personal link of your own: everyone who joins through you is credited to you."
   } as LandingSectionContent,
 
   forSellers: {
     title: "For sellers",
-    body: "A full management dashboard shows at any moment how many joined, how many units are left to the target and what is happening with the money. A seller account is free and opening a deal takes under 5 minutes."
+    body: "You open a group deal with a target and a deadline, get a link to share, and follow the joins in a full management dashboard — how many joined, how many units are left to the target, and what is happening with the money. The charge happens only when the deal closes successfully."
   } as LandingSectionContent,
 
   trust: {
