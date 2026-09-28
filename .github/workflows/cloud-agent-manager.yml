@@ -204,6 +204,7 @@ jobs:
               if [ "$has_codex" = false ] && [ "$has_claude" = false ]; then
                 echo "No coding-agent credential is configured. Add OPENAI_API_KEY, ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN."
               fi
+              echo "Secrets page: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/settings/secrets/actions"
             } >> /tmp/siton-credential-blocker.md
             cat /tmp/siton-credential-blocker.md >> "$GITHUB_STEP_SUMMARY"
             cat /tmp/siton-credential-blocker.md >&2
