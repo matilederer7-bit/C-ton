@@ -148,7 +148,7 @@ test('cloud Claude reviewers run under the canonical-master guard, copied before
   // Without this, a patch-written .claude/settings*.json or
   // ~/.claude/settings.json with disableAllHooks switches the guard off
   // (proven with Claude Code 2.1.284).
-  assert.match(steps[claude], /\n\s+--setting-sources=\n\s+--settings /);
+  assert.match(steps[claude], /\n\s+--setting-sources=\n\s+--strict-mcp-config\n\s+--settings /);
   assert.match(steps[claude], /--disallowedTools Write Edit MultiEdit NotebookEdit/);
   // No Claude reviewer is left in the manager job chain, where builders run.
   assert.doesNotMatch(manager, /--setting-sources=|--disallowedTools Write Edit|siton-review-guard/);

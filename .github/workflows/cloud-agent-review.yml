@@ -138,6 +138,9 @@ jobs:
       # of folder trust; frontmatter hooks are not) and `--setting-sources=`
       # loads no user, project or local settings, so a patch that adds
       # `.claude/settings*.json` with `disableAllHooks` cannot switch it off.
+      # `--strict-mcp-config` ignores MCP servers a patch could declare in
+      # `.mcp.json` (defense in depth: unapproved project servers did not start
+      # in a local test either).
       - name: Copy control scripts before the patch
         id: control
         shell: bash
@@ -230,6 +233,7 @@ jobs:
           claude_args: >-
             ${{ inputs.claude_reviewer_model_args }}
             --setting-sources=
+            --strict-mcp-config
             --settings ${{ runner.temp }}/control/settings.json
             --max-turns 12
             --allowedTools Read Grep Glob "Bash(git diff:*)" "Bash(git status:*)" "Bash(git log:*)" "Bash(git show:*)"
