@@ -1,4 +1,5 @@
 import { publicWebOrigin } from "./mobileUrls";
+import { adminLoginEmail } from "./adminLogin";
 // Same-origin API client for the canonical Fastify service.
 //
 // ONE Supabase session (access + refresh token, see session.ts) may carry more
@@ -240,7 +241,12 @@ export const api = {
   adminUserProfile: (buyerId: string) => req(`/api/admin/users/${encodeURIComponent(buyerId)}/profile`, {}, "admin"),
   adminAudit: (q = "") => req(`/api/admin/r6/audit?q=${encodeURIComponent(q)}`, {}, "admin"),
   adminViralRecompute: (dealId: string) =>
-    req(`/api/admin/viral/recompute`, { method: "POST", body: JSON.stringify({ deal_id: dealId }) }, "admin")
+    req(`/api/admin/viral/recompute`, { method: "POST", body: JSON.stringify({ deal_id: dealId }) }, "admin"),
+  adminTeam: () => req(`/api/admin/team/admins`, {}, "admin"),
+  // the password goes to the C-ton server only to be handed to Supabase Auth
+  // server-side; it is never stored or logged there (src/admin_team.ts)
+  adminTeamCreate: (payload: { username: string; password: string; role: string; display_name?: string }) =>
+    req(`/api/admin/team/admins`, { method: "POST", body: JSON.stringify(payload) }, "admin")
 };
 
 // ── Supabase auth (password grant / signup / resend / recovery) ─────────────
@@ -266,7 +272,9 @@ async function authPost(cfg: SupabaseCfg, path: string, payload: Json): Promise<
 // Sign-in returns the FULL session payload (access + refresh) and records it
 // as the canonical client session for the requested surface.
 export async function supabaseSignIn(cfg: SupabaseCfg, email: string, password: string, surface: "seller" | "admin"): Promise<string> {
-  const { res, body } = await authPost(cfg, `/auth/v1/token?grant_type=password`, { email, password });
+  // the admin surface also accepts a team admin's username (web/src/adminLogin.ts)
+  const loginEmail = surface === "admin" ? adminLoginEmail(email) : email;
+  const { res, body } = await authPost(cfg, `/auth/v1/token?grant_type=password`, { email: loginEmail, password });
   if (!res.ok || !body?.access_token) {
     const msg = String(body?.error_description || body?.msg || body?.error || "");
     const err: any = new Error(localizedError({ status: res.status, message: msg }, t("api.sign_failed_try_again")));

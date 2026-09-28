@@ -20,6 +20,7 @@ Where set: Render dashboard → service → Environment. `render.yaml` declares 
 | `BUYER_SESSION_SECRET` | recommended | — | O | invalidates buyer resume cookies; falls back to `OTP_TOKEN_SECRET` when unset | GATE |
 | `LINK_VIEWER_SESSION_SECRET` | optional | — | O | invalidates link-dashboard sessions | — |
 | `SITON_STORAGE_BROKER_KEY` | ✅ | ✅ | O | new random key → put its SHA-256 in `supabase/functions/storage-broker/index.ts` (`BROKER_KEY_SHA256`), redeploy the function, then both consoles | BOOT (when `STORAGE_ADAPTER=supabase`) |
+| `SITON_ADMIN_PROVISIONER_KEY` | ✅ web | ✅ web | O | new random key → put its SHA-256 in `supabase/functions/admin-provisioner/index.ts` (`PROVISIONER_KEY_SHA256`), redeploy the function, then the web console | — (only `POST /api/admin/team/admins` needs it; without it that route answers 503) |
 | `STORAGE_ADAPTER`, `SUPABASE_URL`, `SUPABASE_STORAGE_BUCKET`, `OBJECT_STORAGE_PREFIX` | ✅ blueprint | ✅ blueprint | E | n/a (not secret) | BOOT (supabase adapter needs URL + key) |
 | `SITON_OWNER_EMAIL` | console | — | O | n/a | — |
 | `SITON_OWNER_AUTH_USER_ID` | **add** | — | O | only if the owner's Supabase auth user is recreated | BOOT in production when `SITON_OWNER_EMAIL` is set; on any hosted runtime the owner auto-claim is refused without it — Black-Sky B2 |

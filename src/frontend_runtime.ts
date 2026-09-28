@@ -1,5 +1,6 @@
 import { registerReceiptContentRoutes } from "./receipt_content_routes.js";
 import { registerDistributionHubRoutes } from "./distribution_hub.js";
+import { ADMIN_TEAM_ROLES, adminLoginEmailForUsername, adminPasswordProblem, adminProvisionerConfig, isAdminTeamRole, normalizeAdminUsername, provisionAdminAuthUser, rollbackAdminAuthUser } from "./admin_team.js";
 import { readContent } from "./site_content.js";
 import { assertRequiredTables } from "./schema_contract.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -7789,6 +7790,96 @@ export function registerFrontendExperience(
         }))
       };
     });
+  });
+
+  // ADMIN TEAM (owner round 2026-09-28) — a SuperAdmin adds an admin with a
+  // username + password. See src/admin_team.ts for the identity model. The
+  // guard runs BEFORE any body validation: a caller without a named SuperAdmin
+  // identity (admin_users.manage) learns nothing and nothing is created. The
+  // role and every other authority field come from this code, never from a
+  // client-supplied admin_users shape; the request body is never logged.
+  app.get("/api/admin/team/admins", async (req: any, reply: any) => {
+    reply.header("Cache-Control", "no-store");
+    if (!(await requireAdminMutation(req, reply, "admin_users.manage"))) return;
+    return deps.withTx(async (c) => {
+      const r = await c.query(
+        `SELECT admin_user_id, username, email, display_name, role, status, provisioned_via, created_at
+         FROM siton.admin_users ORDER BY created_at ASC LIMIT 200`
+      );
+      return {
+        ok: true,
+        admins: r.rows.map((row: any) => ({
+          admin_user_id: String(row.admin_user_id),
+          username: row.username ? String(row.username) : null,
+          email: row.username ? null : String(row.email || ""),
+          display_name: row.display_name ? String(row.display_name) : null,
+          role: String(row.role),
+          status: String(row.status),
+          provisioned_via: row.provisioned_via ? String(row.provisioned_via) : null,
+          created_at: row.created_at ? String(row.created_at) : null
+        }))
+      };
+    });
+  });
+
+  app.post("/api/admin/team/admins", async (req: any, reply: any) => {
+    reply.header("Cache-Control", "no-store");
+    const actor = await requireAdminMutation(req, reply, "admin_users.manage");
+    if (!actor) return;
+    const username = normalizeAdminUsername(req.body?.username);
+    if (!username) return reply.code(400).send({ ok: false, error: "admin_username_invalid" });
+    const role = req.body?.role;
+    if (!isAdminTeamRole(role)) return reply.code(400).send({ ok: false, error: "admin_role_required", allowed_roles: ADMIN_TEAM_ROLES });
+    const passwordProblem = adminPasswordProblem(req.body?.password, username);
+    if (passwordProblem) return reply.code(400).send({ ok: false, error: "admin_password_weak", reason: passwordProblem });
+    const password = String(req.body.password);
+    const displayName = String(req.body?.display_name || "").trim().slice(0, 80) || username;
+    const email = adminLoginEmailForUsername(username);
+    const taken = await deps.withTx(async (c) => (await c.query(
+      `SELECT 1 FROM siton.admin_users WHERE lower(username)=$1 OR lower(email)=$2 LIMIT 1`, [username, email]
+    )).rowCount);
+    if (taken) return reply.code(409).send({ ok: false, error: "admin_username_taken" });
+    const provisioner = adminProvisionerConfig();
+    if (!provisioner) return reply.code(503).send({ ok: false, error: "admin_provisioning_unavailable" });
+    const created = await provisionAdminAuthUser(provisioner, username, password);
+    if (!created.ok) {
+      if (created.code === "username_taken") return reply.code(409).send({ ok: false, error: "admin_username_taken" });
+      if (created.code === "weak_password") return reply.code(400).send({ ok: false, error: "admin_password_weak", reason: "rejected_by_auth" });
+      req.log?.warn?.({ security_event: "admin.team.create_failed", code: created.code, status: created.status, request_id: String(req.id || "") }, "admin_team_create_failed");
+      return reply.code(503).send({ ok: false, error: "admin_provisioning_failed" });
+    }
+    try {
+      const admin = await deps.withTx(async (c) => {
+        const inserted = await c.query(
+          `INSERT INTO siton.admin_users (email, username, display_name, role, status, auth_user_id, password_hash, mfa_required, mfa_enabled, provisioned_via, provisioned_at)
+           VALUES ($1, $2, $3, $4, 'Active', $5, NULL, false, false, 'admin_team_create', now())
+           RETURNING admin_user_id, username, display_name, role, status, created_at`,
+          [email, username, displayName, role, created.auth_user_id]
+        );
+        const row = inserted.rows[0];
+        await c.query(
+          `INSERT INTO siton.admin_user_audit (event_type, actor_admin_user_id, target_admin_user_id, target_username, target_role, target_auth_user_id, request_id)
+           VALUES ('admin.created', $1, $2, $3, $4, $5, $6)`,
+          [actor.admin_user_id, row.admin_user_id, username, role, created.auth_user_id, String(req.id || "")]
+        );
+        return row;
+      });
+      req.log?.info?.({ security_event: "admin.team.created", actor_admin_user_id: actor.admin_user_id, target_admin_user_id: admin.admin_user_id, role, request_id: String(req.id || "") }, "admin_team_created");
+      return {
+        ok: true,
+        admin: {
+          admin_user_id: String(admin.admin_user_id), username: String(admin.username), display_name: String(admin.display_name || ""),
+          role: String(admin.role), status: String(admin.status), created_at: String(admin.created_at)
+        }
+      };
+    } catch (error: any) {
+      // The Auth user exists but its binding did not commit — undo it so a
+      // half-created admin can never linger (it would hold no authority anyway).
+      const rolledBack = await rollbackAdminAuthUser(provisioner, username, created.auth_user_id);
+      req.log?.warn?.({ security_event: "admin.team.bind_failed", pg_code: String(error?.code || ""), auth_rolled_back: rolledBack, request_id: String(req.id || "") }, "admin_team_bind_failed");
+      if (error?.code === "23505") return reply.code(409).send({ ok: false, error: "admin_username_taken" });
+      return reply.code(503).send({ ok: false, error: "admin_provisioning_failed" });
+    }
   });
 
   app.post("/api/admin/sellers/:sellerId/status", async (req: any, reply: any) => {
