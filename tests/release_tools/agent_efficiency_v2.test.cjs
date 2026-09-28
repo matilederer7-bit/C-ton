@@ -86,12 +86,20 @@ test("agent rules make early preflight and checkpoint pushes binding", () => {
   assert.match(agents, /never exist only inside a session container/);
 });
 
-test("pull request backend CI runs every test group once, not twice", () => {
-  const workflow = read(".github/workflows/backend-quality-gates.yml");
-  for (const script of ["test:unit", "test:integration", "test:db", "test:api", "test:workers", "test:payments", "test:security", "test:concurrency", "test:failure", "test:e2e"]) {
-    assert.match(workflow, new RegExp(`npm run ${script.replace(":", "\\:")}`));
-  }
-  assert.match(workflow, /- name: Complete repository suite\n\s+if: github\.event_name == 'push'\n\s+run: npm run test:all/);
+test("CI runs every test group exactly once per pipeline; the whole-pipeline repetition is the nightly run", () => {
+  const workflow = read(".github/workflows/ci.yml");
+  const { TEST_LANES } = require("../../scripts/ci_change_classifier.cjs");
+  const { GROUPS } = require("../../scripts/run_test_group.cjs");
+  // Lanes run `npm run test:<group>` for the groups the classifier's lane table lists.
+  assert.match(workflow, /npm run "test:\$group"/);
+  assert.match(workflow, /matrix: \$\{\{ fromJSON\(needs\.classify\.outputs\.groups\) \}\}/);
+  const listed = TEST_LANES.flatMap((lane) => lane.groups.split(" "));
+  assert.deepEqual([...new Set(listed)].sort(), [...GROUPS].sort());
+  // No second, identical run of the ten groups inside the same pipeline.
+  assert.doesNotMatch(workflow, /test:all/);
+  assert.match(workflow, /schedule:\n\s+(#.*\n\s+)*- cron: "23 1 \* \* \*"/);
+  // One verdict job gates everything.
+  assert.match(workflow, /ci-verdict:\n\s+name: ci-verdict\n\s+needs: \[classify, static-gates, tests, focused-tests, web-runtime-core, web-runtime-resilience, docker-smoke, docker-release-lab, preflight-database\]\n\s+if: always\(\)/);
 });
 
 test("owner CLI rejects signalled helpers and exposes CI summary", () => {

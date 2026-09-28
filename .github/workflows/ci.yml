@@ -1,0 +1,535 @@
+name: Siton CI
+
+# One pipeline, one verdict. Replaces the former backend-quality-gates,
+# release-readiness and web-runtime-depth workflows (same gates, same test
+# inventory) with parallel lanes chosen by scripts/ci_change_classifier.cjs:
+#
+#   FAST      docs / copy / visual-only: static gates + focused tests
+#   STANDARD  ordinary functional change: everything relevant, in parallel
+#   FULL      DB, money, security, state machine, CI, deps, unclassified,
+#             every push to master, the nightly run and manual runs
+#
+# The `ci-verdict` job is the single required check: it fails unless every
+# job the profile requires succeeded, every skip is one the classifier
+# declared, a proposed profile did not try to downgrade the computed one, and
+# the test manifests prove the whole inventory (or the focused set) ran.
+# Strategy and measurements: docs/CI_TEST_STRATEGY.md.
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+  workflow_dispatch:
+  schedule:
+    # Nightly FULL repetition of the whole pipeline on master: the order /
+    # frequency regression signal the former post-merge "complete repository
+    # suite" re-run gave, without re-running identical work on every merge.
+    - cron: "23 1 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: siton-ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  NODE_ENV: test
+  DISABLE_OUTBOX_WORKER: "1"
+  PAYMENT_PROVIDER: mockpay
+  PAYMENT_PROVIDER_MODE: mock-backed
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Classification (seconds): profile, lanes, focused tests, skip reasons.
+  # ---------------------------------------------------------------------------
+  classify:
+    name: classify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      profile: ${{ steps.classify.outputs.profile }}
+      groups: ${{ steps.classify.outputs.groups }}
+      run_groups: ${{ steps.classify.outputs.run_groups }}
+      focused: ${{ steps.classify.outputs.focused }}
+      web_runtime_core: ${{ steps.classify.outputs.web_runtime_core }}
+      web_runtime_resilience: ${{ steps.classify.outputs.web_runtime_resilience }}
+      docker_smoke: ${{ steps.classify.outputs.docker_smoke }}
+      docker_release_lab: ${{ steps.classify.outputs.docker_release_lab }}
+      preflight_database: ${{ steps.classify.outputs.preflight_database }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Classify the change
+        id: classify
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels) }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          mkdir -p .ci-artifacts
+          printf '%s' "${PR_BODY:-}" > .ci-artifacts/pr-body.txt
+          labels="${PR_LABELS:-[]}"
+          [ "$labels" = "null" ] && labels="[]"
+          node scripts/ci_change_classifier.cjs \
+            --event "$EVENT" --base "${BASE_SHA:-}" --head "${HEAD_SHA:-HEAD}" \
+            --labels-json "$labels" --body-file .ci-artifacts/pr-body.txt \
+            --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY" \
+            --json .ci-artifacts/classification.json
+          node -e 'const c=require("./.ci-artifacts/classification.json");if(!c.claim.accepted)console.log("::error title=CI profile proposal rejected::"+c.claim.error)'
+          rm -f .ci-artifacts/pr-body.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ci-classification-${{ github.run_id }}
+          path: .ci-artifacts/classification.json
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # Static gates (every profile; no database): the release preflight static
+  # profile (TypeScript, enforcement scan, architecture, payment/raw-card,
+  # runtime DDL, money/tax canon, legal, Base44 integrity, secret/PII, logging
+  # hygiene, runtime environment policy, startup matrix, no-real-money proof,
+  # route inventory, migration manifest, demo build, mobile/PWA contract,
+  # repository hygiene, supply chain, Docker static) plus the backend-only
+  # static gates. Each gate runs once per pipeline.
+  # ---------------------------------------------------------------------------
+  static-gates:
+    name: static-gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash --noprofile --norc -eo pipefail {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/siton-setup
+      - name: Prepare artifact directory
+        run: mkdir -p .ci-artifacts
+
+      # Black-Sky E9: production dependency advisories at HIGH or CRITICAL
+      # block the merge. An unreachable advisory registry (no JSON metadata in
+      # the response) is reported as a warning and does not block: the gate
+      # fails on findings, never on network weather.
+      - name: Production dependency audit (blocking on high/critical)
+        run: |
+          set +e
+          npm audit --omit=dev --audit-level=high --json > .ci-artifacts/npm-audit-production.json
+          status=$?
+          set -e
+          if node -e 'const j=JSON.parse(require("fs").readFileSync(".ci-artifacts/npm-audit-production.json","utf8")||"{}");process.exit(j&&j.metadata?0:1)'; then
+            node -e 'const j=require("./.ci-artifacts/npm-audit-production.json");console.log("npm audit (production):",JSON.stringify(j.metadata.vulnerabilities))'
+            if [ "$status" -ne 0 ]; then
+              echo "::error::npm audit found HIGH/CRITICAL advisories in production dependencies (see .ci-artifacts/npm-audit-production.json)"
+              exit 1
+            fi
+          else
+            echo "::warning::npm audit unavailable (advisory registry unreachable); production audit NOT evaluated on this run"
+          fi
+
+      - name: Distributor attribution-only contract
+        run: |
+          node scripts/distributor_attribution_only_gate.cjs --self-test 2>&1 | tee .ci-artifacts/distributor-attribution-gate.log
+          node scripts/distributor_attribution_only_gate.cjs 2>&1 | tee -a .ci-artifacts/distributor-attribution-gate.log
+
+      # Every t() key resolves, no Hebrew sentence is hard-coded into the
+      # shipped UI, and the generated dictionaries match their checked-in
+      # sources. A forgotten system string cannot reach English any other way.
+      - name: Bilingual (i18n) gate
+        run: npm run gate:i18n 2>&1 | tee .ci-artifacts/i18n-gate.log
+
+      # Reads the real text inside the .docx constitution/spec/UX documents, not
+      # just Markdown, because that is where the retired seven-day deal cap hid.
+      - name: Seven-day deal-cap contract
+        run: |
+          node scripts/seven_day_cap_sweep.cjs --self-test 2>&1 | tee .ci-artifacts/seven-day-cap.log
+          npm run gate:seven-day-cap 2>&1 | tee -a .ci-artifacts/seven-day-cap.log
+
+      - name: Canonical integrity and operational repair validation
+        run: |
+          npm run test:base44-canonical-integrity 2>&1 | tee .ci-artifacts/base44-canonical-integrity-test.log
+          npm run test:operational-repair 2>&1 | tee .ci-artifacts/operational-repair-test.log
+
+      - name: Diff whitespace gate
+        run: git diff --check HEAD^ HEAD 2>&1 | tee .ci-artifacts/git-diff-check.log
+
+      - name: Release preflight (static profile)
+        run: npm run release:preflight:static
+
+      - name: Release manifest and checklist
+        if: always()
+        run: |
+          npm run release:manifest
+          npm run release:checklist
+
+      - name: Upload static reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-gates-reports-${{ github.run_id }}
+          path: |
+            .ci-artifacts/
+            .release-artifacts/
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: true
+
+  # ---------------------------------------------------------------------------
+  # The ten test groups, packed into parallel lanes (see TEST_LANES in
+  # scripts/ci_change_classifier.cjs). Every file still runs on its own fresh
+  # database cloned from a migrated template, exactly as before.
+  # ---------------------------------------------------------------------------
+  tests:
+    name: tests (${{ matrix.lane }})
+    needs: classify
+    if: needs.classify.outputs.run_groups == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.classify.outputs.groups) }}
+    defaults:
+      run:
+        shell: bash --noprofile --norc -eo pipefail {0}
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: siton_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d siton_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/siton_ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: ./.github/actions/siton-setup
+        with:
+          build: "true"
+      - name: Prepare artifact directory
+        run: mkdir -p .ci-artifacts/manifests
+      - name: Clean migrations, rerun, and schema object report
+        if: contains(matrix.extras, 'migrations')
+        run: npm run ci:migrations 2>&1 | tee .ci-artifacts/migrations.log
+      # UNGUARDED_PROTECTED_ROUTES = 0. Static half of the invariant: every route
+      # in a protected namespace must show a guard helper in the code that actually
+      # runs. The behavioural half (anonymous probes against the live router) is
+      # tests/protected_route_authorization_gate.ts inside the security suite.
+      - name: Protected route authorization gate
+        if: contains(matrix.extras, 'route-authorization')
+        run: npm run ci:route-authorization 2>&1 | tee .ci-artifacts/route-authorization-gate.log
+      - name: Test groups ${{ matrix.groups }} ${{ matrix.shard }}
+        env:
+          LANE: ${{ matrix.lane }}
+          TEST_GROUPS: ${{ matrix.groups }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          status=0
+          for group in $TEST_GROUPS; do
+            echo "::group::test:$group ${SHARD}"
+            if TEST_SHARD="$SHARD" TEST_RESULTS_FILE=".ci-artifacts/manifests/${LANE}-${group}.json" \
+                npm run "test:$group" 2>&1 | tee ".ci-artifacts/test-${LANE}-${group}.log"; then
+              echo "LANE_GROUP_PASS lane=$LANE group=$group"
+            else
+              echo "::error::test group $group failed in lane $LANE"
+              status=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $status
+      - name: Build filtered fault-injection report
+        if: contains(matrix.extras, 'fault-report')
+        run: npm run ci:fault-report 2>&1 | tee .ci-artifacts/fault-report.log
+      # Visual evidence of the bilingual surfaces, kept per run: the same
+      # screens in Hebrew and in English, desktop and phone.
+      - name: Upload bilingual screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: i18n-screens-${{ matrix.lane }}-${{ github.run_id }}
+          path: .ci-artifacts/i18n-screens
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Upload lane reports and test manifests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-lane-${{ matrix.lane }}-${{ github.run_id }}
+          path: .ci-artifacts/
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: true
+
+  # ---------------------------------------------------------------------------
+  # FAST profile only: the tests that reference the changed files (or assert
+  # changed copy), on one fresh database per file.
+  # ---------------------------------------------------------------------------
+  focused-tests:
+    name: focused-tests
+    needs: classify
+    if: needs.classify.outputs.focused != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash --noprofile --norc -eo pipefail {0}
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: siton_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d siton_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/siton_ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: ./.github/actions/siton-setup
+        with:
+          build: "true"
+      - name: Focused tests
+        env:
+          TEST_FILE_PATTERN: ${{ needs.classify.outputs.focused }}
+          TEST_RESULTS_FILE: .ci-artifacts/manifests/focused.json
+        run: |
+          mkdir -p .ci-artifacts/manifests
+          node scripts/run_test_group.cjs focused 2>&1 | tee .ci-artifacts/test-focused.log
+      - name: Upload focused reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-lane-focused-${{ github.run_id }}
+          path: .ci-artifacts/
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: true
+
+  # ---------------------------------------------------------------------------
+  # Real HTTP authentication, core E2E, errors and Docker runtime.
+  # ---------------------------------------------------------------------------
+  web-runtime-core:
+    name: web-runtime-core
+    needs: classify
+    if: needs.classify.outputs.web_runtime_core == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    # pipefail: every gate here is "npm run … | tee"; without it the tee exit code
+    # masked a failing Docker runtime as success (observed 2026-09-14, PR #8).
+    defaults:
+      run:
+        shell: bash --noprofile --norc -eo pipefail {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/siton-setup
+        with:
+          web: "false"
+      - name: Prepare reports
+        run: mkdir -p .ci-artifacts
+      - name: Route and frontend-backend contract
+        run: npm run web:routes 2>&1 | tee .ci-artifacts/web-route-contract.log
+      - name: Real HTTP authentication, core E2E, errors, and Docker runtime
+        run: npm run ci:web-runtime 2>&1 | tee .ci-artifacts/web-runtime-core.log
+      - name: Upload focused Web runtime reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-runtime-core-${{ github.run_id }}
+          path: .ci-artifacts/
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: true
+
+  # Load, outage, recovery, restart and multi-instance. Runs beside
+  # web-runtime-core instead of after it (no data dependency between them).
+  web-runtime-resilience:
+    name: web-runtime-resilience
+    needs: classify
+    if: needs.classify.outputs.web_runtime_resilience == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash --noprofile --norc -eo pipefail {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/siton-setup
+        with:
+          web: "false"
+      - name: Prepare reports
+        run: mkdir -p .ci-artifacts
+      - name: Load, outage, recovery, restart, and multi-instance
+        run: npm run ci:web-runtime:extended 2>&1 | tee .ci-artifacts/web-runtime-resilience.log
+      - name: Upload Web resilience reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-runtime-resilience-${{ github.run_id }}
+          path: .ci-artifacts/
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: true
+
+  # Extended Docker process, MinIO, multi-Web, worker, and outbox fault smoke
+  # (formerly the last step of the single backend job, after every test).
+  docker-smoke:
+    name: docker-smoke
+    needs: classify
+    if: needs.classify.outputs.docker_smoke == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash --noprofile --norc -eo pipefail {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/siton-setup
+        with:
+          web: "false"
+      - name: Prepare reports
+        run: mkdir -p .ci-artifacts
+      - name: Extended Docker process, MinIO, multi-Web, worker, and outbox fault smoke
+        run: npm run ci:docker-smoke 2>&1 | tee .ci-artifacts/docker-smoke.log
+      - name: Upload Docker smoke reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-smoke-${{ github.run_id }}
+          path: .ci-artifacts/
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: true
+
+  # Docker-only release risks, proven before merge for same-repository PRs
+  # (fork PRs cannot run compose with published ports safely): image build,
+  # container start, migration boot + seed, /health + /readiness, seller deal
+  # create, admin refusal, worker heartbeat, graceful stop with exit code 0.
+  docker-release-lab:
+    name: docker-release-lab
+    needs: classify
+    if: needs.classify.outputs.docker_release_lab == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/siton-setup
+        with:
+          web: "false"
+      - name: Docker engine
+        run: docker version && docker compose version
+      - name: Local release lab (build, start, migrate, smoke, worker, graceful stop)
+        run: npm run release:local-lab
+      - name: Upload lab reports and compose logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-release-lab-${{ github.run_id }}
+          path: .release-artifacts/
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: true
+
+  # Database-backed release gates on a disposable Postgres: migration preflight
+  # (fresh, upgrade from master, partial/CRLF/tampered/dirty ledger, failing-
+  # migration atomicity, schema drift), backup/restore rehearsal, health
+  # contract, HTTP security smoke, reproducible build and the release-tool
+  # tests. The static gates of the same catalogue run once, in static-gates;
+  # route authorization runs in the security lane; the Docker lab has its own
+  # job.
+  preflight-database:
+    name: preflight-database
+    needs: classify
+    if: needs.classify.outputs.preflight_database == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: siton_release
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d siton_release"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/siton_release
+      SITON_AGENT: ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: PostgreSQL client tools (pg_dump / pg_restore for the rehearsal)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+          pg_dump --version
+      - uses: ./.github/actions/siton-setup
+        with:
+          build: "true"
+      - name: Release preflight (database gates)
+        run: npm run release:preflight -- --profile standard --only migration-preflight,backup-restore-rehearsal,health-contract,http-security-smoke,reproducible-build,release-tools-tests
+      - name: Upload release reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-preflight-database-${{ github.run_id }}
+          path: .release-artifacts/
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: true
+
+  # ---------------------------------------------------------------------------
+  # The single verdict. Branch protection should require only this check.
+  # ---------------------------------------------------------------------------
+  ci-verdict:
+    name: ci-verdict
+    needs: [classify, static-gates, tests, focused-tests, web-runtime-core, web-runtime-resilience, docker-smoke, docker-release-lab, preflight-database]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Download classification and test manifests
+        if: needs.classify.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ci-*-${{ github.run_id }}
+          path: .ci-verdict
+      - name: Verdict
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          SAME_REPO: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        run: node scripts/ci_verdict.cjs --needs-env NEEDS_JSON --artifacts .ci-verdict --same-repo "$SAME_REPO" --summary "$GITHUB_STEP_SUMMARY"
