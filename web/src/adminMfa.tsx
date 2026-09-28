@@ -44,6 +44,7 @@ export function AdminMfaStepUp({ onVerified, onCancel }: { onVerified: () => voi
     (async () => {
       try {
         const user = await authCall(`/auth/v1/user`);
+        if (cancelled) return;
         const factors: Factor[] = Array.isArray(user?.factors) ? user.factors : [];
         const verified = factors.find((f) => f.factor_type === "totp" && f.status === "verified");
         if (verified) {
@@ -55,9 +56,14 @@ export function AdminMfaStepUp({ onVerified, onCancel }: { onVerified: () => voi
           // Clear abandoned unverified TOTP enrollments (cancelled/reloaded
           // attempts) so they neither collide on friendly_name nor pile up
           // toward the per-user factor cap. GoTrue allows this at AAL1.
+          // Best-effort and idempotent: a factor that is already gone (404 —
+          // e.g. a second run of this effect deleted it first) or a failed
+          // delete never blocks enrolling; the collision-proof name below keeps
+          // the new enrollment valid either way.
           for (const f of factors) {
+            if (cancelled) return;
             if (f.factor_type === "totp" && f.status !== "verified") {
-              await authCall(`/auth/v1/factors/${encodeURIComponent(String(f.id))}`, { method: "DELETE" });
+              await authCall(`/auth/v1/factors/${encodeURIComponent(String(f.id))}`, { method: "DELETE" }).catch(() => undefined);
             }
           }
           if (cancelled) return;

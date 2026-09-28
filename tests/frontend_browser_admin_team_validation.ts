@@ -58,6 +58,8 @@ const MFA_CODE = "123456";
 const emailBySub = new Map<string, string>();
 const factorsBySub = new Map<string, { id: string; factor_type: string; status: string }[]>();
 const mfaCalls: string[] = [];
+// every request the fake Supabase answers (method, path, status) — printed on a timeout
+const fakeLog: string[] = [];
 const bearerSub = (auth: unknown) => {
   const token = String(auth || "").replace(/^Bearer\s+/i, "");
   try { return String(JSON.parse(Buffer.from(token.split(".")[1] || "", "base64url").toString()).sub || ""); } catch { return ""; }
@@ -68,6 +70,7 @@ const supabase = createServer((req, res) => {
   res.setHeader("access-control-allow-methods", "GET, POST, DELETE, OPTIONS");
   if (req.method === "OPTIONS") { res.statusCode = 204; res.end(); return; }
   const url = String(req.url || "");
+  res.on("finish", () => { if (!url.includes("jwks")) fakeLog.push(`${req.method} ${url.split("?")[0]} ${res.statusCode}`); });
   if (url.startsWith("/auth/v1/.well-known/jwks.json")) {
     res.setHeader("content-type", "application/json");
     res.end(JSON.stringify({ keys: [jwk] }));
@@ -171,7 +174,7 @@ async function waitFor(page: BrowserPage, expression: string, label: string, tri
     const errors = [...document.querySelectorAll('[data-testid$="-error"], .notice.err, [role="alert"]')].map((e) => e.textContent.trim()).filter(Boolean);
     return JSON.stringify({ errors, mfaPanel: !!document.querySelector('[data-testid="admin-mfa"]'), text: (document.querySelector('main') || document.body).innerText.slice(0, 300) });
   })()`);
-  throw new Error(`timed out waiting for ${label}; page: ${text}`);
+  throw new Error(`timed out waiting for ${label}; page: ${text}; supabase calls: ${JSON.stringify(fakeLog.slice(-15))}; mfaCalls: ${JSON.stringify(mfaCalls)}`);
 }
 async function passStepUp(page: BrowserPage, identifier: string, password: string) {
   await page.goto(`${baseUrl}/preview/#/admin`, { waitMs: 800 });
@@ -264,7 +267,11 @@ if (!chromiumPath()) {
       await waitFor(page!, `document.querySelector('[data-testid="admin-team-password"]').value === ${JSON.stringify(NEW_PASSWORD)} && document.querySelector('[data-testid="admin-team-password-confirm"]').value === ${JSON.stringify(NEW_PASSWORD)} && !document.querySelector('[data-testid="admin-team-submit"]').disabled`, "password fields committed to state");
       await click(page!, '[data-testid="admin-team-submit"]');
       await waitFor(page!, `document.querySelector('[data-testid="admin-mfa"]') && document.querySelector('[data-testid="admin-mfa-secret"]')`, "MFA enrollment step after retry");
-      assert.deepEqual(mfaCalls, ["enroll", "delete", "enroll"]);
+      // the leftover factor is deleted before the new enrollment, and exactly
+      // one new factor is enrolled (a duplicate cleanup 404 must not block it)
+      const afterRetry = mfaCalls.slice(1);
+      assert.ok(afterRetry.indexOf("delete") !== -1 && afterRetry.indexOf("delete") < afterRetry.indexOf("enroll"), JSON.stringify(mfaCalls));
+      assert.equal(afterRetry.filter((c) => c === "enroll").length, 1, JSON.stringify(mfaCalls));
       assert.equal(factorsBySub.get(SUPER.sub)?.length, 1, "only the fresh unverified factor remains");
       await set(page!, '[data-testid="admin-mfa-code"]', "000000");
       await click(page!, '[data-testid="admin-mfa-submit"]');
@@ -274,7 +281,7 @@ if (!chromiumPath()) {
       await click(page!, '[data-testid="admin-mfa-submit"]');
       await waitFor(page!, `(document.querySelector('[data-testid="admin-team-list"]') || {}).innerText?.includes(${JSON.stringify(username)})`, "new admin in the list after the second factor");
       assert.equal(await page!.evaluate<boolean>(`!!document.querySelector('[data-testid="admin-mfa"]')`), false, "the MFA step closes after success");
-      assert.deepEqual(mfaCalls, ["enroll", "delete", "enroll", "challenge", "verify:000000", "challenge", `verify:${MFA_CODE}`]);
+      assert.deepEqual(mfaCalls.filter((c) => !c.startsWith("delete") && c !== "enroll"), ["challenge", "verify:000000", "challenge", `verify:${MFA_CODE}`]);
       const fields = await page!.evaluate<{ pw: string; confirm: string; error: boolean }>(`({ pw: document.querySelector('[data-testid="admin-team-password"]').value, confirm: document.querySelector('[data-testid="admin-team-password-confirm"]').value, error: !!document.querySelector('[data-testid="admin-team-error"]') })`);
       assert.deepEqual(fields, { pw: "", confirm: "", error: false }, "the password is cleared from the form after success");
     });
@@ -325,7 +332,7 @@ if (!chromiumPath()) {
     });
 
     await run("no page errors along the way", async () => {
-      const errors = page!.errors().filter((e) => !thirdPartyNoise(e.text) && !/401|403|400/.test(e.text) && !/^422 .*\/auth\/v1\/factors\/[0-9a-f-]{36}\/verify$/.test(e.text) /* the deliberate wrong MFA code */);
+      const errors = page!.errors().filter((e) => !thirdPartyNoise(e.text) && !/401|403|400/.test(e.text) && !/^422 .*\/auth\/v1\/factors\/[0-9a-f-]{36}\/verify$/.test(e.text) && !/^404 .*\/auth\/v1\/factors\/[0-9a-f-]{36}$/.test(e.text) /* an idempotent cleanup of an already-deleted factor */ /* the deliberate wrong MFA code */);
       assert.deepEqual(errors, []);
     });
     console.log("ADMIN_TEAM_BROWSER_PASS");
