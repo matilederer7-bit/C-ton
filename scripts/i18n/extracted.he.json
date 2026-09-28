@@ -1909,5 +1909,17 @@
   "admin_team.username": "שם משתמש",
   "admin_team.username_rule": "3–32 תווים: אותיות אנגליות קטנות, ספרות, נקודה, מקף או קו תחתון; מתחיל באות.",
   "admin_team.username_taken": "שם המשתמש כבר תפוס. בחרו שם אחר.",
-  "auth.email_or_username": "אימייל או שם משתמש"
+  "auth.email_or_username": "אימייל או שם משתמש",
+  "admin_mfa.title": "אימות דו־שלבי",
+  "admin_mfa.enroll_hint": "הוספת מנהל דורשת אימות דו־שלבי. סרקו את הקוד באפליקציית אימות (Google Authenticator, Microsoft Authenticator וכדומה) או הזינו את מפתח ההגדרה, ואז הקלידו את הקוד בן 6 הספרות.",
+  "admin_mfa.code_hint": "הוספת מנהל דורשת אימות דו־שלבי. הקלידו את הקוד בן 6 הספרות מאפליקציית האימות.",
+  "admin_mfa.qr_label": "קוד QR להגדרת אפליקציית האימות",
+  "admin_mfa.setup_key": "מפתח הגדרה",
+  "admin_mfa.code": "קוד אימות",
+  "admin_mfa.code_format": "הקוד צריך להיות בן 6 ספרות.",
+  "admin_mfa.wrong_code": "הקוד שגוי או שפג תוקפו. נסו שוב עם הקוד הנוכחי.",
+  "admin_mfa.failed": "האימות הדו־שלבי נכשל. נסו שוב.",
+  "admin_mfa.unavailable": "אימות דו־שלבי אינו זמין בסביבה הזו.",
+  "admin_mfa.verify": "אימות והמשך",
+  "admin_mfa.cancel": "ביטול"
 }

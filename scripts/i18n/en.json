@@ -2506,5 +2506,17 @@
   "admin_team.username": "Username",
   "admin_team.username_rule": "3–32 characters: lower-case English letters, digits, dot, hyphen or underscore; starts with a letter.",
   "admin_team.username_taken": "That username is taken. Choose another.",
-  "auth.email_or_username": "E-mail or username"
+  "auth.email_or_username": "E-mail or username",
+  "admin_mfa.title": "Two-step verification",
+  "admin_mfa.enroll_hint": "Adding an admin requires two-step verification. Scan the code with an authenticator app (Google Authenticator, Microsoft Authenticator, etc.) or enter the setup key, then type the 6-digit code.",
+  "admin_mfa.code_hint": "Adding an admin requires two-step verification. Type the 6-digit code from your authenticator app.",
+  "admin_mfa.qr_label": "QR code for setting up the authenticator app",
+  "admin_mfa.setup_key": "Setup key",
+  "admin_mfa.code": "Verification code",
+  "admin_mfa.code_format": "The code must be 6 digits.",
+  "admin_mfa.wrong_code": "The code is wrong or expired. Try again with the current code.",
+  "admin_mfa.failed": "Two-step verification failed. Please try again.",
+  "admin_mfa.unavailable": "Two-step verification is not available in this environment.",
+  "admin_mfa.verify": "Verify and continue",
+  "admin_mfa.cancel": "Cancel"
 }

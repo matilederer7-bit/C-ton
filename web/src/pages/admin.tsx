@@ -4,6 +4,7 @@ import { api, clearAuthSession, getAdminToken, Json } from "../api";
 import { clearOwnerSession } from "../ownerMode";
 import { revokeSurface } from "../session";
 import { AuthPanel } from "../auth";
+import { AdminMfaStepUp } from "../adminMfa";
 import { BrandLoader, Countdown, EmptyState, Modal, Spinner, StatTile, StatusPill, Toast, useToast } from "../components";
 import { BrandMark } from "../brand";
 import { PropagationTree } from "../propagation";
@@ -1617,9 +1618,12 @@ function AdminTeamScreen() {
   const [formError, setFormError] = useState("");
   const [toast, showToast] = useToast();
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (busy) return;
+  // a recent second factor is required by the server (MFA_REQUIRED): the
+  // step-up panel raises the session to AAL2 and the create is retried with
+  // the values still in the form
+  const [needMfa, setNeedMfa] = useState(false);
+
+  const createAdmin = async () => {
     const name = username.trim().toLowerCase();
     if (!USERNAME_PATTERN.test(name)) { setFormError(t("admin_team.username_rule")); return; }
     if (!role) { setFormError(t("admin_team.choose_role")); return; }
@@ -1634,6 +1638,11 @@ function AdminTeamScreen() {
       reload();
     } catch (err: any) {
       const code = String(err?.body?.error || "");
+      if (code === "MFA_REQUIRED") {
+        setNeedMfa(true);
+        setBusy(false);
+        return;
+      }
       setPassword(""); setConfirm("");
       setFormError(
         code === "admin_username_taken" ? t("admin_team.username_taken")
@@ -1644,6 +1653,12 @@ function AdminTeamScreen() {
       );
     }
     setBusy(false);
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (busy || needMfa) return;
+    await createAdmin();
   };
 
   const admins: Json[] = (data as Json | null)?.admins || [];
@@ -1684,8 +1699,14 @@ function AdminTeamScreen() {
               <input id="team-password-confirm" dir="ltr" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" data-testid="admin-team-password-confirm" />
             </div>
             {formError ? <div className="notice err" role="alert" data-testid="admin-team-error">{formError}</div> : null}
-            <button className="btn btn-primary" disabled={busy} data-testid="admin-team-submit">{busy ? t("admin_team.creating") : t("admin_team.create")}</button>
+            <button className="btn btn-primary" disabled={busy || needMfa} data-testid="admin-team-submit">{busy ? t("admin_team.creating") : t("admin_team.create")}</button>
           </form>
+          {needMfa ? (
+            <AdminMfaStepUp
+              onVerified={() => { setNeedMfa(false); void createAdmin(); }}
+              onCancel={() => { setNeedMfa(false); setPassword(""); setConfirm(""); }}
+            />
+          ) : null}
         </div>
       ) : null}
       {!denied && data ? (

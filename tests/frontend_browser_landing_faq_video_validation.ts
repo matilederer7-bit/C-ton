@@ -180,6 +180,40 @@ async function main() {
         assert.deepEqual(appErrors(page!), [], "the video caused browser errors");
       });
     }
+    await run("slow network: when the hero is shown on the 1.5 s timeout, a LATE video answer never inserts the slot and never moves the title (Codex P2)", async () => {
+      await page!.setViewport(DESKTOP);
+      page!.clearErrors();
+      // the published CMS content (which turns the video on) answers only after 2.5 s
+      const remove = await page!.addInitScript(`(() => {
+        const original = window.fetch.bind(window);
+        window.fetch = (input, init) => {
+          const url = String(typeof input === 'string' ? input : (input && input.url) || '');
+          if (url.includes('/api/site-content')) return new Promise((resolve) => setTimeout(resolve, 2500)).then(() => original(input, init));
+          return original(input, init);
+        };
+      })()`);
+      try {
+        await page!.goto(`http://127.0.0.1:${videoPort}/preview/?slow=${Date.now()}#/`, { waitMs: 300 });
+        let first: any = null;
+        for (let i = 0; i < 120 && !first; i += 1) {
+          first = await page!.evaluate<any>(`(() => { const h1 = document.querySelector('h1.landing-title'); return h1 ? { h1Top: h1.getBoundingClientRect().top, slot: !!document.querySelector('[data-testid="landing-intro-video"]') } : null; })()`);
+          if (!first) await wait(25);
+        }
+        assert.ok(first, "the landing never rendered its title");
+        assert.equal(first.slot, false, "the content could not have arrived yet — the hero was shown on the timeout");
+        await wait(3500); // the late content has arrived by now
+        const late = await page!.evaluate<any>(`({ h1Top: document.querySelector('h1.landing-title').getBoundingClientRect().top, slot: !!document.querySelector('[data-testid="landing-intro-video"]') })`);
+        assert.equal(late.slot, false, "the late answer inserted the video slot after the first layout");
+        assert.ok(Math.abs(late.h1Top - first.h1Top) <= 1, `the title moved after the late answer: ${JSON.stringify({ first, late })}`);
+      } finally {
+        await remove();
+      }
+      // the next page view (content in time) shows the video again
+      await page!.goto(`http://127.0.0.1:${videoPort}/preview/?again=${Date.now()}#/`, { waitMs: 300 });
+      let shown = false;
+      for (let i = 0; i < 80 && !shown; i += 1) { shown = await page!.evaluate<boolean>(`!!document.querySelector('[data-testid="landing-intro-video"]')`); if (!shown) await wait(50); }
+      assert.equal(shown, true, "the video did not come back on the next page view");
+    });
     console.log("LANDING_FAQ_VIDEO_BROWSER_PASS");
   } finally {
     await page?.close().catch(() => undefined);
