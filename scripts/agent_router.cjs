@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const fs = require("node:fs");
+const { claudeModelArgs, codexModelForTier, resolveClaudeModel, reviewerTier } = require("./agent_model_tiers.cjs");
 
 const TASK_TYPES = new Set(["auto", "frontend", "backend", "database", "security", "payments", "tests", "docs", "ux", "operations"]);
 const RISKS = new Set(["low", "normal", "high", "critical"]);
@@ -50,7 +51,7 @@ function inferType(task) {
   return "backend";
 }
 
-function routeTask({ task = "", taskType = "auto", risk = "normal", tier = "auto", apexReason = "none", apexEvidence = "", hasClaude = true, hasCodex = true } = {}) {
+function routeTask({ task = "", taskType = "auto", risk = "normal", tier = "auto", apexReason = "none", apexEvidence = "", hasClaude = true, hasCodex = true, env = process.env } = {}) {
   let type = normalize(taskType) || "auto";
   const normalizedRisk = normalize(risk) || "normal";
   let selectedTier = normalize(tier) || "auto";
@@ -88,12 +89,16 @@ function routeTask({ task = "", taskType = "auto", risk = "normal", tier = "auto
 
   const builderEffort = ["senior", "apex"].includes(selectedTier) ? "high" : selectedTier === "standard" ? "medium" : "low";
   const reviewerEffort = sensitive || selectedTier === "apex" ? "high" : "medium";
-  const codexModel = selectedTier === "apex" ? "gpt-6-astra" : selectedTier === "senior" ? "gpt-5.6-sol" : selectedTier === "standard" ? "gpt-5.6-terra" : "gpt-5.6-luna";
+  // Models come from the tier policy (scripts/agent_model_tiers.cjs): Claude
+  // uses the provider's stable alias, fallback is upward only and Senior/Apex
+  // never fall back.
+  const codexModel = codexModelForTier(selectedTier, env);
+  const claude = resolveClaudeModel(selectedTier, { env });
   const lanes = sensitive || selectedTier === "apex"
     ? ["architecture", "security", "tests", "source-of-truth"]
     : selectedTier === "economy" ? ["tests"] : ["tests", "source-of-truth"];
 
-  return { type, risk: normalizedRisk, tier: selectedTier, builder, reviewer, codexModel, builderEffort, reviewerEffort, lanes, sensitive, apexReason: wantsApex ? reason : "none" };
+  return { type, risk: normalizedRisk, tier: selectedTier, builder, reviewer, codexModel, claudeModel: claude.model, claudeFallback: claude.fallbacks.join(","), claudeModelArgs: claudeModelArgs(selectedTier, env), claudeReviewerModelArgs: claudeModelArgs(reviewerTier(selectedTier), env), builderEffort, reviewerEffort, lanes, sensitive, apexReason: wantsApex ? reason : "none" };
 }
 
 function buildMetric(meta = {}) {
@@ -104,6 +109,7 @@ function buildMetric(meta = {}) {
     risk: String(meta.risk || "unknown"),
     tier: String(meta.tier || "unknown"),
     codex_model: String(meta.codexModel || "unknown"),
+    claude_model: String(meta.claudeModel || "unknown"),
     apex_reason: String(meta.apexReason || "none"),
     builder: String(meta.builder || "unknown"),
     reviewer: String(meta.reviewer || "unknown"),
@@ -136,6 +142,7 @@ function main() {
       risk: process.env.SITON_RISK,
       tier: process.env.SITON_MODEL_TIER,
       codexModel: process.env.SITON_CODEX_MODEL,
+      claudeModel: process.env.SITON_CLAUDE_MODEL,
       apexReason: process.env.SITON_APEX_REASON,
       builder: process.env.SITON_BUILDER,
       reviewer: process.env.SITON_REVIEWER,

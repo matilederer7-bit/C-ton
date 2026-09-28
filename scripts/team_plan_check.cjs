@@ -17,12 +17,20 @@
 //   - builders touching database, migrations, security/auth, payments/money
 //     or the state machine require a reviewer marked `senior: true`
 //   - dependencies reference existing assignments and contain no cycle
+//   - an optional `tier` (economy | standard | senior | apex) names the
+//     compute tier; models are never pinned in a plan (`model` is refused),
+//     they come from scripts/agent_model_tiers.cjs. Senior-risk builders and
+//     `senior: true` reviewers may not declare a tier below senior, and no
+//     reviewer is cheaper than standard
+//   - independent builders are reported as parallel waves, so 2+ independent
+//     workstreams are dispatched concurrently
 //
 // Exit 1 on any violation. Output is one line per finding plus a JSON summary.
 // Controls: tests/release_tools/team_plan_check.test.cjs.
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { TIER_ORDER, claudeModelForTier, tierRank } = require("./agent_model_tiers.cjs");
 
 const ROLES = new Set(["builder", "reviewer"]);
 const AGENTS = new Set(["claude-lead", "claude-subagent", "codex", "chatgpt", "cloud-manager"]);
@@ -101,6 +109,10 @@ function checkPlan(plan, options = {}) {
     if (!String(item.scope || "").trim()) fail("scope_missing", `${id}: scope (area of responsibility) is required`);
     if (!Array.isArray(item.dod) || !item.dod.length) fail("dod_missing", `${id}: dod (Definition of Done) must list at least one item`);
     if (!Array.isArray(item.depends_on)) fail("depends_on_missing", `${id}: depends_on must be an array (empty when independent)`);
+    if (Object.hasOwn(item, "model")) fail("model_pinned", `${id}: do not pin a model in the plan; set tier (${TIER_ORDER.join(" | ")}) and let scripts/agent_model_tiers.cjs resolve it`);
+    if (item.tier !== undefined && !TIER_ORDER.includes(item.tier)) fail("tier_invalid", `${id}: tier must be one of ${TIER_ORDER.join(", ")}`);
+    if (item.role === "reviewer" && TIER_ORDER.includes(item.tier) && tierRank(item.tier) < tierRank("standard")) fail("tier_below_floor", `${id}: a reviewer is never cheaper than standard`);
+    if (item.role === "reviewer" && item.senior === true && TIER_ORDER.includes(item.tier) && tierRank(item.tier) < tierRank("senior")) fail("tier_below_floor", `${id}: a senior reviewer must run at tier senior or apex, not ${item.tier}`);
     if (item.role === "builder") {
       if (!Array.isArray(item.allowed) || !item.allowed.length) fail("allowed_missing", `${id}: builder must declare allowed paths`);
       if (!Array.isArray(item.forbidden)) fail("forbidden_missing", `${id}: builder must declare forbidden paths (may be empty only deliberately)`);
@@ -166,6 +178,9 @@ function checkPlan(plan, options = {}) {
   const summary = [];
   for (const builder of builders) {
     const families = riskFamilies(builder.allowed);
+    if (families.length && TIER_ORDER.includes(builder.tier) && tierRank(builder.tier) < tierRank("senior")) {
+      fail("tier_below_floor", `${builder.id}: touches ${families.join(", ")}; tier ${builder.tier} is below the senior floor (no silent downgrade)`);
+    }
     const covering = reviewers.filter((reviewer) => (reviewer.reviews || []).map(String).includes(String(builder.id)));
     // Separate sub-agent instances are independent of each other; the lead,
     // Codex, ChatGPT and the cloud manager are single identities and cannot
@@ -175,10 +190,36 @@ function checkPlan(plan, options = {}) {
     if (families.length && !independent.some((reviewer) => reviewer.senior === true)) {
       fail("senior_review_missing", `${builder.id}: touches ${families.join(", ")}; an independent reviewer with senior: true is required before merge`);
     }
-    summary.push({ id: builder.id, agent: builder.agent, risk: families.length ? "senior" : "standard", families, reviewers: covering.map((reviewer) => reviewer.id) });
+    const tier = TIER_ORDER.includes(builder.tier) ? builder.tier : families.length ? "senior" : "standard";
+    summary.push({ id: builder.id, agent: builder.agent, risk: families.length ? "senior" : "standard", families, tier, model: claudeModelForTier(tier, {}), reviewers: covering.map((reviewer) => reviewer.id) });
   }
 
-  return { ok: findings.length === 0, findings, builders: summary };
+  return { ok: findings.length === 0, findings, builders: summary, waves: parallelWaves(assignments) };
+}
+
+// Group assignments into waves: everything in a wave depends only on earlier
+// waves and may run concurrently. Unknown or cyclic dependencies are already
+// reported above; they are left out here.
+function parallelWaves(assignments) {
+  const byId = new Map(assignments.filter((item) => item?.id).map((item) => [String(item.id), item]));
+  const placed = new Map();
+  const waves = [];
+  let progress = true;
+  while (progress && placed.size < byId.size) {
+    progress = false;
+    const wave = [];
+    for (const [id, item] of byId) {
+      if (placed.has(id)) continue;
+      const deps = (item.depends_on || []).map(String);
+      if (deps.every((dep) => byId.has(dep) && placed.has(dep))) wave.push(id);
+    }
+    if (wave.length) {
+      for (const id of wave) placed.set(id, waves.length);
+      waves.push(wave);
+      progress = true;
+    }
+  }
+  return waves;
 }
 
 function main(argv) {
@@ -207,12 +248,13 @@ function main(argv) {
   }
   const result = checkPlan(plan, { openBranchPaths });
   for (const finding of result.findings) console.log(`TEAM_PLAN_FINDING ${finding.code} ${finding.message}`);
-  for (const builder of result.builders) console.log(`TEAM_PLAN_BUILDER ${builder.id} agent=${builder.agent} risk=${builder.risk}${builder.families.length ? " families=" + builder.families.join(",") : ""} reviewers=${builder.reviewers.join(",") || "none"}`);
+  for (const builder of result.builders) console.log(`TEAM_PLAN_BUILDER ${builder.id} agent=${builder.agent} risk=${builder.risk} tier=${builder.tier} claude_model=${builder.model}${builder.families.length ? " families=" + builder.families.join(",") : ""} reviewers=${builder.reviewers.join(",") || "none"}`);
+  result.waves.forEach((wave, index) => console.log(`TEAM_PLAN_WAVE ${index + 1} ${wave.length > 1 ? "parallel" : "serial"} ${wave.join(",")}`));
   console.log(`TEAM_PLAN_SUMMARY ${JSON.stringify({ ok: result.ok, findings: result.findings.length, builders: result.builders.length, open_branches_checked: Object.keys(openBranchPaths).length })}`);
   console.log(result.ok ? "TEAM_PLAN_PASS" : "TEAM_PLAN_FAIL");
   return result.ok ? 0 : 1;
 }
 
-module.exports = { checkPlan, pathsOverlap, riskFamilies };
+module.exports = { checkPlan, parallelWaves, pathsOverlap, riskFamilies };
 
 if (require.main === module) process.exit(main(process.argv.slice(2)));

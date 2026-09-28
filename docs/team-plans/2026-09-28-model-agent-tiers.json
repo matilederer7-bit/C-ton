@@ -1,0 +1,42 @@
+{
+  "task": "Model + agent infrastructure audit: tier-based model policy (economy/standard/senior/apex) on provider aliases, safe upward-only fallback, no silent downgrade, and a corrected read-only boundary from PR #79",
+  "lead": "claude-lead",
+  "base": "origin/master",
+  "open_branches": ["origin/chatgpt/phone-team-gpt6-openai-only-20260923", "origin/codex/bootstrap-reconcile-20260924"],
+  "interface_contract": {
+    "scripts/agent_model_tiers.cjs": "resolveClaudeModel(tier,{env,available}) -> {model,fallbacks,fellBack}; claudeModelArgs(tier,env); codexModelForTier(tier,env); upward-only fallback, none for senior/apex, downgrading pins refused"
+  },
+  "assignments": [
+    {
+      "id": "B1",
+      "agent": "claude-lead",
+      "role": "builder",
+      "tier": "senior",
+      "scope": "tier module, router/access/preflight wiring, workflow model args and review guard, agent definitions, read-only guard fix, plan check tier floor and waves, docs, tests",
+      "allowed": [".claude/agents/", ".gitignore", ".gitattributes", "package.json", "scripts/agent_model_tiers.cjs", "scripts/agent_router.cjs", "scripts/agent_model_access.cjs", "scripts/agent_credentials_preflight.cjs", "scripts/agent_readonly_bash_guard.cjs", "scripts/team_plan_check.cjs", ".github/workflows/cloud-agent-manager.yml", "docs/ENGINEERING_OPERATING_SYSTEM.md", "docs/CLAUDE_TEAM_LEAD.md", "docs/team-plans/2026-09-28-model-agent-tiers.json", "tests/release_tools/agent_model_tiers.test.cjs", "tests/release_tools/agent_readonly_bash_guard.test.cjs", "PROJECT_STATUS.md"],
+      "forbidden": ["src/", "web/", "supabase/", ".github/workflows/cloud-analysis-swarm.yml"],
+      "depends_on": [],
+      "dod": ["release-tools suite green", "mutation checks caught", "live proof that read-only agents cannot write", "no test or gate weakened"]
+    },
+    {
+      "id": "R1",
+      "agent": "claude-subagent",
+      "role": "reviewer",
+      "senior": true,
+      "tier": "senior",
+      "scope": "independent security and correctness review of the full diff",
+      "reviews": ["B1"],
+      "depends_on": ["B1"],
+      "dod": ["verdict with concrete failure scenarios"]
+    },
+    {
+      "id": "R2",
+      "agent": "codex",
+      "role": "reviewer",
+      "scope": "cross-provider review on the Pull Request",
+      "reviews": ["B1"],
+      "depends_on": ["B1"],
+      "dod": ["every finding fixed or answered"]
+    }
+  ]
+}
