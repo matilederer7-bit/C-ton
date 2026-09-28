@@ -13,7 +13,7 @@ import { BRAND_LOGO_URL } from "../config";
 import { IMAGE_ACCEPT, VIDEO_ACCEPT, uploadImageAsset, uploadVideoAsset } from "../contentAssets";
 import { SITE_CONTENT_UPDATED_EVENT } from "../siteContent";
 import {
-  TEMPLATES, contractFor, validationErrorKey, emptyBlock, emptyItem, missingEnglishContent, newBlockId, normalizePage, validatePage,
+  ENGLISH_FIELD_KINDS, TEMPLATES, contractFor, validationErrorKey, emptyBlock, emptyItem, missingEnglishContent, newBlockId, normalizePage, validatePage,
   type Block, type ContentLocale, type FieldDef, type PageContent, type PageContract, type TemplateId
 } from "../content/cmsTemplates";
 import { t } from "../i18n/index.js";
@@ -258,12 +258,26 @@ function BlockCard({ block, index, locked, busy, contentLocale, canUp, canDown, 
   const english = contentLocale === "en";
   const fields = english ? (block.fields_en ?? {}) : block.fields;
   const items = (english ? block.items_en ?? [] : block.items) || [];
-  const setField = (name: string, value: string) => onChange(english
+  // A STRUCTURAL field (a select such as an icon key or the hero medium, a
+  // link target) has no English sibling: it is read from and written to the
+  // canonical `fields` whichever content language is being edited, so the
+  // English view never shows a blank choice and never stores one where the
+  // validator refuses it.
+  const structural = (def: FieldDef) => !ENGLISH_FIELD_KINDS.has(def.kind);
+  const setField = (name: string, value: string, def: FieldDef) => onChange(english && !structural(def)
     ? { ...block, fields_en: { ...(block.fields_en ?? {}), [name]: value } }
     : { ...block, fields: { ...block.fields, [name]: value } });
   const setItems = (next: Record<string, string>[]) => onChange(english
     ? { ...block, items_en: next }
     : { ...block, items: next });
+  const setItemField = (index: number, name: string, value: string, def: FieldDef) => {
+    if (english && structural(def)) {
+      const canonical = (block.items ?? []).map((it, j) => j === index ? { ...it, [name]: value } : it);
+      onChange({ ...block, items: canonical });
+      return;
+    }
+    setItems(items.map((it, j) => j === index ? { ...it, [name]: value } : it));
+  };
   return <section className={`panel cms-block${block.enabled ? "" : " cms-block-off"}`} data-testid={`cms-block-${block.id}`} data-block-type={block.type} data-enabled={block.enabled ? "1" : "0"} data-position={index}>
     <div className="cms-block-head">
       <button type="button" className="cms-block-toggle" aria-expanded={open} onClick={() => setOpen(o => !o)}>{open ? "▾" : "▸"}</button>
@@ -280,9 +294,10 @@ function BlockCard({ block, index, locked, busy, contentLocale, canUp, canDown, 
         // `showWhen` is a STRUCTURAL choice (which medium, which side) and is
         // held only on the canonical Hebrew side; the English view follows it.
         if (def.showWhen && block.fields[def.showWhen.field] !== def.showWhen.value) return null;
-        const fallback = english ? block.fields[name] ?? "" : "";
-        return <Field key={name} id={`cms-field-${block.id}-${name}`} def={def} value={fields[name] ?? ""}
-          fallback={fallback} busy={busy} onChange={v => setField(name, v)} onMessage={onMessage} />;
+        const fallback = english && !structural(def) ? block.fields[name] ?? "" : "";
+        const value = structural(def) ? block.fields[name] ?? "" : fields[name] ?? "";
+        return <Field key={name} id={`cms-field-${block.id}-${name}`} def={def} value={value}
+          fallback={fallback} busy={busy} onChange={v => setField(name, v, def)} onMessage={onMessage} />;
       })}
       {tpl.items ? <div className="cms-items" data-testid={`cms-items-${block.id}`}>
         <div className="cms-items-head"><b>{t(tpl.items.label)}</b> <span className="muted small">({items.length}/{tpl.items.max})</span></div>
@@ -293,8 +308,9 @@ function BlockCard({ block, index, locked, busy, contentLocale, canUp, canDown, 
             <button type="button" className="btn btn-ghost btn-sm" aria-label={t("content_admin.move_down")} data-testid={`cms-item-down-${block.id}-${i}`} disabled={busy || i === items.length - 1} onClick={() => setItems(move(items, i, i + 1))}>▼</button>
             <button type="button" className="btn btn-danger-ghost btn-sm" data-testid={`cms-item-remove-${block.id}-${i}`} disabled={busy || items.length <= tpl.items!.min} onClick={() => setItems(items.filter((_, j) => j !== i))}>{t("content_admin.delete")}</button>
           </div>
-          {Object.entries(tpl.items!.fields).map(([name, def]) => <Field key={name} id={`cms-item-${block.id}-${i}-${name}`} def={def} value={item[name] ?? ""}
-            fallback={english ? block.items?.[i]?.[name] ?? "" : ""} busy={busy} onChange={v => setItems(items.map((it, j) => j === i ? { ...it, [name]: v } : it))} onMessage={onMessage} />)}
+          {Object.entries(tpl.items!.fields).map(([name, def]) => <Field key={name} id={`cms-item-${block.id}-${i}-${name}`} def={def}
+            value={structural(def) ? block.items?.[i]?.[name] ?? "" : item[name] ?? ""}
+            fallback={english && !structural(def) ? block.items?.[i]?.[name] ?? "" : ""} busy={busy} onChange={v => setItemField(i, name, v, def)} onMessage={onMessage} />)}
         </div>)}
         <button type="button" className="btn btn-ghost btn-sm" data-testid={`cms-item-add-${block.id}`} disabled={busy || items.length >= tpl.items.max} onClick={() => setItems([...items, emptyItem(block.type)])}>+ {t(tpl.items.addLabel)}</button>
       </div> : null}

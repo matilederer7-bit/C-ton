@@ -236,6 +236,28 @@ async function main() {
         assert.deepEqual(appErrors(page!), []);
       }
     });
+    // ── 3. icons are structural: the English content view edits the same icon, and publishing from it works ──
+    await run("in the English content view the icon picker shows the canonical choice; picking there publishes (Codex P2 on #121)", async () => {
+      await page!.setViewport(DESKTOP);
+      page!.clearErrors();
+      await page!.goto(`${BASE}#/admin/content`, { waitMs: 600 });
+      await waitFor(page!, `Boolean(document.querySelector('[data-testid="cms-field-how-buyer_icon_2"]'))`, 30_000, "the editor again");
+      await page!.evaluate(`document.querySelector('[data-testid="cms-content-locale-en"]').click()`); await wait(200);
+      const en = await page!.evaluate<any>(`({ locale: document.querySelector('[data-testid="cms-content-locale"]').getAttribute('data-locale'), icon: document.querySelector('[data-testid="cms-field-how-buyer_icon_2"]').value, preview: document.querySelector('[data-testid="cms-field-how-buyer_icon_2-icon"]').getAttribute('data-icon'), fallbackNote: !!document.querySelector('[data-testid="cms-field-how-buyer_icon_2-fallback"]') })`);
+      assert.deepEqual(en, { locale: "en", icon: NEW_ICON, preview: NEW_ICON, fallbackNote: false }, "the English view must show the canonical icon, not a blank");
+      assert.equal(await page!.evaluate<boolean>(setInput('[data-testid="cms-field-how-sellers_summary_icon"]', "bell")), true);
+      await wait(150);
+      await page!.evaluate(`document.querySelector('[data-testid="cms-publish"]').click()`);
+      await waitFor(page!, `(() => { const s = document.querySelector('[data-testid="cms-status"]'); const m = document.querySelector('[data-testid="cms-message"]'); return s && s.getAttribute('data-dirty') === '0' && s.getAttribute('data-has-draft') === '0' && m && m.classList.contains('ok'); })()`, 30_000, "publish from the English view to finish");
+      const stored = (await pool.query(`SELECT value_jsonb FROM siton.site_content WHERE content_key='home'`)).rows[0]!.value_jsonb;
+      const how = stored.blocks.find((b: any) => b.id === "how");
+      assert.equal(how.fields.sellers_summary_icon, "bell", "the icon picked in the English view is stored in the canonical fields");
+      assert.equal(how.fields_en?.sellers_summary_icon, undefined, "no icon is ever stored on the English side");
+      await page!.goto(`${BASE}?en-edit=1#/`, { waitMs: 400 });
+      const snap = await waitFor<any>(page!, `(() => { const s = ${SNAPSHOT}; return s && s.sellers.summary.icon === "bell" ? s : null; })()`, 15_000, "the new seller summary icon on the landing");
+      assert.equal(snap.buyers.steps[1].icon, NEW_ICON);
+      assert.deepEqual(appErrors(page!), []);
+    });
     console.log("HOW_IT_WORKS_BROWSER_PASS");
   } finally {
     await page?.close().catch(() => undefined);
