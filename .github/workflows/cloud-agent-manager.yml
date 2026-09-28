@@ -142,10 +142,12 @@ jobs:
       # `disableAllHooks` and switch the guard off (both proven locally).
       # The guard is captured from canonical master into a step output before
       # any agent runs; each review step re-materializes it with a sha256
-      # check immediately before the reviewer starts. This defeats a builder
-      # that edits files between steps. It is not full isolation: builder code
-      # still runs earlier in this same job (a leftover background process
-      # could race the check); that needs the review in a separate job.
+      # check immediately before the reviewer starts. This stops a reviewer
+      # from writing, and a builder that merely edits files between steps. It
+      # is NOT isolation from a hostile builder: builder code runs earlier in
+      # this same job and can poison GITHUB_PATH/GITHUB_ENV, the tool cache or
+      # (via sudo) system binaries, and leave background processes. Only a
+      # separate review job on a fresh runner closes that (open follow-up).
       - name: Pin read-only review guard
         id: review_guard
         shell: bash
@@ -421,6 +423,7 @@ jobs:
           NODE
 
       - name: Claude bounded fix pass
+        id: claude_fix
         if: steps.review1.outputs.needs_fix == 'true' && steps.roles.outputs.builder == 'claude'
         uses: anthropics/claude-code-action@v1
         with:
@@ -731,6 +734,10 @@ jobs:
           SITON_CODEX_MODEL: ${{ steps.roles.outputs.codex_model }}
           SITON_CLAUDE_MODEL: ${{ steps.roles.outputs.builder == 'claude' && steps.roles.outputs.claude_model || 'none' }}
           SITON_CLAUDE_REVIEWER_MODEL: ${{ steps.roles.outputs.reviewer == 'claude' && steps.roles.outputs.claude_reviewer_model || 'none' }}
+          SITON_CLAUDE_BUILD_EXECUTION: ${{ steps.claude_build.outputs.execution_file }}
+          SITON_CLAUDE_FIX_EXECUTION: ${{ steps.claude_fix.outputs.execution_file }}
+          SITON_CLAUDE_REVIEW1_EXECUTION: ${{ steps.claude_review_1.outputs.execution_file }}
+          SITON_CLAUDE_REVIEW2_EXECUTION: ${{ steps.claude_review_2.outputs.execution_file }}
           SITON_APEX_REASON: ${{ steps.roles.outputs.apex_reason }}
           SITON_BUILDER: ${{ steps.roles.outputs.builder }}
           SITON_REVIEWER: ${{ steps.roles.outputs.reviewer }}

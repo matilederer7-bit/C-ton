@@ -37,8 +37,9 @@ test("telemetry records the Claude model of each role, including the raised revi
   assert.equal(route.builder, "codex");
   assert.equal(route.claudeReviewerModel, "sonnet");
   const metric = buildMetric({ claudeModel: "none", claudeReviewerModel: route.claudeReviewerModel });
-  assert.equal(metric.claude_model, "none");
-  assert.equal(metric.claude_reviewer_model, "sonnet");
+  assert.equal(metric.claude_model_requested, "none");
+  assert.equal(metric.claude_reviewer_model_requested, "sonnet");
+  assert.equal(metric.claude_reviewer_model_executed, "unknown");
   const workflow = fs.readFileSync(path.join(root, ".github/workflows/cloud-agent-manager.yml"), "utf8");
   assert.match(workflow, /SITON_CLAUDE_MODEL: \$\{\{ steps\.roles\.outputs\.builder == 'claude' && steps\.roles\.outputs\.claude_model \|\| 'none' \}\}/);
   assert.match(workflow, /SITON_CLAUDE_REVIEWER_MODEL: \$\{\{ steps\.roles\.outputs\.reviewer == 'claude' && steps\.roles\.outputs\.claude_reviewer_model \|\| 'none' \}\}/);
@@ -263,4 +264,48 @@ test("the cloud manager passes the routed tier model to every Claude step", () =
   for (const tier of TIER_ORDER) {
     assert.match(workflow, new RegExp(`SITON_CLAUDE_MODEL_${tier.toUpperCase()}: \\$\\{\\{ vars\\.SITON_CLAUDE_MODEL_${tier.toUpperCase()} \\}\\}`));
   }
+});
+
+test("telemetry records the model Claude Code actually executed, separately from the requested alias", () => {
+  const os = require("node:os");
+  const { buildMetric, executedModels } = require("../../scripts/agent_router.cjs");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "siton-exec-"));
+  try {
+    // Requested sonnet, Claude Code switched to the --fallback-model.
+    const review = path.join(dir, "review.json");
+    fs.writeFileSync(review, JSON.stringify([
+      { type: "system", subtype: "init", model: "claude-sonnet-5-5" },
+      { type: "assistant", message: { model: "claude-opus-5-5", content: [] } },
+      { type: "result", result: "ok", modelUsage: { "claude-opus-5-5": {}, "claude-haiku-4-5-20251001": {} } },
+    ]));
+    const broken = path.join(dir, "broken.json");
+    fs.writeFileSync(broken, "{not json");
+    assert.deepEqual(executedModels(review, broken, path.join(dir, "missing.json"), ""), ["claude-haiku-4-5-20251001", "claude-opus-5-5"]);
+    const metric = buildMetric({ claudeReviewerModel: "sonnet", claudeReviewerExecuted: executedModels(review) });
+    assert.equal(metric.claude_reviewer_model_requested, "sonnet");
+    assert.equal(metric.claude_reviewer_model_executed, "claude-haiku-4-5-20251001,claude-opus-5-5");
+    assert.equal(metric.claude_model_executed, "unknown");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  const workflow = fs.readFileSync(path.join(root, ".github/workflows/cloud-agent-manager.yml"), "utf8");
+  for (const [key, step] of [["BUILD", "claude_build"], ["FIX", "claude_fix"], ["REVIEW1", "claude_review_1"], ["REVIEW2", "claude_review_2"]]) {
+    assert.match(workflow, new RegExp(`SITON_CLAUDE_${key}_EXECUTION: \\$\\{\\{ steps\\.${step}\\.outputs\\.execution_file \\}\\}`));
+    assert.match(workflow, new RegExp(`\\n        id: ${step}\\n`));
+  }
+});
+
+test("a fallback is never a weaker family than a stronger administrator pin", () => {
+  assert.deepEqual(resolveClaudeModel("economy", { env: { SITON_CLAUDE_MODEL_ECONOMY: "opus" } }).fallbacks, []);
+  assert.equal(claudeModelArgs("economy", { SITON_CLAUDE_MODEL_ECONOMY: "opus" }), "--model opus");
+  assert.equal(claudeModelArgs("economy", { SITON_CLAUDE_MODEL_ECONOMY: "sonnet" }), "--model sonnet");
+  assert.equal(claudeModelArgs("economy", { SITON_CLAUDE_MODEL_ECONOMY: "sonnet", SITON_CLAUDE_MODEL_STANDARD: "opus" }), "--model sonnet --fallback-model opus");
+  assert.throws(() => resolveClaudeModel("economy", { env: { SITON_CLAUDE_MODEL_ECONOMY: "opus" }, available: new Set(["sonnet", "haiku"]) }), /refusing to downgrade/);
+});
+
+test("a Codex pin may not equal the effective model of a lower tier, including a pinned one", () => {
+  const env = { SITON_CODEX_MODEL_STANDARD: "gpt-new-cheap", SITON_CODEX_MODEL_SENIOR: "gpt-new-cheap" };
+  assert.throws(() => codexModelForTier("senior", env), /standard tier model/);
+  assert.throws(() => routeTask({ taskType: "payments", env }), /downgrade/);
+  assert.equal(codexModelForTier("senior", { SITON_CODEX_MODEL_STANDARD: "gpt-new-cheap", SITON_CODEX_MODEL_SENIOR: "gpt-new-strong" }), "gpt-new-strong");
 });

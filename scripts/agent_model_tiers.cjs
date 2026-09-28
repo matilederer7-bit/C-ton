@@ -85,9 +85,9 @@ function codexModelForTier(tier, env = process.env) {
   const override = String(env[envKey("SITON_CODEX_MODEL", tier)] || "").trim();
   if (!override) return CODEX_TIER_MODELS[tier];
   if (!CODEX_ID.test(override)) throw new Error(`${envKey("SITON_CODEX_MODEL", tier)} is not a valid model identifier`);
-  // Codex identifiers carry no family rank, so the only checkable downgrade
-  // is a pin to a lower tier's default model; refuse it.
-  const lower = TIER_ORDER.slice(0, tierRank(tier)).find((lowerTier) => CODEX_TIER_MODELS[lowerTier] === override);
+  // Codex identifiers carry no family rank, so the checkable downgrade is a
+  // pin to a model that a lower tier uses: its default or its own pin.
+  const lower = TIER_ORDER.slice(0, tierRank(tier)).find((lowerTier) => CODEX_TIER_MODELS[lowerTier] === override || String(env[envKey("SITON_CODEX_MODEL", lowerTier)] || "").trim() === override);
   if (lower) throw new Error(`${envKey("SITON_CODEX_MODEL", tier)}=${override} is the ${lower} tier model and would downgrade ${tier}; refused`);
   return override;
 }
@@ -108,7 +108,10 @@ function fallbackTiers(tier) {
 function resolveClaudeModel(tier, { env = process.env, available } = {}) {
   assertTier(tier);
   const requested = claudeModelForTier(tier, env);
-  const fallbacks = fallbackTiers(tier).map((next) => claudeModelForTier(next, env));
+  // A fallback may never be a weaker family than what was requested, even
+  // when an administrator pinned this tier above its default.
+  const floor = CLAUDE_FAMILY_RANK[claudeFamily(requested)];
+  const fallbacks = fallbackTiers(tier).map((next) => claudeModelForTier(next, env)).filter((model) => model !== requested && CLAUDE_FAMILY_RANK[claudeFamily(model)] >= floor);
   if (!available) return { tier, model: requested, requested, fallbacks, fellBack: false };
   const has = (model) => available.has(model);
   if (has(requested)) return { tier, model: requested, requested, fallbacks, fellBack: false };
