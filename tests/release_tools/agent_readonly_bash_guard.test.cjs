@@ -38,7 +38,6 @@ test('allows the read-only commands a reviewer and a scout need', () => {
     'git diff --no-ext-diff HEAD~1',
     'git show HEAD^:AGENTS.md',
     'grep -rn "platform fee" src',
-    'git diff -- --output=not-an-option',
   ]) assert.deepEqual(evaluate(command), { allow: true }, command);
 });
 
@@ -117,19 +116,27 @@ test('read-only specialists fail closed: no Bash, and no reliance on frontmatter
   }
 });
 
-test('cloud Claude reviewers run under the guard, pinned from master before any agent runs', () => {
+test('cloud Claude reviewers run under the guard, re-materialized from an immutable step output right before each review', () => {
   const workflow = fs.readFileSync(path.join(root, '.github/workflows/cloud-agent-manager.yml'), 'utf8');
   const pin = workflow.indexOf('- name: Pin read-only review guard');
   const firstAgent = workflow.indexOf('uses: anthropics/claude-code-action@v1');
   const codexAgent = workflow.indexOf('uses: openai/codex-action@v1');
   assert.ok(pin > workflow.indexOf('- name: Checkout canonical master'));
-  assert.ok(pin > 0 && pin < firstAgent && pin < codexAgent, 'guard must be pinned before any builder can modify the checkout');
-  assert.match(workflow, /cp scripts\/agent_readonly_bash_guard\.cjs "\$RUNNER_TEMP\/siton-readonly-bash-guard\.cjs"/);
-  const steps = workflow.split(/\n      - name: /).filter((step) => /^Claude review pass/.test(step));
-  assert.equal(steps.length, 2);
-  for (const step of steps) {
-    assert.match(step, /--settings \$\{\{ runner\.temp \}\}\/siton-readonly-review-settings\.json/);
-    assert.match(step, /--disallowedTools Write Edit MultiEdit NotebookEdit/);
+  assert.ok(pin > 0 && pin < firstAgent && pin < codexAgent, 'guard must be captured before any builder can modify the checkout');
+  assert.match(workflow, /echo "guard_b64=\$\(base64 -w0 scripts\/agent_readonly_bash_guard\.cjs\)" >> "\$GITHUB_OUTPUT"/);
+  const steps = workflow.split(/\n      - name: /);
+  for (const pass of [1, 2]) {
+    const index = steps.findIndex((step) => step.startsWith(`Claude review pass ${pass}`));
+    assert.ok(index > 0, `review pass ${pass}`);
+    const materialize = steps[index - 1];
+    assert.ok(materialize.startsWith(`Materialize read-only review guard (pass ${pass})`), 'guard must be re-materialized immediately before the reviewer');
+    assert.match(materialize, /GUARD_B64: \$\{\{ steps\.review_guard\.outputs\.guard_b64 \}\}/);
+    assert.match(materialize, /sha256sum -c --quiet -/);
+    assert.match(materialize, /rm -rf "\$dir"/);
+    assert.match(steps[index], /--settings \$\{\{ runner\.temp \}\}\/siton-review-guard\/settings\.json/);
+    assert.match(steps[index], /--disallowedTools Write Edit MultiEdit NotebookEdit/);
+    const condition = (text) => /\n        if: (.*)\n/.exec(text)[1];
+    assert.equal(condition(materialize), condition(steps[index]));
   }
 });
 
@@ -155,6 +162,16 @@ test('refuses option spellings that only become dangerous after shell quote remo
     'find . -ex"ec" rm {} +',
     "rg '--pre=sh' x",
     'rg --hostname-bin=sh x',
+    // Independent review of PR #124: a value-taking option consumes `--` or
+    // `--end-of-options` as its value and Git keeps parsing options after it.
+    'git log --author --end-of-options --output=pwned1 -p',
+    'git show -S --end-of-options --output=pwned3',
+    'git diff -S --end-of-options --output=pwned5 HEAD~1',
+    'git diff --src-prefix --end-of-options --output=pwnA HEAD~1',
+    "git diff --line-prefix '[core] fsmonitor = touch x #' --src-prefix --end-of-options --output=.git/config HEAD~1",
+    'git diff --src-prefix -- --output=pwnB HEAD~1',
+    "git grep -e -- '-Otouch touched_marker'",
+    'git diff HEAD -- --output=looks-like-a-path',
   ]) assert.equal(evaluate(command).allow, false, command);
 });
 
@@ -205,13 +222,16 @@ test('allowed commands leave a disposable repository byte-for-byte unchanged; re
     const snapshot = () => fs.readdirSync(dir).sort().join(',');
     const before = snapshot();
 
-    const bypasses = ['git diff --output"=proof.txt"', 'git grep --open-files-in-pager=sh invoked'];
+    const bypasses = ['git diff --output"=proof.txt"', 'git grep --open-files-in-pager=sh invoked', 'git diff --src-prefix --end-of-options --output=eoo.txt'];
     for (const cmd of bypasses) assert.equal(evaluate(cmd).allow, false, cmd);
     // Prove the refused spellings are real write/execute paths, not theory.
     run(bypasses[0]);
     assert.ok(fs.existsSync(path.join(dir, 'proof.txt')), 'quoted --output writes a file when executed');
     run(bypasses[1]);
     assert.ok(fs.existsSync(path.join(dir, 'pager-marker.txt')), '--open-files-in-pager executes a program');
+    run(bypasses[2]);
+    assert.ok(fs.existsSync(path.join(dir, 'eoo.txt')), '--end-of-options as an option value still lets --output write');
+    fs.rmSync(path.join(dir, 'eoo.txt'));
     fs.rmSync(path.join(dir, 'proof.txt'));
     fs.rmSync(path.join(dir, 'pager-marker.txt'));
     assert.equal(snapshot(), before);

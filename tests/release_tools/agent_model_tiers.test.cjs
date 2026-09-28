@@ -31,6 +31,19 @@ test("tiers resolve to the provider's stable aliases, cheapest to strongest", ()
   assert.deepEqual(TIER_ORDER.map((tier) => claudeModelForTier(tier, NO_ENV)), ["haiku", "sonnet", "opus", "fable"]);
 });
 
+test("telemetry records the Claude model of each role, including the raised reviewer", () => {
+  const { buildMetric } = require("../../scripts/agent_router.cjs");
+  const route = routeTask({ taskType: "tests", risk: "low", env: NO_ENV });
+  assert.equal(route.builder, "codex");
+  assert.equal(route.claudeReviewerModel, "sonnet");
+  const metric = buildMetric({ claudeModel: "none", claudeReviewerModel: route.claudeReviewerModel });
+  assert.equal(metric.claude_model, "none");
+  assert.equal(metric.claude_reviewer_model, "sonnet");
+  const workflow = fs.readFileSync(path.join(root, ".github/workflows/cloud-agent-manager.yml"), "utf8");
+  assert.match(workflow, /SITON_CLAUDE_MODEL: \$\{\{ steps\.roles\.outputs\.builder == 'claude' && steps\.roles\.outputs\.claude_model \|\| 'none' \}\}/);
+  assert.match(workflow, /SITON_CLAUDE_REVIEWER_MODEL: \$\{\{ steps\.roles\.outputs\.reviewer == 'claude' && steps\.roles\.outputs\.claude_reviewer_model \|\| 'none' \}\}/);
+});
+
 test("router maps work to the right Claude tier model", () => {
   const cases = [
     [{ taskType: "docs", risk: "low" }, "economy", "haiku"],
@@ -124,6 +137,10 @@ test("configuration cannot pin a sensitive tier to a weaker model family", () =>
   }
   assert.throws(() => claudeModelForTier("senior", { SITON_CLAUDE_MODEL_SENIOR: "opus --dangerously-skip-permissions" }), /not a Claude alias/);
   assert.throws(() => claudeModelForTier("senior", { SITON_CLAUDE_MODEL_SENIOR: "gpt-5.6-sol" }), /not a Claude alias/);
+  assert.throws(() => codexModelForTier("senior", { SITON_CODEX_MODEL_SENIOR: "gpt-5.6-luna" }), /downgrade/);
+  assert.throws(() => codexModelForTier("apex", { SITON_CODEX_MODEL_APEX: "gpt-5.6-sol" }), /downgrade/);
+  assert.throws(() => routeTask({ taskType: "payments", env: { SITON_CODEX_MODEL_SENIOR: "gpt-5.6-terra" } }), /downgrade/);
+  assert.equal(codexModelForTier("economy", { SITON_CODEX_MODEL_ECONOMY: "gpt-5.6-terra" }), "gpt-5.6-terra");
 });
 
 test("sensitive work never routes to a cheaper Claude model, whatever tier is requested", () => {

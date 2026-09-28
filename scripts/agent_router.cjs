@@ -98,7 +98,7 @@ function routeTask({ task = "", taskType = "auto", risk = "normal", tier = "auto
     ? ["architecture", "security", "tests", "source-of-truth"]
     : selectedTier === "economy" ? ["tests"] : ["tests", "source-of-truth"];
 
-  return { type, risk: normalizedRisk, tier: selectedTier, builder, reviewer, codexModel, claudeModel: claude.model, claudeFallback: claude.fallbacks.join(","), claudeModelArgs: claudeModelArgs(selectedTier, env), claudeReviewerModelArgs: claudeModelArgs(reviewerTier(selectedTier), env), builderEffort, reviewerEffort, lanes, sensitive, apexReason: wantsApex ? reason : "none" };
+  return { type, risk: normalizedRisk, tier: selectedTier, builder, reviewer, codexModel, claudeModel: claude.model, claudeFallback: claude.fallbacks.join(","), claudeModelArgs: claudeModelArgs(selectedTier, env), claudeReviewerModel: resolveClaudeModel(reviewerTier(selectedTier), { env }).model, claudeReviewerModelArgs: claudeModelArgs(reviewerTier(selectedTier), env), builderEffort, reviewerEffort, lanes, sensitive, apexReason: wantsApex ? reason : "none" };
 }
 
 function buildMetric(meta = {}) {
@@ -110,6 +110,7 @@ function buildMetric(meta = {}) {
     tier: String(meta.tier || "unknown"),
     codex_model: String(meta.codexModel || "unknown"),
     claude_model: String(meta.claudeModel || "unknown"),
+    claude_reviewer_model: String(meta.claudeReviewerModel || "unknown"),
     apex_reason: String(meta.apexReason || "none"),
     builder: String(meta.builder || "unknown"),
     reviewer: String(meta.reviewer || "unknown"),
@@ -143,6 +144,7 @@ function main() {
       tier: process.env.SITON_MODEL_TIER,
       codexModel: process.env.SITON_CODEX_MODEL,
       claudeModel: process.env.SITON_CLAUDE_MODEL,
+      claudeReviewerModel: process.env.SITON_CLAUDE_REVIEWER_MODEL,
       apexReason: process.env.SITON_APEX_REASON,
       builder: process.env.SITON_BUILDER,
       reviewer: process.env.SITON_REVIEWER,

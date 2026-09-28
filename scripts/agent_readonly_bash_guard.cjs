@@ -40,7 +40,7 @@ const GIT_BRANCH_LISTING_FLAGS = new Set(['--list', '-l', '--contains', '--merge
 // prefix of a long option (`--outp` for `--output`), so an argument is refused
 // when it is a prefix of one of these as well as when it equals one.
 const GIT_DANGEROUS_LONG = [
-  '--output', '--ext-diff', '--textconv', '--exec', '--exec-path',
+  '--output', '--output-directory', '--ext-diff', '--textconv', '--exec', '--exec-path',
   '--upload-pack', '--receive-pack', '--open-files-in-pager', '--filters',
   '--config', '--config-env', '--git-dir', '--work-tree', '--namespace',
   '--paginate', '--pager',
@@ -123,10 +123,15 @@ function evaluateGit(rest) {
     return { allow: false, reason: 'git global options are not allowed; call a read-only subcommand directly' };
   }
   const args = rest.slice(1);
-  const end = args.findIndex((arg) => arg === '--' || arg === '--end-of-options');
-  const options = end === -1 ? args : args.slice(0, end);
+  // Every word is checked, including words after `--`. Git decides whether a
+  // word is an option, a value or a path, and a value-taking option consumes
+  // a following `--`/`--end-of-options` as its value and then keeps parsing
+  // options (`git diff --src-prefix --end-of-options --output=x`). Refusing
+  // `--end-of-options` and scanning all words removes that ambiguity; a path
+  // that merely looks like a dangerous option is refused too (fail closed).
+  if (args.includes('--end-of-options')) return { allow: false, reason: 'git --end-of-options is not allowed' };
   const shortPattern = GIT_DANGEROUS_SHORT[sub];
-  for (const arg of options) {
+  for (const arg of args) {
     if (isDangerousGitLong(arg)) return { allow: false, reason: `git option ${arg.split('=')[0]} can write files, run external programs or retarget the repository` };
     if (shortPattern && /^-[^-]/.test(arg) && shortPattern.test(arg.slice(1))) {
       return { allow: false, reason: `git ${sub} ${arg} can run an external program` };

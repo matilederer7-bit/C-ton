@@ -85,6 +85,10 @@ function codexModelForTier(tier, env = process.env) {
   const override = String(env[envKey("SITON_CODEX_MODEL", tier)] || "").trim();
   if (!override) return CODEX_TIER_MODELS[tier];
   if (!CODEX_ID.test(override)) throw new Error(`${envKey("SITON_CODEX_MODEL", tier)} is not a valid model identifier`);
+  // Codex identifiers carry no family rank, so the only checkable downgrade
+  // is a pin to a lower tier's default model; refuse it.
+  const lower = TIER_ORDER.slice(0, tierRank(tier)).find((lowerTier) => CODEX_TIER_MODELS[lowerTier] === override);
+  if (lower) throw new Error(`${envKey("SITON_CODEX_MODEL", tier)}=${override} is the ${lower} tier model and would downgrade ${tier}; refused`);
   return override;
 }
 
