@@ -139,6 +139,37 @@ test("cloud workflow is owner-gated at intake, serialized, lifecycle-guarded and
   assert.match(workflow, /Grow: untouched/);
 });
 
+test("cloud builder, reviewer and lifecycle authority are isolated on fresh jobs", () => {
+  const workflow = read(".github/workflows/cloud-agent-manager.yml");
+  const section = (name, next) => {
+    const start = workflow.indexOf(`  ${name}:\n`);
+    assert.ok(start >= 0, `missing job: ${name}`);
+    const end = next ? workflow.indexOf(`  ${next}:\n`, start + 1) : workflow.length;
+    return workflow.slice(start, end);
+  };
+  const build = section("managed-build", "review-and-fix");
+  const review1 = section("review-and-fix", "review2");
+  const review2 = section("review2", "finalize");
+  const finalize = section("finalize", "report-failure");
+
+  assert.doesNotMatch(build, /review pass 1|review pass 2/i);
+  assert.doesNotMatch(build, /GH_TOKEN:\s*\$\{\{\s*secrets\.SITON_AGENT_GITHUB_TOKEN\s*\}\}/);
+  assert.match(review1, /Claude review pass 1/);
+  assert.match(review1, /Claude bounded fix pass/);
+  assert.match(review2, /Claude review pass 2/);
+  assert.doesNotMatch(review2, /bounded fix pass/i);
+  assert.doesNotMatch(finalize, /claude-code-action|codex-action/);
+  assert.match(finalize, /GH_TOKEN: \$\{\{ secrets\.SITON_AGENT_GITHUB_TOKEN \}\}/);
+  assert.match(build, /Upload builder handoff/);
+  assert.match(review1, /Download builder handoff/);
+  assert.match(review1, /Upload candidate handoff/);
+  assert.match(review2, /Download candidate/);
+  assert.match(finalize, /Download final candidate/);
+  assert.match(workflow, /Pin read-only guard before importing untrusted patch/);
+  assert.match(workflow, /Pin read-only guard before importing fixed patch/);
+  assert.match(workflow, /scripts\/agent_readonly_bash_guard\\\.cjs/);
+});
+
 test("phone intake is a fresh owner-only issue trigger that dispatches the manager", () => {
   const intake = read(".github/workflows/agent-manager-intake.yml");
   assert.match(intake, /issues:\n    types: \[opened, reopened, labeled\]/);
@@ -295,7 +326,7 @@ test("managed commit/push runs hook-free in a pristine control checkout; the age
   assert.match(exportStep, /--no-ext-diff --no-textconv/);
   const control = stepOf("Pristine control checkout");
   assert.match(control, /actions\/checkout@v4/);
-  assert.match(control, /ref: \$\{\{ steps\.task\.outputs\.head \}\}/);
+  assert.match(control, /ref: \\$\\{\\{ needs\\.managed-build\\.outputs\\.head \\$\\}\\}/);
   assert.match(control, /path: \.siton-control/);
   assert.match(control, /persist-credentials: false/);
   const commit = stepOf("Commit and push managed branch");
