@@ -106,9 +106,22 @@ Kept on purpose: `web:routes` in web-runtime-core and the route inventory inside
 | 36463288440 (PR #121) | pull_request | backend-gates **17m54s**; release-readiness 3m53s; web-runtime 3m22s (core → resilience serial) | 10 groups in series: unit 17s, integration 52s, db 38s, api 1m42s, workers 41s, payments 1m42s, route-auth 16s, security 3m00s, concurrency 1m17s, failure 52s, e2e 4m20s, Docker smoke 51s |
 | 36465477706 (master 904f72e) | push | backend-gates **34m06s** | the same 10 groups (13m33s), then `test:all` again (**15m00s**), then Docker smoke |
 
-### After
+### After (Siton CI, 2026-09-28)
 
-Filled from the real runs of PR #126; see the PR and `PROJECT_STATUS.md` for the run ids.
+Wall-clock is measured from the run's creation to the moment `ci-verdict` completes.
+
+| Run | Profile | Wall-clock | Jobs | Coverage (from the manifests) |
+|---|---|---|---|---|
+| 36473206258 (PR #126, first head) | FULL | **3m39s** (idle runners) | 18 in parallel | 321/321 files; the verdict was correctly red on a static-gates failure |
+| 36475901545 (PR #126, final head) | FULL | **4m02s** | 18 | 321/321 |
+| 36476839666 (master `7d42371`, push) | FULL | **5m04s**, vs 34m06s before | 18 | 321/321 |
+| 36476906536 (proof PR #128, docs-only) | FAST | **4m33s**, of which ~2m was waiting for a free runner | 4: classify, static-gates, focused-tests (release-tool tests), ci-verdict | release-tool tests; no `tests/*.ts` references the file |
+| 36476911495 (proof PR #129, one line in `web/src/pages/landing.tsx`) | STANDARD | 13m07s, mostly waiting for runners (see below) | 18 | 321/321 |
+| 36476916820 (proof PR #130, `src/payment_binding.ts` with `CI-Profile: FAST`) | FULL, proposal rejected | 11m11s, mostly waiting for runners | 18 | 321/321 passed; **`ci-verdict` red**: "proposed profile FAST is below the computed profile FULL" |
+
+A lane on an idle runner takes 2–2.5 minutes: about 40 s of setup (Postgres service, `npm ci`, web install, builds) plus up to about 2 min of tests.
+
+The proof runs #129 and #130 were started together with the master run, #128 and two Dependabot runs. That put about 70 jobs against GitHub's concurrent-job limit, so lanes waited up to 9 minutes for a runner; `web-runtime-core` was created at 20:08:11 and started at 20:17:34. This queueing is the new bottleneck when many PRs run at once. It is a runner-capacity limit, not test time. Larger runners, or fewer simultaneous pushes, remove it.
 
 ## Local equivalents
 
