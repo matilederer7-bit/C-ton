@@ -307,17 +307,25 @@ try {
     assert.equal((await adminRows(other)).length, 0);
   });
 
-  await run("a binding that fails after the Auth user exists rolls the Auth user back", async () => {
-    const other = `rollback-${tag}`;
-    forcedCreateId = SUPER.sub; // already bound to the SuperAdmin → unique violation on bind
+  await run("an Auth id that a COMMITTED admin row already points at is never deleted by compensation (review of e6a5b18)", async () => {
+    const other = `boundelse-${tag}`;
+    const rollbacksBefore = provisionerCalls.filter((c) => c.op === "rollback").length;
+    forcedCreateId = SUPER.sub; // bound to the SuperAdmin → unique violation on bind
     const res = await create(tokens.super, { username: other, password: PASSWORD, role: "SupportAdmin" });
     assert.equal(res.statusCode, 409, res.body);
     assert.equal((await adminRows(other)).length, 0);
-    const rollback = provisionerCalls.filter((c) => c.op === "rollback").at(-1);
-    assert.ok(rollback, "rollback was requested");
-    assert.equal(rollback!.username, other);
-    assert.equal(rollback!.auth_user_id, SUPER.sub);
-    assert.equal(authUsers.has(`${other}@admins.siton.invalid`), false);
+    assert.equal(provisionerCalls.filter((c) => c.op === "rollback").length, rollbacksBefore, "the SuperAdmin's Auth user must never be rolled back");
+    assert.equal((await pool.query(`SELECT 1 FROM siton.admin_users WHERE auth_user_id=$1 AND status='Active'`, [SUPER.sub])).rowCount, 1);
+  });
+
+  await run("secondFactorTime ignores a non-array amr, non-second-factor methods and timestamps in the future", async () => {
+    const { secondFactorTime } = await import("../src/supabase_auth.js");
+    const now = 1_800_000_000;
+    assert.equal(secondFactorTime(undefined, now), null);
+    assert.equal(secondFactorTime([{ method: "password", timestamp: now }], now), null);
+    assert.equal(secondFactorTime([{ method: "totp", timestamp: now - 10 }, { method: "mfa/phone", timestamp: now - 5 }], now), now - 5);
+    assert.equal(secondFactorTime([{ method: "totp", timestamp: now + 3600 }], now), null, "a future second-factor time never counts");
+    assert.equal(secondFactorTime([{ method: "totp", timestamp: 9e15 }], now), null);
   });
 
   await run("the admin-team audit rail is append-only", async () => {

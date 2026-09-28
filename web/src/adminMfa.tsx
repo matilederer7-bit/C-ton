@@ -56,6 +56,8 @@ export function AdminMfaStepUp({ onVerified, onCancel }: { onVerified: () => voi
           // Clear abandoned unverified TOTP enrollments (cancelled/reloaded
           // attempts) so they neither collide on friendly_name nor pile up
           // toward the per-user factor cap. GoTrue allows this at AAL1.
+          // (This also removes an unverified enrollment started in another open
+          // tab by the same admin; that tab simply enrolls again.)
           // Best-effort and idempotent: a factor that is already gone (404 —
           // e.g. a second run of this effect deleted it first) or a failed
           // delete never blocks enrolling; the collision-proof name below keeps

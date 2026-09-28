@@ -186,13 +186,15 @@ export async function verifySupabaseAccessToken(token: unknown, opts: VerifyOpti
 // GoTrue records each authentication method with its time in `amr`
 // ([{ method, timestamp }]). Second factors are "totp" and the "mfa/*" methods.
 const SECOND_FACTOR_METHODS = new Set(["totp", "mfa/totp", "mfa/phone", "mfa/webauthn"]);
-export function secondFactorTime(amr: unknown): number | null {
+// A timestamp beyond now + 5 min is ignored: it would read as "recent"
+// forever, and an absurd value would make Date#toISOString throw.
+export function secondFactorTime(amr: unknown, nowSeconds = Math.floor(Date.now() / 1000)): number | null {
   if (!Array.isArray(amr)) return null;
   let latest: number | null = null;
   for (const entry of amr) {
     const method = String((entry as any)?.method || "");
     const ts = Number((entry as any)?.timestamp);
-    if (SECOND_FACTOR_METHODS.has(method) && Number.isFinite(ts) && ts > 0 && (latest === null || ts > latest)) latest = ts;
+    if (SECOND_FACTOR_METHODS.has(method) && Number.isFinite(ts) && ts > 0 && ts <= nowSeconds + 300 && (latest === null || ts > latest)) latest = ts;
   }
   return latest;
 }
