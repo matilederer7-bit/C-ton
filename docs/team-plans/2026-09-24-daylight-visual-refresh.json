@@ -1,6 +1,8 @@
 {
   "task": "Daylight visual refresh: light, alive, trustworthy Siton web UI with a recoloured logo — presentation layer only, zero behaviour change",
   "lead": "claude-lead",
+  "model_backfill_note": "The `model` field on B1 and R1, and the top-level `solo_justification` string, were both added on 2026-09-28 to satisfy the required-model and solo-justification rules in docs/CLAUDE_TEAM_LEAD.md (scripts/team_plan_check.cjs now fails a plan with a missing model, and a single builder spanning 2+ areas with no solo_justification). Neither field was recorded when this plan ran; both are inferred: opus for B1 because it is agent claude-lead, sonnet for R1 as an ordinary non-senior review, and the solo_justification is drawn from this plan's own scope/DoD text below, not from any new fact.",
+  "solo_justification": "B1's own scope and DoD require styles.css, brand assets, the asset-render script and the pinned visual_brand_consistency_validation.ts test to change together as one atomic token set ('every text token >= 4.5:1', 'no class/testid/prop/logic change', 'style-pinning suites green'); splitting the stylesheet from its renderer script or its pinned test across parallel writers risks a token value none of the others agree on, so PROJECT_STATUS.md and the plan file ride along with the same single owner.",
   "base": "origin/master",
   "open_branches": [
     "origin/codex/senior-engineering-review-20260921"
@@ -10,6 +12,7 @@
     {
       "id": "B1",
       "agent": "claude-lead",
+      "model": "opus",
       "role": "builder",
       "scope": "design tokens, stylesheet, brand assets, progress-meter colours, brand pins in tests/proofs",
       "allowed": [
@@ -50,6 +53,7 @@
     {
       "id": "R1",
       "agent": "claude-subagent",
+      "model": "sonnet",
       "role": "reviewer",
       "scope": "independent read-only review: presentation-only boundary, contrast, RTL/mobile layout regressions",
       "reviews": [

@@ -14,11 +14,22 @@
 //     active branch listed in `open_branches` (computed from git, not trusted)
 //   - reviewers are read-only
 //   - every builder is reviewed by a different agent than itself
-//   - builders touching database, migrations, security/auth, payments/money
-//     or the state machine require a reviewer marked `senior: true`
+//   - builders touching database, migrations, security/auth, payments/money,
+//     the state machine or the gate tooling itself require a reviewer marked
+//     `senior: true`
 //   - dependencies reference existing assignments and contain no cycle
+//   - every assignment declares the model it runs on (haiku, sonnet or opus)
+//   - the model matches the risk tier: senior-risk builders and senior
+//     reviewers run on opus, and standard-risk work on opus is flagged as a
+//     (non-failing) warning so the lead can downshift it
+//   - independent workstreams are dispatched in parallel: with two or more
+//     builders at least two must be able to start at once, unless the plan
+//     carries a `serialization_justification`
+//   - a lone builder spanning two or more areas needs a `solo_justification`;
+//     otherwise the work is split across parallel builders
 //
-// Exit 1 on any violation. Output is one line per finding plus a JSON summary.
+// Exit 1 on any violation; warnings never fail the gate.
+// Output is one line per finding, one per warning, plus a JSON summary.
 // Controls: tests/release_tools/team_plan_check.test.cjs.
 const fs = require("node:fs");
 const path = require("node:path");
@@ -26,6 +37,9 @@ const { spawnSync } = require("node:child_process");
 
 const ROLES = new Set(["builder", "reviewer"]);
 const AGENTS = new Set(["claude-lead", "claude-subagent", "codex", "chatgpt", "cloud-manager"]);
+// Declared model per assignment. Cheap work must not silently run on opus and
+// risky work must not silently run on haiku, so the plan states it explicitly.
+const MODELS = new Set(["haiku", "sonnet", "opus"]);
 
 // High-risk path families. Touching any of them makes the builder "senior":
 // it needs an independent reviewer with `senior: true` before merge.
@@ -36,8 +50,15 @@ const HIGH_RISK = [
   { family: "money", pattern: /^src\/(.*payment.*|.*payout.*|platform_fee_money|money_input|vat_authority|invoice_.*|grow_.*|synthetic_payment_provider|payment_reconciliation|webhook_ingestion)\.ts$/ },
   { family: "security", pattern: /^src\/(.*auth.*|seller_auth|admin_identity|otp_rail|participant_tracking_security|production_guards|seller_enforcement|buyer_session|error_monitoring|log_redaction)\.ts$|^config\/(runtime-environment-policy|route-classification)\.json$|^scripts\/protected_route_policy\.cjs$|^web\/src\/(auth|authRedirect|authTrace|session|adminGate|adminStepUp|api)\.tsx?$/ },
   { family: "state-machine", pattern: /^src\/(app|inventory_repository|authorization_lifecycle|outbox_worker_helpers|worker|worker_scheduler)\.ts$/ },
-  { family: "ci-gates", pattern: /^\.github\/workflows\// }
+  // The gate tooling itself is as load-bearing as the workflows that run it:
+  // whoever edits the plan check, the router or the read-only bash guard can
+  // switch every other control off.
+  { family: "ci-gates", pattern: /^\.github\/workflows\/|^scripts\/(team_plan_check|agent_router|agent_readonly_bash_guard)\.cjs$/ }
 ];
+
+function declaredModel(item) {
+  return String(item?.model || "").trim();
+}
 
 function normalizePath(value) {
   return String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/\*\*$/, "/");
@@ -59,7 +80,9 @@ const HIGH_RISK_PREFIXES = {
   "money": ["src/"],
   "security": ["src/", "config/", "web/src/"],
   "state-machine": ["src/"],
-  "ci-gates": [".github/workflows/"]
+  // A broad `scripts/` grant is treated as gate-risk the same way a broad
+  // `src/` grant is treated as money/security risk.
+  "ci-gates": [".github/workflows/", "scripts/"]
 };
 
 // A directory grant is conservatively risky if a high-risk file could live
@@ -75,6 +98,32 @@ function riskFamilies(paths) {
   return [...families].sort();
 }
 
+// Coarse areas of the codebase, used to judge how wide one builder's grant is.
+// First match wins, so src/migrations/ is database rather than backend.
+const AREAS = [
+  ["docs", ["docs/"]],
+  ["tests", ["tests/", "external-tests/"]],
+  ["frontend", ["web/", "frontend/", "assets/", "android/", "ios/"]],
+  ["database", ["src/migrations/", "supabase/"]],
+  ["backend", ["src/"]],
+  ["tooling", ["scripts/"]],
+  ["ci", [".github/"]],
+  ["config", ["config/"]]
+];
+
+function planAreas(paths) {
+  const areas = new Set();
+  for (const raw of paths || []) {
+    const value = normalizePath(raw);
+    if (!value) continue;
+    // Root-level markdown (CLAUDE.md, PROJECT_STATUS.md) is documentation.
+    if (!value.includes("/") && value.endsWith(".md")) { areas.add("docs"); continue; }
+    const hit = AREAS.find(([, prefixes]) => prefixes.some((prefix) => value.startsWith(prefix)));
+    areas.add(hit ? hit[0] : value.split("/")[0]);
+  }
+  return [...areas].sort();
+}
+
 function branchPaths(branch, base, cwd) {
   const result = spawnSync("git", ["diff", "--name-only", `${base}...${branch}`], { cwd, encoding: "utf8" });
   if (result.status !== 0) throw new Error(`cannot diff ${branch} against ${base}: ${String(result.stderr || "").trim()}`);
@@ -83,7 +132,10 @@ function branchPaths(branch, base, cwd) {
 
 function checkPlan(plan, options = {}) {
   const findings = [];
+  const warnings = [];
   const fail = (code, message) => findings.push({ code, message });
+  // Warnings are advice for the lead; they never fail the gate.
+  const warn = (code, message) => warnings.push({ code, message });
   const assignments = Array.isArray(plan?.assignments) ? plan.assignments : [];
 
   if (!plan || typeof plan !== "object") fail("plan_invalid", "plan must be a JSON object");
@@ -101,6 +153,9 @@ function checkPlan(plan, options = {}) {
     if (!String(item.scope || "").trim()) fail("scope_missing", `${id}: scope (area of responsibility) is required`);
     if (!Array.isArray(item.dod) || !item.dod.length) fail("dod_missing", `${id}: dod (Definition of Done) must list at least one item`);
     if (!Array.isArray(item.depends_on)) fail("depends_on_missing", `${id}: depends_on must be an array (empty when independent)`);
+    const model = declaredModel(item);
+    if (!model) fail("model_missing", `${id}: model must be declared (haiku, sonnet or opus)`);
+    else if (!MODELS.has(model)) fail("model_invalid", `${id}: model must be one of ${[...MODELS].join(", ")}`);
     if (item.role === "builder") {
       if (!Array.isArray(item.allowed) || !item.allowed.length) fail("allowed_missing", `${id}: builder must declare allowed paths`);
       if (!Array.isArray(item.forbidden)) fail("forbidden_missing", `${id}: builder must declare forbidden paths (may be empty only deliberately)`);
@@ -163,9 +218,43 @@ function checkPlan(plan, options = {}) {
     }
   }
 
+  // Builder-only dependency graph: reviewer ids never block a builder's start.
+  const builderIds = new Set(builders.map((builder) => String(builder.id)));
+  const builderDeps = (item) => (item?.depends_on || []).map(String).filter((dep) => builderIds.has(dep));
+  const parallelBuilders = builders.filter((builder) => !builderDeps(builder).length).length;
+
+  // Weakly-connected components (union-find, direction ignored): one component
+  // is one workstream that must run end to end before the next one can.
+  const parent = new Map([...builderIds].map((id) => [id, id]));
+  const find = (id) => { let root = id; while (parent.get(root) !== root) root = parent.get(root); return root; };
+  for (const builder of builders) {
+    for (const dep of builderDeps(builder)) {
+      const left = find(String(builder.id));
+      const right = find(dep);
+      if (left !== right) parent.set(left, right);
+    }
+  }
+  const workstreams = new Set([...builderIds].map(find)).size;
+
+  const justified = (value) => String(value || "").trim().length >= 40;
+  if (builders.length >= 2 && parallelBuilders < 2 && !justified(plan?.serialization_justification)) {
+    fail("parallel_dispatch_missing", `${builders.length} builders but only ${parallelBuilders} can start in parallel; split the independent workstreams or set plan.serialization_justification (>= 40 chars)`);
+  }
+  if (builders.length === 1) {
+    const areas = planAreas(builders[0].allowed);
+    if (areas.length >= 2 && !justified(plan?.solo_justification)) {
+      fail("solo_justification_missing", `${builders[0].id}: one builder spans ${areas.join(", ")}; split the areas across parallel builders or set plan.solo_justification (>= 40 chars)`);
+    }
+  }
+
+  for (const reviewer of reviewers) {
+    if (reviewer.senior === true && declaredModel(reviewer) !== "opus") fail("reviewer_model_underpowered", `${reviewer.id}: senior reviewer requires model: opus`);
+  }
+
   const summary = [];
   for (const builder of builders) {
     const families = riskFamilies(builder.allowed);
+    const model = declaredModel(builder);
     const covering = reviewers.filter((reviewer) => (reviewer.reviews || []).map(String).includes(String(builder.id)));
     // Separate sub-agent instances are independent of each other; the lead,
     // Codex, ChatGPT and the cloud manager are single identities and cannot
@@ -175,10 +264,17 @@ function checkPlan(plan, options = {}) {
     if (families.length && !independent.some((reviewer) => reviewer.senior === true)) {
       fail("senior_review_missing", `${builder.id}: touches ${families.join(", ")}; an independent reviewer with senior: true is required before merge`);
     }
-    summary.push({ id: builder.id, agent: builder.agent, risk: families.length ? "senior" : "standard", families, reviewers: covering.map((reviewer) => reviewer.id) });
+    if (families.length && model !== "opus") {
+      fail("model_underpowered", `${builder.id}: touches ${families.join(", ")}; senior-risk builders require model: opus`);
+    }
+    // The lead itself is always opus, so it never counts as over-provisioned.
+    if (!families.length && model === "opus" && builder.agent !== "claude-lead") {
+      warn("model_overpowered", `${builder.id}: standard-risk work (${planAreas(builder.allowed).join(", ")}) on opus; a cheaper model is likely sufficient`);
+    }
+    summary.push({ id: builder.id, agent: builder.agent, model, risk: families.length ? "senior" : "standard", families, reviewers: covering.map((reviewer) => reviewer.id) });
   }
 
-  return { ok: findings.length === 0, findings, builders: summary };
+  return { ok: findings.length === 0, findings, warnings, builders: summary, workstreams, parallelBuilders };
 }
 
 function main(argv) {
@@ -207,12 +303,13 @@ function main(argv) {
   }
   const result = checkPlan(plan, { openBranchPaths });
   for (const finding of result.findings) console.log(`TEAM_PLAN_FINDING ${finding.code} ${finding.message}`);
-  for (const builder of result.builders) console.log(`TEAM_PLAN_BUILDER ${builder.id} agent=${builder.agent} risk=${builder.risk}${builder.families.length ? " families=" + builder.families.join(",") : ""} reviewers=${builder.reviewers.join(",") || "none"}`);
-  console.log(`TEAM_PLAN_SUMMARY ${JSON.stringify({ ok: result.ok, findings: result.findings.length, builders: result.builders.length, open_branches_checked: Object.keys(openBranchPaths).length })}`);
+  for (const warning of result.warnings) console.log(`TEAM_PLAN_WARN ${warning.code} ${warning.message}`);
+  for (const builder of result.builders) console.log(`TEAM_PLAN_BUILDER ${builder.id} agent=${builder.agent} risk=${builder.risk}${builder.families.length ? " families=" + builder.families.join(",") : ""} reviewers=${builder.reviewers.join(",") || "none"} model=${builder.model || "none"}`);
+  console.log(`TEAM_PLAN_SUMMARY ${JSON.stringify({ ok: result.ok, findings: result.findings.length, warnings: result.warnings.length, builders: result.builders.length, workstreams: result.workstreams, parallel_builders: result.parallelBuilders, open_branches_checked: Object.keys(openBranchPaths).length })}`);
   console.log(result.ok ? "TEAM_PLAN_PASS" : "TEAM_PLAN_FAIL");
   return result.ok ? 0 : 1;
 }
 
-module.exports = { checkPlan, pathsOverlap, riskFamilies };
+module.exports = { checkPlan, pathsOverlap, riskFamilies, planAreas };
 
 if (require.main === module) process.exit(main(process.argv.slice(2)));

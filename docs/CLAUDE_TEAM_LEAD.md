@@ -33,7 +33,7 @@ The one piece this file adds is `scripts/team_plan_check.cjs`: an executable che
    - Confirm `master`, open PRs, and active branches with recent commits.
    - Record in the plan every open branch whose files the task might touch.
    - Create the task branch `claude/<slug>` from `master` and push it before dispatching anyone. This follows the `AGENTS.md` checkpoint rule. If the push fails, stop and follow the authorization fallback in `CLAUDE.md`; never accumulate work only inside the container.
-2. **Plan.** Decompose the task. Write `docs/team-plans/<date>-<slug>.json`, with one assignment per builder and reviewer (format below). Run `node scripts/team_plan_check.cjs <plan>`. It must print `TEAM_PLAN_PASS` before any writer starts.
+2. **Plan.** Decompose the task. Write `docs/team-plans/<date>-<slug>.json`, with one assignment per builder and reviewer (format below). Assign each of them the cheapest model that fits its risk (`haiku` for recon/lookup, `sonnet` for ordinary build work, `opus` for database, security, payments/money, auth, state-machine or architecture work, and for any senior reviewer). Prefer dispatching independent builders in parallel over serialising them, and prefer splitting a builder whose scope spans two or more areas over keeping it solo. Run `node scripts/team_plan_check.cjs <plan>`. It must print `TEAM_PLAN_PASS` before any writer starts.
 3. **Dispatch.**
    - Builders are sub-agents started with worktree isolation and given their exact packet.
    - Independent builders run in parallel.
@@ -67,10 +67,13 @@ The one piece this file adds is `scripts/team_plan_check.cjs`: an executable che
   "base": "origin/master",
   "open_branches": ["origin/<branch touching nearby files>"],
   "interface_contract": { "<path>": "<exported signature and behaviour>" },
+  "solo_justification": "",
+  "serialization_justification": "",
   "assignments": [
     {
       "id": "B1",
       "agent": "claude-subagent",
+      "model": "sonnet",
       "role": "builder",
       "scope": "area of responsibility",
       "allowed": ["exact/file.ts", "or/directory/"],
@@ -81,6 +84,7 @@ The one piece this file adds is `scripts/team_plan_check.cjs`: an executable che
     {
       "id": "R1",
       "agent": "claude-subagent",
+      "model": "opus",
       "role": "reviewer",
       "senior": true,
       "scope": "independent review",
@@ -92,7 +96,11 @@ The one piece this file adds is `scripts/team_plan_check.cjs`: an executable che
 }
 ```
 
-`agent` is one of `claude-lead`, `claude-subagent`, `codex`, `chatgpt`, `cloud-manager`. The check fails when:
+`agent` is one of `claude-lead`, `claude-subagent`, `codex`, `chatgpt`, `cloud-manager`. `model` is required on every assignment (builder and reviewer alike) and must be one of exactly `haiku`, `sonnet` or `opus`.
+
+Two top-level strings are optional and only meaningful at 40 characters or more (after trim): `plan.solo_justification` and `plan.serialization_justification`. Below that length they count as absent. Drop the key entirely rather than leaving an empty placeholder in a real plan — the example above shows the fields only to name them.
+
+The check fails when:
 - an assignment lacks a scope, a DoD or dependencies
 - a builder lacks allowed or forbidden paths
 - two builders can write the same path
@@ -101,6 +109,13 @@ The one piece this file adds is `scripts/team_plan_check.cjs`: an executable che
 - a builder has no independent reviewer
 - senior-risk paths lack an independent `senior` reviewer
 - a dependency is unknown or cyclic
+- an assignment has no `model`, or one that is not `haiku`/`sonnet`/`opus` (`model_missing`, `model_invalid`)
+- a builder whose allowed paths touch any senior-risk family (below) declares a `model` other than `opus` (`model_underpowered`)
+- a reviewer marked `senior: true` declares a `model` other than `opus` (`reviewer_model_underpowered`)
+- there are two or more builders and fewer than two of them can start in parallel (no unmet `depends_on`), unless `plan.serialization_justification` is at least 40 characters (`parallel_dispatch_missing`)
+- there is exactly one builder and its allowed paths span two or more areas, unless `plan.solo_justification` is at least 40 characters (`solo_justification_missing`)
+
+One warning does not fail the check: a builder with no senior-risk paths that declares `model: opus` (`model_overpowered`) — standard-risk work on the most expensive model is flagged so the lead can downshift it, but the plan still passes. `claude-lead` itself is exempt from this warning: the lead always runs at `opus` even on a standard-risk assignment.
 
 Codex writes only through its own PRs. It is never assigned files that a Claude builder holds, and in this model it is primarily the independent and adversarial reviewer.
 
@@ -112,7 +127,7 @@ Codex writes only through its own PRs. It is never assigned files that a Claude 
 | money | payment, payout, invoice, fee, VAT, Grow, reconciliation, webhooks | senior reviewer + Codex; `gate:money-tax`, `proof:no-real-money` |
 | security | auth, sessions, OTP, tracking tokens, production guards, route policy, PII redaction (`error_monitoring`, `log_redaction`), web client auth/session/token handling (`web/src/auth*`, `session`, `api`, `admin*`) | senior reviewer + Codex; `ci:route-authorization`, security test group |
 | state-machine | `src/app.ts`, worker, inventory, authorization lifecycle, outbox | senior reviewer + Codex; affected test groups |
-| ci-gates | `.github/workflows/` | senior reviewer + Codex; never weaken a gate |
+| ci-gates | `.github/workflows/`, and the plan/route gate tooling itself (`scripts/team_plan_check.cjs`, `scripts/agent_router.cjs`, `scripts/agent_readonly_bash_guard.cjs`) | senior reviewer + Codex; never weaken a gate |
 | everything else | docs, UI, tooling | independent reviewer + Codex |
 
 ## Product invariants the lead enforces

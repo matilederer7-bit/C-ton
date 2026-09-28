@@ -1,0 +1,145 @@
+{
+  "task": "Make parallel sub-agent orchestration the enforced default for Claude Code in this repository: the work-plan check must reject a plan that serialises independent workstreams, reject an unjustified solo plan, and require an explicit model per assignment matched to the risk tier",
+  "lead": "claude-lead",
+  "base": "origin/master",
+  "open_branches": [
+    "origin/codex/bootstrap-reconcile-20260924",
+    "origin/claude/festive-wright-kx4e5a",
+    "origin/claude/homepage-how-it-works-infographic-ed3is4"
+  ],
+  "interface_contract": {
+    "scripts/team_plan_check.cjs": "checkPlan(plan, options) keeps its current signature and every existing finding code unchanged. It gains: (1) result.warnings = [{code,message}], non-failing, never affects result.ok; (2) result.builders[].model; (3) result.workstreams = number of weakly-connected components of the builder dependency graph, and result.parallelBuilders = number of builders whose depends_on contains no builder. New FAILING codes, exact spelling: model_missing, model_invalid, model_underpowered, reviewer_model_underpowered, parallel_dispatch_missing, solo_justification_missing. New WARNING code: model_overpowered. New exported helper: planAreas(paths) returning sorted distinct area names.",
+    "plan schema additions": "Every assignment REQUIRES model, one of exactly haiku, sonnet or opus. Optional top-level strings plan.solo_justification and plan.serialization_justification, each meaningful only when at least 40 characters after trim.",
+    "area mapping (planAreas)": "docs/ or a root-level *.md maps to docs; tests/ or external-tests/ maps to tests; web/ frontend/ assets/ android/ ios/ map to frontend; src/migrations/ or supabase/ map to database; any other src/ maps to backend; scripts/ maps to tooling; .github/ maps to ci; config/ maps to config; anything else maps to its first path segment.",
+    "rule parallel_dispatch_missing": "Fires when there are at least 2 builders and parallelBuilders is less than 2, meaning every builder but one waits on another builder, unless plan.serialization_justification is at least 40 characters.",
+    "rule solo_justification_missing": "Fires when there is exactly 1 builder whose allowed paths span at least 2 areas, unless plan.solo_justification is at least 40 characters.",
+    "rule model_underpowered": "A builder with a non-empty risk family list must declare model opus.",
+    "rule reviewer_model_underpowered": "A reviewer with senior === true must declare model opus.",
+    "warning model_overpowered": "A builder with no risk family that declares opus and is not agent claude-lead produces the warning only; result.ok is unaffected.",
+    "risk matrix addition": "The ci-gates family additionally matches the plan and route gate tooling itself: scripts/team_plan_check.cjs, scripts/agent_router.cjs, scripts/agent_readonly_bash_guard.cjs. HIGH_RISK_PREFIXES ci-gates gains the scripts/ prefix.",
+    "output lines": "TEAM_PLAN_WARN <code> <message> for warnings. TEAM_PLAN_BUILDER lines gain a trailing model=<model> field. TEAM_PLAN_SUMMARY JSON gains warnings, workstreams and parallel_builders keys."
+  },
+  "assignments": [
+    {
+      "id": "B0",
+      "agent": "claude-lead",
+      "model": "opus",
+      "role": "builder",
+      "scope": "the work plan for this task and the claude slot of the project status",
+      "allowed": [
+        "docs/team-plans/2026-09-28-team-orchestration-enforcement.json",
+        "PROJECT_STATUS.md"
+      ],
+      "forbidden": [
+        "scripts/",
+        "tests/",
+        "CLAUDE.md",
+        "docs/CLAUDE_TEAM_LEAD.md",
+        ".claude/"
+      ],
+      "depends_on": [],
+      "dod": [
+        "plan validates under the pre-change checker with only the documented open_work_overlap finding",
+        "PROJECT_STATUS.md claude slot records completed, checked, open, percent and next"
+      ]
+    },
+    {
+      "id": "B1",
+      "agent": "claude-subagent",
+      "model": "opus",
+      "role": "builder",
+      "scope": "enforcement logic in the work-plan checker: required per-assignment model, model and risk fit, parallel dispatch, solo justification, and the gate-tooling risk family",
+      "allowed": [
+        "scripts/team_plan_check.cjs"
+      ],
+      "forbidden": [
+        "tests/",
+        "docs/",
+        "CLAUDE.md",
+        "PROJECT_STATUS.md",
+        ".claude/",
+        "src/",
+        ".github/"
+      ],
+      "depends_on": [],
+      "dod": [
+        "every existing finding code and its message shape is unchanged",
+        "the six new failing codes and the one warning code behave exactly as the interface contract states",
+        "warnings never change result.ok",
+        "a node smoke run over a minimal plan object prints the new summary keys"
+      ]
+    },
+    {
+      "id": "B2",
+      "agent": "claude-subagent",
+      "model": "sonnet",
+      "role": "builder",
+      "scope": "executable controls for the new enforcement, plus keeping every pre-existing control green under the required-model rule",
+      "allowed": [
+        "tests/release_tools/team_plan_check.test.cjs"
+      ],
+      "forbidden": [
+        "scripts/",
+        "docs/",
+        "CLAUDE.md",
+        "PROJECT_STATUS.md",
+        ".claude/",
+        "src/"
+      ],
+      "depends_on": [],
+      "dod": [
+        "one positive and one negative control for each new code: model_missing, model_invalid, model_underpowered, reviewer_model_underpowered, parallel_dispatch_missing, solo_justification_missing, model_overpowered",
+        "a control proving a warning does not set ok to false",
+        "a control proving scripts/team_plan_check.cjs is classified ci-gates",
+        "all pre-existing controls still pass"
+      ]
+    },
+    {
+      "id": "B3",
+      "agent": "claude-subagent",
+      "model": "sonnet",
+      "role": "builder",
+      "scope": "documentation: the codebase map and orchestration defaults in the entry point, the new plan fields and rules in the lead procedure, and the model backfill of the three committed historic plans",
+      "allowed": [
+        "CLAUDE.md",
+        "docs/CLAUDE_TEAM_LEAD.md",
+        "docs/team-plans/2026-09-24-smoke-worker-log-scrub.json",
+        "docs/team-plans/2026-09-24-daylight-visual-refresh.json",
+        "docs/team-plans/2026-09-25-graphite-mint-brand.json"
+      ],
+      "forbidden": [
+        "scripts/",
+        "tests/",
+        "PROJECT_STATUS.md",
+        ".claude/",
+        "src/",
+        ".github/",
+        "AGENTS.md",
+        "docs/team-plans/2026-09-28-team-orchestration-enforcement.json"
+      ],
+      "depends_on": [],
+      "dod": [
+        "CLAUDE.md gains a codebase map and an orchestration-default section inserted before its closing completion-report section, leaving the final three lines byte-identical so the open bootstrap PR tail append still merges cleanly",
+        "docs/CLAUDE_TEAM_LEAD.md documents model, solo_justification and serialization_justification and the six new codes",
+        "the three historic plans carry an explicit model per assignment and a visible backfill note",
+        "no product, schema, payment or security statement is changed"
+      ]
+    },
+    {
+      "id": "R1",
+      "agent": "claude-subagent",
+      "model": "opus",
+      "role": "reviewer",
+      "senior": true,
+      "scope": "independent read-only senior review of the combined diff: gate integrity, enforcement soundness, false-negative hunting on the new rules, and documentation truthfulness",
+      "reviews": ["B0", "B1", "B2", "B3"],
+      "depends_on": ["B0", "B1", "B2", "B3"],
+      "dod": [
+        "verdict with concrete failure scenarios, or an explicit statement that none were found",
+        "explicit confirmation that no existing gate was weakened",
+        "explicit list of what was not reviewed"
+      ]
+    }
+  ],
+  "overlap_decision": "The checker reports one open_work_overlap: CLAUDE.md is also touched by origin/codex/bootstrap-reconcile-20260924 (PR #79, last commit 2026-09-24, 26 commits behind master). The owner asked for CLAUDE.md explicitly, and under the AGENTS.md source-of-truth order the owner's current task outranks the inter-agent scope lock. The collision is made harmless rather than merely accepted: PR #79 appends a single Optional specialist team section at end of file, B3 inserts strictly above the final completion-report section and leaves the last three lines byte-identical, so the two hunks are disjoint. This is proven mechanically before merge with a trial three-way merge that must report zero conflicts. The other two listed branches touch only PROJECT_STATUS.md, and B0 writes only the claude slot."
+}

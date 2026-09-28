@@ -1,6 +1,7 @@
 {
   "task": "Graphite Mint brand rollout: one token layer (brand-graphite / brand-mint / brand-green / brand-amber / surface / border), the C-ton logo with the short mint dash (no dot) and a soft glow, every brand surface recoloured — presentation only, zero behaviour change",
   "lead": "claude-lead",
+  "model_backfill_note": "The `model` field on B1, B2 and R1 was added on 2026-09-28 to satisfy the new required-model rule in docs/CLAUDE_TEAM_LEAD.md (scripts/team_plan_check.cjs now fails a plan with no model). It was inferred after the fact, not recorded when this plan ran: opus for B1 because it is agent claude-lead; sonnet for B2 (presentation-only legacy-shell token work, no senior-risk path) and for R1 (ordinary non-senior review).",
   "base": "origin/master",
   "open_branches": [
     "origin/codex/senior-engineering-review-20260921",
@@ -15,6 +16,7 @@
     {
       "id": "B1",
       "agent": "claude-lead",
+      "model": "opus",
       "role": "builder",
       "scope": "canonical web app tokens + states, progress meter colours, brand vectors (mark, wordmark, lockup, splash) and every rendered raster, brand pins in tests/proofs, status and brand doc",
       "allowed": [
@@ -63,6 +65,7 @@
     {
       "id": "B2",
       "agent": "claude-subagent",
+      "model": "sonnet",
       "role": "builder",
       "scope": "legacy /app PWA shell tokens and hard-coded colours, manifest and offline chrome, service-worker cache bump, the presentation-only colour strings in the server-rendered legal/share/pay shells, and the tests that pin those exact values",
       "allowed": [
@@ -95,6 +98,7 @@
     {
       "id": "R1",
       "agent": "claude-subagent",
+      "model": "sonnet",
       "role": "reviewer",
       "scope": "independent read-only review of the combined diff: presentation-only boundary, contrast, old-brand leftovers, logo dash (not a dot) and glow restraint, RTL/mobile layout",
       "reviews": [

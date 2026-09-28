@@ -1,6 +1,7 @@
 {
   "task": "Team-lead smoke: the outbox worker must not write personal data or credentials from error objects into hosted logs. Its pino logger currently serializes raw errors (message, stack and pg fields such as detail) to Render logs.",
   "lead": "claude-lead",
+  "model_backfill_note": "The `model` field on every assignment below was added on 2026-09-28 to satisfy the new required-model rule in docs/CLAUDE_TEAM_LEAD.md (scripts/team_plan_check.cjs now fails a plan with no model). It was inferred after the fact, not recorded when this plan ran: opus for B1 (security-risk: src/log_redaction.ts, src/worker.ts) and B3 (security-risk: src/error_monitoring.ts, and agent claude-lead), and for the senior reviewer R1; sonnet for B2 (adversarial test authoring) and R2 (codex review, non-senior).",
   "base": "origin/master",
   "open_branches": [
     "origin/chatgpt/render-rate-limit-hardening-20260920",
@@ -16,6 +17,7 @@
     {
       "id": "B1",
       "agent": "claude-subagent",
+      "model": "opus",
       "role": "builder",
       "scope": "Implementation: error log serializer and worker logger wiring",
       "allowed": [
@@ -41,6 +43,7 @@
     {
       "id": "B2",
       "agent": "claude-subagent",
+      "model": "sonnet",
       "role": "builder",
       "scope": "Adversarial tests written from the interface contract, in parallel with B1",
       "allowed": [
@@ -66,6 +69,7 @@
     {
       "id": "B3",
       "agent": "claude-lead",
+      "model": "opus",
       "role": "builder",
       "scope": "Re-plan after B2's findings: fix scrubText's pre-scrub cut in the shared redaction module (a secret straddling the cut survived as a prefix)",
       "allowed": [
@@ -89,6 +93,7 @@
     {
       "id": "R1",
       "agent": "claude-subagent",
+      "model": "opus",
       "role": "reviewer",
       "senior": true,
       "scope": "Independent senior security review of the integrated diff (security-auditor posture, read-only)",
@@ -109,6 +114,7 @@
     {
       "id": "R2",
       "agent": "codex",
+      "model": "sonnet",
       "role": "reviewer",
       "scope": "Independent cross-provider review through the ChatGPT Codex connector on the Pull Request",
       "reviews": [
