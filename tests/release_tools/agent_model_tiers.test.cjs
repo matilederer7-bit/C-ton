@@ -309,3 +309,26 @@ test("a Codex pin may not equal the effective model of a lower tier, including a
   assert.throws(() => routeTask({ taskType: "payments", env }), /downgrade/);
   assert.equal(codexModelForTier("senior", { SITON_CODEX_MODEL_STANDARD: "gpt-new-cheap", SITON_CODEX_MODEL_SENIOR: "gpt-new-strong" }), "gpt-new-strong");
 });
+
+test("sensitive task text keeps the senior floor even when the declared task type is ordinary or wrong", () => {
+  const { sensitiveText } = require("../../scripts/agent_router.cjs");
+  for (const [task, taskType] of [
+    ["Refactor the deal state machine transitions", "auto"],
+    ["Fix outbox idempotency race", "auto"],
+    ["Redesign the cross-service architecture", "backend"],
+    ["Add a Postgres migration for orders", "frontend"],
+    ["Rework the login session refresh", "frontend"],
+    ["Adjust payout rounding", "docs"],
+    ["Verify webhook signatures", "tests"],
+  ]) {
+    assert.equal(sensitiveText(task), true, task);
+    const route = routeTask({ task, taskType, risk: "low", tier: "economy", env: NO_ENV });
+    assert.equal(route.tier, "senior", `${task} (${taskType})`);
+    assert.equal(route.claudeModel, "opus", task);
+    assert.equal(route.sensitive, true, task);
+  }
+  for (const task of ["Update copy on the landing page", "Fix React mobile screen spacing", "Add a docs index"]) {
+    assert.equal(sensitiveText(task), false, task);
+  }
+  assert.equal(routeTask({ task: "Add a docs index", taskType: "docs", risk: "low", env: NO_ENV }).tier, "economy");
+});

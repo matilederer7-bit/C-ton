@@ -32,7 +32,7 @@ Multiple writers may run only when their file and migration ownership is disjoin
 | Database, security, payments, authentication and critical concurrency | Senior | Codex | Independent review; run the separate swarm for four read-only lanes |
 | Documented exceptional cross-system decisions or exhausted Senior investigations | Apex | Codex or Codex reviewer | Astra on the Codex role; cross-provider review when available |
 
-`scripts/agent_router.cjs` is the executable policy. High-risk classification overrides a requested cheaper tier. A provider outage may fall back to the available provider, but the run records that review was not cross-provider.
+`scripts/agent_router.cjs` is the executable policy. High-risk classification overrides a requested cheaper tier. Sensitive task text (architecture, state machine, concurrency/idempotency, outbox, webhooks, auth/session/token, migrations/schema, money) also forces the Senior floor, even when the declared task type is ordinary or wrong; the declared type only chooses the builder. A provider outage may fall back to the available provider, but the run records that review was not cross-provider.
 
 ### Model tiers (2026-09-28)
 

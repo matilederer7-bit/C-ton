@@ -51,6 +51,16 @@ function inferType(task) {
   return "backend";
 }
 
+// Work that needs the Senior floor whatever task type was declared: the
+// declared type chooses the builder, but a mislabelled or keyword-only task
+// never lowers the compute tier of sensitive work.
+const SENSITIVE_TEXT = /architect|state[ -]?machine|transition|concurren|idempoten|race condition|deadlock|outbox|webhook|\bauth|login|session|token|otp|permission|rbac|secret|password|migration|schema|postgres|supabase|\bsql\b|payment|payout|refund|charge|invoice|\bvat\b|\bfee\b|money|grow\b/;
+
+function sensitiveText(task) {
+  const value = normalize(task);
+  return SENSITIVE_TEXT.test(value) || ["database", "security", "payments"].includes(inferType(value));
+}
+
 function routeTask({ task = "", taskType = "auto", risk = "normal", tier = "auto", apexReason = "none", apexEvidence = "", hasClaude = true, hasCodex = true, env = process.env } = {}) {
   let type = normalize(taskType) || "auto";
   const normalizedRisk = normalize(risk) || "normal";
@@ -72,7 +82,7 @@ function routeTask({ task = "", taskType = "auto", risk = "normal", tier = "auto
     selectedTier = "apex";
   }
 
-  const sensitive = ["database", "security", "payments"].includes(type) || ["high", "critical"].includes(normalizedRisk);
+  const sensitive = ["database", "security", "payments"].includes(type) || ["high", "critical"].includes(normalizedRisk) || sensitiveText(task);
   if (selectedTier === "auto") {
     if (sensitive) selectedTier = "senior";
     else if (["docs", "tests"].includes(type) && normalizedRisk === "low") selectedTier = "economy";
@@ -191,4 +201,4 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = { APEX_REASONS, buildMetric, executedModels, inferType, issueFields, routingInput, routeTask };
+module.exports = { APEX_REASONS, buildMetric, executedModels, inferType, sensitiveText, issueFields, routingInput, routeTask };
