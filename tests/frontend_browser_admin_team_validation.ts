@@ -43,19 +43,34 @@ const PROVISIONER_KEY = `team-e2e-provisioner-${randomUUID()}`;
 const credentials = new Map<string, { password: string; sub: string }>(); // email -> credential
 let supabaseUrl = "";
 const b64u = (value: Buffer | string) => Buffer.from(value).toString("base64url");
-function mint(sub: string, email: string): string {
+function mint(sub: string, email: string, aal: "aal1" | "aal2" = "aal1"): string {
   const now = Math.floor(Date.now() / 1000);
-  const payload = { iss: `${supabaseUrl}/auth/v1`, aud: "authenticated", role: "authenticated", iat: now, exp: now + 3600, session_id: randomUUID(), sub, email };
+  // like GoTrue, amr records each method with its time; an AAL2 session carries the TOTP entry
+  const amr = [{ method: "password", timestamp: now }, ...(aal === "aal2" ? [{ method: "totp", timestamp: now }] : [])];
+  const payload = { iss: `${supabaseUrl}/auth/v1`, aud: "authenticated", role: "authenticated", iat: now, exp: now + 3600, session_id: randomUUID(), sub, email, aal, amr };
   const input = `${b64u(JSON.stringify({ alg: "ES256", typ: "JWT", kid: KID }))}.${b64u(JSON.stringify(payload))}`;
   return `${input}.${b64u(createSign("SHA256").update(input).sign({ key: privateKey, dsaEncoding: "ieee-p1363" }))}`;
 }
 const grantEmails: string[] = [];
+// Supabase TOTP MFA, as GoTrue answers it: factors per user, a challenge, and a
+// verify that returns an AAL2 session. The fake accepts only the code 123456.
+const MFA_CODE = "123456";
+const emailBySub = new Map<string, string>();
+const factorsBySub = new Map<string, { id: string; factor_type: string; status: string }[]>();
+const mfaCalls: string[] = [];
+// every request the fake Supabase answers (method, path, status) — printed on a timeout
+const fakeLog: string[] = [];
+const bearerSub = (auth: unknown) => {
+  const token = String(auth || "").replace(/^Bearer\s+/i, "");
+  try { return String(JSON.parse(Buffer.from(token.split(".")[1] || "", "base64url").toString()).sub || ""); } catch { return ""; }
+};
 const supabase = createServer((req, res) => {
   res.setHeader("access-control-allow-origin", "*");
   res.setHeader("access-control-allow-headers", "apikey, content-type, authorization, x-client-info");
-  res.setHeader("access-control-allow-methods", "GET, POST, OPTIONS");
+  res.setHeader("access-control-allow-methods", "GET, POST, DELETE, OPTIONS");
   if (req.method === "OPTIONS") { res.statusCode = 204; res.end(); return; }
   const url = String(req.url || "");
+  res.on("finish", () => { if (!url.includes("jwks")) fakeLog.push(`${req.method} ${url.split("?")[0]} ${res.statusCode}`); });
   if (url.startsWith("/auth/v1/.well-known/jwks.json")) {
     res.setHeader("content-type", "application/json");
     res.end(JSON.stringify({ keys: [jwk] }));
@@ -75,7 +90,42 @@ const supabase = createServer((req, res) => {
         res.end(JSON.stringify({ error: "invalid_grant", error_description: "Invalid login credentials" }));
         return;
       }
+      emailBySub.set(cred.sub, email);
       res.end(JSON.stringify({ access_token: mint(cred.sub, email), refresh_token: randomUUID(), expires_in: 3600, token_type: "bearer", user: { id: cred.sub, email } }));
+      return;
+    }
+    const sub = bearerSub(req.headers.authorization);
+    if (url === "/auth/v1/user" && req.method === "GET" && sub) {
+      res.end(JSON.stringify({ id: sub, email: emailBySub.get(sub), factors: factorsBySub.get(sub) || [] }));
+      return;
+    }
+    if (url === "/auth/v1/factors" && req.method === "POST" && sub) {
+      mfaCalls.push("enroll");
+      const factor = { id: randomUUID(), factor_type: "totp", status: "unverified" };
+      factorsBySub.set(sub, [...(factorsBySub.get(sub) || []), factor]);
+      res.end(JSON.stringify({ id: factor.id, type: "totp", totp: { qr_code: "", secret: "JBSWY3DPEHPK3PXP", uri: "otpauth://totp/Siton:admin?secret=JBSWY3DPEHPK3PXP&issuer=Siton" } }));
+      return;
+    }
+    const unenroll = url.match(/^\/auth\/v1\/factors\/([0-9a-f-]{36})$/);
+    if (unenroll && req.method === "DELETE" && sub) {
+      const list = factorsBySub.get(sub) || [];
+      const factor = list.find((f) => f.id === unenroll[1]);
+      if (!factor) { res.statusCode = 404; res.end(JSON.stringify({ code: "mfa_factor_not_found" })); return; }
+      mfaCalls.push("delete");
+      factorsBySub.set(sub, list.filter((f) => f.id !== factor.id));
+      res.end(JSON.stringify({ id: factor.id }));
+      return;
+    }
+    const factorOp = url.match(/^\/auth\/v1\/factors\/([0-9a-f-]{36})\/(challenge|verify)$/);
+    if (factorOp && req.method === "POST" && sub) {
+      const factor = (factorsBySub.get(sub) || []).find((f) => f.id === factorOp[1]);
+      if (!factor) { res.statusCode = 404; res.end(JSON.stringify({ code: "mfa_factor_not_found" })); return; }
+      if (factorOp[2] === "challenge") { mfaCalls.push("challenge"); res.end(JSON.stringify({ id: randomUUID(), expires_at: Math.floor(Date.now() / 1000) + 300 })); return; }
+      mfaCalls.push(`verify:${body.code}`);
+      if (String(body.code) !== MFA_CODE) { res.statusCode = 422; res.end(JSON.stringify({ code: "mfa_verification_failed", msg: "Invalid TOTP code entered" })); return; }
+      factor.status = "verified";
+      const email = emailBySub.get(sub) || "";
+      res.end(JSON.stringify({ access_token: mint(sub, email, "aal2"), refresh_token: randomUUID(), expires_in: 3600, token_type: "bearer", user: { id: sub, email } }));
       return;
     }
     if (url === "/functions/v1/admin-provisioner" && req.method === "POST") {
@@ -120,8 +170,11 @@ async function waitFor(page: BrowserPage, expression: string, label: string, tri
     if (await page.evaluate<boolean>(`Boolean(${expression})`)) return;
     await wait(150);
   }
-  const text = await page.evaluate<string>(`(document.querySelector('main') || document.body).innerText.slice(0, 400)`);
-  throw new Error(`timed out waiting for ${label}; page: ${text}`);
+  const text = await page.evaluate<string>(`(() => {
+    const errors = [...document.querySelectorAll('[data-testid$="-error"], .notice.err, [role="alert"]')].map((e) => e.textContent.trim()).filter(Boolean);
+    return JSON.stringify({ errors, mfaPanel: !!document.querySelector('[data-testid="admin-mfa"]'), text: (document.querySelector('main') || document.body).innerText.slice(0, 300) });
+  })()`);
+  throw new Error(`timed out waiting for ${label}; page: ${text}; supabase calls: ${JSON.stringify(fakeLog.slice(-15))}; mfaCalls: ${JSON.stringify(mfaCalls)}`);
 }
 async function passStepUp(page: BrowserPage, identifier: string, password: string) {
   await page.goto(`${baseUrl}/preview/#/admin`, { waitMs: 800 });
@@ -197,8 +250,38 @@ if (!chromiumPath()) {
       await set(page!, '[data-testid="admin-team-display-name"]', "מנהל בדיקה");
       await set(page!, '[data-testid="admin-team-password"]', NEW_PASSWORD);
       await set(page!, '[data-testid="admin-team-password-confirm"]', NEW_PASSWORD);
+      await waitFor(page!, `document.querySelector('[data-testid="admin-team-password"]').value === ${JSON.stringify(NEW_PASSWORD)} && document.querySelector('[data-testid="admin-team-password-confirm"]').value === ${JSON.stringify(NEW_PASSWORD)} && !document.querySelector('[data-testid="admin-team-submit"]').disabled`, "password fields committed to state");
       await click(page!, '[data-testid="admin-team-submit"]');
-      await waitFor(page!, `(document.querySelector('[data-testid="admin-team-list"]') || {}).innerText?.includes(${JSON.stringify(username)})`, "new admin in the list");
+      // password-only session → the server demands a recent second factor;
+      // first use enrolls an authenticator (setup key shown), a wrong code is refused
+      await waitFor(page!, `document.querySelector('[data-testid="admin-mfa"]') && document.querySelector('[data-testid="admin-mfa-secret"]')`, "MFA enrollment step");
+      assert.equal(credentials.has(`${username}@admins.siton.invalid`), false, "nothing was created before the second factor");
+      assert.equal(await page!.evaluate<string>(`document.querySelector('[data-testid="admin-mfa-secret"]').textContent`), "JBSWY3DPEHPK3PXP");
+      // cancel the half-done enrollment, then submit again: the abandoned
+      // unverified factor is deleted before a fresh one is enrolled
+      await click(page!, '[data-testid="admin-mfa"] button[type="button"]');
+      await waitFor(page!, `!document.querySelector('[data-testid="admin-mfa"]')`, "MFA step closed on cancel");
+      assert.deepEqual(mfaCalls, ["enroll"]);
+      await set(page!, '[data-testid="admin-team-password"]', NEW_PASSWORD);
+      await set(page!, '[data-testid="admin-team-password-confirm"]', NEW_PASSWORD);
+      await waitFor(page!, `document.querySelector('[data-testid="admin-team-password"]').value === ${JSON.stringify(NEW_PASSWORD)} && document.querySelector('[data-testid="admin-team-password-confirm"]').value === ${JSON.stringify(NEW_PASSWORD)} && !document.querySelector('[data-testid="admin-team-submit"]').disabled`, "password fields committed to state");
+      await click(page!, '[data-testid="admin-team-submit"]');
+      await waitFor(page!, `document.querySelector('[data-testid="admin-mfa"]') && document.querySelector('[data-testid="admin-mfa-secret"]')`, "MFA enrollment step after retry");
+      // the leftover factor is deleted before the new enrollment, and exactly
+      // one new factor is enrolled (a duplicate cleanup 404 must not block it)
+      const afterRetry = mfaCalls.slice(1);
+      assert.ok(afterRetry.indexOf("delete") !== -1 && afterRetry.indexOf("delete") < afterRetry.indexOf("enroll"), JSON.stringify(mfaCalls));
+      assert.equal(afterRetry.filter((c) => c === "enroll").length, 1, JSON.stringify(mfaCalls));
+      assert.equal(factorsBySub.get(SUPER.sub)?.length, 1, "only the fresh unverified factor remains");
+      await set(page!, '[data-testid="admin-mfa-code"]', "000000");
+      await click(page!, '[data-testid="admin-mfa-submit"]');
+      await waitFor(page!, `document.querySelector('[data-testid="admin-mfa-error"]')`, "wrong-code error");
+      assert.equal(credentials.has(`${username}@admins.siton.invalid`), false, "a wrong code creates nothing");
+      await set(page!, '[data-testid="admin-mfa-code"]', MFA_CODE);
+      await click(page!, '[data-testid="admin-mfa-submit"]');
+      await waitFor(page!, `(document.querySelector('[data-testid="admin-team-list"]') || {}).innerText?.includes(${JSON.stringify(username)})`, "new admin in the list after the second factor");
+      assert.equal(await page!.evaluate<boolean>(`!!document.querySelector('[data-testid="admin-mfa"]')`), false, "the MFA step closes after success");
+      assert.deepEqual(mfaCalls.filter((c) => !c.startsWith("delete") && c !== "enroll"), ["challenge", "verify:000000", "challenge", `verify:${MFA_CODE}`]);
       const fields = await page!.evaluate<{ pw: string; confirm: string; error: boolean }>(`({ pw: document.querySelector('[data-testid="admin-team-password"]').value, confirm: document.querySelector('[data-testid="admin-team-password-confirm"]').value, error: !!document.querySelector('[data-testid="admin-team-error"]') })`);
       assert.deepEqual(fields, { pw: "", confirm: "", error: false }, "the password is cleared from the form after success");
     });
@@ -249,7 +332,7 @@ if (!chromiumPath()) {
     });
 
     await run("no page errors along the way", async () => {
-      const errors = page!.errors().filter((e) => !thirdPartyNoise(e.text) && !/401|403|400/.test(e.text));
+      const errors = page!.errors().filter((e) => !thirdPartyNoise(e.text) && !/401|403|400/.test(e.text) && !/^422 .*\/auth\/v1\/factors\/[0-9a-f-]{36}\/verify$/.test(e.text) && !/^404 .*\/auth\/v1\/factors\/[0-9a-f-]{36}$/.test(e.text) /* an idempotent cleanup of an already-deleted factor */ /* the deliberate wrong MFA code */);
       assert.deepEqual(errors, []);
     });
     console.log("ADMIN_TEAM_BROWSER_PASS");

@@ -256,7 +256,14 @@ export function Landing({ navigate }: { navigate: (h: string) => void }) {
   // both are in (capped at 1.5 s — a slow network never blanks the page).
   const [waitedEnough, setWaitedEnough] = useState(false);
   useEffect(() => { const id = setTimeout(() => setWaitedEnough(true), 1500); return () => clearTimeout(id); }, []);
-  if (!waitedEnough && (contentLoading || !metaReady)) {
+  const settled = !contentLoading && metaReady;
+  // The video decision is taken ONCE, at the first layout (Codex P2 on #120):
+  // if the hero had to be shown on the timeout, a late CMS/meta answer must not
+  // insert the 16:9 slot above the title and shift the page — the video then
+  // waits for the next page view.
+  const videoAllowed = useRef<boolean | null>(null);
+  if (videoAllowed.current === null && (settled || waitedEnough)) videoAllowed.current = settled;
+  if (!waitedEnough && !settled) {
     return <div className="landing landing-pending" data-testid="landing-pending" aria-busy="true" />;
   }
   return (
@@ -265,7 +272,7 @@ export function Landing({ navigate }: { navigate: (h: string) => void }) {
         <div className="landing-hero-inner">
           <HeroMediumView medium={logo} />
           {/* owner decision 2026-09-28: the video sits under the logo, before the title */}
-          {intro ? <IntroVideoView video={intro} /> : null}
+          {intro && videoAllowed.current ? <IntroVideoView video={intro} /> : null}
           <h1 className="landing-title">{hero.title || c.hero.title}</h1>
           {hero.subtitle ? <p className="landing-sub">{hero.subtitle}</p> : null}
           <div className="landing-actions">
