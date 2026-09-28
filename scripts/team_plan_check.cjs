@@ -30,7 +30,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-const { TIER_ORDER, claudeModelForTier, tierRank } = require("./agent_model_tiers.cjs");
+const { TIER_ORDER, claudeModelForTier, codexModelForTier, tierRank } = require("./agent_model_tiers.cjs");
 
 const ROLES = new Set(["builder", "reviewer"]);
 const AGENTS = new Set(["claude-lead", "claude-subagent", "codex", "chatgpt", "cloud-manager"]);
@@ -191,10 +191,19 @@ function checkPlan(plan, options = {}) {
       fail("senior_review_missing", `${builder.id}: touches ${families.join(", ")}; an independent reviewer with senior: true is required before merge`);
     }
     const tier = TIER_ORDER.includes(builder.tier) ? builder.tier : families.length ? "senior" : "standard";
-    summary.push({ id: builder.id, agent: builder.agent, risk: families.length ? "senior" : "standard", families, tier, model: claudeModelForTier(tier, {}), reviewers: covering.map((reviewer) => reviewer.id) });
+    summary.push({ id: builder.id, agent: builder.agent, risk: families.length ? "senior" : "standard", families, tier, model: modelForAgent(builder.agent, tier, options.env || process.env), reviewers: covering.map((reviewer) => reviewer.id) });
   }
 
   return { ok: findings.length === 0, findings, builders: summary, waves: parallelWaves(assignments) };
+}
+
+// The model the tier resolves to for the agent's provider, with the same
+// repository-variable pins the router applies. ChatGPT and the cloud manager
+// choose their own model, so none is reported for them.
+function modelForAgent(agent, tier, env) {
+  if (agent === "codex") return codexModelForTier(tier, env);
+  if (agent === "claude-lead" || agent === "claude-subagent") return claudeModelForTier(tier, env);
+  return "provider-managed";
 }
 
 // Group assignments into waves: everything in a wave depends only on earlier
@@ -248,7 +257,7 @@ function main(argv) {
   }
   const result = checkPlan(plan, { openBranchPaths });
   for (const finding of result.findings) console.log(`TEAM_PLAN_FINDING ${finding.code} ${finding.message}`);
-  for (const builder of result.builders) console.log(`TEAM_PLAN_BUILDER ${builder.id} agent=${builder.agent} risk=${builder.risk} tier=${builder.tier} claude_model=${builder.model}${builder.families.length ? " families=" + builder.families.join(",") : ""} reviewers=${builder.reviewers.join(",") || "none"}`);
+  for (const builder of result.builders) console.log(`TEAM_PLAN_BUILDER ${builder.id} agent=${builder.agent} risk=${builder.risk} tier=${builder.tier} model=${builder.model}${builder.families.length ? " families=" + builder.families.join(",") : ""} reviewers=${builder.reviewers.join(",") || "none"}`);
   result.waves.forEach((wave, index) => console.log(`TEAM_PLAN_WAVE ${index + 1} ${wave.length > 1 ? "parallel" : "serial"} ${wave.join(",")}`));
   console.log(`TEAM_PLAN_SUMMARY ${JSON.stringify({ ok: result.ok, findings: result.findings.length, builders: result.builders.length, open_branches_checked: Object.keys(openBranchPaths).length })}`);
   console.log(result.ok ? "TEAM_PLAN_PASS" : "TEAM_PLAN_FAIL");

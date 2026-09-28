@@ -332,3 +332,17 @@ test("sensitive task text keeps the senior floor even when the declared task typ
   }
   assert.equal(routeTask({ task: "Add a docs index", taskType: "docs", risk: "low", env: NO_ENV }).tier, "economy");
 });
+
+test("the plan check reports the model of the builder's own provider, with pins applied", () => {
+  const plan = (agent) => ({
+    task: "x",
+    assignments: [
+      { id: "B1", agent, role: "builder", tier: "senior", scope: "s", allowed: ["docs/a.md"], forbidden: [], depends_on: [], dod: ["d"] },
+      { id: "R1", agent: "claude-subagent", role: "reviewer", scope: "s", reviews: ["B1"], depends_on: ["B1"], dod: ["d"] },
+    ],
+  });
+  assert.equal(checkPlan(plan("codex"), { env: NO_ENV }).builders[0].model, "gpt-5.6-sol");
+  assert.equal(checkPlan(plan("claude-subagent"), { env: NO_ENV }).builders[0].model, "opus");
+  assert.equal(checkPlan(plan("chatgpt"), { env: NO_ENV }).builders[0].model, "provider-managed");
+  assert.equal(checkPlan(plan("codex"), { env: { SITON_CODEX_MODEL_SENIOR: "gpt-7-sol" } }).builders[0].model, "gpt-7-sol");
+});
