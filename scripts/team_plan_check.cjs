@@ -37,11 +37,30 @@
 //     otherwise the work is split across parallel builders
 //   - every justification carries an argument: >= 40 characters and >= 8
 //     distinct words (repetition is filler, not an argument)
+//   - every path a builder declares in `allowed` or `forbidden` is spelled the
+//     one way that means what it says: a directory ends in `/`, a file's last
+//     segment carries an extension, and the entry is written in normal form
+//     (no leading `/` or `./`, no stray whitespace, no `.` or `..` segment)
+//     with the case the working tree actually uses. `scripts` without the
+//     slash reached every gate script while scoring no risk family, no area
+//     beyond `root` and no overlap at all with a neighbour holding `scripts/`
 //   - an overlap with open work is tolerated only when the plan lists the exact
 //     CONFLICTING file - the path already changed on the open branch, not the
 //     builder's grant - in `accepted_overlaps` and argues it in
 //     `overlap_decision`; the finding is then downgraded to a warning, never
 //     silently dropped
+//
+// Known limits of the path-spelling rule, left deliberately:
+//   - the extensionless-file allowance is a list of basenames, not of paths.
+//     Dockerfile, gradlew and apple-app-site-association are the only three
+//     extensionless files this repository tracks (of 1371), so a fourth has
+//     to be added here before a plan may name it. An explicit list is the
+//     point: any heuristic loose enough to guess them lets `scripts` back in.
+//   - the case comparison reads the working tree, so it is silent about a
+//     path that does not exist yet - normal for a file about to be created -
+//     and silent if the checkout cannot be read. It compares case only:
+//     other filesystem aliases for the same file, such as a Windows 8.3
+//     short name or a differently normalized Unicode name, stay uncovered.
 //
 // Known limit, left deliberately: an `accepted_overlaps` entry is a bare path,
 // scoped neither to a branch nor to a builder, so one entry accepts that same
@@ -122,8 +141,15 @@ function justified(value) {
   return text.length >= 40 && words.length >= 8 && distinct >= 8;
 }
 
+// Forgiving on purpose, and deliberately more forgiving than the plan format:
+// every comparison below has to agree about what a path is even when an entry
+// arrives decorated, so surrounding whitespace, backslashes, a leading "./",
+// a leading "/" and a trailing "/**" are all folded away here. The spelling
+// rule then requires the plan to have written the normal form in the first
+// place, so a future call site that forgets to normalize cannot reopen the
+// hole this function is quietly closing.
 function normalizePath(value) {
-  return String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/\*\*$/, "/");
+  return String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "").replace(/\/\*\*$/, "/");
 }
 
 // Paths are exact files or directory prefixes ending in "/".
@@ -135,6 +161,85 @@ function pathsOverlap(a, b) {
   if (left.endsWith("/") && right.startsWith(left)) return true;
   if (right.endsWith("/") && left.startsWith(right)) return true;
   return false;
+}
+
+// The only files this repository tracks that carry no extension:
+//   git ls-files | grep -vE '\.[^/]*$'
+// returns exactly Dockerfile, android/gradlew and
+// mobile/association-templates/apple-app-site-association - 3 of 1371 tracked
+// files. The rule below reads a last segment without a "." as a directory
+// written wrong, so those three basenames are named here instead of guessed at.
+// Dockerfile is already matched by exact name in the ci-gates pattern above.
+const EXTENSIONLESS_FILES = new Set(["Dockerfile", "gradlew", "apple-app-site-association"]);
+
+// The repository root, found by walking up from this file rather than trusting
+// the caller's cwd, so the case check answers the same way from the CLI and
+// from a test process that runs in a temporary directory. No shell-out: a
+// worktree's .git is a file and a plain checkout's is a directory, and
+// fs.existsSync accepts both.
+let REPO_ROOT = null;
+function repoRoot() {
+  if (REPO_ROOT) return REPO_ROOT;
+  let dir = __dirname;
+  for (let step = 0; step < 16; step += 1) {
+    try { if (fs.existsSync(path.join(dir, ".git"))) { REPO_ROOT = dir; return REPO_ROOT; } } catch (error) { /* unreadable: keep walking */ }
+    const up = path.dirname(dir);
+    if (up === dir) break;
+    dir = up;
+  }
+  REPO_ROOT = path.dirname(__dirname);
+  return REPO_ROOT;
+}
+
+// Segment-by-segment comparison against the names the working tree actually
+// carries. "SCRIPTS/" is a real write path to scripts/ on this Windows checkout
+// and on macOS, a different path on Linux, and it matches none of the HIGH_RISK
+// patterns; only the tree knows which spelling is real, so this reads it rather
+// than lowercasing paths silently and pretending the two are one. Returns the
+// first segment whose case is wrong, or null - including for a path that does
+// not exist yet, which is ordinary for a file about to be written.
+function caseMismatch(value, cache) {
+  let dir = repoRoot();
+  let walked = "";
+  for (const segment of value.split("/").filter(Boolean)) {
+    let names = cache.get(dir);
+    if (!names) {
+      try { names = fs.readdirSync(dir); } catch (error) { return null; }
+      cache.set(dir, names);
+    }
+    if (names.includes(segment)) { walked = walked ? `${walked}/${segment}` : segment; dir = path.join(dir, segment); continue; }
+    const actual = names.find((name) => name.toLowerCase() === segment.toLowerCase());
+    return actual ? { segment, actual: walked ? `${walked}/${actual}` : actual } : null;
+  }
+  return null;
+}
+
+// A grant has to name exactly one thing, and name it the way the tree spells it.
+// Returns the reason an entry does not, or null.
+//
+// The hole this closes: "scripts" without the trailing slash reached every file
+// under scripts/ while riskFamilies() scored it [] (the pattern is ^scripts\/ and
+// the prefix widening is gated on a trailing "/"), planAreas() scored it "root"
+// so no whole-tree span fired, and pathsOverlap("scripts",
+// "scripts/proof_no_real_money.cjs") was false - so a lead builder on haiku could
+// hold the whole gate tree with a junior reviewer, and a second builder holding
+// "scripts/" collided with it nowhere. An ambiguous grant is now impossible to
+// write rather than merely expensive.
+function pathSpellingProblem(raw, cache) {
+  const text = String(raw === null || raw === undefined ? "" : raw);
+  const value = normalizePath(text);
+  if (!value) return "is empty";
+  const segments = value.split("/");
+  if (segments.slice(0, -1).some((segment) => !segment)) return 'contains an empty segment (a doubled "/")';
+  if (segments.some((segment) => segment === "." || segment === "..")) return 'contains a "." or ".." segment';
+  if (!value.endsWith("/")) {
+    const last = segments[segments.length - 1];
+    if (!last.includes(".") && !EXTENSIONLESS_FILES.has(last)) return `is neither a file nor a directory: write a directory as ${value}/, and a file with its extension`;
+  }
+  if (text !== value) return `is not written in normal form: write it as ${value}`;
+  const mismatch = caseMismatch(value, cache);
+  if (mismatch) return `differs from the tree only in case: the repository has ${mismatch.actual}, not ${mismatch.segment}`;
+  return null;
 }
 
 const HIGH_RISK_PREFIXES = {
@@ -209,6 +314,8 @@ function checkPlan(plan, options = {}) {
   if (!String(plan?.task || "").trim()) fail("task_missing", "plan.task must describe the owner's outcome");
   if (!assignments.length) fail("assignments_missing", "plan.assignments must list at least one assignment");
 
+  // One readdir per directory per plan, shared by every path-spelling check.
+  const spellingCache = new Map();
   const ids = new Set();
   for (const item of assignments) {
     const id = String(item?.id || "").trim();
@@ -233,6 +340,13 @@ function checkPlan(plan, options = {}) {
     if (item.role === "builder") {
       if (!Array.isArray(item.allowed) || !item.allowed.length) fail("allowed_missing", `${id}: builder must declare allowed paths`);
       if (!Array.isArray(item.forbidden)) fail("forbidden_missing", `${id}: builder must declare forbidden paths (may be empty only deliberately)`);
+      for (const [key, entries] of [["allowed", item.allowed], ["forbidden", item.forbidden]]) {
+        if (!Array.isArray(entries)) continue;
+        for (const entry of entries) {
+          const problem = pathSpellingProblem(entry, spellingCache);
+          if (problem) fail("path_spelling_ambiguous", `${id}: ${key} path ${JSON.stringify(String(entry === null || entry === undefined ? "" : entry))} ${problem}`);
+        }
+      }
     }
     if (item.role === "reviewer") {
       if (Array.isArray(item.allowed) && item.allowed.length) fail("reviewer_writes", `${id}: reviewers are read-only; allowed must be empty`);

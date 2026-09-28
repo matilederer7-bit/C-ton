@@ -585,6 +585,132 @@ test("closes the round-two review gap: a codex senior reviewer fabricating an An
   assert.equal(clean.ok, true, JSON.stringify(clean.findings));
 });
 
+// --- round four: pin the P0 a third reviewer found, this time via a spelling
+// riskFamilies, planAreas and pathsOverlap all decide file-vs-directory by
+// whether a path ends in "/". Dropping that one character defeated every risk
+// rule at once: riskFamilies(["scripts"]) returned [] instead of ["ci-gates"],
+// planAreas(["scripts"]) returned ["root"] instead of ["tooling"], and
+// pathsOverlap("scripts", "scripts/x.cjs") returned false. This is the same
+// P0 class as round one's named-gate-script grant and round three's
+// whole-tree-grant fix -- reappearing a third time through a spelling rather
+// than a listing. scripts/team_plan_check.cjs now rejects any allowed or
+// forbidden entry that is not written in exactly the one normal form that
+// means what it says: an unambiguous file (its last segment carries an
+// extension, or is one of the three tracked extensionless files) or an
+// unambiguous directory (it ends in "/"), with no leading "/" or "./", no
+// stray whitespace and no "." or ".." segment. New failing code:
+// path_spelling_ambiguous.
+
+test("REGRESSION (P0, third reappearance, via spelling): a claude-lead builder on haiku granted the bare word \"scripts\" with an ordinary reviewer must now fail; round one, two and three's checker all printed TEAM_PLAN_PASS for exactly this plan", () => {
+  const exploit = plan([
+    builder("B1", ["scripts"], { agent: "claude-lead", model: "haiku" }),
+    reviewer("R", ["B1"])
+  ]);
+  const result = checkPlan(exploit);
+  assert.equal(result.ok, false, JSON.stringify(result.findings));
+  assert.deepEqual(codes(result), ["path_spelling_ambiguous"], JSON.stringify(result.findings));
+});
+
+test("an allowed entry that is neither an unambiguous file nor an unambiguous directory is rejected", () => {
+  // "/scripts/" belongs here too: it normalizes to the clean "scripts/" (the
+  // leading "/" is stripped for comparison purposes), but the plan itself did
+  // not WRITE that normal form, so it fails on the same "not written in
+  // normal form" branch as "./scripts" and " scripts" (leading space) --
+  // spelling it exactly right is the point, not merely being interpretable.
+  for (const allowed of [["scripts"], ["./scripts"], ["/scripts/"], [" scripts"], ["src"], ["web/src"], ["tests/release_tools"]]) {
+    const result = checkPlan(plan([builder("B1", allowed), reviewer("R", ["B1"])]));
+    assert.ok(codes(result).includes("path_spelling_ambiguous"), JSON.stringify({ allowed, findings: result.findings }));
+  }
+});
+
+test("a directory correctly spelled with its trailing slash, a dotted file, or a tracked extensionless file is accepted", () => {
+  for (const allowed of [["scripts/"], ["scripts/one_gate.cjs"], ["web/src/styles.css"], ["package.json", "package-lock.json"], ["Dockerfile"], ["src/migrations/070_x.sql"], ["CLAUDE.md"]]) {
+    const result = checkPlan(plan([builder("B1", allowed), reviewer("R", ["B1"])]));
+    assert.ok(!codes(result).includes("path_spelling_ambiguous"), JSON.stringify({ allowed, findings: result.findings }));
+  }
+});
+
+test("the other two tracked extensionless files are recognized too, not only Dockerfile", () => {
+  for (const allowed of [["mobile/association-templates/apple-app-site-association"], ["android/gradlew"]]) {
+    const result = checkPlan(plan([builder("B1", allowed), reviewer("R", ["B1"])]));
+    assert.ok(!codes(result).includes("path_spelling_ambiguous"), JSON.stringify({ allowed, findings: result.findings }));
+  }
+});
+
+test("a forbidden entry with the same ambiguity also fires", () => {
+  const result = checkPlan(plan([builder("B1", ["docs/a.md"], { forbidden: ["scripts"] }), reviewer("R", ["B1"])]));
+  assert.ok(codes(result).includes("path_spelling_ambiguous"), JSON.stringify(result.findings));
+});
+
+// --- round four: hold every committed plan's exact finding set in place ---
+// Two committed plans already pin their expected result: the smoke plan
+// above ("the committed smoke plan is valid") and each of the two
+// 2026-09-28 orchestration plans below (round one and round two), which
+// each pin a lone honest model_underpowered. The other four committed plans
+// -- both 2026-09-24/25 brand plans, and the round-three orchestration plan
+// -- carry no control at all, so a quiet edit (D2.model: "opus" in the
+// round-three plan, or senior: true on the daylight/graphite reviewers)
+// would slide past every test in this file without tripping anything. This
+// control globs every committed plan and pins its EXACT finding-code set,
+// so a change in either direction -- a new finding, a finding that
+// disappears, or a plan file added or removed without updating the table --
+// fails loudly. checkPlan() is called with no options (no openBranchPaths),
+// so it never shells out to git and the result never depends on which
+// branches happen to be open on this machine right now.
+//
+// This does not replace "the committed smoke plan is valid" above (which
+// also asserts B1/B3's risk tier, not just the finding set) or the two
+// round-one/round-two model_underpowered controls below (which also assert
+// result.ok and exist to carry the long honest-record rationale inline); it
+// subsumes their finding-set coverage for those three files and extends it
+// to the three that had none. Proposing consolidation in a future round
+// rather than deleting any of them unilaterally here.
+const TEAM_PLAN_DIR = path.resolve(__dirname, "../../docs/team-plans");
+const EXPECTED_PLAN_FINDINGS = {
+  // No findings when it ran and none today: it grants no scripts/ path, and
+  // every builder is either standard-risk or opus where required.
+  "2026-09-24-smoke-worker-log-scrub.json": [],
+  // B1 (claude-lead) grants scripts/render_brand_assets.cjs plus two
+  // browser-proof scripts. Standard risk when this shipped (ci-gates then
+  // matched only .github/workflows/); round three widened ci-gates to every
+  // file under scripts/, making B1 senior-risk retroactively, and R1 was
+  // never senior. Explained in the file's own retroactive_finding_note; the
+  // record is deliberately not edited to fabricate a senior review that
+  // never happened.
+  "2026-09-24-daylight-visual-refresh.json": ["senior_review_missing"],
+  // Same root cause as the Daylight plan, same file's own
+  // retroactive_finding_note: B1 grants scripts/render_brand_assets.cjs plus
+  // three browser-proof scripts, retroactively senior-risk; R1 was ordinary.
+  "2026-09-25-graphite-mint-brand.json": ["senior_review_missing"],
+  // C2 (sonnet) is granted tests/release_tools/team_plan_check.test.cjs.
+  // Round three's own Fix 5 reclassified that exact file as ci-gates,
+  // because a CI step now runs it to enforce this gate, so C2 is
+  // underpowered. The plan's own retroactive_finding_note explains why the
+  // recorded model is not edited to opus after the fact.
+  "2026-09-28-orchestration-enforcement-round2.json": ["model_underpowered"],
+  // Same file, same cause: D2 (sonnet) is granted
+  // tests/release_tools/team_plan_check.test.cjs, which D1 reclassifies as
+  // ci-gates within this very round. Documented in the plan's own
+  // known_self_violation field ("the rule is right and the assignment was
+  // wrong").
+  "2026-09-28-orchestration-enforcement-round3.json": ["model_underpowered"],
+  // Same file, same cause, from the round that introduced the
+  // reclassification itself: B2 (sonnet) is granted
+  // tests/release_tools/team_plan_check.test.cjs. Documented in the plan's
+  // own retroactive_finding_note.
+  "2026-09-28-team-orchestration-enforcement.json": ["model_underpowered"]
+};
+
+test("every committed team plan's exact finding set is pinned, in both directions", () => {
+  const files = fs.readdirSync(TEAM_PLAN_DIR).filter((name) => name.endsWith(".json")).sort();
+  assert.deepEqual(files, Object.keys(EXPECTED_PLAN_FINDINGS).sort(), "docs/team-plans/*.json changed without updating EXPECTED_PLAN_FINDINGS above");
+  for (const file of files) {
+    const planData = JSON.parse(fs.readFileSync(path.join(TEAM_PLAN_DIR, file), "utf8"));
+    const result = checkPlan(planData);
+    assert.deepEqual(codes(result), EXPECTED_PLAN_FINDINGS[file], `${file}: ${JSON.stringify(result.findings)}`);
+  }
+});
+
 // --- CLI coverage: main(), branchPaths() and the printed contract ----------
 // Every control above calls checkPlan() in process. Nothing exercised main(),
 // branchPaths(), --base, the exit codes, or the literal strings TEAM_PLAN_PASS
