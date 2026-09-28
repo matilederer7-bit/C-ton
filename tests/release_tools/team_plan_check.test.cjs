@@ -642,11 +642,149 @@ test("a forbidden entry with the same ambiguity also fires", () => {
   assert.ok(codes(result).includes("path_spelling_ambiguous"), JSON.stringify(result.findings));
 });
 
+// --- round five: the P0's fourth reappearance, via a dotted real directory -
+// riskFamilies(), planAreas() and pathsOverlap() all decide file-vs-directory
+// by asking whether a path ends in "/"; path_spelling_ambiguous is the one
+// rule standing between a plan and that ambiguity ever reaching them. Round
+// one closed it as a listing problem (a named gate script had to be granted
+// by name). Round two closed it for a bare whole-tree grant such as
+// "scripts" or "web" (the missing-slash class). Round three closed a
+// decorated spelling such as "/scripts/" or "./scripts" (the leading-slash /
+// stray-decoration class). This is the fourth reappearance of the same hole,
+// this time through the OPPOSITE mistake the "is it a file" check was
+// making: it asked whether the entry's last segment contains a ".", and
+// ".github" contains one -- the leading dot of the directory's own name, not
+// an extension. A senior reviewer swept every tracked directory (148 of
+// them) through 12 decorated spellings each; ".github" was the only real,
+// tracked, extension-free directory name the dot check waved through as if
+// it were a file. At head, with this hole open: riskFamilies([".github"]) is
+// [] where riskFamilies([".github/"]) is ["ci-gates"], and
+// pathsOverlap(".github", ".github/workflows/backend-quality-gates.yml") is
+// false -- so a plan granting the bare word ".github" to a claude-lead
+// builder on haiku, with an ordinary (non-senior) reviewer, printed
+// TEAM_PLAN_PASS and exited 0, handing that builder unreviewed write access
+// to every CI workflow, including the step that runs this very gate.
+//
+// scripts/team_plan_check.cjs closes it by making the working tree the
+// primary test, not the dot: an entry that names a directory the checkout
+// actually has, written without its trailing "/", now fails
+// path_spelling_ambiguous outright -- which subsumes the old
+// EXTENSIONLESS_FILES allowlist (Dockerfile, gradlew and
+// apple-app-site-association are directories nowhere in this tree, so the
+// existence check never fires for them; they still clear the rule the same
+// way they always did). The dot heuristic survives only as a fallback for a
+// path the tree cannot yet confirm one way or the other -- ordinary for a
+// file about to be created -- and a tree read stays fail-open if the
+// checkout cannot be read, matching every other spelling check in this file.
+// Neither riskFamilies() nor pathsOverlap() themselves change here: they stay
+// exactly as quoted above, and it is path_spelling_ambiguous rejecting the
+// plan outright, before either of them ever sees the bare entry, that closes
+// the hole -- the same shape of fix as round two's bare "scripts".
+
+test("REGRESSION (P0, fourth reappearance, via a dotted real directory): a claude-lead builder on haiku granted the bare word \".github\" with an ordinary reviewer must now fail; rounds one through four's checker all printed TEAM_PLAN_PASS for exactly this plan", () => {
+  const exploit = plan([
+    builder("B1", [".github"], { agent: "claude-lead", model: "haiku" }),
+    reviewer("R", ["B1"])
+  ]);
+  const result = checkPlan(exploit);
+  assert.equal(result.ok, false, JSON.stringify(result.findings));
+  assert.deepEqual(codes(result), ["path_spelling_ambiguous"], JSON.stringify(result.findings));
+});
+
+test("only the bare, slash-less spelling of .github is ambiguous; the directory itself and a file beneath it stay clean", () => {
+  const bare = checkPlan(plan([builder("B1", [".github"]), reviewer("R", ["B1"])]));
+  assert.ok(codes(bare).includes("path_spelling_ambiguous"), JSON.stringify(bare.findings));
+  for (const allowed of [[".github/"], [".github/workflows/ci.yml"]]) {
+    const result = checkPlan(plan([builder("B1", allowed), reviewer("R", ["B1"])]));
+    assert.ok(!codes(result).includes("path_spelling_ambiguous"), JSON.stringify({ allowed, findings: result.findings }));
+  }
+});
+
+// Data-driven, not another hard-coded fixture: read the directories this
+// repository's OWN tracked files actually live under, and assert that every
+// one of them, spelled bare, is ambiguous. This is the control that would
+// have caught ".github" without anyone having to think of it by name, and it
+// keeps sweeping for the next one automatically as the tree grows. Derived
+// with `git ls-files -z` (NUL-separated, so a committed path containing an
+// escaped/quoted byte -- this repository has several non-ASCII filenames
+// under docs/ -- can never smuggle a bogus leading segment into the list the
+// way naive newline/slash splitting of quoted `git ls-files` text would).
+function trackedTopLevelDirectories() {
+  let result;
+  try {
+    result = spawnSync("git", ["ls-files", "-z"], { cwd: path.resolve(__dirname, "../.."), encoding: "utf8" });
+  } catch (error) {
+    return null;
+  }
+  if (!result || result.status !== 0) return null;
+  const names = new Set();
+  for (const entry of result.stdout.split("\0")) {
+    const slash = entry.indexOf("/");
+    if (slash > 0) names.add(entry.slice(0, slash));
+  }
+  return [...names].sort();
+}
+
+test("every real tracked top-level directory, spelled bare, is ambiguous -- the sweep that would have caught .github", (t) => {
+  const dirs = trackedTopLevelDirectories();
+  if (!dirs) return t.skip("git is not available in this environment");
+  assert.ok(dirs.length > 0, "expected at least one tracked top-level directory");
+  // ".i18n-regen" is a second real tracked directory this repository already
+  // carries whose name also starts with a dot, so this sweep is not only
+  // re-proving ".github": it independently catches a second live instance of
+  // the same class the moment it is run, without either name appearing in
+  // scripts/team_plan_check.cjs or being special-cased here.
+  assert.ok(dirs.includes(".github"), JSON.stringify(dirs));
+  for (const dir of dirs) {
+    const result = checkPlan(plan([builder("B1", [dir]), reviewer("R", ["B1"])]));
+    assert.ok(codes(result).includes("path_spelling_ambiguous"), JSON.stringify({ dir, findings: result.findings }));
+  }
+});
+
+test("two builders holding .github and .github/workflows/ collide, but only through path_spelling_ambiguous -- writer_overlap does not catch this pair", () => {
+  // Verified by reading pathsOverlap() as it stands (unchanged by this
+  // round's fix): it treats an operand as a directory prefix only when THAT
+  // operand ends in "/". Here the right side (".github/workflows/") does, so
+  // the check taken is left.startsWith(right) -- ".github".startsWith(
+  // ".github/workflows/") -- which is false. writer_overlap is silent on this
+  // pair; path_spelling_ambiguous, rejecting B1's bare entry outright, is the
+  // only thing that catches it. Senior review + opus is given to B2 up front
+  // so the only finding left standing is the one this test is pinning.
+  const result = checkPlan(plan([
+    builder("B1", [".github"]),
+    builder("B2", [".github/workflows/"], { model: "opus" }),
+    reviewer("R", ["B1", "B2"], { senior: true })
+  ]));
+  assert.deepEqual(codes(result), ["path_spelling_ambiguous"], JSON.stringify(result.findings));
+});
+
+test("the fix does not over-fire: directories, extensionless tracked files, dotted migration/config files, and a not-yet-existing file all stay clean", () => {
+  const clean = [
+    ["scripts/"],
+    ["scripts/one_gate.cjs"],
+    ["web/src/styles.css"],
+    ["package.json", "package-lock.json"],
+    ["Dockerfile"],
+    ["android/gradlew"],
+    ["mobile/association-templates/apple-app-site-association"],
+    ["src/migrations/070_x.sql"],
+    ["CLAUDE.md"],
+    // Not yet written to the tree: the directory-existence check finds
+    // nothing there and falls back to the dot heuristic, which accepts it as
+    // an ordinary future file -- exactly the case the fallback exists for.
+    ["src/new_module_that_does_not_exist.ts"]
+  ];
+  for (const allowed of clean) {
+    const result = checkPlan(plan([builder("B1", allowed), reviewer("R", ["B1"])]));
+    assert.ok(!codes(result).includes("path_spelling_ambiguous"), JSON.stringify({ allowed, findings: result.findings }));
+  }
+});
+
 // --- round four: hold every committed plan's exact finding set in place ---
-// Two committed plans already pin their expected result: the smoke plan
+// Three committed plans already pin their expected result: the smoke plan
 // above ("the committed smoke plan is valid") and each of the two
 // 2026-09-28 orchestration plans below (round one and round two), which
-// each pin a lone honest model_underpowered. The other four committed plans
+// each pin a lone honest model_underpowered. The other three committed plans
 // -- both 2026-09-24/25 brand plans, and the round-three orchestration plan
 // -- carry no control at all, so a quiet edit (D2.model: "opus" in the
 // round-three plan, or senior: true on the daylight/graphite reviewers)
@@ -716,13 +854,14 @@ test("every committed team plan's exact finding set is pinned, in both direction
 // branchPaths(), --base, the exit codes, or the literal strings TEAM_PLAN_PASS
 // / TEAM_PLAN_FAIL -- and CLAUDE.md's dispatch rule is phrased directly in
 // terms of that printed line ("a plan that does not print TEAM_PLAN_PASS is
-// not dispatched"). A CI step driving the real binary was tried and rejected:
-// actions/checkout@v4 fetches only the ref it checks out, so
-// `origin/master...origin/<branch>` cannot resolve in CI and the checker
-// would exit 1 with open_branch_unreadable regardless of whether the code is
-// correct -- a step red by environment, or (inverted to expect failure) a
-// step that stays green even if the checker is completely broken. So this
-// lives here instead, in the file the "Team work-plan coordination gate" CI
+// not dispatched"). A CI step driving the real binary over a committed plan
+// was tried and rejected: the open branches a plan names get deleted once
+// they merge, so a step that resolves them from open_branches would go
+// permanently red even at fetch-depth: 0 -- and because it would depend on a
+// third party's branch tip at CI time rather than a fixture this repository
+// controls, an unrelated push to that branch could turn this repository's
+// PRs red on its own. So this lives here instead, in the file the "Team
+// work-plan coordination gate" CI
 // step already runs, driving scripts/team_plan_check.cjs as a real child
 // process against a throwaway repo each test creates and destroys itself:
 // no write inside this repository, no network, no origin, no dependency on

@@ -38,29 +38,56 @@
 //   - every justification carries an argument: >= 40 characters and >= 8
 //     distinct words (repetition is filler, not an argument)
 //   - every path a builder declares in `allowed` or `forbidden` is spelled the
-//     one way that means what it says: a directory ends in `/`, a file's last
-//     segment carries an extension, and the entry is written in normal form
-//     (no leading `/` or `./`, no stray whitespace, no `.` or `..` segment)
-//     with the case the working tree actually uses. `scripts` without the
-//     slash reached every gate script while scoring no risk family, no area
-//     beyond `root` and no overlap at all with a neighbour holding `scripts/`
+//     one way that means what it says: a directory ends in `/` and a file does
+//     not, and the entry is written in normal form (no leading `/` or `./`, no
+//     stray whitespace, no `.` or `..` segment) with the case the working tree
+//     actually uses. `scripts` without the slash reached every gate script
+//     while scoring no risk family, no area beyond `root` and no overlap at
+//     all with a neighbour holding `scripts/`
 //   - an overlap with open work is tolerated only when the plan lists the exact
 //     CONFLICTING file - the path already changed on the open branch, not the
 //     builder's grant - in `accepted_overlaps` and argues it in
 //     `overlap_decision`; the finding is then downgraded to a warning, never
 //     silently dropped
 //
-// Known limits of the path-spelling rule, left deliberately:
-//   - the extensionless-file allowance is a list of basenames, not of paths.
-//     Dockerfile, gradlew and apple-app-site-association are the only three
-//     extensionless files this repository tracks (of 1371), so a fourth has
-//     to be added here before a plan may name it. An explicit list is the
-//     point: any heuristic loose enough to guess them lets `scripts` back in.
-//   - the case comparison reads the working tree, so it is silent about a
-//     path that does not exist yet - normal for a file about to be created -
-//     and silent if the checkout cannot be read. It compares case only:
-//     other filesystem aliases for the same file, such as a Windows 8.3
-//     short name or a differently normalized Unicode name, stay uncovered.
+// How the file-versus-directory half of that rule decides, and what it cannot
+// see. Round four asked one question - "does the last segment contain a dot?"
+// - and `.github` answered yes, so the bare word `.github` was accepted as a
+// file and then behaved exactly like the `scripts` hole it was meant to close:
+// riskFamilies([".github"]) was [], planAreas([".github"]) was ["root"], and
+// pathsOverlap(".github", ".github/workflows/backend-quality-gates.yml") was
+// false - a grant of every workflow, the step that runs this very checker
+// included, scored as one harmless root-level file. A naming convention cannot
+// be the primary test, because what is being tested is not a naming convention.
+//
+//   - PRIMARY, and decisive whenever it can answer: the working tree itself.
+//     An entry naming an existing DIRECTORY must end in `/`; one naming an
+//     existing FILE must not. That is a fact rather than a convention, so it
+//     needs no allowlist and no guesswork: Dockerfile, android/gradlew and
+//     mobile/association-templates/apple-app-site-association pass because the
+//     tree says they are files, and `.github`, `scripts`, `src` and `web/src`
+//     fail because the tree says they are directories. It reads the same
+//     cached listings as the case comparison - one readdir per directory per
+//     plan, one walk per entry - so it costs no extra filesystem work.
+//   - FALLBACK, reached only where the tree cannot answer: the last segment
+//     must carry a "." or be one of the three tracked extensionless basenames.
+//     A path absent from the tree is ordinary - a file about to be created -
+//     and has to stay writable in a plan. This is round four's heuristic and
+//     it is exactly as weak as one: it cannot tell a dotted directory from a
+//     file, nor a new extensionless file from a mistyped directory. Confining
+//     it to paths the tree does not contain is what makes it safe, because
+//     there a wrong answer grants nothing rather than everything underneath.
+//   - reading the tree is FAIL-OPEN on purpose, the same posture the case
+//     comparison already takes: an unreadable checkout (a bare clone, a
+//     sandbox with no working files) yields kind `null` for every entry, and
+//     the fallback then decides all of them. So the gate degrades to round
+//     four's behaviour instead of refusing to run - never worse than its
+//     predecessor, and precise wherever a checkout is present. A gate that
+//     cannot run without a working tree is a gate that gets switched off.
+//   - the case comparison is likewise silent about a path that does not exist
+//     yet and silent if the checkout cannot be read. It compares case only:
+//     other filesystem aliases for the same file, such as a Windows 8.3 short
+//     name or a differently normalized Unicode name, stay uncovered.
 //
 // Known limit, left deliberately: an `accepted_overlaps` entry is a bare path,
 // scoped neither to a branch nor to a builder, so one entry accepts that same
@@ -163,12 +190,17 @@ function pathsOverlap(a, b) {
   return false;
 }
 
-// The only files this repository tracks that carry no extension:
+// FALLBACK ONLY: consulted for a path the working tree does not contain, where
+// the primary tree lookup has no answer. For all three of these the tree does
+// answer - they are tracked files present in any ordinary checkout - so this
+// list now matters only when the checkout cannot be read, or when one of them
+// is itself about to be created. The only files this repository tracks that
+// carry no extension:
 //   git ls-files | grep -vE '\.[^/]*$'
 // returns exactly Dockerfile, android/gradlew and
 // mobile/association-templates/apple-app-site-association - 3 of 1371 tracked
-// files. The rule below reads a last segment without a "." as a directory
-// written wrong, so those three basenames are named here instead of guessed at.
+// files. The fallback reads a last segment without a "." as a directory written
+// wrong, so those three basenames are named here instead of guessed at.
 // Dockerfile is already matched by exact name in the ci-gates pattern above.
 const EXTENSIONLESS_FILES = new Set(["Dockerfile", "gradlew", "apple-app-site-association"]);
 
@@ -191,27 +223,60 @@ function repoRoot() {
   return REPO_ROOT;
 }
 
-// Segment-by-segment comparison against the names the working tree actually
-// carries. "SCRIPTS/" is a real write path to scripts/ on this Windows checkout
-// and on macOS, a different path on Linux, and it matches none of the HIGH_RISK
-// patterns; only the tree knows which spelling is real, so this reads it rather
-// than lowercasing paths silently and pretending the two are one. Returns the
-// first segment whose case is wrong, or null - including for a path that does
-// not exist yet, which is ordinary for a file about to be written.
-function caseMismatch(value, cache) {
+// One cached readdir per directory, shared by every entry in the plan. Dirents
+// rather than bare names, because the same listing that says whether the tree
+// spells a segment this way also says whether that segment is a file or a
+// directory - the two questions pathSpellingProblem asks, answered from one
+// walk and no extra filesystem work. A listing that cannot be read is cached
+// as null and means "unknown", never "absent": see the fail-open note above.
+function treeEntries(dir, cache) {
+  if (!cache.has(dir)) {
+    let listing = null;
+    try { listing = fs.readdirSync(dir, { withFileTypes: true }); } catch (error) { listing = null; }
+    cache.set(dir, listing);
+  }
+  return cache.get(dir);
+}
+
+// Walk one path against the names the working tree actually carries and report
+// both facts the spelling rule needs.
+//
+// `mismatch`: the first segment whose case is wrong, or null. "SCRIPTS/" is a
+// real write path to scripts/ on this Windows checkout and on macOS, a
+// different path on Linux, and it matches none of the HIGH_RISK patterns; only
+// the tree knows which spelling is real, so this reads it rather than
+// lowercasing paths silently and pretending the two are one. Null includes the
+// case of a path that does not exist yet, ordinary for a file about to be
+// written.
+//
+// `kind`: "dir", "file", or null when the tree cannot say - the path is not
+// there, or a listing could not be read. Any trailing "/" on the entry is
+// ignored here: what the tree holds is a fact about the path, and comparing it
+// against how the plan spelled the entry is the caller's job.
+function treeLookup(value, cache) {
   let dir = repoRoot();
   let walked = "";
+  let leaf = null;
   for (const segment of value.split("/").filter(Boolean)) {
-    let names = cache.get(dir);
-    if (!names) {
-      try { names = fs.readdirSync(dir); } catch (error) { return null; }
-      cache.set(dir, names);
+    const listing = treeEntries(dir, cache);
+    if (!listing) return { mismatch: null, kind: null };
+    leaf = listing.find((item) => item.name === segment);
+    if (!leaf) {
+      const actual = listing.find((item) => item.name.toLowerCase() === segment.toLowerCase());
+      return { mismatch: actual ? { segment, actual: walked ? `${walked}/${actual.name}` : actual.name } : null, kind: null };
     }
-    if (names.includes(segment)) { walked = walked ? `${walked}/${segment}` : segment; dir = path.join(dir, segment); continue; }
-    const actual = names.find((name) => name.toLowerCase() === segment.toLowerCase());
-    return actual ? { segment, actual: walked ? `${walked}/${actual}` : actual } : null;
+    walked = walked ? `${walked}/${segment}` : segment;
+    dir = path.join(dir, segment);
   }
-  return null;
+  if (!leaf) return { mismatch: null, kind: null };
+  if (leaf.isDirectory()) return { mismatch: null, kind: "dir" };
+  if (leaf.isFile()) return { mismatch: null, kind: "file" };
+  // A symlink or a Windows junction: the dirent describes the link itself, so
+  // ask what it resolves to. A broken link stays unknown and takes the fallback.
+  let resolved = null;
+  try { resolved = fs.statSync(dir); } catch (error) { resolved = null; }
+  if (!resolved) return { mismatch: null, kind: null };
+  return { mismatch: null, kind: resolved.isDirectory() ? "dir" : "file" };
 }
 
 // A grant has to name exactly one thing, and name it the way the tree spells it.
@@ -232,12 +297,18 @@ function pathSpellingProblem(raw, cache) {
   const segments = value.split("/");
   if (segments.slice(0, -1).some((segment) => !segment)) return 'contains an empty segment (a doubled "/")';
   if (segments.some((segment) => segment === "." || segment === "..")) return 'contains a "." or ".." segment';
-  if (!value.endsWith("/")) {
+  // One walk, both answers. Per the header: the working tree decides the
+  // file-versus-directory question wherever it can answer, and the dot
+  // heuristic is only the fallback for a path the tree does not contain.
+  const { kind, mismatch } = treeLookup(value, cache);
+  const trailing = value.endsWith("/");
+  if (kind === "dir" && !trailing) return `names a directory in the working tree, so it must end in a slash: write it as ${value}/`;
+  if (kind === "file" && trailing) return `names a file in the working tree, so it must not end in a slash: write it as ${value.slice(0, -1)}`;
+  if (kind === null && !trailing) {
     const last = segments[segments.length - 1];
     if (!last.includes(".") && !EXTENSIONLESS_FILES.has(last)) return `is neither a file nor a directory: write a directory as ${value}/, and a file with its extension`;
   }
   if (text !== value) return `is not written in normal form: write it as ${value}`;
-  const mismatch = caseMismatch(value, cache);
   if (mismatch) return `differs from the tree only in case: the repository has ${mismatch.actual}, not ${mismatch.segment}`;
   return null;
 }
