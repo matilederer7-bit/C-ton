@@ -44,7 +44,7 @@ import { SellerFulfillmentPage, SellerPickupPage } from "./sellerPickup";
 import { SellerProductCreatePage, SellerProductLibraryPage, SellerProductPage } from "./sellerProducts";
 import { deliveryEstimateText, validateEstimateRange } from "../productLibrary";
 // P0.7 — ONE pickup-location rule shared with the server (publish gate, public renderer)
-import { PICKUP_PRECISION_COPY, hasUsablePickupLocation, isPickupOptionType, pickupLocationText, pickupPrecision } from "../../../src/pickup_location";
+import { PICKUP_PRECISION_COPY, deliveryOptionLabel, hasUsablePickupLocation, isPickupOptionType, pickupLocationText, pickupPrecision } from "../../../src/pickup_location";
 
 // ── login (the shared truthful auth panel) ─────────────────────────────────
 function SellerLogin({ onDone, initialMode }: { onDone: () => void; initialMode?: "login" | "signup" }) {
@@ -815,7 +815,11 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
       if (!isPositiveIntegerText(maxUnits) || !(maxNum >= minNum)) errs.max = t("seller.the_maximum_quantity_must_least");
     }
     if (s === 2) {
-      if (dealType === "physical_product" && !delivery.some((d) => d.label.trim())) errs.delivery = t("seller.add_least_one_delivery_option");
+      // A delivery method is CHOSEN by its type (משלוח / איסוף עצמי / נקודת
+      // חלוקה); the text field is an optional description or the pickup
+      // address. Counting only rows with typed text blocked a seller who had
+      // chosen two methods (owner bug 2026-09-28).
+      if (dealType === "physical_product" && delivery.length === 0) errs.delivery = t("seller.add_least_one_delivery_option");
       if (dealType === "voucher") {
         if (!(Number(voucherFaceValue) > 0)) errs.voucherFace = t("seller.enter_voucher_value");
         if (!voucherValidUntil || new Date(`${voucherValidUntil}T23:59:59`).getTime() <= Date.now()) errs.voucherValid = t("seller.choose_future_validity_date_voucher");
@@ -834,14 +838,12 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
     }
     // P0.7 — self-pickup / distribution point must carry a usable location
     if (s === 2 && dealType === "physical_product" && !errs.delivery) {
-      const configured = delivery.filter((d) => d.label.trim());
-      if (configured.some((d) => !hasUsablePickupLocation(d))) {
-        errs.delivery = t("seller.pickup_distribution_point_needs_address");
-      }
+      delivery.forEach((d, i) => {
+        if (!hasUsablePickupLocation(d)) errs[`delivery-label-${i}`] = t("seller.pickup_distribution_point_needs_address");
+      });
     }
     if (s === 2 && dealType === "physical_product") {
       delivery.forEach((d, i) => {
-        if (!d.label.trim()) return;
         const estError = validateEstimateRange(d.est_min, d.est_max);
         if (estError) errs[`delivery-estimate-${i}`] = estError;
         else if (product && (!d.est_min.trim() || !d.est_max.trim())) errs[`delivery-estimate-${i}`] = t("seller.a_deal_created_product_needs");
@@ -910,9 +912,8 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
         }
       } : {
         delivery_options: delivery
-          .filter((d) => d.label.trim())
           .map((d, i) => ({
-            option_type: d.option_type, label: d.label.trim(), cost: Math.max(0, Number(d.cost) || 0), sort_order: i,
+            option_type: d.option_type, label: deliveryOptionLabel(d.option_type, d.label, localizedDeliveryLabels()), cost: Math.max(0, Number(d.cost) || 0), sort_order: i,
             ...(d.latitude != null && d.longitude != null ? { latitude: d.latitude, longitude: d.longitude } : {}),
             ...deliveryEstimatePayload(d)
           }))
@@ -1078,7 +1079,7 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
                 <div className="row" style={{ marginBottom: 10, alignItems: "flex-end" }}>
                   <div className="field" style={{ marginBottom: 0, flex: "1 1 130px" }}>
                     <label>{t("seller.type")}</label>
-                    <select value={d.option_type} onChange={(e) => {
+                    <select data-testid={`delivery-type-${i}`} value={d.option_type} onChange={(e) => {
                       const t = e.target.value;
                       setDelivery(delivery.map((x, j) => j === i ? { ...x, option_type: t, ...(t === "delivery" ? { latitude: null, longitude: null } : {}) } : x));
                     }}>
@@ -1089,11 +1090,12 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
                   </div>
                   <div className="field grow" style={{ marginBottom: 0, flex: "2 1 180px" }}>
                     <label>{isPickupOptionType(d.option_type) ? t("seller.pickup_address_location") : t("seller.description")}</label>
-                    <input data-testid={`delivery-label-${i}`} value={d.label} onChange={(e) => setDelivery(delivery.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder={isPickupOptionType(d.option_type) ? t("seller.for_example_12_herzl_st") : t("seller.for_example_courier_delivery_door")} />
+                    <input {...attention(errors, `delivery-label-${i}`)} data-testid={`delivery-label-${i}`} aria-label={isPickupOptionType(d.option_type) ? t("seller.pickup_address_location") : t("seller.delivery_description")} value={d.label} onChange={(e) => setDelivery(delivery.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder={isPickupOptionType(d.option_type) ? t("seller.for_example_12_herzl_st") : t("seller.for_example_courier_delivery_door")} />
+                    <FieldError msg={errors[`delivery-label-${i}`]} />
                   </div>
                   <div className="field" style={{ marginBottom: 0, flex: "1 1 100px" }}>
                     <label>{t("seller.cost")}</label>
-                    <input dir="ltr" type="number" min={0} value={d.cost} onChange={(e) => setDelivery(delivery.map((x, j) => j === i ? { ...x, cost: e.target.value } : x))} />
+                    <input dir="ltr" type="number" min={0} data-testid={`delivery-cost-${i}`} value={d.cost} onChange={(e) => setDelivery(delivery.map((x, j) => j === i ? { ...x, cost: e.target.value } : x))} />
                   </div>
                   {delivery.length > 1 ? <button className="x" onClick={() => setDelivery(delivery.filter((_, j) => j !== i))} aria-label={t("seller.remove")}>✕</button> : null}
                 </div>
@@ -1101,7 +1103,7 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
                 <DeliveryEstimateInputs row={d} index={i} error={errors[`delivery-estimate-${i}`]} onChange={(min, max) => setDelivery(delivery.map((x, j) => j === i ? { ...x, est_min: min, est_max: max } : x))} />
               </React.Fragment>
             ))}
-            {delivery.length < 5 ? <button className="btn btn-sm btn-ghost" onClick={() => setDelivery([...delivery, { option_type: "delivery", label: "", cost: "0", latitude: null, longitude: null, est_min: productEstDefaults.min, est_max: productEstDefaults.max }])}>{t("seller.add_option")}</button> : null}
+            {delivery.length < 5 ? <button className="btn btn-sm btn-ghost" data-testid="delivery-add" onClick={() => setDelivery([...delivery, { option_type: "delivery", label: "", cost: "0", latitude: null, longitude: null, est_min: productEstDefaults.min, est_max: productEstDefaults.max }])}>{t("seller.add_option")}</button> : null}
             </> : null}
 
             {dealType === "voucher" ? <>
@@ -1488,6 +1490,10 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
 // always; published only while ZERO buyers ever relied on the options. Locked
 // deals still SHOW everything with an explicit explanation — never hidden.
 const DELIVERY_TYPE_NAMES: Record<string, string> = { delivery: "seller.delivery_type_names.delivery", pickup: "seller.delivery_type_names.pickup", distribution_point: "seller.delivery_type_names.distribution_point" };
+/** The generic name a chosen method keeps when the seller typed no text (in the UI language). */
+function localizedDeliveryLabels(): Record<string, string> {
+  return { delivery: t("seller.delivery_type_names.delivery"), pickup: t("seller.delivery_type_names.pickup"), distribution_point: t("seller.delivery_type_names.distribution_point") };
+}
 
 function mapsPlaceUrl(lat: number | null, lng: number | null): string | null {
   if (lat == null || lng == null || !Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return null;
@@ -1510,12 +1516,12 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
   const dealType = String(deal.deal_type || "physical_product");
   const validateDelivery = () => {
     const errors: Record<string, string> = {};
-    if (!rows.some(row => row.label.trim())) errors[rows.length ? "delivery-label-0" : "delivery-options"] = t("seller.at_least_one_delivery_option");
+    // a method is chosen by its type — see CreateWizard.validateStep
+    if (!rows.length) errors["delivery-options"] = t("seller.at_least_one_delivery_option");
     else if (String(deal.state) !== "Draft") rows.forEach((row, index) => {
-      if (row.label.trim() && !hasUsablePickupLocation(row)) errors[`delivery-label-${index}`] = t("seller.pickup_distribution_point_needs_address_2");
+      if (!hasUsablePickupLocation(row)) errors[`delivery-label-${index}`] = t("seller.pickup_distribution_point_needs_address_2");
     });
     rows.forEach((row, index) => {
-      if (!row.label.trim()) return;
       const estError = validateEstimateRange(row.est_min, row.est_max);
       if (estError) errors[`delivery-estimate-${index}`] = estError;
       else if (deal.product_id && (!row.est_min.trim() || !row.est_max.trim())) errors[`delivery-estimate-${index}`] = t("seller.a_deal_created_product_needs_2");
@@ -1555,7 +1561,7 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
 
   const save = async () => {
     if (busy) return;
-    const clean = rows.filter((r) => r.label.trim());
+    const clean = rows;
     const errors = validateDelivery();
     setFieldErrors(errors);
     const first = Object.keys(errors)[0];
@@ -1564,7 +1570,7 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
     try {
       await api.updateDealDelivery(String(deal.deal_id), {
         delivery_options: clean.map((r, i) => ({
-          option_type: r.option_type, label: r.label.trim(), cost: Math.max(0, Number(r.cost) || 0), sort_order: i,
+          option_type: r.option_type, label: deliveryOptionLabel(r.option_type, r.label, localizedDeliveryLabels()), cost: Math.max(0, Number(r.cost) || 0), sort_order: i,
           ...(r.latitude != null && r.longitude != null ? { latitude: r.latitude, longitude: r.longitude } : {}),
           ...deliveryEstimatePayload(r)
         }))
@@ -1632,7 +1638,7 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
               <div className="row" style={{ marginBottom: 6, alignItems: "flex-end" }}>
                 <div className="field" style={{ marginBottom: 0, flex: "1 1 120px" }}>
                   <label>{t("seller.type")}</label>
-                  <select value={d.option_type} onChange={(e) => {
+                  <select data-testid={`delivery-type-${i}`} value={d.option_type} onChange={(e) => {
                     const t = e.target.value;
                     setRows(rows.map((x, j) => j === i ? { ...x, option_type: t, ...(t === "delivery" ? { latitude: null, longitude: null } : {}) } : x));
                   }}>
@@ -1648,7 +1654,7 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
                 </div>
                 <div className="field" style={{ marginBottom: 0, flex: "1 1 90px" }}>
                   <label>{t("seller.cost")}</label>
-                  <input dir="ltr" type="number" min={0} value={d.cost} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, cost: e.target.value } : x))} />
+                  <input dir="ltr" type="number" min={0} data-testid={`delivery-cost-${i}`} value={d.cost} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, cost: e.target.value } : x))} />
                 </div>
                 {rows.length > 1 ? <button className="x" onClick={() => setRows(rows.filter((_, j) => j !== i))} aria-label={t("seller.remove")}>✕</button> : null}
               </div>
@@ -1657,7 +1663,7 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
             </React.Fragment>
           ))}
           {rows.length < 5 ? (
-            <button {...attention(fieldErrors, "delivery-options", "btn btn-sm btn-ghost")} style={{ alignSelf: "flex-start" }}
+            <button {...attention(fieldErrors, "delivery-options", "btn btn-sm btn-ghost")} data-testid="delivery-add" style={{ alignSelf: "flex-start" }}
               onClick={() => setRows([...rows, { option_type: "delivery", label: "", cost: "0", latitude: null, longitude: null, est_min: "", est_max: "" }])}>
               {t("seller.add_option")}</button>
           ) : null}
