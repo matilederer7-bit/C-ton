@@ -37,6 +37,7 @@ let forcedCreateId: string | null = null;
 // set by a test: arm a fault AFTER the next binding transaction's COMMIT (the
 // provisioner call sits between the route's read transactions and the bind)
 let armAfterCommitOnCreate = false;
+let armBeforeCommitOnCreate = false;
 let armFault: ((point: string, action: any, count?: number) => unknown) | null = null;
 
 const server = createServer((req, res) => {
@@ -60,6 +61,10 @@ const server = createServer((req, res) => {
         if (authUsers.has(email)) { res.statusCode = 409; res.end(JSON.stringify({ ok: false, code: "username_taken" })); return; }
         const id = forcedCreateId || randomUUID();
         forcedCreateId = null;
+        if (armBeforeCommitOnCreate && armFault) {
+          armBeforeCommitOnCreate = false;
+          armFault("db.before_commit", { kind: "throw", code: "ECONNRESET" }, 1);
+        }
         if (armAfterCommitOnCreate && armFault) {
           armAfterCommitOnCreate = false;
           armFault("db.after_commit", { kind: "throw", code: "ECONNRESET" }, 1);
@@ -136,6 +141,9 @@ const tokens = {
   // a SuperAdmin that passed Supabase MFA (AAL2) — required to create admins
   super: mint({ sub: SUPER.sub, email: SUPER.email, aal: "aal2", amr: [{ method: "totp", timestamp: Math.floor(Date.now() / 1000) }] }),
   superAal1: mint({ sub: SUPER.sub, email: SUPER.email, aal: "aal1" }),
+  // a REFRESHED AAL2 session: fresh iat, but the TOTP was verified an hour ago
+  superStaleMfa: mint({ sub: SUPER.sub, email: SUPER.email, aal: "aal2", amr: [{ method: "totp", timestamp: Math.floor(Date.now() / 1000) - 3600 }, { method: "password", timestamp: Math.floor(Date.now() / 1000) - 3700 }] }),
+  superAal2NoAmr: mint({ sub: SUPER.sub, email: SUPER.email, aal: "aal2" }),
   ops: mint({ sub: OPS.sub, email: OPS.email }),
   seller: mint({ sub: SELLER.sub, email: SELLER.email }),
   plain: mint({ sub: PLAIN.sub, email: PLAIN.email })
@@ -354,6 +362,36 @@ try {
     assert.equal(String(row.auth_user_id), authUsers.get(`${other}@admins.siton.invalid`), "the Auth user was NOT deleted");
     assert.equal(provisionerCalls.filter((c) => c.op === "rollback").length, rollbacksBefore, "no compensation for a committed admin");
     assert.equal((await pool.query(`SELECT 1 FROM siton.admin_user_audit WHERE target_admin_user_id=$1`, [row.admin_user_id])).rowCount, 1);
+  });
+
+  await run("'recent' means the second factor's own time (amr), not iat: a refreshed AAL2 token with an hour-old TOTP is refused (review of #122)", async () => {
+    const before = createCalls();
+    for (const token of [tokens.superStaleMfa, tokens.superAal2NoAmr]) {
+      const other = `stale-${tag}`;
+      const res = await create(token, { username: other, password: PASSWORD, role: "SupportAdmin" });
+      assert.equal(res.statusCode, 403, res.body);
+      assert.equal((res.json() as any).error, "MFA_REQUIRED");
+      assert.equal((await adminRows(other)).length, 0);
+    }
+    assert.equal(createCalls(), before);
+  });
+
+  await run("a bind that fails BEFORE commit (not a unique violation) is compensated: the Auth user is rolled back (review of #122)", async () => {
+    const other = `precommit-${tag}`;
+    const rollbacksBefore = provisionerCalls.filter((c) => c.op === "rollback").length;
+    armBeforeCommitOnCreate = true;
+    try {
+      const res = await create(tokens.super, { username: other, password: PASSWORD, role: "SupportAdmin" });
+      assert.equal(res.statusCode, 503, res.body);
+    } finally {
+      armBeforeCommitOnCreate = false;
+      resetTestFaults();
+    }
+    assert.equal((await adminRows(other)).length, 0, "no binding committed");
+    const rollbacks = provisionerCalls.filter((c) => c.op === "rollback");
+    assert.equal(rollbacks.length, rollbacksBefore + 1, "the orphan Auth user was not rolled back");
+    assert.equal(rollbacks.at(-1)!.username, other);
+    assert.equal(authUsers.has(`${other}@admins.siton.invalid`), false, "the username stays usable");
   });
 
   await run("without the provisioner key the route answers 503 and creates nothing", async () => {

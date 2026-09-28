@@ -7881,10 +7881,13 @@ export function registerFrontendExperience(
       // when the binding is confirmed absent; deleting the Auth user of a
       // committed admin would reserve the username for an admin who can never
       // sign in.
-      const bound = await deps.withTx(async (c) => (await c.query(
+      // "confirmed absent" (the read succeeded with no row) and "unknown" (the
+      // read itself failed) must stay distinct: only the former may compensate.
+      const check = await deps.withTx(async (c) => (await c.query(
         `SELECT admin_user_id, username, display_name, role, status, created_at FROM siton.admin_users WHERE auth_user_id=$1 LIMIT 1`,
         [created.auth_user_id]
-      )).rows[0]).catch(() => undefined);
+      )).rows[0]).then((row) => ({ known: true as const, row }), () => ({ known: false as const, row: undefined }));
+      const bound = check.row;
       if (bound && String(bound.username || "") === username) {
         req.log?.warn?.({ security_event: "admin.team.commit_ambiguous_bound", target_admin_user_id: bound.admin_user_id, request_id: String(req.id || "") }, "admin_team_commit_ambiguous_bound");
         return {
@@ -7895,7 +7898,7 @@ export function registerFrontendExperience(
           }
         };
       }
-      if (bound === undefined && error?.code !== "23505") {
+      if (!check.known) {
         // the binding could not even be checked — never delete an Auth user
         // that may be bound; leave it for an operator (it holds no authority
         // unless a binding row exists)
