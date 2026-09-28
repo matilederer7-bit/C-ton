@@ -43,12 +43,16 @@ export const LANDING_HE = {
 
   forBuyers: {
     title: "לקונים",
-    body: "מצטרפים לעסקה דרך קישור, בוחרים כמות ואופן קבלה — ובשלב הזה נתפסת מסגרת אשראי בלבד, בלי חיוב. מרגע ההצטרפות יש לכם מסך מעקב אישי עם מצב העסקה בזמן אמת, וקישור אישי משלכם: כל מי שמצטרף דרככם נזקף לזכותכם."
+    // The join → hold → track sequence is the infographic's; this keeps only
+    // what it does not say: no account, and the personal share link.
+    body: "ההצטרפות נעשית דרך קישור העסקה, בלי חשבון. מרגע ההצטרפות יש לכם מסך מעקב אישי וקישור שיתוף משלכם — כל מי שמצטרף דרככם נזקף לזכותכם."
   } as LandingSectionContent,
 
   forSellers: {
     title: "למוכרים",
-    body: "פותחים עסקה קבוצתית עם יעד ומועד סיום, מקבלים קישור לשיתוף, ועוקבים אחרי ההצטרפויות בדשבורד ניהול מלא — כמה הצטרפו, כמה נותר ליעד, ומה קורה עם הכסף. החיוב מתבצע רק כשהעסקה נסגרת בהצלחה."
+    // Open → set → share → manage is the infographic's; this keeps what it
+    // does not say: what the management dashboard actually shows.
+    body: "דשבורד ניהול מלא מראה בכל רגע כמה הצטרפו, כמה נותר ליעד ומה קורה עם הכסף. חשבון מוכר נפתח בחינם ופתיחת עסקה אורכת פחות מ־5 דקות."
   } as LandingSectionContent,
 
   trust: {

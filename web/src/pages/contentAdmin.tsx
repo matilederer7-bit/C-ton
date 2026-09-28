@@ -17,6 +17,7 @@ import {
   type Block, type ContentLocale, type FieldDef, type PageContent, type PageContract, type TemplateId
 } from "../content/cmsTemplates";
 import { t } from "../i18n/index.js";
+import { HowItWorksIcon } from "../howItWorksIcons";
 
 type Section = {
   label: string; description: string; contract: PageContract;
@@ -331,8 +332,17 @@ function Field({ id, def, value, fallback = "", busy, onChange, onMessage }: { i
     </div>;
   }
   if (def.kind === "select") {
-    return <div className="field"><label htmlFor={id}>{label}</label>
-      <select id={id} data-testid={id} value={value} disabled={busy} onChange={e => onChange(e.target.value)}>{(def.options || []).map(o => <option key={o.value} value={o.value}>{t(o.label)}</option>)}</select></div>;
+    const select = <select id={id} data-testid={id} value={value} disabled={busy} onChange={e => onChange(e.target.value)}>{(def.options || []).map(o => <option key={o.value} value={o.value}>{t(o.label)}</option>)}</select>;
+    // An icon picker is the same whitelisted <select> with the chosen glyph
+    // shown beside it — the admin picks a KEY, never types markup.
+    if (def.iconPicker) {
+      return <div className="field"><label htmlFor={id}>{label}</label>
+        <div className="cms-icon-select">
+          <span className="cms-icon-preview" data-testid={`${id}-icon`} data-icon={value} aria-hidden="true"><HowItWorksIcon icon={value} size={22} /></span>
+          {select}
+        </div></div>;
+    }
+    return <div className="field"><label htmlFor={id}>{label}</label>{select}</div>;
   }
   if (def.kind === "multiline") {
     return <div className="field"><label htmlFor={id}>{label}</label>

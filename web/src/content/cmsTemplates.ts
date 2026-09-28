@@ -22,6 +22,10 @@ import { AFTER_TAP_LINE_KEY, DEAL_EXPLAINER_KEY, HOW_IT_WORKS_KEYS, SHARE_LOOP_T
 import { SELLER_AREA_HE } from "./seller.he.js";
 import { SELLER_AREA_EN } from "./seller.en.js";
 import { translateIn } from "../i18n/translate.js";
+import { HOW_IT_WORKS_HE } from "./howItWorks.he.js";
+import { HOW_IT_WORKS_EN } from "./howItWorks.en.js";
+import { HOW_IT_WORKS_AUDIENCES, HOW_IT_WORKS_BLOCK_ID, HOW_IT_WORKS_STEP_NUMBERS, howItWorksEnglishFieldsOf, howItWorksField, howItWorksFieldsOf, type HowItWorksAudience } from "./howItWorks.js";
+import { HOW_IT_WORKS_DEFAULT_ICON, HOW_IT_WORKS_ICON_KEYS, howItWorksIconLabelKey } from "./howItWorksIcons.js";
 
 export type FieldKind = "text" | "multiline" | "image" | "video" | "link" | "select";
 
@@ -46,11 +50,13 @@ export interface FieldDef {
   default?: string;
   /** editor-only: show this field when another field of the block has the given value */
   showWhen?: { field: string; value: string };
+  /** editor-only: a `select` whose options are ICON KEYS — the editor shows the glyph next to the choice */
+  iconPicker?: boolean;
 }
 export interface ItemsDef { label: string; addLabel: string; min: number; max: number; fields: Record<string, FieldDef> }
 export interface TemplateDef { name: string; description: string; fields: Record<string, FieldDef>; items?: ItemsDef }
 
-export type TemplateId = "hero" | "text" | "image_text" | "cta" | "steps" | "faq" | "columns" | "about" | "legal" | "footer" | "deal_copy" | "track_copy" | "seller_copy" | "support_copy";
+export type TemplateId = "hero" | "text" | "image_text" | "cta" | "steps" | "faq" | "columns" | "how_it_works" | "about" | "legal" | "footer" | "deal_copy" | "track_copy" | "seller_copy" | "support_copy";
 
 export interface Block {
   id: string;
@@ -95,6 +101,27 @@ const link = (label: string, required = false): FieldDef => ({ label, kind: "lin
 const text = (label: string, max: number, required = false, hint?: string): FieldDef => ({ label, kind: "text", max, required, ...(hint ? { hint } : {}) });
 const multiline = (label: string, max: number, required = false, rows = 4, hint?: string): FieldDef => ({ label, kind: "multiline", max, required, rows, ...(hint ? { hint } : {}) });
 const image = (label: string): FieldDef => ({ label, kind: "image", max: 100 });
+// An icon is CHOSEN from the whitelist in content/howItWorksIcons.ts — the
+// stored value is a key, validated like any other `select`; never markup.
+const icon = (label: string, def: string, hint?: string): FieldDef => ({
+  label, kind: "select", max: 40, default: def, iconPicker: true, ...(hint ? { hint } : {}),
+  options: HOW_IT_WORKS_ICON_KEYS.map((key) => ({ value: key, label: howItWorksIconLabelKey(key) }))
+});
+/** The flat fields of the "how it works" infographic, in editor order: title, then each track (title, 4 × step + icon, summary + icon). */
+function howItWorksTemplateFields(): Record<string, FieldDef> {
+  const defaults = howItWorksFieldsOf(HOW_IT_WORKS_HE);
+  const fields: Record<string, FieldDef> = { [howItWorksField.title]: text("cms.templates.how_it_works.fields.title.label", 120, true) };
+  for (const audience of HOW_IT_WORKS_AUDIENCES as readonly HowItWorksAudience[]) {
+    fields[howItWorksField.trackTitle(audience)] = text(`cms.templates.how_it_works.fields.${audience}_title.label`, 80, true);
+    for (const n of HOW_IT_WORKS_STEP_NUMBERS) {
+      fields[howItWorksField.stepText(audience, n)] = text(`cms.templates.how_it_works.fields.${audience}_step.label`, 80, true, `cms.templates.how_it_works.fields.step_${n}.hint`);
+      fields[howItWorksField.stepIcon(audience, n)] = icon(`cms.templates.how_it_works.fields.${audience}_icon.label`, defaults[howItWorksField.stepIcon(audience, n)] ?? HOW_IT_WORKS_DEFAULT_ICON, `cms.templates.how_it_works.fields.step_${n}.hint`);
+    }
+    fields[howItWorksField.summaryText(audience)] = text(`cms.templates.how_it_works.fields.${audience}_summary.label`, 160, true, "cms.templates.how_it_works.fields.summary.hint");
+    fields[howItWorksField.summaryIcon(audience)] = icon(`cms.templates.how_it_works.fields.${audience}_summary_icon.label`, defaults[howItWorksField.summaryIcon(audience)] ?? HOW_IT_WORKS_DEFAULT_ICON);
+  }
+  return fields;
+}
 
 export const TEMPLATES: Record<TemplateId, TemplateDef> = {
   hero: {
@@ -151,6 +178,16 @@ export const TEMPLATES: Record<TemplateId, TemplateDef> = {
     description: "cms.templates.columns.description",
     fields: { title: text("cms.templates.columns.fields.title.label", 160) },
     items: { label: "cms.templates.columns.items.label", addLabel: "cms.templates.columns.items.add_label", min: 1, max: 3, fields: { title: text("cms.templates.columns.items.fields.title.label", 120, true), body: multiline("cms.templates.columns.items.fields.body.label", 1200, false, 4), cta_label: text("cms.templates.columns.items.fields.cta_label.label", 60), cta_link: link("cms.templates.columns.items.fields.cta_link.label") } }
+  },
+  // ── "How it works" infographic (home page, locked) ────────────────────────
+  // Two tracks (buyers / sellers), four numbered steps each and a summary line
+  // each; every word and every icon is a field. The layout is fixed (the
+  // component in web/src/HowItWorksInfographic.tsx); the admin edits the
+  // words and picks icons from the whitelist.
+  how_it_works: {
+    name: "cms.templates.how_it_works.name",
+    description: "cms.templates.how_it_works.description",
+    fields: howItWorksTemplateFields()
   },
   about: {
     name: "cms.templates.about.name",
@@ -268,6 +305,12 @@ const HERO_DEFAULT = (): Block => ({
   }
 });
 
+const HOW_IT_WORKS_DEFAULT = (): Block => ({
+  id: HOW_IT_WORKS_BLOCK_ID, type: "how_it_works", enabled: true,
+  fields: howItWorksFieldsOf(HOW_IT_WORKS_HE),
+  fields_en: howItWorksEnglishFieldsOf(HOW_IT_WORKS_EN)
+});
+
 export const FOOTER_DEFAULT_TEXT_KEY = "cms.defaults.footer.text";
 export const FOOTER_DEFAULT_LINKS: { labelKey: string; link: string }[] = [
   { labelKey: "cms.defaults.footer.link_support", link: "#/support" },
@@ -281,15 +324,17 @@ export const PAGE_CONTRACTS: Record<string, PageContract> = {
   home: {
     label: "cms.page_contracts.home.label",
     description: "cms.page_contracts.home.description",
-    locked: [{ id: "hero", type: "hero" }],
+    // The infographic is LOCKED right after the hero: it is always on the page
+    // (with the canonical content when nothing was ever saved) and its id is
+    // the one the former "how it works" steps block used, so a stored page
+    // from before the infographic shows it in the same place — and never both.
+    locked: [{ id: "hero", type: "hero" }, { id: HOW_IT_WORKS_BLOCK_ID, type: "how_it_works" }],
     addable: ["text", "image_text", "cta", "steps", "faq", "columns"],
     maxBlocks: 20,
     legacy: { title: ["hero", "title"], sub: ["hero", "subtitle"], intro: ["hero", "body"], image: ["hero", "image"], login_cta: ["hero", "primary_cta_label"], signup_cta: ["hero", "secondary_cta_label"] },
     defaults: () => [
       HERO_DEFAULT(),
-      { id: "how", type: "steps", enabled: true,
-        fields: { title: LANDING_HE.howItWorks.title }, items: LANDING_HE.howItWorks.steps.map(s => ({ title: s.title, body: s.body })),
-        fields_en: { title: LANDING_EN.howItWorks.title }, items_en: LANDING_EN.howItWorks.steps.map(s => ({ title: s.title, body: s.body })) },
+      HOW_IT_WORKS_DEFAULT(),
       { id: "why", type: "text", enabled: false,
         fields: { title: LANDING_HE.whyGroupBuying.title, body: LANDING_HE.whyGroupBuying.body },
         fields_en: { title: LANDING_EN.whyGroupBuying.title, body: LANDING_EN.whyGroupBuying.body } },

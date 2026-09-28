@@ -11,6 +11,11 @@ import { resolveFaqItems } from "../faqContent";
 import { pageOf, useSiteContent } from "../siteContent";
 import { type Block, enabledBlocks } from "../content/cmsTemplates";
 import { t } from "../i18n/index.js";
+// "How it works" infographic — a real component fed by its CMS block.
+import { HowItWorksInfographic } from "../HowItWorksInfographic";
+import { howItWorksContentOf } from "../content/howItWorks";
+import { HOW_IT_WORKS_HE } from "../content/howItWorks.he.js";
+import { HOW_IT_WORKS_EN } from "../content/howItWorks.en.js";
 
 // ── C-ton public landing (seller-first root; Mall stays hidden) ─────────────
 // SITE CMS — the page is the ordered block list of the PUBLISHED `home` page
@@ -148,6 +153,12 @@ function LandingBlock({ block, navigate, authed }: { block: Block; navigate: (h:
         </div>
       </section>
     );
+  }
+  if (block.type === "how_it_works") {
+    // The words arrive localized (pageOf); a blank word or an unknown icon key
+    // falls back to the canonical content of the active language.
+    const fallback = getLocale() === "en" ? HOW_IT_WORKS_EN : HOW_IT_WORKS_HE;
+    return <HowItWorksInfographic id={block.id} testId={testId} data={howItWorksContentOf(f, fallback)} />;
   }
   if (block.type === "columns") {
     const cols = items.filter((c) => String(c.body || "").trim() || String(c.cta_label || "").trim());
