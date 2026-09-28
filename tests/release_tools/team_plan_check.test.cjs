@@ -704,12 +704,18 @@ test("only the bare, slash-less spelling of .github is ambiguous; the directory 
 // repository's OWN tracked files actually live under, and assert that every
 // one of them, spelled bare, is ambiguous. This is the control that would
 // have caught ".github" without anyone having to think of it by name, and it
-// keeps sweeping for the next one automatically as the tree grows. Derived
-// with `git ls-files -z` (NUL-separated, so a committed path containing an
-// escaped/quoted byte -- this repository has several non-ASCII filenames
-// under docs/ -- can never smuggle a bogus leading segment into the list the
-// way naive newline/slash splitting of quoted `git ls-files` text would).
-function trackedTopLevelDirectories() {
+// keeps sweeping for the next one automatically as the tree grows. Every
+// PREFIX of every tracked path, not only its first segment: a top-level-only
+// sweep proves ".github" but stays blind to a directory nested deeper, such
+// as this repository's own ios/App/App.xcodeproj or
+// ios/App/App/Assets.xcassets, which carry no dot at all and are ambiguous
+// for the plain reason the rule exists -- a real directory named without its
+// trailing slash. Derived with `git ls-files -z` (NUL-separated, so a
+// committed path containing an escaped/quoted byte -- this repository has
+// several non-ASCII filenames under docs/ -- can never smuggle a bogus
+// segment into the list the way naive newline/slash splitting of quoted
+// `git ls-files` text would).
+function trackedDirectories() {
   let result;
   try {
     result = spawnSync("git", ["ls-files", "-z"], { cwd: path.resolve(__dirname, "../.."), encoding: "utf8" });
@@ -717,28 +723,57 @@ function trackedTopLevelDirectories() {
     return null;
   }
   if (!result || result.status !== 0) return null;
-  const names = new Set();
+  const dirs = new Set();
   for (const entry of result.stdout.split("\0")) {
-    const slash = entry.indexOf("/");
-    if (slash > 0) names.add(entry.slice(0, slash));
+    if (!entry) continue;
+    const segments = entry.split("/");
+    let prefix = "";
+    for (let i = 0; i < segments.length - 1; i += 1) {
+      prefix = prefix ? `${prefix}/${segments[i]}` : segments[i];
+      dirs.add(prefix);
+    }
   }
-  return [...names].sort();
+  return [...dirs].sort();
 }
 
-test("every real tracked top-level directory, spelled bare, is ambiguous -- the sweep that would have caught .github", (t) => {
-  const dirs = trackedTopLevelDirectories();
+test("every real tracked directory, at every depth and spelled bare, is ambiguous -- the sweep that would have caught .github", (t) => {
+  const dirs = trackedDirectories();
   if (!dirs) return t.skip("git is not available in this environment");
-  assert.ok(dirs.length > 0, "expected at least one tracked top-level directory");
-  // ".i18n-regen" is a second real tracked directory this repository already
-  // carries whose name also starts with a dot, so this sweep is not only
-  // re-proving ".github": it independently catches a second live instance of
-  // the same class the moment it is run, without either name appearing in
-  // scripts/team_plan_check.cjs or being special-cased here.
+  assert.ok(dirs.length > 0, "expected at least one tracked directory");
+  // Sanity checks that this really walks every depth, not only the top
+  // level. ".i18n-regen" is a second real top-level directory this
+  // repository already carries whose name also starts with a dot, so this
+  // sweep is not only re-proving ".github". ios/App/App.xcodeproj (two
+  // levels deep) and ios/App/App/Assets.xcassets (three levels deep) carry
+  // no dot at all -- they are caught purely because they are real
+  // directories, which a top-level-only version of this sweep would have
+  // missed entirely. None of the four names appears in
+  // scripts/team_plan_check.cjs or is special-cased here.
   assert.ok(dirs.includes(".github"), JSON.stringify(dirs));
+  assert.ok(dirs.includes(".i18n-regen"), JSON.stringify(dirs));
+  assert.ok(dirs.includes("ios/App/App.xcodeproj"), JSON.stringify(dirs));
+  assert.ok(dirs.includes("ios/App/App/Assets.xcassets"), JSON.stringify(dirs));
   for (const dir of dirs) {
     const result = checkPlan(plan([builder("B1", [dir]), reviewer("R", ["B1"])]));
     assert.ok(codes(result).includes("path_spelling_ambiguous"), JSON.stringify({ dir, findings: result.findings }));
   }
+});
+
+test("a real but untracked working-tree directory is ambiguous too, when present -- the tree check reads the checkout, not git's index", (t) => {
+  // .release-artifacts is gitignored build output that release tooling
+  // (release:preflight and friends) writes into, so `git ls-files` never
+  // lists it and the sweep above cannot reach it by construction. It is no
+  // less a real directory to the working tree once that tooling has run, and
+  // scripts/team_plan_check.cjs reads the actual checkout rather than git's
+  // index, so it is exactly as ambiguous bare as any tracked directory.
+  // Skipped, not failed, in a checkout that has never produced it -- a fresh
+  // clone has no reason to.
+  const repoRootDir = path.resolve(__dirname, "../..");
+  let isDirectory = false;
+  try { isDirectory = fs.statSync(path.join(repoRootDir, ".release-artifacts")).isDirectory(); } catch (error) { isDirectory = false; }
+  if (!isDirectory) return t.skip(".release-artifacts is not present in this checkout");
+  const result = checkPlan(plan([builder("B1", [".release-artifacts"]), reviewer("R", ["B1"])]));
+  assert.ok(codes(result).includes("path_spelling_ambiguous"), JSON.stringify(result.findings));
 });
 
 test("two builders holding .github and .github/workflows/ collide, but only through path_spelling_ambiguous -- writer_overlap does not catch this pair", () => {
@@ -756,6 +791,38 @@ test("two builders holding .github and .github/workflows/ collide, but only thro
     reviewer("R", ["B1", "B2"], { senior: true })
   ]));
   assert.deepEqual(codes(result), ["path_spelling_ambiguous"], JSON.stringify(result.findings));
+});
+
+// The mirror image of the fourth reappearance, reachable from the same one
+// character: the rule above makes an existing DIRECTORY ambiguous without
+// its trailing slash; this closes an existing FILE being just as ambiguous
+// WITH one. pathsOverlap("scripts/team_plan_check.cjs/",
+// "scripts/team_plan_check.cjs") is false -- the left operand ends in "/", so
+// the check taken is the plain right side starting with the slashed left,
+// which it does not -- so before this fix two builders could hold this exact
+// control-running file with no writer_overlap between them, one spelled
+// plainly and one decorated with a trailing "/". F1 ruled to close this too,
+// beyond the original brief; scripts/team_plan_check.cjs is used as one of
+// the two fixtures below because it is the file where this matters most: the
+// gate's own checker, already classified ci-gates.
+test("REGRESSION (P0, mirror of the fourth reappearance): an existing file must not carry a trailing slash either", () => {
+  for (const allowed of [["package.json/"], ["scripts/team_plan_check.cjs/"]]) {
+    const result = checkPlan(plan([builder("B1", allowed), reviewer("R", ["B1"])]));
+    assert.ok(codes(result).includes("path_spelling_ambiguous"), JSON.stringify({ allowed, findings: result.findings }));
+  }
+  // Plainly spelled, both stay clean of path_spelling_ambiguous specifically.
+  // scripts/team_plan_check.cjs is ci-gates risk, so this plan still carries
+  // its own senior-review/model findings on the side; irrelevant here, since
+  // only the spelling code is asserted.
+  for (const allowed of [["package.json"], ["scripts/team_plan_check.cjs"]]) {
+    const result = checkPlan(plan([builder("B1", allowed), reviewer("R", ["B1"])]));
+    assert.ok(!codes(result).includes("path_spelling_ambiguous"), JSON.stringify({ allowed, findings: result.findings }));
+  }
+  // Not yet in the tree: a trailing slash on a directory that does not exist
+  // yet stays clean too -- the same fail-open fallback as a not-yet-existing
+  // file, just approached from the directory side.
+  const notYetExisting = checkPlan(plan([builder("B1", ["src/brand_new_dir/"]), reviewer("R", ["B1"])]));
+  assert.ok(!codes(notYetExisting).includes("path_spelling_ambiguous"), JSON.stringify(notYetExisting.findings));
 });
 
 test("the fix does not over-fire: directories, extensionless tracked files, dotted migration/config files, and a not-yet-existing file all stay clean", () => {
