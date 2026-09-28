@@ -165,12 +165,17 @@ function focusedTests(files, testSources) {
     for (const [name, source] of testSources) {
       if (needles.some((needle) => source.includes(needle))) add(name, `references ${file.path}`);
     }
+    // Copy sources only: prose documents quote identifiers that many tests
+    // also mention, which would turn every docs edit into a broad run.
+    if (!COPY_SOURCE.test(file.path)) continue;
     for (const literal of removedLiterals(file)) {
       for (const [name, source] of testSources) if (source.includes(literal)) add(name, `asserts copy removed from ${file.path}`);
     }
   }
   return { files: [...selected].sort(), reasons };
 }
+
+const COPY_SOURCE = /^(scripts\/i18n\/[^/]+\.json|web\/src\/i18n\/dictionaries\/[^/]+\.ts)$/;
 
 function removedLiterals(file) {
   const out = new Set();
@@ -243,6 +248,13 @@ function classifyChanges({ event = "pull_request", files = [], claim = null, tes
         const hit = changed.find((line) => pattern.test(line));
         if (hit) { record.level = "critical"; record.rule = `content:${id}`; record.evidence = hit.trim().slice(0, 160); break; }
       }
+    }
+
+    // Symlinks (120000), submodules (160000), file-type changes and new
+    // executable bits can redirect what a harmless-looking path means.
+    const modes = [file.oldMode, file.newMode].filter(Boolean);
+    if (file.status === "T" || modes.some((mode) => /^1[26]0000$/.test(mode)) || (file.newMode === "100755" && file.oldMode !== "100755" && !/^scripts\//.test(p))) {
+      record.level = "critical"; record.rule = "special-file-mode";
     }
 
     if (file.binary && !IMAGE.test(p) && record.level !== "critical" && !/^docs\//.test(p)) {
@@ -395,34 +407,39 @@ function git(args, cwd) {
   return result.stdout;
 }
 
+// NUL-separated plumbing output, so no path is ever quoted or mangled
+// (spaces, tabs, non-ASCII names). Modes come from --raw: symlinks,
+// submodules and file-type changes are recorded and treated as critical.
 function readDiff(base, head, cwd) {
   const range = `${base}...${head}`;
   const files = [];
   const byPath = new Map();
-  for (const line of git(["diff", "--name-status", "-M", "--no-color", range], cwd).split("\n")) {
-    if (!line.trim()) continue;
-    const parts = line.split("\t");
-    const status = parts[0][0];
-    const record = status === "R" || status === "C"
-      ? { status, oldPath: parts[1], path: parts[2], added: [], removed: [], binary: false }
-      : { status, path: parts[1], added: [], removed: [], binary: false };
+  const raw = git(["-c", "core.quotePath=false", "diff", "--raw", "-z", "-M", "--no-color", "--no-abbrev", range], cwd).split("\0");
+  for (let index = 0; index < raw.length; index += 1) {
+    const header = raw[index];
+    if (!header || !header.startsWith(":")) continue;
+    const [oldMode, newMode, , , statusField] = header.slice(1).split(" ");
+    const status = statusField[0];
+    const record = { status, path: null, added: [], removed: [], binary: false, oldMode, newMode };
+    if (status === "R" || status === "C") { record.oldPath = raw[++index]; record.path = raw[++index]; }
+    else record.path = raw[++index];
     files.push(record);
     byPath.set(record.path, record);
   }
-  for (const line of git(["diff", "--numstat", "-M", "--no-color", range], cwd).split("\n")) {
-    const match = /^(-|\d+)\t(-|\d+)\t(.+)$/.exec(line);
+  const numstat = git(["-c", "core.quotePath=false", "diff", "--numstat", "-z", "-M", "--no-color", range], cwd).split("\0");
+  for (let index = 0; index < numstat.length; index += 1) {
+    const match = /^(-|\d+)\t(-|\d+)\t(.*)$/.exec(numstat[index]);
     if (!match) continue;
     let target = match[3];
-    const rename = /^(.*)\{(.*) => (.*)\}(.*)$/.exec(target) || /^(.*) => (.*)$/.exec(target);
-    if (rename) target = rename.length === 5 ? `${rename[1]}${rename[3]}${rename[4]}`.replace(/\/\//g, "/") : rename[2];
+    if (target === "") { index += 1; target = numstat[++index]; } // rename: "\0old\0new"
     const record = byPath.get(target);
     if (record && match[1] === "-") record.binary = true;
   }
   let current = null;
-  for (const line of git(["diff", "-U0", "-M", "--no-color", range], cwd).split("\n")) {
+  for (const line of git(["-c", "core.quotePath=false", "diff", "-U0", "-M", "--no-color", "--no-ext-diff", "--no-textconv", range], cwd).split("\n")) {
     if (line.startsWith("diff --git ")) { current = null; continue; }
-    if (line.startsWith("+++ ")) { const name = line.slice(4).replace(/^b\//, ""); current = byPath.get(name) || null; continue; }
-    if (line.startsWith("--- ")) { if (!current) { const name = line.slice(4).replace(/^a\//, ""); current = files.find((item) => item.path === name && item.status === "D") || null; } continue; }
+    if (line.startsWith("--- ")) { const name = line.slice(4).replace(/^a\//, ""); current = files.find((item) => (item.status === "D" && item.path === name)) || null; continue; }
+    if (line.startsWith("+++ ")) { const name = line.slice(4); if (name !== "/dev/null") current = byPath.get(name.replace(/^b\//, "")) || null; continue; }
     if (!current) continue;
     if (line.startsWith("+")) current.added.push(line.slice(1));
     else if (line.startsWith("-")) current.removed.push(line.slice(1));

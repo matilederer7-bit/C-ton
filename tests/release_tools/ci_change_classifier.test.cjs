@@ -379,6 +379,35 @@ test("the CLI classifies a real git diff and writes GitHub outputs", () => {
     json = JSON.parse(fs.readFileSync(path.join(dir, "c.json"), "utf8"));
     assert.equal(json.profile, "FULL");
     assert.ok(json.files.some((file) => file.rule === "test-removed"));
+
+    // Deleted lines of a deleted file are read (a removed lock is critical).
+    fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "src", "deal_chat.ts"), "await q('SELECT 1 FROM deals FOR UPDATE');\n");
+    git("add", "-A");
+    git("commit", "-qm", "add module");
+    const withModule = git("rev-parse", "HEAD");
+    git("rm", "-q", "src/deal_chat.ts");
+    git("commit", "-qm", "delete module");
+    result = spawnSync(process.execPath, [path.join(root, "scripts", "ci_change_classifier.cjs"), "--base", withModule, "--head", "HEAD", "--json", path.join(dir, "c.json")], { cwd: dir, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    json = JSON.parse(fs.readFileSync(path.join(dir, "c.json"), "utf8"));
+    assert.equal(json.profile, "FULL");
+    assert.equal(json.files[0].rule, "content:transaction-locking");
+
+    // Non-ASCII names and spaces are parsed exactly; a symlink in docs/ is not a doc.
+    const before = git("rev-parse", "HEAD");
+    fs.writeFileSync(path.join(dir, "docs", "מדריך עם רווח.md"), "שלום\n");
+    fs.symlinkSync("../src/payment_service.ts", path.join(dir, "docs", "pointer.md"));
+    git("add", "-A");
+    git("commit", "-qm", "names");
+    result = spawnSync(process.execPath, [path.join(root, "scripts", "ci_change_classifier.cjs"), "--base", before, "--head", "HEAD", "--json", path.join(dir, "c.json")], { cwd: dir, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    json = JSON.parse(fs.readFileSync(path.join(dir, "c.json"), "utf8"));
+    const hebrew = json.files.find((file) => file.path === "docs/מדריך עם רווח.md");
+    assert.ok(hebrew, JSON.stringify(json.files));
+    assert.equal(hebrew.level, "trivial");
+    assert.equal(json.files.find((file) => file.path === "docs/pointer.md").rule, "special-file-mode");
+    assert.equal(json.profile, "FULL");
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
