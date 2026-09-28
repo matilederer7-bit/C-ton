@@ -173,11 +173,13 @@ await run("11+12: pickup renderer — location line under pickup options only, b
 
 await run("13: publish readiness — server gate + checklist + wizard all use the ONE shared rule", () => {
   assert.match(appTs, /pickup_location_required/);
-  assert.match(appTs, /import \{ pickupOptionsMissingLocation \} from "\.\/pickup_location\.js";/);
+  assert.match(appTs, /import \{[^}]*\bpickupOptionsMissingLocation\b[^}]*\} from "\.\/pickup_location\.js";/);
   assert.match(sellerPage, /from "\.\.\/\.\.\/\.\.\/src\/pickup_location"/);
   assertRendersCopy(sellerPage, "מיקום לאיסוף עצמי");
   assert.match(sellerPage, /deliveryOptions\.every\(\(o\) => hasUsablePickupLocation\(o\)\)/);
-  assert.match(sellerPage, /configured\.some\(\(d\) => !hasUsablePickupLocation\(d\)\)/);
+  // every chosen row is checked (owner bug 2026-09-28: the check used to skip
+  // rows without typed text, which the payload then dropped)
+  assert.match(sellerPage, /delivery\.forEach\(\(d, i\) => \{\s*if \(!hasUsablePickupLocation\(d\)\)/);
   assert.match(sellerPage, /data-testid="pickup-location-missing"/);
   assert.match(sellerAnalytics, /pickup_location_missing/);
   assert.match(sellerAnalytics, /customer_inquiries_unread/);

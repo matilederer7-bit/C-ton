@@ -171,7 +171,7 @@
   "cms.templates.hero.fields.buyer_entry_body.label": "טקסט תיבת הקונים",
   "cms.templates.hero.fields.buyer_entry_title.label": "כותרת תיבת הקונים",
   "cms.templates.hero.fields.image.label": "תמונה",
-  "cms.templates.hero.fields.media_kind.hint": "רק מדיה אחת מוצגת — תמונה או וידאו",
+  "cms.templates.hero.fields.media_kind.hint": "הלוגו מוצג תמיד. בבחירת וידאו — הסרטון מוצג מתחת ללוגו ולפני הכותרת (מושתק, בלולאה)",
   "cms.templates.hero.fields.media_kind.label": "מדיה ראשית",
   "cms.templates.hero.fields.media_kind.options.label": "תמונה",
   "cms.templates.hero.fields.media_kind.options.label_2": "וידאו",

@@ -6,9 +6,9 @@ import { LANDING_EN } from "../content/landing.en.js";
 import { getLocale } from "../i18n/locale.js";
 import { getPreviewMeta } from "../previewMeta";
 // ROUND 2 (UX-7B / UX-7A) — one hero medium, one FAQ source of truth.
-import { readViewerMotionConditions, resolveHeroMedium, type HeroMedium } from "../heroMedium";
+import { readViewerMotionConditions, resolveHeroMedium, resolveIntroVideo, type HeroMedium, type IntroVideo } from "../heroMedium";
 import { resolveFaqItems } from "../faqContent";
-import { pageOf, useSiteContent } from "../siteContent";
+import { pageOf, useSiteContentState } from "../siteContent";
 import { type Block, enabledBlocks } from "../content/cmsTemplates";
 import { t } from "../i18n/index.js";
 // "How it works" infographic — a real component fed by its CMS block.
@@ -36,12 +36,12 @@ import { HOW_IT_WORKS_EN } from "../content/howItWorks.en.js";
 // chose "video" without uploading one. A video is never forced on a viewer
 // who asked for reduced motion or is on save-data/2G; it is muted, looping,
 // playsInline, poster-backed and loaded after first paint. No audio, ever.
-function useHeroMedium(hero: Record<string, string>, fallbackImage: string): HeroMedium {
+function useHeroMedium(hero: Record<string, string>, fallbackImage: string): { logo: Extract<HeroMedium, { kind: "image" }>; intro: IntroVideo | null; metaReady: boolean } {
   const [meta, setMeta] = useState<Record<string, unknown> | null>(null);
   const [deferred, setDeferred] = useState(false);
   useEffect(() => {
     let alive = true;
-    getPreviewMeta().then((m) => { if (alive) setMeta((m || {}) as Record<string, unknown>); }).catch(() => undefined);
+    getPreviewMeta().then((m) => { if (alive) setMeta((m || {}) as Record<string, unknown>); }).catch(() => { if (alive) setMeta({}); });
     // the video only becomes eligible after first paint
     const start = () => { if (alive) setDeferred(true); };
     if (typeof window !== "undefined" && "requestIdleCallback" in window) (window as any).requestIdleCallback(start, { timeout: 2500 });
@@ -49,33 +49,24 @@ function useHeroMedium(hero: Record<string, string>, fallbackImage: string): Her
     return () => { alive = false; };
   }, []);
   const conditions = useMemo(() => readViewerMotionConditions(), []);
-  return resolveHeroMedium({
+  const input = {
     imageUrl: hero.image,
     fallbackImageUrl: fallbackImage,
-    mediaKind: hero.media_kind === "video" ? "video" : "image",
+    mediaKind: (hero.media_kind === "video" ? "video" : hero.media_kind === "image" ? "image" : undefined) as "video" | "image" | undefined,
     cmsVideoUrl: hero.video,
     cmsVideoPoster: hero.video_poster,
-    videoEnabled: deferred && Boolean(meta?.landing_hero_video_enabled),
+    videoEnabled: Boolean(meta?.landing_hero_video_enabled),
     videoUrl: meta?.landing_hero_video_url as string | undefined,
     videoPoster: meta?.landing_hero_video_poster as string | undefined,
     deferred,
     ...conditions
-  });
+  };
+  // The logo is always the hero image now; the video has its own slot under it.
+  const logo = resolveHeroMedium({ ...input, mediaKind: "image" });
+  return { logo: logo.kind === "image" ? logo : { kind: "image", url: fallbackImage, fromCms: false }, intro: resolveIntroVideo(input), metaReady: meta !== null };
 }
 
-function HeroMediumView({ medium }: { medium: HeroMedium }) {
-  const ref = useRef<HTMLVideoElement>(null);
-  if (medium.kind === "video") {
-    return (
-      <div className="hero-video" data-testid="hero-medium" data-hero-medium="video" aria-hidden="true">
-        <video ref={ref} muted autoPlay loop playsInline preload="metadata" poster={medium.poster || undefined}
-          onCanPlay={() => { try { void ref.current?.play(); } catch { /* noop */ } }}>
-          <source src={medium.url} type={medium.url.endsWith(".webm") ? "video/webm" : "video/mp4"} />
-        </video>
-        <div className="hero-video-overlay" />
-      </div>
-    );
-  }
+function HeroMediumView({ medium }: { medium: Extract<HeroMedium, { kind: "image" }> }) {
   return (
     <img
       className="landing-logo"
@@ -88,6 +79,34 @@ function HeroMediumView({ medium }: { medium: HeroMedium }) {
       height={227}
       draggable={false}
     />
+  );
+}
+
+// The intro video slot: a fixed 16:9 box reserved as soon as a source is
+// configured (poster first, so nothing jumps), the <video> attached only when
+// `play` allows it. muted + autoPlay + loop + playsInline, no controls, no
+// audio track is ever unmuted. A failed load keeps the poster.
+function introVideoMime(url: string): string {
+  const data = /^data:(video\/[a-z0-9.+-]+)[;,]/i.exec(url);
+  if (data) return data[1]!.toLowerCase();
+  return /\.webm(?:$|[?#])/i.test(url) ? "video/webm" : "video/mp4";
+}
+
+function IntroVideoView({ video }: { video: IntroVideo }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  const [failed, setFailed] = useState(false);
+  return (
+    <div className="landing-intro-video" data-testid="landing-intro-video" data-playing={video.play && !failed ? "1" : "0"}
+      style={video.poster ? { backgroundImage: `url("${video.poster.replace(/"/g, "%22")}")` } : undefined}>
+      {video.play && !failed ? (
+        <video ref={ref} muted autoPlay loop playsInline preload="metadata" disablePictureInPicture
+          poster={video.poster || undefined} aria-hidden="true" tabIndex={-1}
+          onCanPlay={() => { try { void ref.current?.play()?.catch?.(() => undefined); } catch { /* autoplay refused: the poster stays */ } }}
+          onError={() => setFailed(true)}>
+          <source src={video.url} type={introVideoMime(video.url)} />
+        </video>
+      ) : null}
+    </div>
   );
 }
 
@@ -197,17 +216,7 @@ function LandingBlock({ block, navigate, authed }: { block: Block; navigate: (h:
     const faqItems = resolveFaqItems({ items }, landingDefaults().faq.items);
     if (!faqItems.length) return null;
     return (
-      <section className="landing-section" id={block.id} data-testid={testId} data-block-type="faq">
-        <h2>{f.title || landingDefaults().faq.title}</h2>
-        <div className="landing-faq" data-testid="landing-faq" data-faq-count={faqItems.length}>
-          {faqItems.map((item, i) => (
-            <details className="landing-faq-item" key={`${i}-${item.q}`}>
-              <summary>{item.q}</summary>
-              <p>{item.a}</p>
-            </details>
-          ))}
-        </div>
-      </section>
+      <FaqBlock id={block.id} testId={testId} title={f.title || landingDefaults().faq.title} items={faqItems} />
     );
   }
   if (block.type === "cta") {
@@ -233,7 +242,7 @@ function LandingBlock({ block, navigate, authed }: { block: Block; navigate: (h:
 export function Landing({ navigate }: { navigate: (h: string) => void }) {
   const authed = Boolean(getSellerToken());
   const mallEnabled = useMallEnabled();
-  const content = useSiteContent();
+  const { content, loading: contentLoading } = useSiteContentState();
   const page = pageOf(content, "home");
   const blocks = enabledBlocks(page);
   const hero = (blocks.find((b) => b.id === "hero") || page.blocks[0])!.fields;
@@ -241,13 +250,22 @@ export function Landing({ navigate }: { navigate: (h: string) => void }) {
   // missing must not drag the whole hero back into Hebrew.
   const c = landingDefaults();
   // ROUND 2 (UX-7B) — ONE medium for the hero, never both.
-  const heroMedium = useHeroMedium(hero, BRAND_LOGO_URL);
+  const { logo, intro, metaReady } = useHeroMedium(hero, BRAND_LOGO_URL);
+  // No layout jump: whether a video slot exists is only known once the runtime
+  // config and the CMS content have arrived, so the hero is laid out ONCE, when
+  // both are in (capped at 1.5 s — a slow network never blanks the page).
+  const [waitedEnough, setWaitedEnough] = useState(false);
+  useEffect(() => { const id = setTimeout(() => setWaitedEnough(true), 1500); return () => clearTimeout(id); }, []);
+  if (!waitedEnough && (contentLoading || !metaReady)) {
+    return <div className="landing landing-pending" data-testid="landing-pending" aria-busy="true" />;
+  }
   return (
     <div className="landing" data-testid="landing" data-block-count={blocks.length}>
       <section className="landing-hero" data-testid="landing-block-hero" data-block-type="hero">
-        {heroMedium.kind === "video" ? <HeroMediumView medium={heroMedium} /> : null}
         <div className="landing-hero-inner">
-          {heroMedium.kind === "image" ? <HeroMediumView medium={heroMedium} /> : null}
+          <HeroMediumView medium={logo} />
+          {/* owner decision 2026-09-28: the video sits under the logo, before the title */}
+          {intro ? <IntroVideoView video={intro} /> : null}
           <h1 className="landing-title">{hero.title || c.hero.title}</h1>
           {hero.subtitle ? <p className="landing-sub">{hero.subtitle}</p> : null}
           <div className="landing-actions">
@@ -280,5 +298,35 @@ export function Landing({ navigate }: { navigate: (h: string) => void }) {
 
       {blocks.filter((b) => b.id !== "hero").map((block) => <LandingBlock key={block.id} block={block} navigate={navigate} authed={authed} />)}
     </div>
+  );
+}
+
+
+// The whole FAQ is ONE collapsed block (owner decision 2026-09-28): the visitor
+// sees only "שאלות נפוצות"; a click (or Enter / Space on the focused button)
+// opens the questions, a second one closes them. A real <button> carries
+// aria-expanded / aria-controls, so keyboards and screen readers get the same
+// control a mouse does; each question inside still opens its own answer.
+function FaqBlock({ id, testId, title, items }: { id: string; testId: string; title: string; items: { q: string; a: string }[] }) {
+  const [open, setOpen] = React.useState(false);
+  const panelId = `${id || "faq"}-panel`;
+  return (
+    <section className="landing-section landing-faq-block" id={id} data-testid={testId} data-block-type="faq">
+      <h2 className="landing-faq-heading">
+        <button type="button" className="landing-faq-toggle" data-testid="landing-faq-toggle"
+          aria-expanded={open} aria-controls={panelId} onClick={() => setOpen((v) => !v)}>
+          <span>{title}</span>
+          <span className="landing-faq-chevron" aria-hidden="true">{open ? "−" : "+"}</span>
+        </button>
+      </h2>
+      <div className="landing-faq" id={panelId} data-testid="landing-faq" data-faq-count={items.length} hidden={!open}>
+        {items.map((item, i) => (
+          <details className="landing-faq-item" key={`${i}-${item.q}`}>
+            <summary>{item.q}</summary>
+            <p>{item.a}</p>
+          </details>
+        ))}
+      </div>
+    </section>
   );
 }
