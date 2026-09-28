@@ -934,7 +934,8 @@ async function assertSellerClosedDealBrowserState(dealId: string) {
   await withCdp("/app/seller", async ({ evaluate, navigate, setViewport }) => {
     await setViewport({ width: 390, height: 844 });
     for (let attempt = 0; attempt < 60; attempt += 1) {
-      if (await evaluate(`document.body.innerText.includes('Closed browser fixture')`)) break;
+      // null-safe: this poll can run before the navigated document has a body
+      if (await evaluate(`Boolean(document.body && document.body.innerText.includes('Closed browser fixture'))`)) break;
       await wait(250);
     }
     const dashboard = await evaluate(`(() => ({
@@ -1091,7 +1092,7 @@ async function assertFailedRecoveryBrowserState() {
 
     await evaluate(`document.querySelector('form[data-action="recovery-submit"]').requestSubmit()`);
     for (let attempt = 0; attempt < 40; attempt += 1) {
-      if (await evaluate(`document.body.innerText.includes('לא הצלחנו להשלים את התשלום')`)) break;
+      if (await evaluate(`Boolean(document.body && document.body.innerText.includes('לא הצלחנו להשלים את התשלום'))`)) break;
       await wait(250);
     }
     const failure = await evaluate(`document.body.innerText`);

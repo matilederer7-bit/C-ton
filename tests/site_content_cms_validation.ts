@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { validateContent, CONTENT_SECTIONS } from "../src/site_content.js";
 import { normalizePage, validatePage, projectLegacy, contractFor, PAGE_CONTRACTS, CmsValidationError } from "../web/src/content/cmsTemplates.js";
-import { resolveHeroMedium } from "../web/src/heroMedium.js";
+import { resolveHeroMedium, resolveIntroVideo } from "../web/src/heroMedium.js";
 import { resolveFaqItems } from "../web/src/faqContent.js";
 import { LANDING_HE } from "../web/src/content/landing.he.js";
 import { sliceRange } from "../src/content_media.js";
@@ -92,6 +92,14 @@ try {
     assert.deepEqual(resolveHeroMedium({ ...base, mediaKind: "video", videoEnabled: false }), { kind: "image", url: "/brand.jpg", fromCms: false });
     assert.deepEqual(resolveHeroMedium({ ...base, mediaKind: "video", cmsVideoUrl: "/api/content-assets/v", prefersReducedMotion: true }), { kind: "image", url: "/brand.jpg", fromCms: false });
     assert.deepEqual(resolveHeroMedium({ ...base }), { kind: "video", url: "https://cdn.invalid/env.mp4", poster: "p" });
+    // the intro video slot (owner 2026-09-28): the logo stays; a configured video gets its own slot
+    // under it. `configured` (slot reserved) is separate from `play` (after first paint, motion allowed).
+    assert.equal(resolveIntroVideo({ ...base, mediaKind: "image" }), null, "an image hero has no video slot");
+    assert.equal(resolveIntroVideo({ fallbackImageUrl: "/b", mediaKind: "video" }), null, "a video choice with no source has no slot (nothing invented)");
+    assert.deepEqual(resolveIntroVideo({ ...base, mediaKind: "video", cmsVideoUrl: "/api/content-assets/v", cmsVideoPoster: "/api/content-assets/p", deferred: true }), { url: "/api/content-assets/v", poster: "/api/content-assets/p", play: true });
+    assert.deepEqual(resolveIntroVideo({ ...base, mediaKind: "video", deferred: false }), { url: "https://cdn.invalid/env.mp4", poster: "p", play: false }, "the slot is reserved before first paint, the video waits");
+    assert.equal(resolveIntroVideo({ ...base, mediaKind: "video", cmsVideoUrl: "/v", deferred: true, prefersReducedMotion: true })!.play, false, "reduced motion keeps the poster");
+    assert.equal(resolveIntroVideo({ ...base, mediaKind: "video", cmsVideoUrl: "/v", deferred: true, saveData: true })!.play, false, "save-data keeps the poster");
     assert.deepEqual(sliceRange("bytes=0-3", 10), { start: 0, end: 3 }); assert.deepEqual(sliceRange("bytes=8-", 10), { start: 8, end: 9 });
     assert.deepEqual(sliceRange("bytes=-2", 10), { start: 8, end: 9 }); assert.equal(sliceRange("bytes=20-", 10), "invalid"); assert.equal(sliceRange(undefined, 10), null);
   });
