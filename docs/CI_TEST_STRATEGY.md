@@ -1,5 +1,7 @@
 # CI test strategy
 
+<!-- proof PR: FAST profile -->
+
 Goal: every safety proof is kept, and each change pays only for the proofs it needs. Independent proofs run in parallel, so the wall-clock answer on a pull request is short. Nothing is deleted, no assertion is weakened, and no blocking gate becomes advisory.
 
 Sources of truth: GitHub = code; Render = web/backend/worker staging runtime; Supabase = canonical PostgreSQL/Auth/infra; Grow = payment provider boundary, currently disabled (mock provider on every checked-in target). Base44 is an excluded legacy surface guarded by the canonical-integrity gate; it is never the business runtime.
