@@ -34,6 +34,11 @@ type ProvisionerCall = { op: string; username?: string; password?: string; auth_
 const provisionerCalls: ProvisionerCall[] = [];
 const authUsers = new Map<string, string>(); // email -> id
 let forcedCreateId: string | null = null;
+// set by a test: arm a fault AFTER the next binding transaction's COMMIT (the
+// provisioner call sits between the route's read transactions and the bind)
+let armAfterCommitOnCreate = false;
+let armBeforeCommitOnCreate = false;
+let armFault: ((point: string, action: any, count?: number) => unknown) | null = null;
 
 const server = createServer((req, res) => {
   const url = String(req.url || "");
@@ -56,6 +61,14 @@ const server = createServer((req, res) => {
         if (authUsers.has(email)) { res.statusCode = 409; res.end(JSON.stringify({ ok: false, code: "username_taken" })); return; }
         const id = forcedCreateId || randomUUID();
         forcedCreateId = null;
+        if (armBeforeCommitOnCreate && armFault) {
+          armBeforeCommitOnCreate = false;
+          armFault("db.before_commit", { kind: "throw", code: "ECONNRESET" }, 1);
+        }
+        if (armAfterCommitOnCreate && armFault) {
+          armAfterCommitOnCreate = false;
+          armFault("db.after_commit", { kind: "throw", code: "ECONNRESET" }, 1);
+        }
         authUsers.set(email, id);
         res.end(JSON.stringify({ ok: true, op: "create", auth_user_id: id }));
         return;
@@ -97,6 +110,8 @@ process.env.SITON_OWNER_EMAIL = "owner-team-test@example.com";
 process.env.SITON_ADMIN_PROVISIONER_KEY = PROVISIONER_KEY;
 
 const { app } = await import("../src/app.js");
+const { armTestFault, resetTestFaults } = await import("../src/fault_injection.js");
+armFault = armTestFault as any;
 await app.ready();
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton", max: 4 });
 
@@ -123,7 +138,12 @@ const OPS = { sub: randomUUID(), email: `team-ops-${tag}@example.com` };
 const SELLER = { sub: randomUUID(), email: `team-seller-${tag}@example.com` };
 const PLAIN = { sub: randomUUID(), email: `team-plain-${tag}@example.com` };
 const tokens = {
-  super: mint({ sub: SUPER.sub, email: SUPER.email }),
+  // a SuperAdmin that passed Supabase MFA (AAL2) — required to create admins
+  super: mint({ sub: SUPER.sub, email: SUPER.email, aal: "aal2", amr: [{ method: "totp", timestamp: Math.floor(Date.now() / 1000) }] }),
+  superAal1: mint({ sub: SUPER.sub, email: SUPER.email, aal: "aal1" }),
+  // a REFRESHED AAL2 session: fresh iat, but the TOTP was verified an hour ago
+  superStaleMfa: mint({ sub: SUPER.sub, email: SUPER.email, aal: "aal2", amr: [{ method: "totp", timestamp: Math.floor(Date.now() / 1000) - 3600 }, { method: "password", timestamp: Math.floor(Date.now() / 1000) - 3700 }] }),
+  superAal2NoAmr: mint({ sub: SUPER.sub, email: SUPER.email, aal: "aal2" }),
   ops: mint({ sub: OPS.sub, email: OPS.email }),
   seller: mint({ sub: SELLER.sub, email: SELLER.email }),
   plain: mint({ sub: PLAIN.sub, email: PLAIN.email })
@@ -313,6 +333,65 @@ try {
     assert.equal(entry.email, null);
     assert.equal(entry.role, "OpsAdmin");
     assert.equal(res.body.includes(PASSWORD), false);
+  });
+
+  await run("a password-only (AAL1) SuperAdmin token is refused with MFA_REQUIRED — no Auth call, no row (Codex P1)", async () => {
+    const before = createCalls();
+    const other = `aal1-${tag}`;
+    const res = await create(tokens.superAal1, { username: other, password: PASSWORD, role: "SuperAdmin" });
+    assert.equal(res.statusCode, 403, res.body);
+    assert.equal((res.json() as any).error, "MFA_REQUIRED");
+    assert.equal(createCalls(), before);
+    assert.equal((await adminRows(other)).length, 0);
+  });
+
+  await run("an ambiguous commit (acknowledgement lost AFTER COMMIT) keeps the Auth user and reports the committed admin (Codex P2)", async () => {
+    const other = `ambig-${tag}`;
+    const rollbacksBefore = provisionerCalls.filter((c) => c.op === "rollback").length;
+    armAfterCommitOnCreate = true;
+    try {
+      const res = await create(tokens.super, { username: other, password: PASSWORD, role: "SupportAdmin" });
+      assert.equal(res.statusCode, 200, res.body);
+      assert.equal((res.json() as any).admin.username, other);
+    } finally {
+      armAfterCommitOnCreate = false;
+      resetTestFaults();
+    }
+    const [row] = await adminRows(other);
+    assert.ok(row, "the committed binding exists");
+    assert.equal(String(row.auth_user_id), authUsers.get(`${other}@admins.siton.invalid`), "the Auth user was NOT deleted");
+    assert.equal(provisionerCalls.filter((c) => c.op === "rollback").length, rollbacksBefore, "no compensation for a committed admin");
+    assert.equal((await pool.query(`SELECT 1 FROM siton.admin_user_audit WHERE target_admin_user_id=$1`, [row.admin_user_id])).rowCount, 1);
+  });
+
+  await run("'recent' means the second factor's own time (amr), not iat: a refreshed AAL2 token with an hour-old TOTP is refused (review of #122)", async () => {
+    const before = createCalls();
+    for (const token of [tokens.superStaleMfa, tokens.superAal2NoAmr]) {
+      const other = `stale-${tag}`;
+      const res = await create(token, { username: other, password: PASSWORD, role: "SupportAdmin" });
+      assert.equal(res.statusCode, 403, res.body);
+      assert.equal((res.json() as any).error, "MFA_REQUIRED");
+      assert.equal((await adminRows(other)).length, 0);
+    }
+    assert.equal(createCalls(), before);
+  });
+
+  await run("a bind that fails BEFORE commit (not a unique violation) is compensated: the Auth user is rolled back (review of #122)", async () => {
+    const other = `precommit-${tag}`;
+    const rollbacksBefore = provisionerCalls.filter((c) => c.op === "rollback").length;
+    armBeforeCommitOnCreate = true;
+    try {
+      const res = await create(tokens.super, { username: other, password: PASSWORD, role: "SupportAdmin" });
+      assert.equal(res.statusCode, 503, res.body);
+    } finally {
+      armBeforeCommitOnCreate = false;
+      resetTestFaults();
+    }
+    assert.equal((await adminRows(other)).length, 0, "no binding committed");
+    const rollbacks = provisionerCalls.filter((c) => c.op === "rollback");
+    assert.equal(rollbacks.length, rollbacksBefore + 1, "the orphan Auth user was not rolled back");
+    assert.equal(rollbacks.at(-1)!.username, other);
+    assert.equal(authUsers.has(`${other}@admins.siton.invalid`), false, "the username stays usable");
   });
 
   await run("without the provisioner key the route answers 503 and creates nothing", async () => {

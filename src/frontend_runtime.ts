@@ -7824,7 +7824,10 @@ export function registerFrontendExperience(
 
   app.post("/api/admin/team/admins", async (req: any, reply: any) => {
     reply.header("Cache-Control", "no-store");
-    const actor = await requireAdminMutation(req, reply, "admin_users.manage");
+    // Creating an admin grants persistent authority, so a password-only (AAL1)
+    // SuperAdmin token is not enough: a recent second factor is required (a
+    // Supabase AAL2 token), exactly like disabling MFA (Codex P1 on #120).
+    const actor = await requireAdminMutation(req, reply, "admin_users.manage", { recentMfa: true });
     if (!actor) return;
     const username = normalizeAdminUsername(req.body?.username);
     if (!username) return reply.code(400).send({ ok: false, error: "admin_username_invalid" });
@@ -7873,8 +7876,37 @@ export function registerFrontendExperience(
         }
       };
     } catch (error: any) {
-      // The Auth user exists but its binding did not commit — undo it so a
-      // half-created admin can never linger (it would hold no authority anyway).
+      // The error may be ambiguous — a COMMIT whose acknowledgement was lost
+      // still leaves the binding in place (Codex P2 on #120). Compensate ONLY
+      // when the binding is confirmed absent; deleting the Auth user of a
+      // committed admin would reserve the username for an admin who can never
+      // sign in.
+      // "confirmed absent" (the read succeeded with no row) and "unknown" (the
+      // read itself failed) must stay distinct: only the former may compensate.
+      const check = await deps.withTx(async (c) => (await c.query(
+        `SELECT admin_user_id, username, display_name, role, status, created_at FROM siton.admin_users WHERE auth_user_id=$1 LIMIT 1`,
+        [created.auth_user_id]
+      )).rows[0]).then((row) => ({ known: true as const, row }), () => ({ known: false as const, row: undefined }));
+      const bound = check.row;
+      if (bound && String(bound.username || "") === username) {
+        req.log?.warn?.({ security_event: "admin.team.commit_ambiguous_bound", target_admin_user_id: bound.admin_user_id, request_id: String(req.id || "") }, "admin_team_commit_ambiguous_bound");
+        return {
+          ok: true,
+          admin: {
+            admin_user_id: String(bound.admin_user_id), username: String(bound.username), display_name: String(bound.display_name || ""),
+            role: String(bound.role), status: String(bound.status), created_at: String(bound.created_at)
+          }
+        };
+      }
+      if (!check.known) {
+        // the binding could not even be checked — never delete an Auth user
+        // that may be bound; leave it for an operator (it holds no authority
+        // unless a binding row exists)
+        req.log?.warn?.({ security_event: "admin.team.bind_unverified", pg_code: String(error?.code || ""), request_id: String(req.id || "") }, "admin_team_bind_unverified");
+        return reply.code(503).send({ ok: false, error: "admin_provisioning_failed" });
+      }
+      // The Auth user exists and its binding is confirmed absent — undo it so
+      // a half-created admin can never linger (it would hold no authority anyway).
       const rolledBack = await rollbackAdminAuthUser(provisioner, username, created.auth_user_id);
       req.log?.warn?.({ security_event: "admin.team.bind_failed", pg_code: String(error?.code || ""), auth_rolled_back: rolledBack, request_id: String(req.id || "") }, "admin_team_bind_failed");
       if (error?.code === "23505") return reply.code(409).send({ ok: false, error: "admin_username_taken" });
