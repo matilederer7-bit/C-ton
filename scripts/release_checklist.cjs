@@ -39,7 +39,7 @@ const OPEN_ITEMS = [
   { category: "BROWSER", owner: "QA", text: "Hosted browser proofs (seller journey, buyer join, admin) re-run against the deployed SHA on staging", ref: "docs/RC_STAGING_SMOKE.md, docs/PILOT_LAUNCH_RUNBOOK.md" },
   { category: "MOBILE", owner: "owner", text: "External mobile placeholders (SITON_APP_ID, app link host, signing credentials) supplied for a store build", ref: "mobile_release_gate external_placeholders=pending" },
   { category: "OPERATIONS", owner: "owner", text: "Runbooks acknowledged: deployment, rollback, payment incident, security incident, database incident", ref: "docs/DEPLOYMENT_RUNBOOK.md and siblings" },
-  { category: "OPERATIONS", owner: "engineering", text: "Release-readiness reintegration PR merged to master with the backend, web-runtime and release-readiness workflows green on the merge commit", ref: "PROJECT_STATUS.md, .github/workflows/ci.yml" }
+  { category: "OPERATIONS", owner: "engineering", text: "Release candidate merged to master with the Siton CI `ci-verdict` check green (FULL profile) on the merge commit", ref: "PROJECT_STATUS.md, .github/workflows/ci.yml" }
 ];
 
 const GATE_TO_CATEGORY = {
