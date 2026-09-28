@@ -1,6 +1,6 @@
 # SITON PROJECT STATUS
 
-Updated: 2026-09-27
+Updated: 2026-09-28
 Canonical branch: `master`
 Current merged baseline: `73026b4` (PR #116, Black-Sky BSC-3 fix + close-out, on top of #117 `f02414b` and #99 `c1c361f`). Black Sky Engineering: **100% (closed)**; Production Readiness: **18%** (see TRACKS) — Black-Sky all merged with a clean Codex review of each final head (#117 on `26a6f82`, #116 on `1534bde`), master CI green on `73026b4`, 077–079 + grant file 027 on staging (ledger 72/72), staging live on `73026b4` (verified 2026-09-27 18:23 UTC). Previous: `df9aee3` / `d186153` red-team closure (100%).
 Render staging: LIVE on `73026b4` (checks-gated auto-deploy, `autoDeployTrigger: checksPass`) — web `srv-daa5o9u7bikc73fgjskg` deploy `dep-dasloc8u01pc73f5vni0` and worker `srv-daakn0tg1s2s73dfk3pg` deploy `dep-dasloc8u01pc73f5vnvg` (verified 2026-09-27 18:23 UTC: web "Server listening", worker `worker_ready`, zero warn/error/fatal lines since the deploy). Earlier deploys `f02414b` and `c1c361f` passed the production guards (`SUPABASE_MANAGEMENT_API_TOKEN` not set) and `/readiness` with the schema contract incl. 077–079.
@@ -353,6 +353,16 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
+### Claude Code latest milestone — Admin entry: top-left, subtler (UX/UI only)
+
+- UPDATED: 2026-09-28
+- BRANCH: `claude/festive-wright-kx4e5a` from master `ea04f31`; no parallel work touching the header/admin entry.
+- COMPLETED: the existing hidden admin entry (`AdminHotspot` in `web/src/App.tsx`, `.admin-dot` in `web/src/styles.css`) now sits in the physical TOP-LEFT corner in both Hebrew and English. It had been rendering top-RIGHT on staging because a logical `inset-inline-end` was cancelled by `left/right: auto` in the same rule, and on a 390px phone it overlapped the brand. The topbar's reserved 38px column moved to the physical left in both directions, so the entry never covers the logo, nav or language switch. Visible mark reduced from a 9px dot @ 15% to a 7px speck @ 10% (hover/focus 45%); the 30px tap target is unchanged. No change to the entry mechanism (two deliberate taps → admin password step-up) or to any admin authorization.
+- TESTED: new CI regression in `tests/frontend_browser_i18n_validation.ts` (he + en × 1440 + 390): corner position, no overlap with brand/links/buttons/inputs, not covered, mark ≤7px/≤10%, one tap does nothing, second tap reaches `#/admin` + `admin-stepup`. It FAILS on the previous CSS (he: top-right 1410,0 / 360,0; brand overlap at 390; 9px@0.15) and passes after. Lint and the i18n gate pass.
+- OPEN: staging deploy + browser verification of the live build (recorded below when done).
+- PERCENTAGE: 80% (code + tests done; merge/deploy/live check pending).
+- NEXT STEP: PR → CI → merge → verify staging deploy in a real browser at desktop and mobile.
+
 ### Claude Code latest milestone — Black Sky Engineering: 100% (closed) — #99, BSC-2 (#117) and BSC-3 (#116) merged, clean reviews, staging verified
 
 - UPDATED: 2026-09-27
