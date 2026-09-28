@@ -826,7 +826,7 @@ jobs:
 
   finalize:
     needs: [managed-build, review1, fix, review2]
-    if: always() && needs.managed-build.result == 'success' && needs.review1.result == 'success' && (needs.review2.result == 'success' || needs.review2.result == 'skipped')
+    if: always() && needs.managed-build.result == 'success' && needs.review1.result == 'success' && needs.fix.result == 'success' && (needs.review2.result == 'success' || needs.review2.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     outputs:
