@@ -1,3 +1,4 @@
+// proof PR: payment module comment, proposed FAST (must be rejected)
 import { assertRequiredTables } from "./schema_contract.js";
 
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
