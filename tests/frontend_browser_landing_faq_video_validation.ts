@@ -146,7 +146,8 @@ async function main() {
         [JSON.stringify({ blocks })]
       );
     } finally { await pool.end(); }
-    const videoPort = 3397;
+    // a port no other suite uses (3397 belongs to frontend_browser_how_it_works_validation.ts)
+    const videoPort = 3401;
     servers.push(await startServer(videoPort, { LANDING_HERO_VIDEO_ENABLED: "1", LANDING_HERO_VIDEO_URL: dataUrl, LANDING_HERO_VIDEO_POSTER: "" }));
     page = await launchPage(`http://127.0.0.1:${videoPort}/preview/`);
     for (const viewport of [DESKTOP, MOBILE]) {
