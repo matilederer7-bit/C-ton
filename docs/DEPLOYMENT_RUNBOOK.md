@@ -87,11 +87,9 @@ Why the guard cannot be bypassed by a deploy: `config/runtime-environment-policy
 
 | Workflow | Trigger | Proves | Status |
 |---|---|---|---|
-| `.github/workflows/backend-quality-gates.yml` | PR + push to master | tsc, enforcement scans, payment/raw-card scan, runtime-DDL scan, architecture gate, mobile/PWA gate, `ci:migrations` (`CI_MIGRATION_REPORT_PASS`), test groups unit → e2e, route-authorization gate, fault report; `test:all` and `ci:docker-smoke` only on push / same-repo PR (`:139-145`) | IMPLEMENTED |
-| `.github/workflows/web-runtime-depth.yml` | PR + push to master | `web:routes` contract, `ci:web-runtime` (real HTTP auth, core E2E, Docker runtime), `ci:web-runtime:extended` (load, outage, restart, multi-instance) | IMPLEMENTED |
-| `.github/workflows/release-readiness.yml` | PR + push to master + dispatch | `preflight-static` (`npm run release:preflight:static`), `preflight-database` (standard profile on a Postgres service, skipping `route-authorization-behavioural,release-local-lab`), `docker-release-lab` (`npm run release:local-lab`, same-repo PRs only) | IMPLEMENTED on this branch (committed in `bf0ef55`); EXPECTED on `master` until the branch is merged |
+| `.github/workflows/ci.yml` ("Siton CI") | PR + push to master + nightly schedule + dispatch | `classify` picks FAST / STANDARD / FULL from the diff (`scripts/ci_change_classifier.cjs`); `static-gates` (npm audit, distributor, i18n, seven-day cap, canonical integrity tests, diff whitespace, `release:preflight:static`); ten test groups in parallel lanes incl. `ci:migrations`, route-authorization gate and fault report; `web-runtime-core`, `web-runtime-resilience`, `docker-smoke`, `docker-release-lab` (same-repo PRs), `preflight-database` (DB gates of the standard profile); `ci-verdict` aggregates. Push, schedule and dispatch are always FULL. Details: `docs/CI_TEST_STRATEGY.md` | IMPLEMENTED (replaces `backend-quality-gates.yml`, `web-runtime-depth.yml`, `release-readiness.yml`) |
 
-Merge rule: all three green on the PR head SHA. A red `Security tests` or `API tests` step has been a real bug both times it happened (PROJECT_STATUS.md history) — never merge on "CI-only flake".
+Merge rule: `ci-verdict` green on the PR head SHA (it fails if any job the profile requires is not green, a skip was not declared by the classifier, a profile proposal tried to downgrade, or the test manifests do not cover the inventory). A red security or API test lane has been a real bug both times it happened (PROJECT_STATUS.md history) — never merge on "CI-only flake".
 
 ## 3. Stage: merge
 

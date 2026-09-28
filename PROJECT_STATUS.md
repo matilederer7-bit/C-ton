@@ -353,6 +353,41 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
+### Claude Code latest milestone — CI fast path: risk classifier, parallel lanes, one ci-verdict (PR #126)
+
+- UPDATED: 2026-09-28
+- BRANCH / PR: `claude/zen-brown-ufd0cm` from master `904f72e` → PR [#126](https://github.com/matilederer7-bit/C-ton/pull/126). Plan `docs/team-plans/2026-09-28-ci-fast-path.json`. It returned TEAM_PLAN_FAIL, which I accepted and recorded: the only overlaps are the Dependabot action bumps on the replaced workflow files and another slot of this status file. PR #123 was not touched. The Codex model-infrastructure work confirmed on the PR that it stays off these paths.
+- COMPLETED:
+  - `.github/workflows/ci.yml` ("Siton CI") replaces `backend-quality-gates.yml`, `release-readiness.yml` and `web-runtime-depth.yml`. The flow is classify → static-gates + 10 parallel test lanes + web-runtime-core / resilience / docker-smoke / docker-release-lab / preflight-database → `ci-verdict`, the single required check.
+  - Classifier `scripts/ci_change_classifier.cjs` maps each diff to trivial/low/normal/high/critical and then to FAST / STANDARD / FULL:
+    - It is an allowlist: anything unmatched is FULL.
+    - It fails closed on diff parsing.
+    - A proposed profile (`CI-Profile:` or a `ci:*` label) can only escalate.
+    - Push, nightly and manual runs are always FULL.
+  - Verdict `scripts/ci_verdict.cjs` checks that every required job succeeded and every skip was declared. From the per-lane manifests it proves the whole inventory ran exactly once and passed.
+  - Runner changes: `TEST_SHARD`, a `focused` group, and `TEST_RESULTS_FILE`.
+  - Duplication removed:
+    - the static preflight gates ran up to 3× per PR, now once;
+    - `lint` and `scan:backend` are the same script and ran twice, now once;
+    - `test:all` re-ran all ten groups on every master push (15 min); that repetition is now a nightly FULL run.
+  - `docs/CI_TEST_STRATEGY.md` is rewritten, and `docs/CLAUDE_TEAM_LEAD.md` gains a fast-path section: local depth by profile, reviewer in parallel with CI, no swarm for simple tasks.
+  - No test was deleted, no assertion weakened, no gate made non-blocking.
+- TESTED:
+  - Classifier, verdict and shard suite: 52 cases, including negative disguise cases. Every one of these comes out FULL: docs renamed into a migration and back, a one-line `refund` or `FOR UPDATE` edit, a removed lock, a deleted or renamed test, a weakened payments test, a symlink in docs, an active SVG, native security config, a spaced-path money edit, and a FAST proposal on a payment change.
+  - Release-tool tests 251/251. Static preflight PASS, warnings unchanged. DB preflight `--only` 6/6. The e2e, security, payments and api groups pass locally with the new runner.
+  - Real history replayed through the classifier: the docs-only status commit `ea04f31` → FAST (1 focused test); the UI change `49de3d6` → STANDARD; the MFA security change `e6a5b18` → FULL.
+  - Real CI: run 36473206258 (FULL) finished in **3m39s wall-clock**, against 17m54s before (run 36463288440) and 34m06s on master (run 36465477706). `ci-verdict` reported 321/321 test files run. It correctly went red on a static-gates failure (a test name in the durations file hit the distributor gate), which was fixed.
+- REVIEW:
+  - Codex made 2 P2 findings, both fixed and resolved.
+  - The independent senior reviewer asked for changes: 3 high, 4 medium, 4 low. All were fixed in `2158ecf`, and the reviewer approved `2158ecf`. Its three minor follow-ups (SVG regex, extra native config files, `--only` ids must be in the standard profile) are fixed on the final head.
+- OPEN:
+  - CI green on the final head, then merge.
+  - Real FAST and STANDARD proof PRs after the merge.
+  - Owner: require only `ci-verdict` if branch protection is enabled (it is currently off).
+  - Dependabot will regenerate its action-bump PRs against `ci.yml`.
+- PERCENTAGE: 90% (implementation, tests, both reviews and a real FULL run done; the final-head CI, the merge and the real FAST/STANDARD proof runs are pending).
+- NEXT STEP: CI green on the final head → squash-merge → open a docs-only proof PR and a frontend proof PR, record their profile and wall-clock, close them unmerged → verify the master FULL run and the staging deploy.
+
 ### Claude Code latest milestone — Home "איך זה עובד?" infographic, editable in the content editor (words + icons) — LIVE on staging (`904f72e`), 100%
 
 - UPDATED: 2026-09-28

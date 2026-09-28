@@ -1,0 +1,96 @@
+{
+  "task": "Shorten the path from task to merge: a diff-based CI risk classifier (FAST/STANDARD/FULL), parallel CI lanes by measured duration, one ci-verdict aggregator, removal of duplicated CI work, and the team-lead fast-path rules, without deleting or weakening any test or gate.",
+  "lead": "claude-lead",
+  "base": "origin/master",
+  "open_branches": [
+    "origin/dependabot/github_actions/actions/checkout-7",
+    "origin/dependabot/github_actions/actions/setup-node-7",
+    "origin/dependabot/github_actions/actions/upload-artifact-7",
+    "origin/claude/festive-wright-kx4e5a"
+  ],
+  "overlap_decision": "TEAM_PLAN_FAIL accepted and recorded: the only overlaps are (1) the three Dependabot action-version bumps (#101, #103, #106), which edit `uses:` lines of the workflows this task replaces; Dependabot regenerates them against ci.yml after merge, nothing of theirs is lost; (2) PROJECT_STATUS.md on origin/claude/festive-wright-kx4e5a (PR #123), which edits a different slot/section; this task edits only the claude slot. No product/code path of PR #123 is touched.",
+  "interface_contract": {
+    "scripts/run_test_group.cjs": "unchanged CLI for `npm run test:<group>` and `test:all`; adds TEST_SHARD=k/n (disjoint, complete, deterministic), group `focused` (requires TEST_FILE_PATTERN), TEST_RESULTS_FILE manifest {group, shard, results[{file, group, status, duration_ms}]}; exports {GROUPS, classify, parseShard, shardAssignments, testInventory}",
+    "scripts/ci_change_classifier.cjs": "classifyChanges({event, files, claim, testSources}) -> {level, computed_profile, profile, claim{accepted,error}, lanes, focused_tests, reasons}; CLI writes GitHub outputs consumed by .github/workflows/ci.yml",
+    "scripts/ci_verdict.cjs": "evaluate({classification, needs, manifests, inventory, sameRepo}) -> {ok, failures, rows, coverage}"
+  },
+  "assignments": [
+    {
+      "id": "B1",
+      "agent": "claude-lead",
+      "role": "builder",
+      "scope": "CI infrastructure: workflow, setup action, classifier, verdict, runner sharding, their tests and the CI docs (one writer: every file depends on the lane contract)",
+      "allowed": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/backend-quality-gates.yml",
+        ".github/workflows/release-readiness.yml",
+        ".github/workflows/web-runtime-depth.yml",
+        ".github/actions/siton-setup/",
+        "scripts/ci_change_classifier.cjs",
+        "scripts/ci_verdict.cjs",
+        "scripts/ci_test_durations.json",
+        "scripts/run_test_group.cjs",
+        "scripts/release_checklist.cjs",
+        "tests/release_tools/ci_change_classifier.test.cjs",
+        "tests/release_tools/agent_efficiency_v2.test.cjs",
+        "tests/release_tools/deploy_supply_chain_policy.test.cjs",
+        "tests/release_tools/runtime_environment_policy.test.cjs",
+        "docs/CI_TEST_STRATEGY.md",
+        "docs/CLAUDE_TEAM_LEAD.md",
+        "docs/DEPLOYMENT_RUNBOOK.md",
+        "docs/PARALLEL_AGENT_DEVELOPMENT.md",
+        "docs/team-plans/2026-09-28-ci-fast-path.json",
+        "PROJECT_STATUS.md"
+      ],
+      "forbidden": [
+        "src/",
+        "web/",
+        "tests/*.ts",
+        "config/",
+        ".github/workflows/codex-rereview.yml",
+        ".github/workflows/cloud-agent-manager.yml",
+        ".github/workflows/cloud-analysis-swarm.yml",
+        ".github/workflows/agent-manager-intake.yml",
+        ".github/workflows/mobile-readiness.yml"
+      ],
+      "depends_on": [],
+      "dod": [
+        "every gate, test group and runtime proof of the three former workflows runs in the FULL profile, each once",
+        "classifier tests cover FAST/STANDARD/FULL and negative disguise cases; a downgrade proposal fails the verdict",
+        "ci-verdict proves the full test inventory ran exactly once and passed",
+        "real CI run on the PR: green and faster than the 17m54s baseline critical path"
+      ]
+    },
+    {
+      "id": "R1",
+      "agent": "claude-subagent",
+      "role": "reviewer",
+      "senior": true,
+      "scope": "Independent adversarial review (security-auditor posture): coverage equivalence with the old workflows, classifier bypasses, verdict soundness, workflow correctness",
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "verdict with concrete failure scenarios and file:line references"
+      ]
+    },
+    {
+      "id": "R2",
+      "agent": "codex",
+      "role": "reviewer",
+      "scope": "Cross-provider review of the PR head via the Codex connector",
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "Codex review on the final head, findings fixed or answered"
+      ]
+    }
+  ]
+}

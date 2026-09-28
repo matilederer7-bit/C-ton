@@ -20,7 +20,7 @@ Follow-ups arrive by themselves. The lead subscribes to its own Pull Requests (C
 | Codex independent review | ChatGPT Codex connector on every Pull Request; comment `@codex review` to re-request | **active**; it produced 3 real findings on PR #80, all fixed | The cross-provider reviewer on every PR |
 | Specialist sub-agent definitions | `.claude/agents/*.md`, in open PR #79 | pending review and merge | Once merged, they are the `subagent_type` for builders and reviewers. Until then, use the general-purpose and Explore agents with the same packet. |
 | Local worktree helper | `scripts/agent.cjs` | active | Only for the owner's machine. Cloud sessions use sub-agent worktree isolation. |
-| Repository CI | `.github/workflows/backend-quality-gates.yml`, `release-readiness.yml`, `web-runtime-depth.yml`, `mobile-readiness.yml` | active | Authoritative merge gate |
+| Repository CI | `.github/workflows/ci.yml` ("Siton CI": classify → parallel lanes → `ci-verdict`), `mobile-readiness.yml` | active | Authoritative merge gate: `ci-verdict` on the current head. Profiles and rules: `docs/CI_TEST_STRATEGY.md` |
 | Error monitoring | Sentry `c-ton/siton-staging`, `docs/ERROR_MONITORING.md` | active | First stop for runtime faults |
 | Staging runtime | Render `siton-staging-web`, `siton-staging-worker`; Supabase `siton-staging` | active | Deploy verification and investigation, through the connectors |
 
@@ -39,7 +39,7 @@ The one piece this file adds is `scripts/team_plan_check.cjs`: an executable che
    - Independent builders run in parallel.
    - A builder with a dependency receives a fixed interface contract, so its authoring can still run in parallel. Only the verification waits.
    - Builders commit locally in their worktree. Only the lead pushes.
-4. **Integrate.** The lead brings every builder commit onto the task branch and pushes a checkpoint at each coherent milestone. It re-reads the combined diff and runs the focused tests, the relevant gates, and the canonical verifier when a disposable PostgreSQL is available. It also re-runs mutation checks on security claims.
+4. **Integrate.** The lead brings every builder commit onto the task branch and pushes a checkpoint at each coherent milestone. It re-reads the combined diff and runs the focused tests and the gates of the touched area. Local depth follows the CI profile (see "Fast path" below): CI is the canonical proof, so FAST and STANDARD work does not re-run the full suite locally; FULL (senior-risk) work also runs the relevant groups/gates and, when a disposable PostgreSQL is available, the canonical verifier before the PR. Mutation checks on security claims are re-run as before.
 5. **Pull Request.** One PR per work unit. The body names who built what, who reviews, the plan file, and the evidence.
 6. **Review.**
    - Every builder is reviewed by an independent reviewer: a separate read-only sub-agent, plus Codex on the PR.
@@ -57,6 +57,26 @@ The one piece this file adds is `scripts/team_plan_check.cjs`: an executable che
    Never force-push shared branches, never rewrite history, never write directly to `master`.
 9. **Deploy verification.** `master` auto-deploys to Render staging. Confirm both services are `live` on the merge SHA. Check readiness and logs, and confirm no new Sentry issue appeared.
 10. **Post-deploy evidence and report.** Evidence that exists only after the merge (deploy ids, live checks) goes into the next task's status update, or into a small docs-only follow-up PR that goes through the same review and CI rules. Then report to the owner.
+
+## Fast path: classify, then prove only what the change needs
+
+The CI profile is computed from the diff by `scripts/ci_change_classifier.cjs`; the lead can preview it before opening the PR:
+
+```
+node scripts/ci_change_classifier.cjs --base origin/master --head HEAD
+```
+
+| Profile | Typical change | Local before the PR | CI (`.github/workflows/ci.yml`) |
+|---|---|---|---|
+| FAST | docs, copy dictionaries, CSS/raster images only, small | the tests the classifier lists as focused | static gates + release-tool tests + focused tests (a few minutes) |
+| STANDARD | ordinary frontend/backend change | focused tests of the change | every lane, in parallel (same CI as FULL; the difference is review depth) |
+| FULL | DB, migrations, money, auth/security, state machine, concurrency, CI, dependencies, shared test infra, cross-cutting, anything unclassified | focused tests + the dedicated gates of the area (+ canonical verifier when a disposable PostgreSQL exists) | every lane, nothing skipped |
+
+- The lead may write `CI-Profile: FAST|STANDARD|FULL` in the PR body (or add a `ci:fast|ci:standard|ci:full` label). A proposal can only escalate: one below the computed profile turns `ci-verdict` red. Never argue with the classifier by renaming or splitting files; if a rule is wrong, fix the rule in its own FULL-profile PR.
+- Pushes to `master`, the nightly run and manual runs are always FULL.
+- A simple task gets one builder (often the lead itself) and one independent reviewer. Parallel builders only for two or more independent path sets; two workstreams that need the same file are one workstream.
+- The reviewer starts on the PR diff as soon as the PR is open, in parallel with CI; it does not wait for CI. Analysis and read-only agents may run beside writers at any time.
+- Merge still requires all of: `ci-verdict` green on the current head, the required reviews done on that head, no unresolved thread, no open blocker.
 
 ## Work plan format
 
