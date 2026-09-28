@@ -71,14 +71,15 @@ try {
     assert.equal(codes({ blocks: [{ ...defaults.blocks[0], fields: { ...defaults.blocks[0]!.fields, primary_cta_link: "javascript:alert(1)" } }] }), "invalid_content_link");
     assert.equal(codes({ blocks: [{ ...defaults.blocks[0], fields: { ...defaults.blocks[0]!.fields, primary_cta_link: "https://x.invalid/<script>" } }] }), "content_html_not_allowed");
     for (const bad of ["//evil.invalid/x", "http://insecure.invalid", "data:text/html,x", "/path with space", "https://x.invalid/a\"b"]) assert.equal(codes({ blocks: [{ ...defaults.blocks[0], fields: { ...defaults.blocks[0]!.fields, primary_cta_link: bad } }] }), "invalid_content_link", bad);
-    for (const good of ["#/seller?signup=1", "/legal/terms", "https://example.invalid/a?b=1#c", ""]) assert.equal(codes({ blocks: [{ ...defaults.blocks[0], fields: { ...defaults.blocks[0]!.fields, primary_cta_link: good } }] }), "ok", good);
+    // both locked blocks (hero + the how-it-works infographic) must be present, in order, for a page to be valid
+    for (const good of ["#/seller?signup=1", "/legal/terms", "https://example.invalid/a?b=1#c", ""]) assert.equal(codes({ blocks: [{ ...defaults.blocks[0], fields: { ...defaults.blocks[0]!.fields, primary_cta_link: good } }, defaults.blocks[1]] }), "ok", good);
     assert.equal(codes({ blocks: [{ ...defaults.blocks[0], fields: { ...defaults.blocks[0]!.fields, image: "https://evil.invalid/x.png" } }] }), "invalid_content_image");
     assert.equal(codes({ blocks: [{ ...defaults.blocks[0], fields: { ...defaults.blocks[0]!.fields, hacked: "x" } }] }), "invalid_content_field");
     assert.equal(codes({ blocks: [defaults.blocks[0], { id: "legal_1", type: "legal", enabled: true, fields: { title: "x", body: "y" } }] }), "template_not_allowed");
     assert.equal(codes({ blocks: [defaults.blocks[0], { id: "faq_9", type: "faq", enabled: true, fields: { title: "" }, items: [] }] }), "too_few_items");
     assert.equal(codes({ blocks: [defaults.blocks[0], { id: "Bad Id", type: "text", enabled: true, fields: {} }] }), "invalid_block_id");
     assert.equal(codes({ blocks: [defaults.blocks[0], { id: "t", type: "text", enabled: true, fields: { title: "x".repeat(161), body: "" } }] }), "invalid_content_length");
-    assert.equal(codes({ blocks: defaults.blocks.map(b => ({ ...b, enabled: b.id === "hero" })) }), "ok");
+    assert.equal(codes({ blocks: defaults.blocks.map(b => ({ ...b, enabled: b.id === "hero" || b.id === "how" })) }), "ok");
     assert.throws(() => validateContent("__proto__", {}), /invalid_content/);
     assert.throws(() => validateContent("home", { blocks: [] }), /locked_block_missing/);
     assert.equal(validatePage({ title: "מסמך", body: "תוכן" }, CONTENT_SECTIONS.legal_terms!).blocks[0]!.type, "legal");
@@ -174,9 +175,10 @@ try {
     assert.equal(faqOf(await home()).items[0].q, LANDING_HE.faq.items[0]!.q, "public FAQ untouched until publish");
   });
   await run("admin reorders and disables blocks; the hero cannot move, be removed or hidden", async () => {
-    const draft = draftOf(p => { const i = p.blocks.findIndex((b: any) => b.id === "faq"); const [faq] = p.blocks.splice(i, 1); p.blocks.splice(1, 0, faq); p.blocks.find((b: any) => b.id === "trust").enabled = false; });
+    // the first free position is 2: hero and the how-it-works infographic are locked ahead of it
+    const draft = draftOf(p => { const i = p.blocks.findIndex((b: any) => b.id === "faq"); const [faq] = p.blocks.splice(i, 1); p.blocks.splice(2, 0, faq); p.blocks.find((b: any) => b.id === "trust").enabled = false; });
     const r = await request("PUT", "/api/admin/site-content/home/draft", headers, { value: draft, revision: section.revision }); assert.equal(r.status, 200, r.body); await reload();
-    assert.equal(section.draft.blocks[1].id, "faq"); assert.equal(section.draft.blocks.find((b: any) => b.id === "trust").enabled, false);
+    assert.equal(section.draft.blocks[1].id, "how"); assert.equal(section.draft.blocks[2].id, "faq"); assert.equal(section.draft.blocks.find((b: any) => b.id === "trust").enabled, false);
     const heroMoved = draftOf(p => { const [hero] = p.blocks.splice(0, 1); p.blocks.push(hero); });
     assert.equal((await request("PUT", "/api/admin/site-content/home/draft", headers, { value: heroMoved, revision: section.revision })).status, 400);
     const heroGone = draftOf(p => { p.blocks.splice(0, 1); });
@@ -220,7 +222,7 @@ try {
   await run("publish moves the draft to the public site; disabled section disappears publicly (API and page); previous value is kept", async () => {
     const r = await request("POST", "/api/admin/site-content/home/publish", headers, { revision: section.revision }); assert.equal(r.status, 200, r.body);
     const pub = await home();
-    assert.equal(pub.title, "כותרת טיוטה"); assert.equal(pub.image, imageUrl); assert.equal(pub.blocks[1].id, "faq"); assert.equal(faqOf(pub).items[0].q, "שאלה חדשה?");
+    assert.equal(pub.title, "כותרת טיוטה"); assert.equal(pub.image, imageUrl); assert.equal(pub.blocks[1].id, "how"); assert.equal(pub.blocks[2].id, "faq"); assert.equal(faqOf(pub).items[0].q, "שאלה חדשה?");
     assert.ok(!pub.blocks.some((b: any) => b.id === "trust"), "a hidden block's content never leaves the server");
     await reload(); assert.equal(section.draft, null); assert.ok(section.published_at);
     const row = (await pool.query(`SELECT previous_value_jsonb, updated_by FROM siton.site_content WHERE content_key='home'`)).rows[0];

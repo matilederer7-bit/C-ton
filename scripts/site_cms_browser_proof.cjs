@@ -153,7 +153,8 @@ async function main() {
     check('editor: FAQ add + reorder + delete reflected in the form', JSON.stringify(faqQs) === JSON.stringify(['שאלה שנייה?', 'שאלה רביעית?', 'שאלה שלישית?']), JSON.stringify(faqQs));
     // block reorder + hide + remove
     await click('[data-testid="cms-block-up-faq"]'); await wait(30);
-    await ev(`document.querySelector('[data-testid="cms-block-enabled-how"]').click()`); await wait(30);
+    // `how` is the locked how-it-works infographic now (no hide switch); the audiences columns are hidden instead
+    await ev(`document.querySelector('[data-testid="cms-block-enabled-audiences"]').click()`); await wait(30);
     await click('[data-testid="cms-block-remove-why"]'); await wait(30);
     // image replace through the real file input (optimizer + upload)
     await ev(`(async()=>{const bytes=await (await fetch('/brand/c-ton-logo-1024.jpg')).blob();const file=new File([bytes],'hero.jpg',{type:'image/jpeg'});const dt=new DataTransfer();dt.items.add(file);const input=document.querySelector('#cms-field-hero-image-file');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
@@ -165,7 +166,7 @@ async function main() {
     check('editor: draft saved with the full block page (title, FAQ, order, hidden block, removed block, image)',
       saved.revision === 3 && saved.value.blocks[0].fields.title === 'כותרת חדשה מהעורך' && saved.value.blocks[0].fields.image.endsWith('44444444') &&
       saved.value.blocks.map(b => b.id).join(',') === 'hero,how,audiences,trust,faq,about,contact' &&
-      saved.value.blocks.find(b => b.id === 'how').enabled === false && !saved.value.blocks.some(b => b.id === 'why') &&
+      saved.value.blocks.find(b => b.id === 'audiences').enabled === false && saved.value.blocks.find(b => b.id === 'how').type === 'how_it_works' && !saved.value.blocks.some(b => b.id === 'why') &&
       saved.value.blocks.find(b => b.id === 'faq').items.map(i => i.q).join('|') === 'שאלה שנייה?|שאלה רביעית?|שאלה שלישית?', JSON.stringify(saved.value.blocks.map(b => b.id)));
     check('editor: public content untouched by the draft', await ev(`window.cms.state.home.published.blocks[0].fields.title === 'כותרת מפורסמת'`));
     // conflict: another admin changed it meanwhile
