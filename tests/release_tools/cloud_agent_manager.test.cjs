@@ -139,7 +139,7 @@ test("cloud workflow is owner-gated at intake, serialized, lifecycle-guarded and
   assert.match(workflow, /Grow: untouched/);
 });
 
-test("cloud builder, reviewer and lifecycle authority are isolated on fresh jobs", () => {
+test("cloud builder, reviewer, fix pass and lifecycle authority are isolated on fresh jobs", () => {
   const workflow = read(".github/workflows/cloud-agent-manager.yml");
   const section = (name, next) => {
     const start = workflow.indexOf(`  ${name}:\n`);
@@ -147,27 +147,35 @@ test("cloud builder, reviewer and lifecycle authority are isolated on fresh jobs
     const end = next ? workflow.indexOf(`  ${next}:\n`, start + 1) : workflow.length;
     return workflow.slice(start, end);
   };
-  const build = section("managed-build", "review-and-fix");
-  const review1 = section("review-and-fix", "review2");
+  const build = section("managed-build", "review1");
+  const review1 = section("review1", "fix");
+  const fix = section("fix", "review2");
   const review2 = section("review2", "finalize");
   const finalize = section("finalize", "report-failure");
 
   assert.doesNotMatch(build, /review pass 1|review pass 2/i);
   assert.doesNotMatch(build, /GH_TOKEN:\s*\$\{\{\s*secrets\.SITON_AGENT_GITHUB_TOKEN\s*\}\}/);
   assert.match(review1, /Claude review pass 1/);
-  assert.match(review1, /Claude bounded fix pass/);
+  assert.doesNotMatch(review1, /bounded fix pass/i);
+  assert.match(fix, /Claude bounded fix pass/);
+  assert.doesNotMatch(fix, /Claude review pass [12]/);
   assert.match(review2, /Claude review pass 2/);
   assert.doesNotMatch(review2, /bounded fix pass/i);
   assert.doesNotMatch(finalize, /claude-code-action|codex-action/);
   assert.match(finalize, /GH_TOKEN: \$\{\{ secrets\.SITON_AGENT_GITHUB_TOKEN \}\}/);
+
   assert.match(build, /Upload builder handoff/);
   assert.match(review1, /Download builder handoff/);
-  assert.match(review1, /Upload candidate handoff/);
+  assert.match(review1, /Upload first-review evidence/);
+  assert.match(fix, /Download builder handoff/);
+  assert.match(fix, /Download first-review evidence/);
+  assert.match(fix, /Upload candidate handoff/);
   assert.match(review2, /Download candidate/);
   assert.match(finalize, /Download final candidate/);
   assert.match(workflow, /Pin read-only guard before importing untrusted patch/);
   assert.match(workflow, /Pin read-only guard before importing fixed patch/);
-  assert.match(workflow, /scripts\/agent_readonly_bash_guard\\\.cjs/);
+  assert.match(workflow, /scripts\/agent_readonly_bash_guard\.cjs/);
+  assert.match(finalize, /needs\.fix\.result == 'success'/);
 });
 
 test("phone intake is a fresh owner-only issue trigger that dispatches the manager", () => {
