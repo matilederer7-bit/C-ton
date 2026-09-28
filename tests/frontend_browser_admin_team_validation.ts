@@ -167,7 +167,10 @@ async function waitFor(page: BrowserPage, expression: string, label: string, tri
     if (await page.evaluate<boolean>(`Boolean(${expression})`)) return;
     await wait(150);
   }
-  const text = await page.evaluate<string>(`(document.querySelector('main') || document.body).innerText.slice(0, 400)`);
+  const text = await page.evaluate<string>(`(() => {
+    const errors = [...document.querySelectorAll('[data-testid$="-error"], .notice.err, [role="alert"]')].map((e) => e.textContent.trim()).filter(Boolean);
+    return JSON.stringify({ errors, mfaPanel: !!document.querySelector('[data-testid="admin-mfa"]'), text: (document.querySelector('main') || document.body).innerText.slice(0, 300) });
+  })()`);
   throw new Error(`timed out waiting for ${label}; page: ${text}`);
 }
 async function passStepUp(page: BrowserPage, identifier: string, password: string) {
@@ -244,6 +247,7 @@ if (!chromiumPath()) {
       await set(page!, '[data-testid="admin-team-display-name"]', "מנהל בדיקה");
       await set(page!, '[data-testid="admin-team-password"]', NEW_PASSWORD);
       await set(page!, '[data-testid="admin-team-password-confirm"]', NEW_PASSWORD);
+      await waitFor(page!, `document.querySelector('[data-testid="admin-team-password"]').value === ${JSON.stringify(NEW_PASSWORD)} && document.querySelector('[data-testid="admin-team-password-confirm"]').value === ${JSON.stringify(NEW_PASSWORD)} && !document.querySelector('[data-testid="admin-team-submit"]').disabled`, "password fields committed to state");
       await click(page!, '[data-testid="admin-team-submit"]');
       // password-only session → the server demands a recent second factor;
       // first use enrolls an authenticator (setup key shown), a wrong code is refused
@@ -257,6 +261,7 @@ if (!chromiumPath()) {
       assert.deepEqual(mfaCalls, ["enroll"]);
       await set(page!, '[data-testid="admin-team-password"]', NEW_PASSWORD);
       await set(page!, '[data-testid="admin-team-password-confirm"]', NEW_PASSWORD);
+      await waitFor(page!, `document.querySelector('[data-testid="admin-team-password"]').value === ${JSON.stringify(NEW_PASSWORD)} && document.querySelector('[data-testid="admin-team-password-confirm"]').value === ${JSON.stringify(NEW_PASSWORD)} && !document.querySelector('[data-testid="admin-team-submit"]').disabled`, "password fields committed to state");
       await click(page!, '[data-testid="admin-team-submit"]');
       await waitFor(page!, `document.querySelector('[data-testid="admin-mfa"]') && document.querySelector('[data-testid="admin-mfa-secret"]')`, "MFA enrollment step after retry");
       assert.deepEqual(mfaCalls, ["enroll", "delete", "enroll"]);
