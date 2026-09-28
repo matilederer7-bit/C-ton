@@ -2342,7 +2342,7 @@ export const EN: Record<string, string> = {
   "seller_products.the_product_archived": "The product was archived",
   "seller_products.the_product_cannot_loaded": "The product cannot be loaded",
   "seller_products.the_product_fixed_description_price": "The product is the fixed description. Price, quantities, deadline and delivery are set on each deal separately. Images are added on the deal, and are saved to the product when a draft is saved as one.",
-  "seller_products.the_product_images_yet_they": "The product has no images yet — they are added on the first deal you create from it, or when you save an existing draft as a product.",
+  "seller_products.the_product_images_yet_they": "The product has no images yet. Images uploaded to a deal stay on that deal — to give the product images, save an existing draft that has images as a product.",
   "seller_products.the_product_library_cannot_loaded": "The product library cannot be loaded",
   "seller_products.the_product_restored_library": "The product was restored to the library",
   "seller_products.the_product_s_images": "The product's images",

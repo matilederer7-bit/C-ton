@@ -2341,7 +2341,7 @@ export const HE: Record<string, string> = {
   "seller_products.the_product_archived": "המוצר הועבר לארכיון",
   "seller_products.the_product_cannot_loaded": "לא ניתן לטעון את המוצר",
   "seller_products.the_product_fixed_description_price": "המוצר הוא התיאור הקבוע. מחיר, כמויות, מועד סיום ואספקה נקבעים בכל עסקה בנפרד. תמונות מתווספות לעסקה, ונשמרות למוצר כששומרים טיוטה כמוצר.",
-  "seller_products.the_product_images_yet_they": "למוצר אין עדיין תמונות — הן יתווספו בעסקה הראשונה שתיצרו ממנו, או כששומרים טיוטה קיימת כמוצר.",
+  "seller_products.the_product_images_yet_they": "למוצר אין עדיין תמונות. תמונות שמעלים לעסקה נשמרות בעסקה בלבד — כדי שלמוצר יהיו תמונות, שומרים טיוטה קיימת עם תמונות כמוצר.",
   "seller_products.the_product_library_cannot_loaded": "לא ניתן לטעון את ספריית המוצרים",
   "seller_products.the_product_restored_library": "המוצר שוחזר לספרייה",
   "seller_products.the_product_s_images": "תמונות המוצר",
