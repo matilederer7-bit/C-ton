@@ -256,7 +256,7 @@ jobs:
           git config user.email "siton-agent-manager[bot]@users.noreply.github.com"
           branch="agent/cloud/${{ steps.roles.outputs.builder }}-${GITHUB_RUN_ID}"
           git switch -c "$branch" origin/master
-          printf '%s\n' '.siton-cloud-task.md' '.siton-review-prompt.md' '.siton-review-1.txt' '.siton-review-2.txt' '.siton-fix-task.md' >> .git/info/exclude
+          printf '%s\n' '.siton-cloud-task.md' '.siton-review-prompt.md' '.siton-review-1.txt' '.siton-review-2.txt' '.siton-fix-task.md' '.siton-handoff/' >> .git/info/exclude
           node scripts/cloud_agent_manager.cjs packet .siton-cloud-task.md
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
           echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -343,7 +343,7 @@ jobs:
           if-no-files-found: error
           retention-days: 2
 
-  review-and-fix:
+  review1:
     needs: managed-build
     runs-on: ubuntu-24.04
     timeout-minutes: 180
@@ -371,6 +371,11 @@ jobs:
           ref: ${{ needs.managed-build.outputs.head }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Exclude manager handoff files
+        shell: bash
+        run: |
+          printf '%s\n' '.siton-builder/' '.siton-review1/' '.siton-review-prompt.md' '.siton-review-1.txt' >> .git/info/exclude
 
       - name: Node 22
         uses: actions/setup-node@v4
@@ -512,8 +517,74 @@ jobs:
           if-no-files-found: error
           retention-days: 2
 
+
+  fix:
+    needs: [managed-build, review1]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: siton_cloud_agent
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d siton_cloud_agent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - name: Checkout immutable build base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.managed-build.outputs.head }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Exclude manager handoff files
+        shell: bash
+        run: |
+          printf '%s\n' '.siton-builder/' '.siton-review1/' '.siton-candidate/' '.siton-cloud-task.md' '.siton-fix-task.md' >> .git/info/exclude
+
+      - name: Node 22
+        if: needs.review1.outputs.needs_fix == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Clean dependency install
+        if: needs.review1.outputs.needs_fix == 'true'
+        run: npm ci
+
+      - name: Download builder handoff
+        uses: actions/download-artifact@v4
+        with:
+          name: siton-builder-${{ github.run_id }}
+          path: .siton-builder
+
+      - name: Apply builder candidate on fresh fix runner
+        env:
+          BRANCH: ${{ needs.managed-build.outputs.branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git switch -c "$BRANCH"
+          git -c core.hooksPath=/dev/null apply --index --binary .siton-builder/builder.patch
+          git diff --check
+
+      - name: Download first-review evidence
+        if: needs.review1.outputs.needs_fix == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: siton-review1-${{ github.run_id }}
+          path: .siton-review1
+
       - name: Rebuild task packet for one bounded fix pass
-        if: steps.review1.outputs.needs_fix == 'true'
+        if: needs.review1.outputs.needs_fix == 'true'
         env:
           SITON_TASK: ${{ inputs.task }}
           SITON_SCOPE: ${{ inputs.scope }}
@@ -528,13 +599,13 @@ jobs:
           node - <<'NODE'
           const fs=require('node:fs');
           const packet=fs.readFileSync('.siton-cloud-task.md','utf8');
-          const review=fs.readFileSync('.siton-review-1.txt','utf8');
+          const review=fs.readFileSync('.siton-review1/review.txt','utf8');
           fs.writeFileSync('.siton-fix-task.md',packet+'\n\n# REVIEW FINDINGS\n'+review+'\n\nFix only valid findings required for the original task. Do not broaden scope. Do not commit, push, merge, open a PR, or edit PROJECT_STATUS.md.\n');
           NODE
 
       - name: Claude bounded fix pass
         id: claude_fix
-        if: steps.review1.outputs.needs_fix == 'true' && needs.managed-build.outputs.builder == 'claude'
+        if: needs.review1.outputs.needs_fix == 'true' && needs.managed-build.outputs.builder == 'claude'
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ needs.managed-build.outputs.claude_auth == 'api' && secrets.ANTHROPIC_API_KEY || '' }}
@@ -551,7 +622,7 @@ jobs:
           show_full_output: false
 
       - name: Codex bounded fix pass
-        if: steps.review1.outputs.needs_fix == 'true' && needs.managed-build.outputs.builder == 'codex'
+        if: needs.review1.outputs.needs_fix == 'true' && needs.managed-build.outputs.builder == 'codex'
         uses: openai/codex-action@v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
@@ -562,7 +633,7 @@ jobs:
           safety-strategy: drop-sudo
 
       - name: Enforce fix-pass lifecycle and control-plane boundary
-        if: steps.review1.outputs.needs_fix == 'true'
+        if: needs.review1.outputs.needs_fix == 'true'
         env:
           EXPECTED_BRANCH: ${{ needs.managed-build.outputs.branch }}
           EXPECTED_HEAD: ${{ needs.managed-build.outputs.head }}
@@ -578,12 +649,12 @@ jobs:
           fi
 
       - name: Re-verify after bounded fix
-        if: steps.review1.outputs.needs_fix == 'true'
+        if: needs.review1.outputs.needs_fix == 'true'
         run: |
           git diff --check
           node scripts/siton_verify.cjs
 
-      - name: Export reviewed candidate for fresh final review/finalization
+      - name: Export candidate without lifecycle credentials
         env:
           EXPECTED_HEAD: ${{ needs.managed-build.outputs.head }}
           CLAUDE_FIX_EXECUTION: ${{ steps.claude_fix.outputs.execution_file }}
@@ -608,8 +679,8 @@ jobs:
           retention-days: 2
 
   review2:
-    needs: [managed-build, review-and-fix]
-    if: needs.review-and-fix.outputs.needs_fix == 'true'
+    needs: [managed-build, review1, fix]
+    if: needs.review1.outputs.needs_fix == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     outputs:
@@ -622,6 +693,11 @@ jobs:
           ref: ${{ needs.managed-build.outputs.head }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Exclude manager handoff files
+        shell: bash
+        run: |
+          printf '%s\n' '.siton-candidate/' '.siton-review2/' '.siton-review-prompt.md' '.siton-review-2.txt' >> .git/info/exclude
 
       - name: Node 22
         uses: actions/setup-node@v4
@@ -749,8 +825,8 @@ jobs:
           retention-days: 2
 
   finalize:
-    needs: [managed-build, review-and-fix, review2]
-    if: always() && needs.managed-build.result == 'success' && needs.review-and-fix.result == 'success' && (needs.review2.result == 'success' || needs.review2.result == 'skipped')
+    needs: [managed-build, review1, fix, review2]
+    if: always() && needs.managed-build.result == 'success' && needs.review1.result == 'success' && (needs.review2.result == 'success' || needs.review2.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     outputs:
@@ -763,6 +839,11 @@ jobs:
           ref: ${{ needs.managed-build.outputs.head }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Exclude manager handoff files
+        shell: bash
+        run: |
+          printf '%s\n' '.siton-builder/' '.siton-candidate/' '.siton-review1/' '.siton-review2/' >> .git/info/exclude
 
       - name: Node 22
         uses: actions/setup-node@v4
@@ -792,7 +873,7 @@ jobs:
           path: .siton-review1
 
       - name: Download second-review evidence
-        if: needs.review-and-fix.outputs.needs_fix == 'true'
+        if: needs.review1.outputs.needs_fix == 'true'
         uses: actions/download-artifact@v4
         with:
           name: siton-review2-${{ github.run_id }}
@@ -811,8 +892,8 @@ jobs:
       - name: Select final review verdict
         id: final_review
         env:
-          NEEDED_FIX: ${{ needs.review-and-fix.outputs.needs_fix }}
-          REVIEW1: ${{ needs.review-and-fix.outputs.verdict }}
+          NEEDED_FIX: ${{ needs.review1.outputs.needs_fix }}
+          REVIEW1: ${{ needs.review1.outputs.verdict }}
           REVIEW2: ${{ needs.review2.outputs.verdict }}
         shell: bash
         run: |
@@ -969,7 +1050,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.SITON_AGENT_GITHUB_TOKEN }}
           PR_URL: ${{ steps.pr.outputs.url }}
-          NEEDED_FIX: ${{ needs.review-and-fix.outputs.needs_fix }}
+          NEEDED_FIX: ${{ needs.review1.outputs.needs_fix }}
         shell: bash
         run: |
           review_file=.siton-review1/review.txt
@@ -1000,7 +1081,7 @@ jobs:
           SITON_APEX_REASON: ${{ needs.managed-build.outputs.apex_reason }}
           SITON_BUILDER: ${{ needs.managed-build.outputs.builder }}
           SITON_REVIEWER: ${{ needs.managed-build.outputs.reviewer }}
-          SITON_FIX_PASSES: ${{ needs.review-and-fix.outputs.needs_fix == 'true' && '1' || '0' }}
+          SITON_FIX_PASSES: ${{ needs.review1.outputs.needs_fix == 'true' && '1' || '0' }}
           SITON_VERIFICATION: ${{ job.status }}
           SITON_REVIEW_VERDICT: ${{ steps.final_review.outputs.verdict }}
           SITON_PR_URL: ${{ steps.pr.outputs.url }}
@@ -1042,7 +1123,7 @@ jobs:
           gh issue comment "$issue_number" --body-file /tmp/cloud-issue-result.md
 
   report-failure:
-    needs: [managed-build, review-and-fix, review2, finalize]
+    needs: [managed-build, review1, fix, review2, finalize]
     if: always() && needs.finalize.result != 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -1052,7 +1133,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SITON_TASK: ${{ inputs.task }}
           BUILD_RESULT: ${{ needs.managed-build.result }}
-          REVIEW1_RESULT: ${{ needs.review-and-fix.result }}
+          REVIEW1_RESULT: ${{ needs.review1.result }}
           REVIEW2_RESULT: ${{ needs.review2.result }}
           FINALIZE_RESULT: ${{ needs.finalize.result }}
         shell: bash
