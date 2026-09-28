@@ -155,6 +155,14 @@ test("cloud builder, reviewer, fix pass and lifecycle authority are isolated on 
 
   assert.doesNotMatch(build, /review pass 1|review pass 2/i);
   assert.doesNotMatch(build, /GH_TOKEN:\s*\$\{\{\s*secrets\.SITON_AGENT_GITHUB_TOKEN\s*\}\}/);
+  assert.match(build, /permissions:\n      contents: read/);
+  assert.doesNotMatch(build, /issues: write|contents: write/);
+  assert.match(review1, /permissions:\n      contents: read/);
+  assert.doesNotMatch(review1, /issues: write|contents: write/);
+  assert.match(fix, /permissions:\n      contents: read/);
+  assert.doesNotMatch(fix, /issues: write|contents: write/);
+  assert.match(review2, /permissions:\n      contents: read/);
+  assert.doesNotMatch(review2, /issues: write|contents: write/);
   assert.match(review1, /Claude review pass 1/);
   assert.doesNotMatch(review1, /bounded fix pass/i);
   assert.match(fix, /Claude bounded fix pass/);
