@@ -7905,6 +7905,13 @@ export function registerFrontendExperience(
         req.log?.warn?.({ security_event: "admin.team.bind_unverified", pg_code: String(error?.code || ""), request_id: String(req.id || "") }, "admin_team_bind_unverified");
         return reply.code(503).send({ ok: false, error: "admin_provisioning_failed" });
       }
+      if (bound) {
+        // bound to a DIFFERENT admin row (never expected: the id was just
+        // minted) — never delete an Auth user that a committed row points at
+        req.log?.warn?.({ security_event: "admin.team.bound_elsewhere", target_admin_user_id: bound.admin_user_id, request_id: String(req.id || "") }, "admin_team_bound_elsewhere");
+        if (error?.code === "23505") return reply.code(409).send({ ok: false, error: "admin_username_taken" });
+        return reply.code(503).send({ ok: false, error: "admin_provisioning_failed" });
+      }
       // The Auth user exists and its binding is confirmed absent — undo it so
       // a half-created admin can never linger (it would hold no authority anyway).
       const rolledBack = await rollbackAdminAuthUser(provisioner, username, created.auth_user_id);
