@@ -1,0 +1,300 @@
+name: Siton Cloud Agent Review
+
+# One read-only review pass of a cloud-managed task patch, called by
+# cloud-agent-manager.yml (pass 1, and pass 2 after the single bounded fix).
+#
+# It runs as its own job on a fresh GitHub-hosted runner, so nothing a builder
+# did on the build or fix runner can reach it: no poisoned GITHUB_PATH or
+# GITHUB_ENV, tool cache, system binaries, action code or background process.
+# The job starts from a clean checkout of the task base on canonical master.
+# It copies every control script it will invoke, and the Claude guard
+# settings, into $RUNNER_TEMP/control BEFORE the patch is applied. After that
+# point it invokes only those copies, never a script from the patched tree,
+# and it installs no dependencies. The caller passes only the credential of
+# the selected reviewer provider (conditional secret mapping), and the job
+# token is read-only.
+on:
+  workflow_call:
+    inputs:
+      pass:
+        description: "Review pass: 1, or 2 after the bounded fix"
+        required: true
+        type: string
+      patch_artifact:
+        description: "Artifact holding siton-managed.patch"
+        required: true
+        type: string
+      base_sha:
+        description: "Canonical master commit the patch applies to (from the route job)"
+        required: true
+        type: string
+      builder:
+        required: true
+        type: string
+      reviewer:
+        required: true
+        type: string
+      claude_auth:
+        required: false
+        type: string
+        default: none
+      claude_reviewer_model_args:
+        required: false
+        type: string
+        default: ""
+      codex_model:
+        required: false
+        type: string
+        default: ""
+      reviewer_effort:
+        required: false
+        type: string
+        default: medium
+      task:
+        required: true
+        type: string
+      scope:
+        required: false
+        type: string
+        default: ""
+      do_not_touch:
+        required: false
+        type: string
+        default: ""
+    secrets:
+      openai_api_key:
+        required: false
+      anthropic_api_key:
+        required: false
+      claude_code_oauth_token:
+        required: false
+    outputs:
+      verdict:
+        description: "PASS, CHANGES_REQUIRED or INVALID"
+        value: ${{ jobs.review.outputs.verdict }}
+      needs_fix:
+        value: ${{ jobs.review.outputs.needs_fix }}
+      patch_sha256:
+        description: "sha256 of the exact patch bytes this pass reviewed"
+        value: ${{ jobs.review.outputs.patch_sha256 }}
+      review_sha256:
+        description: "sha256 of the review text this pass produced"
+        value: ${{ jobs.review.outputs.review_sha256 }}
+
+permissions:
+  contents: read
+
+env:
+  CI: "true"
+  CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
+
+jobs:
+  review:
+    name: Read-only review (pass ${{ inputs.pass }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      verdict: ${{ steps.verdict.outputs.verdict }}
+      needs_fix: ${{ steps.verdict.outputs.needs_fix }}
+      patch_sha256: ${{ steps.apply.outputs.patch_sha256 }}
+      review_sha256: ${{ steps.verdict.outputs.review_sha256 }}
+    steps:
+      - name: Validate review inputs
+        env:
+          PASS: ${{ inputs.pass }}
+          PATCH_ARTIFACT: ${{ inputs.patch_artifact }}
+          BASE_SHA: ${{ inputs.base_sha }}
+          REVIEWER: ${{ inputs.reviewer }}
+          CLAUDE_AUTH: ${{ inputs.claude_auth }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$PASS" in 1|2) ;; *) echo "invalid review pass: $PASS" >&2; exit 1 ;; esac
+          test "$PATCH_ARTIFACT" = "siton-patch-$PASS" || { echo "pass $PASS must review siton-patch-$PASS" >&2; exit 1; }
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "invalid base commit" >&2; exit 1; }
+          case "$REVIEWER" in
+            codex) ;;
+            claude) case "$CLAUDE_AUTH" in api|oauth) ;; *) echo "Claude reviewer without a Claude credential" >&2; exit 1 ;; esac ;;
+            *) echo "invalid reviewer: $REVIEWER" >&2; exit 1 ;;
+          esac
+
+      - name: Checkout canonical master at the task base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.base_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Everything this job runs after the patch is applied comes from here.
+      # The read-only guard is loaded through `--settings` (enforced regardless
+      # of folder trust; frontmatter hooks are not) and `--setting-sources=`
+      # loads no user, project or local settings, so a patch that adds
+      # `.claude/settings*.json` with `disableAllHooks` cannot switch it off.
+      - name: Copy control scripts before the patch
+        id: control
+        shell: bash
+        run: |
+          set -euo pipefail
+          CONTROL="$RUNNER_TEMP/control"
+          rm -rf "$CONTROL"
+          mkdir -p "$CONTROL"
+          cp scripts/cloud_agent_manager.cjs scripts/agent_readonly_bash_guard.cjs scripts/agent_router.cjs scripts/agent_model_tiers.cjs "$CONTROL/"
+          node -e 'const [guard, out] = process.argv.slice(1); require("node:fs").writeFileSync(out, JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: `"${process.execPath}" "${guard}"` }] }] } }));' "$CONTROL/agent_readonly_bash_guard.cjs" "$CONTROL/settings.json"
+          # Fail-open self-test: the guard, and the exact hook command the
+          # settings file registers, must both refuse a writing git command.
+          echo '{"tool_input":{"command":"git diff --output=x"}}' | node "$CONTROL/agent_readonly_bash_guard.cjs" && { echo "read-only guard failed open" >&2; exit 1; } || test "$?" = 2
+          hook_command=$(node -e 'console.log(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).hooks.PreToolUse[0].hooks[0].command)' "$CONTROL/settings.json")
+          echo '{"tool_input":{"command":"git diff --output=x"}}' | bash -c "$hook_command" && { echo "read-only guard settings failed open" >&2; exit 1; } || test "$?" = 2
+          (cd "$CONTROL" && sha256sum -- *.cjs settings.json > SHA256SUMS)
+          chmod -R a-w "$CONTROL"
+          echo "manifest_sha256=$(sha256sum "$CONTROL/SHA256SUMS" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Download task patch
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.patch_artifact }}
+          path: ${{ runner.temp }}/siton-patch
+
+      - name: Apply task patch and enforce control-plane boundary
+        id: apply
+        env:
+          BASE_SHA: ${{ inputs.base_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CONTROL="$RUNNER_TEMP/control"
+          safe_git() { git -c core.hooksPath=/dev/null -c core.fsmonitor=false -c diff.external= "$@"; }
+          patch="$RUNNER_TEMP/siton-patch/siton-managed.patch"
+          { test -f "$patch" && test ! -L "$patch" && test -s "$patch"; } || { echo "task patch missing or not a regular file" >&2; exit 1; }
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          echo "patch_sha256=$(sha256sum "$patch" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          safe_git apply --index --binary "$patch"
+          safe_git status --porcelain=v1 -z --untracked-files=all --no-renames | node "$CONTROL/cloud_agent_manager.cjs" boundary
+          if [ -z "$(safe_git status --porcelain --untracked-files=all)" ]; then
+            echo "Task patch produced no repository changes." >&2
+            exit 1
+          fi
+
+      - name: Prepare read-only review
+        env:
+          SITON_TASK: ${{ inputs.task }}
+          SITON_SCOPE: ${{ inputs.scope }}
+          SITON_DO_NOT_TOUCH: ${{ inputs.do_not_touch }}
+          SITON_TASK_SOURCE: ${{ format('workflow_dispatch run {0}', github.run_id) }}
+          SITON_BUILDER: ${{ inputs.builder }}
+          SITON_REVIEWER: ${{ inputs.reviewer }}
+          REVIEW_BUILDER: ${{ inputs.builder }}
+          REVIEW_REVIEWER: ${{ inputs.reviewer }}
+          REVIEW_BASE_REF: HEAD
+        shell: bash
+        run: |
+          set -euo pipefail
+          CONTROL="$RUNNER_TEMP/control"
+          safe_git() { git -c core.hooksPath=/dev/null -c core.fsmonitor=false -c diff.external= "$@"; }
+          printf '%s\n' '.siton-cloud-task.md' '.siton-review-prompt.md' '.siton-review-1.txt' '.siton-review-2.txt' >> .git/info/exclude
+          node "$CONTROL/cloud_agent_manager.cjs" packet .siton-cloud-task.md
+          node "$CONTROL/cloud_agent_manager.cjs" review-prompt .siton-review-prompt.md
+          safe_git diff --binary --no-ext-diff --no-textconv HEAD > "$RUNNER_TEMP/siton-review-before.diff"
+          safe_git status --porcelain=v1 --untracked-files=all > "$RUNNER_TEMP/siton-review-before.status"
+
+      - name: Codex review
+        id: codex_review
+        if: inputs.reviewer == 'codex'
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.openai_api_key }}
+          permission-profile: ":read-only"
+          prompt-file: .siton-review-prompt.md
+          output-file: .siton-review-${{ inputs.pass }}.txt
+          model: ${{ inputs.codex_model }}
+          effort: ${{ inputs.reviewer_effort }}
+          safety-strategy: drop-sudo
+
+      - name: Claude review
+        id: claude_review
+        if: inputs.reviewer == 'claude'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ inputs.claude_auth == 'api' && secrets.anthropic_api_key || '' }}
+          claude_code_oauth_token: ${{ inputs.claude_auth == 'oauth' && secrets.claude_code_oauth_token || '' }}
+          github_token: ${{ github.token }}
+          prompt: ${{ inputs.pass == '2' && 'Re-read .siton-review-prompt.md and review the current diff after the bounded fix pass. Return the required verdict marker. Do not edit any repository file.' || 'Read .siton-review-prompt.md and perform the review exactly as instructed. This is read-only. Do not edit any repository file.' }}
+          claude_args: >-
+            ${{ inputs.claude_reviewer_model_args }}
+            --setting-sources=
+            --settings ${{ runner.temp }}/control/settings.json
+            --max-turns 12
+            --allowedTools Read Grep Glob "Bash(git diff:*)" "Bash(git status:*)" "Bash(git log:*)" "Bash(git show:*)"
+            --disallowedTools Write Edit MultiEdit NotebookEdit WebSearch WebFetch
+          show_full_output: false
+
+      - name: Verify control copies are unchanged
+        env:
+          MANIFEST_SHA256: ${{ steps.control.outputs.manifest_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/control"
+          echo "$MANIFEST_SHA256  SHA256SUMS" | sha256sum -c --quiet -
+          sha256sum -c --quiet SHA256SUMS
+
+      - name: Extract Claude review
+        if: inputs.reviewer == 'claude'
+        env:
+          CLAUDE_EXECUTION_FILE: ${{ steps.claude_review.outputs.execution_file }}
+          PASS: ${{ inputs.pass }}
+        shell: bash
+        run: node "$RUNNER_TEMP/control/cloud_agent_manager.cjs" extract-claude "$CLAUDE_EXECUTION_FILE" ".siton-review-$PASS.txt"
+
+      - name: Enforce reviewer read-only contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          safe_git() { git -c core.hooksPath=/dev/null -c core.fsmonitor=false -c diff.external= "$@"; }
+          safe_git diff --binary --no-ext-diff --no-textconv HEAD > "$RUNNER_TEMP/siton-review-after.diff"
+          safe_git status --porcelain=v1 --untracked-files=all > "$RUNNER_TEMP/siton-review-after.status"
+          cmp "$RUNNER_TEMP/siton-review-before.diff" "$RUNNER_TEMP/siton-review-after.diff"
+          cmp "$RUNNER_TEMP/siton-review-before.status" "$RUNNER_TEMP/siton-review-after.status"
+
+      - name: Parse review verdict
+        id: verdict
+        env:
+          PASS: ${{ inputs.pass }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          review_file=".siton-review-$PASS.txt"
+          { test -f "$review_file" && test ! -L "$review_file"; } || { echo "reviewer produced no review text" >&2; exit 1; }
+          node "$RUNNER_TEMP/control/cloud_agent_manager.cjs" review "$review_file"
+          echo "review_sha256=$(sha256sum "$review_file" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Collect review evidence
+        if: always()
+        env:
+          PASS: ${{ inputs.pass }}
+          CLAUDE_EXECUTION_FILE: ${{ steps.claude_review.outputs.execution_file }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/siton-review-out"
+          rm -rf "$out"
+          mkdir -p "$out"
+          if [ -f ".siton-review-$PASS.txt" ] && [ ! -L ".siton-review-$PASS.txt" ]; then cp ".siton-review-$PASS.txt" "$out/review.txt"; fi
+          if [ -n "$CLAUDE_EXECUTION_FILE" ] && [ -f "$CLAUDE_EXECUTION_FILE" ]; then cp "$CLAUDE_EXECUTION_FILE" "$out/claude-execution.json"; fi
+
+      - name: Upload review evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: siton-review-${{ inputs.pass }}
+          path: ${{ runner.temp }}/siton-review-out
+          if-no-files-found: warn
+          retention-days: 14

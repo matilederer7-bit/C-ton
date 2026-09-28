@@ -116,31 +116,72 @@ test('read-only specialists fail closed: no Bash, and no reliance on frontmatter
   }
 });
 
-test('cloud Claude reviewers run under the guard, re-materialized from an immutable step output right before each review', () => {
-  const workflow = fs.readFileSync(path.join(root, '.github/workflows/cloud-agent-manager.yml'), 'utf8');
-  const pin = workflow.indexOf('- name: Pin read-only review guard');
-  const firstAgent = workflow.indexOf('uses: anthropics/claude-code-action@v1');
-  const codexAgent = workflow.indexOf('uses: openai/codex-action@v1');
-  assert.ok(pin > workflow.indexOf('- name: Checkout canonical master'));
-  assert.ok(pin > 0 && pin < firstAgent && pin < codexAgent, 'guard must be captured before any builder can modify the checkout');
-  assert.match(workflow, /echo "guard_b64=\$\(base64 -w0 scripts\/agent_readonly_bash_guard\.cjs\)" >> "\$GITHUB_OUTPUT"/);
+// The cloud Claude reviewer runs in its own job (cloud-agent-review.yml) on a
+// fresh runner. The guard it loads is the canonical-master copy taken into
+// $RUNNER_TEMP/control before the task patch is downloaded or applied, so
+// neither a builder (different runner) nor the patch can replace it.
+test('cloud Claude reviewers run under the canonical-master guard, copied before the patch, with no other settings source', () => {
+  const workflow = fs.readFileSync(path.join(root, '.github/workflows/cloud-agent-review.yml'), 'utf8');
+  const manager = fs.readFileSync(path.join(root, '.github/workflows/cloud-agent-manager.yml'), 'utf8');
   const steps = workflow.split(/\n      - name: /);
-  for (const pass of [1, 2]) {
-    const index = steps.findIndex((step) => step.startsWith(`Claude review pass ${pass}`));
-    assert.ok(index > 0, `review pass ${pass}`);
-    const materialize = steps[index - 1];
-    assert.ok(materialize.startsWith(`Materialize read-only review guard (pass ${pass})`), 'guard must be re-materialized immediately before the reviewer');
-    assert.match(materialize, /GUARD_B64: \$\{\{ steps\.review_guard\.outputs\.guard_b64 \}\}/);
-    assert.match(materialize, /sha256sum -c --quiet -/);
-    assert.match(materialize, /rm -rf "\$dir"/);
-    assert.match(steps[index], /--settings \$\{\{ runner\.temp \}\}\/siton-review-guard\/settings\.json/);
-    // Without this, a builder-written .claude/settings*.json or
-    // ~/.claude/settings.json with disableAllHooks switches the guard off
-    // (proven with Claude Code 2.1.284).
-    assert.match(steps[index], /\n\s+--setting-sources=\n\s+--settings /);
-    assert.match(steps[index], /--disallowedTools Write Edit MultiEdit NotebookEdit/);
-    const condition = (text) => /\n        if: (.*)\n/.exec(text)[1];
-    assert.equal(condition(materialize), condition(steps[index]));
+  const index = (name) => steps.findIndex((step) => step.startsWith(`${name}\n`));
+  const copy = index('Copy control scripts before the patch');
+  const claude = index('Claude review');
+  assert.ok(copy > index('Checkout canonical master at the task base') && copy > index('Node 22'));
+  assert.ok(copy < index('Download task patch') && copy < index('Apply task patch and enforce control-plane boundary'), 'guard must be copied before the patch reaches the runner');
+  assert.ok(copy < claude && copy < index('Codex review'));
+  assert.match(steps[copy], /cp [^\n]*scripts\/agent_readonly_bash_guard\.cjs[^\n]* "\$CONTROL\/"/);
+  assert.match(steps[copy], /rm -rf "\$CONTROL"/);
+  // Fail-open self-tests: the guard itself, and the exact hook command the
+  // settings file registers, must both refuse a writing git command.
+  assert.match(steps[copy], /echo '\{"tool_input":\{"command":"git diff --output=x"\}\}' \| node "\$CONTROL\/agent_readonly_bash_guard\.cjs" && \{ echo "read-only guard failed open" >&2; exit 1; \} \|\| test "\$\?" = 2/);
+  assert.match(steps[copy], /\| bash -c "\$hook_command" && \{ echo "read-only guard settings failed open" >&2; exit 1; \} \|\| test "\$\?" = 2/);
+  // The copies are pinned by digest in a step output and re-checked after the
+  // reviewer ran, before its output is extracted.
+  assert.match(steps[copy], /echo "manifest_sha256=\$\(sha256sum "\$CONTROL\/SHA256SUMS" \| cut -d' ' -f1\)" >> "\$GITHUB_OUTPUT"/);
+  const verify = index('Verify control copies are unchanged');
+  assert.ok(verify > claude && verify < index('Extract Claude review'));
+  assert.match(steps[verify], /sha256sum -c --quiet -/);
+  // The Claude review loads only that settings file.
+  assert.match(steps[claude], /\n        if: inputs\.reviewer == 'claude'\n/);
+  assert.match(steps[claude], /--settings \$\{\{ runner\.temp \}\}\/control\/settings\.json/);
+  // Without this, a patch-written .claude/settings*.json or
+  // ~/.claude/settings.json with disableAllHooks switches the guard off
+  // (proven with Claude Code 2.1.284).
+  assert.match(steps[claude], /\n\s+--setting-sources=\n\s+--settings /);
+  assert.match(steps[claude], /--disallowedTools Write Edit MultiEdit NotebookEdit/);
+  // No Claude reviewer is left in the manager job chain, where builders run.
+  assert.doesNotMatch(manager, /--setting-sources=|--disallowedTools Write Edit|siton-review-guard/);
+});
+
+// Run the review job's real control-copy step against this checkout and prove
+// the settings it writes make Claude Code call the master guard, which blocks.
+test('the review job control-copy step writes settings whose hook blocks writes and allows reads', { skip: process.platform === 'win32' }, () => {
+  const os = require('node:os');
+  const workflow = fs.readFileSync(path.join(root, '.github/workflows/cloud-agent-review.yml'), 'utf8');
+  const step = workflow.split(/\n      - name: /).find((text) => text.startsWith('Copy control scripts before the patch\n'));
+  const script = step.slice(step.indexOf('run: |\n') + 'run: |\n'.length).split('\n').map((line) => line.replace(/^ {10}/, '')).join('\n');
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'siton-control-'));
+  const output = path.join(temp, 'github-output');
+  try {
+    const run = spawnSync('bash', ['-c', script], { cwd: root, encoding: 'utf8', env: { ...process.env, RUNNER_TEMP: temp, GITHUB_OUTPUT: output } });
+    assert.equal(run.status, 0, run.stderr);
+    const control = path.join(temp, 'control');
+    const settings = JSON.parse(fs.readFileSync(path.join(control, 'settings.json'), 'utf8'));
+    const hook = settings.hooks.PreToolUse[0];
+    assert.equal(hook.matcher, 'Bash');
+    assert.equal(hook.hooks[0].command, `"${process.execPath}" "${path.join(control, 'agent_readonly_bash_guard.cjs')}"`);
+    const call = (command) => spawnSync('bash', ['-c', hook.hooks[0].command], { input: JSON.stringify({ tool_input: { command } }), encoding: 'utf8' });
+    assert.equal(call('git diff --output=x').status, 2);
+    assert.equal(call('git push').status, 2);
+    assert.equal(call('git diff HEAD').status, 0);
+    assert.equal(fs.readFileSync(path.join(control, 'agent_readonly_bash_guard.cjs'), 'utf8'), fs.readFileSync(guard, 'utf8'));
+    assert.match(fs.readFileSync(output, 'utf8'), /^manifest_sha256=[0-9a-f]{64}$/m);
+    const sums = spawnSync('sha256sum', ['-c', '--quiet', 'SHA256SUMS'], { cwd: control, encoding: 'utf8' });
+    assert.equal(sums.status, 0, sums.stderr);
+  } finally {
+    spawnSync('chmod', ['-R', 'u+w', temp]);
+    fs.rmSync(temp, { recursive: true, force: true });
   }
 });
 

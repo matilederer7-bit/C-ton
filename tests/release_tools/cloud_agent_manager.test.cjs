@@ -5,16 +5,48 @@ const os = require("node:os");
 const path = require("node:path");
 
 const {
+  CONTROL_SCRIPTS,
+  PROTECTED_PATH_PATTERN,
   buildReviewerPrompt,
   buildTaskPacket,
   chooseRoles,
   parseVerdict,
+  protectedPaths,
   slug,
+  statusPaths,
   updateCloudStatus,
 } = require("../../scripts/cloud_agent_manager.cjs");
 
 const root = path.resolve(__dirname, "../..");
 const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
+const MANAGER = ".github/workflows/cloud-agent-manager.yml";
+const REVIEW = ".github/workflows/cloud-agent-review.yml";
+
+// Top-level jobs of a workflow, keyed by id, each with the text of its block.
+function jobsOf(workflow) {
+  const body = workflow.slice(workflow.indexOf("\njobs:\n") + "\njobs:\n".length);
+  const jobs = {};
+  const header = /^  ([A-Za-z0-9_-]+):\n/gm;
+  const marks = [...body.matchAll(header)];
+  marks.forEach((match, index) => {
+    const end = index + 1 < marks.length ? marks[index + 1].index : body.length;
+    jobs[match[1]] = body.slice(match.index, end);
+  });
+  return jobs;
+}
+
+// Steps of a job block, each starting at its `- name:` line.
+function stepsOf(job) {
+  return job.split(/\n      - name: /).slice(1).map((step) => `- name: ${step}`);
+}
+
+const stepNamed = (job, name) => {
+  const found = stepsOf(job).find((step) => step.startsWith(`- name: ${name}\n`));
+  assert.ok(found, `step missing: ${name}`);
+  return found;
+};
+
+const AGENT_ACTION = /uses: (anthropics\/claude-code-action|openai\/codex-action)@/;
 
 test("cloud role selection prefers Claude builder and independent Codex review when both are available", () => {
   assert.deepEqual(
@@ -114,23 +146,46 @@ test("cloud workflow is owner-gated at intake, serialized, lifecycle-guarded and
   assert.match(intake, /cloud-agent-manager\.yml\/dispatches/);
   assert.match(workflow, /group: siton-cloud-agent-manager-v1/);
   assert.match(workflow, /cancel-in-progress: false/);
-  // issues: write is the minimum that lets a blocked run still report to the
-  // phone; contents stays read so the default token can never push.
-  assert.match(workflow, /permissions:\n  contents: read\n  pull-requests: read\n  issues: write/);
-  assert.doesNotMatch(workflow, /^  contents: write/m);
-  assert.match(workflow, /persist-credentials: false/);
+  // Least privilege per job. The default token is read-only everywhere;
+  // issues: write, the minimum that lets a blocked run still report to the
+  // phone, exists only in finalize, where no agent runs. contents stays read
+  // so the default token can never push.
+  assert.match(workflow, /\npermissions:\n  contents: read\n\n/);
+  const jobs = jobsOf(workflow);
+  assert.deepEqual(Object.keys(jobs), ["route", "build", "review-1", "fix", "review-2", "finalize"]);
+  for (const [id, job] of Object.entries(jobs)) {
+    const permissions = /\n    permissions:\n((?:      [a-z-]+: (?:read|write|none)\n)+)/.exec(job);
+    assert.ok(permissions, `job ${id} must declare its own permissions`);
+    const expected = id === "finalize"
+      ? "      contents: read\n      pull-requests: read\n      issues: write\n"
+      : id === "route" ? "      contents: read\n" : "      contents: read\n      pull-requests: read\n";
+    assert.equal(permissions[1], expected, `permissions of job ${id}`);
+  }
+  for (const text of [workflow, read(REVIEW)]) {
+    assert.doesNotMatch(text, /^\s+(contents|pull-requests|actions|id-token|packages|deployments|statuses|checks): write/m);
+    assert.doesNotMatch(text, /secrets: inherit/);
+    const checkouts = (text.match(/uses: actions\/checkout@v4/g) || []).length;
+    assert.ok(checkouts > 0);
+    assert.equal((text.match(/persist-credentials: false/g) || []).length, checkouts, "every checkout drops its credentials");
+  }
   assert.match(workflow, /SITON_AGENT_GITHUB_TOKEN/);
   assert.match(workflow, /SITON_AGENT_GITHUB_TOKEN is required/);
   assert.match(workflow, /gh auth setup-git/);
   assert.match(workflow, /CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"/);
   assert.match(workflow, /anthropics\/claude-code-action@v1/);
   assert.match(workflow, /openai\/codex-action@v1/);
-  assert.match(workflow, /permission-profile: ":read-only"/);
+  assert.match(read(REVIEW), /permission-profile: ":read-only"/);
+  assert.doesNotMatch(read(REVIEW), /permission-profile: ":workspace"/);
   assert.match(workflow, /Enforce builder lifecycle and control-plane boundary/);
   assert.match(workflow, /Builder committed or changed HEAD/);
   assert.match(workflow, /Enforce fix-pass lifecycle and control-plane boundary/);
-  assert.match(workflow, /\.github\/workflows\//);
-  assert.match(workflow, /PROJECT_STATUS\\\.md/);
+  // The in-job checks use exactly the pattern the control-copy `boundary`
+  // command enforces, and it still covers workflows and the status file.
+  const inline = [...workflow.matchAll(/\n\s+protected='([^'\n]+)'\n/g)].map((match) => match[1]);
+  assert.equal(inline.length, 2);
+  for (const pattern of inline) assert.equal(pattern, PROTECTED_PATH_PATTERN);
+  assert.match(PROTECTED_PATH_PATTERN, /\^\(\\\.github\//);
+  assert.match(PROTECTED_PATH_PATTERN, /PROJECT_STATUS\\\.md\$/);
   assert.match(workflow, /Canonical verification after build/);
   assert.match(workflow, /Re-verify after bounded fix/);
   assert.match(workflow, /This is the only automatic fix pass/);
@@ -156,6 +211,30 @@ test("manager records telemetry even when a managed run fails before PR creation
   assert.match(workflow, /SITON_VERIFICATION: \$\{\{ job\.status \}\}/);
   assert.match(workflow, /name: Upload agent-run telemetry\n        if: always\(\)/);
   assert.match(workflow, /if-no-files-found: warn/);
+  // Telemetry and the issue report live in finalize, which runs after any
+  // outcome of any earlier job, and fails itself (so job.status is failure)
+  // before any lifecycle step when an upstream job did not succeed.
+  const finalize = jobsOf(workflow).finalize;
+  assert.match(finalize, /\n    needs: \[route, build, review-1, fix, review-2\]\n/);
+  assert.match(finalize, /\n    if: always\(\) && github\.event_name == 'workflow_dispatch'\n/);
+  const steps = stepsOf(finalize);
+  const names = steps.map((step) => step.split("\n")[0].slice("- name: ".length));
+  const gate = names.indexOf("Require every upstream job");
+  assert.ok(gate > 0 && names.indexOf("Collect upstream job results") === gate - 1);
+  for (const name of ["Record agent-run telemetry", "Upload agent-run telemetry", "Report result to source issue", "Download agent execution records"]) {
+    assert.ok(names.indexOf(name) > gate, name);
+    assert.match(steps[names.indexOf(name)], /\n        if: always\(\)\n/, `${name} must run after an upstream failure`);
+  }
+  for (const name of ["Download final task patch", "Apply final reviewed patch and enforce control-plane boundary", "Update project status and final diff checks", "Commit and push managed branch", "Open Pull Request"]) {
+    const index = names.indexOf(name);
+    assert.ok(index > gate, `${name} must come after the upstream gate`);
+    assert.doesNotMatch(steps[index], /\n        if: always\(\)/, `${name} must not run after an upstream failure`);
+  }
+  const collect = stepNamed(finalize, "Collect upstream job results");
+  for (const job of ["route", "build", "review-1", "fix", "review-2"]) assert.match(collect, new RegExp(`\\$\\{\\{ needs\\.${job}\\.result \\}\\}`));
+  assert.match(collect, /\[ "\$REVIEW1" = success \] \|\| status=failure/);
+  assert.match(collect, /\{ \[ "\$FIX" = success \] && \[ "\$REVIEW2" = success \]; \} \|\| status=failure/);
+  assert.doesNotMatch(collect, /set -e/, "the collector must always publish its result");
 });
 
 test("cloud task branch slug helper is deterministic and bounded", () => {
@@ -168,8 +247,10 @@ test("engineering operating system has routing, parallel analysis and telemetry 
   const swarm = read(".github/workflows/cloud-analysis-swarm.yml");
   const operatingSystem = read("docs/ENGINEERING_OPERATING_SYSTEM.md");
   assert.match(workflow, /scripts\/agent_router\.cjs route/);
-  assert.match(workflow, /steps\.roles\.outputs\.builder_effort/);
-  assert.match(workflow, /steps\.roles\.outputs\.codex_model/);
+  assert.match(workflow, /effort: \$\{\{ needs\.route\.outputs\.builder_effort \}\}/);
+  assert.match(workflow, /model: \$\{\{ needs\.route\.outputs\.codex_model \}\}/);
+  assert.match(workflow, /builder_effort: \$\{\{ steps\.roles\.outputs\.builder_effort \}\}/);
+  assert.match(workflow, /codex_model: \$\{\{ steps\.roles\.outputs\.codex_model \}\}/);
   assert.match(workflow, /agent-run-metric\.json/);
   assert.match(workflow, /actions\/upload-artifact@v4/);
   assert.match(workflow, /Run required parallel analysis swarm/);
@@ -226,7 +307,9 @@ test('manager and swarm wire Apex end to end without raising all analyst tiers',
   assert.match(workflow, /SITON_ISSUE_BODY: \$\{\{ inputs\.task \}\}/);
   assert.match(workflow, /export SITON_MODEL_TIER="\$tier"/);
   assert.match(workflow, /SITON_CODEX_MODEL: \$\{\{ steps\.roles\.outputs\.codex_model \}\}/);
-  assert.match(workflow, /SITON_APEX_REASON: \$\{\{ steps\.roles\.outputs\.apex_reason \}\}/);
+  assert.match(workflow, /SITON_CODEX_MODEL: \$\{\{ needs\.route\.outputs\.codex_model \}\}/);
+  assert.match(workflow, /apex_reason: \$\{\{ steps\.roles\.outputs\.apex_reason \}\}/);
+  assert.match(workflow, /SITON_APEX_REASON: \$\{\{ needs\.route\.outputs\.apex_reason \}\}/);
   assert.match(workflow, /node scripts\/agent_model_access\.cjs/);
   assert.match(form, /label: Apex reason/);
   assert.match(form, /label: Apex evidence/);
@@ -244,6 +327,15 @@ test("a credential-blocked run still reaches the owner on the source issue", () 
   assert.match(workflow, /siton-credential-blocker\.md/);
   assert.match(workflow, /BLOCKER REQUIRES OWNER ACTION/);
   assert.match(workflow, /settings\/secrets\/actions/);
+  // The blocker text is recorded by a step that never fails, before the step
+  // that exits on the blocker, and reaches the finalize report as a route
+  // job output.
+  const route = jobsOf(workflow).route;
+  const names = stepsOf(route).map((step) => step.split("\n")[0]);
+  assert.ok(names.indexOf("- name: Record cloud credential state") < names.indexOf("- name: Resolve cloud credentials and roles"));
+  assert.doesNotMatch(stepNamed(route, "Record cloud credential state"), /exit 1/);
+  assert.match(route, /credential_state: \$\{\{ steps\.credentials\.outputs\.state_b64 \}\}/);
+  assert.match(stepNamed(jobsOf(workflow).finalize, "Report result to source issue"), /CREDENTIAL_STATE: \$\{\{ needs\.route\.outputs\.credential_state \}\}/);
   assert.match(intake, /permissions:\n  contents: read\n  issues: write\n  actions: write/);
   assert.match(intake, /Acknowledge on the source issue/);
   assert.match(intake, /gh issue comment/);
@@ -259,6 +351,11 @@ test("exactly one Claude credential is handed to claude-code-action", () => {
   for (const binding of oauthBindings) assert.match(binding, /claude_auth == 'oauth' && secrets\.CLAUDE_CODE_OAUTH_TOKEN \|\| ''/);
   assert.match(workflow, /claude_auth=api/);
   assert.match(workflow, /claude_auth=oauth/);
+  // The 4 manager bindings are the builder, the fix pass and the two review
+  // calls; the review job itself binds its passed-in credential the same way.
+  const review = read(REVIEW);
+  assert.deepEqual(review.match(/anthropic_api_key: [^\n]*/g), ["anthropic_api_key: ${{ inputs.claude_auth == 'api' && secrets.anthropic_api_key || '' }}"]);
+  assert.deepEqual(review.match(/claude_code_oauth_token: [^\n]*/g), ["claude_code_oauth_token: ${{ inputs.claude_auth == 'oauth' && secrets.claude_code_oauth_token || '' }}"]);
 });
 
 test("Claude builder can test and inspect but can never take the Git lifecycle", () => {
@@ -272,45 +369,290 @@ test("Claude builder can test and inspect but can never take the Git lifecycle",
   for (const forbidden of ["Bash(git commit", "Bash(git push", "Bash(gh:", "Bash(git checkout", "Bash(*)"]) {
     assert.ok(!builderArgs[0].includes(forbidden), `builder must not be granted ${forbidden}`);
   }
-  // Both Claude review passes stay read-only at the tool layer, not only by diff comparison.
-  const reviewerGuards = workflow.match(/--disallowedTools Write Edit MultiEdit NotebookEdit WebSearch WebFetch/g) || [];
-  assert.equal(reviewerGuards.length, 2);
+  // Both Claude review passes stay read-only at the tool layer, not only by
+  // diff comparison: they run the single Claude review step of the review
+  // workflow, called once per pass; no Claude reviewer lives in the manager.
+  const reviewerGuards = read(REVIEW).match(/--disallowedTools Write Edit MultiEdit NotebookEdit WebSearch WebFetch/g) || [];
+  assert.equal(reviewerGuards.length, 1);
+  assert.equal((workflow.match(/uses: \.\/\.github\/workflows\/cloud-agent-review\.yml/g) || []).length, 2);
+  assert.doesNotMatch(workflow, /--disallowedTools Write Edit/);
 });
 
-// Black-Sky E3: the builder can write the agent tree's .git/hooks, .git/config
-// and .gitattributes filters, so the lifecycle token must never meet a git
-// command run in that tree.
-test("managed commit/push runs hook-free in a pristine control checkout; the agent tree never sees the token", () => {
-  const workflow = read(".github/workflows/cloud-agent-manager.yml");
-  const stepOf = (name) => {
-    const start = workflow.indexOf(`- name: ${name}\n`);
-    assert.ok(start > -1, `step missing: ${name}`);
-    const next = workflow.indexOf("\n      - name: ", start + 1);
-    return workflow.slice(start, next === -1 ? undefined : next);
-  };
-  const exportStep = stepOf("Export managed diff without credentials");
-  assert.doesNotMatch(exportStep, /GH_TOKEN|SITON_AGENT_GITHUB_TOKEN|secrets\./, "diff export must run without any credential");
-  assert.match(exportStep, /core\.hooksPath=\/dev\/null/);
-  assert.match(exportStep, /core\.fsmonitor=false/);
-  assert.match(exportStep, /--no-ext-diff --no-textconv/);
-  const control = stepOf("Pristine control checkout");
-  assert.match(control, /actions\/checkout@v4/);
-  assert.match(control, /ref: \$\{\{ steps\.task\.outputs\.head \}\}/);
-  assert.match(control, /path: \.siton-control/);
-  assert.match(control, /persist-credentials: false/);
-  const commit = stepOf("Commit and push managed branch");
-  assert.match(commit, /working-directory: \.siton-control/);
+
+const firstLine = (step) => step.split("\n")[0];
+
+// Black-Sky E3: a builder can write its tree's .git/hooks, .git/config and
+// .gitattributes filters, and on its own runner much more (sudo, GITHUB_PATH,
+// tool cache). The lifecycle token therefore never exists on a runner where an
+// agent ran: it is used only in finalize, on a fresh runner, after the patch
+// was applied there as data. Commit and push stay hook-free anyway.
+test("the lifecycle token exists only in finalize, where no agent runs, and commit/push stay hook-free", () => {
+  const workflow = read(MANAGER);
+  const jobs = jobsOf(workflow);
+  for (const [id, job] of Object.entries(jobs)) {
+    const runsAgent = AGENT_ACTION.test(job) || /uses: \.\/\.github\/workflows\/cloud-agent-review\.yml/.test(job);
+    if (runsAgent) assert.doesNotMatch(job, /SITON_AGENT_GITHUB_TOKEN/, `job ${id} runs an agent and must never receive the lifecycle token`);
+  }
+  assert.doesNotMatch(read(REVIEW), /SITON_AGENT_GITHUB_TOKEN/);
+  assert.deepEqual(Object.keys(jobs).filter((id) => /SITON_AGENT_GITHUB_TOKEN/.test(jobs[id])), ["route", "finalize"]);
+  // route only checks presence, in a step that runs no agent and no git.
+  const routeTokenSteps = stepsOf(jobs.route).filter((step) => /secrets\.SITON_AGENT_GITHUB_TOKEN/.test(step));
+  assert.deepEqual(routeTokenSteps.map(firstLine), ["- name: Record cloud credential state"]);
+  assert.doesNotMatch(jobs.route, AGENT_ACTION);
+
+  const finalize = jobs.finalize;
+  assert.doesNotMatch(finalize, AGENT_ACTION);
+  assert.doesNotMatch(finalize, /\bnpm\b|\bnpx\b/, "finalize installs and runs nothing from the task tree");
+  const checkout = stepNamed(finalize, "Checkout canonical master at the task base");
+  assert.match(checkout, /ref: \$\{\{ needs\.route\.outputs\.base_sha \|\| github\.sha \}\}/);
+  assert.match(checkout, /persist-credentials: false/);
+  const apply = stepNamed(finalize, "Apply final reviewed patch and enforce control-plane boundary");
+  assert.doesNotMatch(apply, /GH_TOKEN|SITON_AGENT_GITHUB_TOKEN|secrets\./, "the patch is applied without any credential");
+  assert.match(apply, /safe_git\(\) \{ git -c core\.hooksPath=\/dev\/null -c core\.fsmonitor=false -c diff\.external= "\$@"; \}/);
+  assert.match(apply, /safe_git apply --binary "\$patch"/);
+  const commit = stepNamed(finalize, "Commit and push managed branch");
+  assert.match(commit, /test "\$\(git rev-parse HEAD\)" = "\$BASE_SHA"/);
+  assert.match(commit, /git -c core\.hooksPath=\/dev\/null -c core\.fsmonitor=false add -A/);
   assert.match(commit, /git -c core\.hooksPath=\/dev\/null commit --no-verify/);
   assert.match(commit, /git -c core\.hooksPath=\/dev\/null push --no-verify/);
-  assert.match(commit, /git -c core\.hooksPath=\/dev\/null apply --index --binary/);
-  assert.ok(workflow.indexOf("- name: Export managed diff without credentials") < workflow.indexOf("- name: Pristine control checkout"));
-  assert.ok(workflow.indexOf("- name: Pristine control checkout") < workflow.indexOf("- name: Commit and push managed branch"));
-  // No step that carries the lifecycle token runs a bare `git commit`/`git add` in the agent tree.
-  const steps = workflow.split("\n      - name: ").slice(1);
-  for (const step of steps) {
+  const names = stepsOf(finalize).map(firstLine);
+  const firstTokenStep = stepsOf(finalize).findIndex((step) => /SITON_AGENT_GITHUB_TOKEN/.test(step) && !/if: always\(\)/.test(step));
+  assert.equal(names[firstTokenStep], "- name: Commit and push managed branch");
+  assert.ok(names.indexOf("- name: Apply final reviewed patch and enforce control-plane boundary") < firstTokenStep);
+  // No token-bearing step runs a git write verb without the hook-free prefix.
+  for (const step of stepsOf(finalize)) {
     if (!/SITON_AGENT_GITHUB_TOKEN/.test(step)) continue;
-    if (/working-directory: \.siton-control/.test(step)) continue;
-    assert.doesNotMatch(step, /^\s*git (add|commit|push|apply)\b/m, `token-bearing step runs git in the agent tree: ${step.split("\n")[0]}`);
+    assert.doesNotMatch(step, /^\s*git (add|commit|push|apply)\b/m, `token-bearing step runs hooked git: ${firstLine(step)}`);
+  }
+  // Builder runners export the patch as data, credential-free and hook-free.
+  for (const [id, name] of [["build", "Export task patch without credentials"], ["fix", "Export fixed patch without credentials"]]) {
+    const step = stepNamed(jobs[id], name);
+    assert.doesNotMatch(step, /GH_TOKEN|SITON_AGENT_GITHUB_TOKEN|secrets\./, `${name} must run without any credential`);
+    assert.match(step, /core\.hooksPath=\/dev\/null/);
+    assert.match(step, /core\.fsmonitor=false/);
+    assert.match(step, /--no-ext-diff --no-textconv/);
   }
   assert.match(workflow, /gh pr create --repo "\$GITHUB_REPOSITORY"/);
+});
+
+test("each Claude/Codex review runs in its own job on a fresh runner, separate from every builder job", () => {
+  const manager = read(MANAGER);
+  const jobs = jobsOf(manager);
+  const review = read(REVIEW);
+  assert.match(review, /\non:\n  workflow_call:\n/);
+  assert.doesNotMatch(review, /\n  (workflow_dispatch|push|pull_request|pull_request_target|issues|schedule):/);
+  const reviewJobs = jobsOf(review);
+  assert.deepEqual(Object.keys(reviewJobs), ["review"]);
+  assert.match(reviewJobs.review, /\n    runs-on: ubuntu-24\.04\n/);
+  const reviewAgents = stepsOf(reviewJobs.review).filter((step) => AGENT_ACTION.test(step));
+  assert.deepEqual(reviewAgents.map(firstLine), ["- name: Codex review", "- name: Claude review"]);
+  assert.match(reviewAgents[0], /\n        if: inputs\.reviewer == 'codex'\n/);
+  assert.match(reviewAgents[0], /permission-profile: ":read-only"/);
+  assert.match(reviewAgents[1], /\n        if: inputs\.reviewer == 'claude'\n/);
+  assert.match(reviewAgents[1], /--allowedTools Read Grep Glob "Bash\(git diff:\*\)" "Bash\(git status:\*\)" "Bash\(git log:\*\)" "Bash\(git show:\*\)"\n/);
+  assert.doesNotMatch(reviewJobs.review, /Bash\((node|npm|npx)|\bnpm (ci|install|run|test)\b|permission-profile: ":workspace"/);
+
+  // The only agents in the manager are the builder and the one fix pass.
+  const agentSteps = Object.fromEntries(Object.entries(jobs).map(([id, job]) => [id, stepsOf(job).filter((step) => AGENT_ACTION.test(step)).map(firstLine)]));
+  assert.deepEqual(agentSteps, {
+    route: [],
+    build: ["- name: Claude builder", "- name: Codex builder"],
+    "review-1": [],
+    fix: ["- name: Claude bounded fix pass", "- name: Codex bounded fix pass"],
+    "review-2": [],
+    finalize: [],
+  });
+  for (const id of ["build", "fix"]) {
+    assert.doesNotMatch(jobs[id], /permission-profile: ":read-only"|--setting-sources=|cloud_agent_manager\.cjs"? review-prompt|claude_reviewer_model/, `${id} must not host a review`);
+    assert.match(jobs[id], /\n    services:\n      postgres:\n/, `${id} runs canonical verification on Postgres`);
+    assert.match(jobs[id], /node scripts\/siton_verify\.cjs/);
+  }
+  for (const id of ["route", "build", "fix", "finalize"]) assert.match(jobs[id], /\n    runs-on: ubuntu-24\.04\n/, id);
+  for (const id of ["review-1", "review-2"]) {
+    assert.match(jobs[id], /\n    uses: \.\/\.github\/workflows\/cloud-agent-review\.yml\n/);
+    assert.doesNotMatch(jobs[id], /\n    (runs-on|steps):/);
+  }
+  assert.match(jobs["review-1"], /\n    needs: \[route, build\]\n    if: needs\.route\.outputs\.reviewer != 'none'\n/);
+  assert.match(jobs["review-1"], /\n      pass: "1"\n      patch_artifact: siton-patch-1\n/);
+  // At most one bounded fix pass, gated on the first verdict, then re-reviewed.
+  assert.match(jobs.fix, /\n    needs: \[route, build, review-1\]\n    if: needs\.review-1\.outputs\.needs_fix == 'true'\n/);
+  assert.match(jobs["review-2"], /\n    needs: \[route, review-1, fix\]\n    if: needs\.review-1\.outputs\.needs_fix == 'true'\n/);
+  assert.match(jobs["review-2"], /\n      pass: "2"\n      patch_artifact: siton-patch-2\n/);
+  assert.equal((manager.match(/This is the only automatic fix pass/g) || []).length, 1);
+  assert.doesNotMatch(manager, /needs\.review-2\.outputs\.needs_fix == 'true'/, "no second fix pass");
+  // Routing values come from the route job, never from a job an agent ran in.
+  for (const id of ["build", "fix", "finalize"]) assert.doesNotMatch(jobs[id], /steps\.roles\.outputs/, id);
+  assert.doesNotMatch(manager, /needs\.(build|fix)\.outputs\.(?!patch_sha256)/);
+});
+
+function assertControlCopy(step) {
+  const copy = /\n\s+cp ((?:scripts\/[a-z_]+\.cjs )+)"\$CONTROL\/"\n/.exec(step);
+  assert.ok(copy, "control copy command missing");
+  assert.deepEqual(copy[1].trim().split(" "), CONTROL_SCRIPTS);
+  for (const script of CONTROL_SCRIPTS) {
+    for (const [, dependency] of read(script).matchAll(/require\(["']\.\/([^"']+)["']\)/g)) {
+      assert.ok(CONTROL_SCRIPTS.includes(`scripts/${dependency}`), `${script} requires ${dependency}, which is not copied`);
+    }
+  }
+  assert.match(step, /chmod -R a-w "\$CONTROL"/);
+}
+
+function assertOnlyControlCopiesAfter(steps, from, label) {
+  for (const step of steps.slice(from)) {
+    assert.doesNotMatch(step, /uses: actions\/setup-node/, `${label}: ${firstLine(step)} reinstalls node after the patch`);
+    // Only the shell program is checked; env values are data.
+    const at = step.indexOf("\n        run:");
+    const program = at === -1 ? "" : step.slice(at);
+    assert.doesNotMatch(program, /node (\.\/)?scripts\/|require\(['"]\.\/scripts|\bnpm\b|\bnpx\b/, `${label}: ${firstLine(step)} runs code from the patched tree`);
+    for (const [, target] of program.matchAll(/\bnode (?!-)("?[^\s"]+"?)/g)) {
+      assert.match(target, /^"\$(CONTROL|RUNNER_TEMP\/control)\//, `${label}: ${firstLine(step)} runs node ${target}`);
+    }
+  }
+}
+
+test("review jobs copy the control scripts before the patch, check its boundary there, and run only those copies after it", () => {
+  const steps = stepsOf(jobsOf(read(REVIEW)).review);
+  const index = (name) => {
+    const found = steps.findIndex((step) => step.startsWith(`- name: ${name}\n`));
+    assert.ok(found >= 0, `step missing: ${name}`);
+    return found;
+  };
+  const copy = index("Copy control scripts before the patch");
+  const download = index("Download task patch");
+  const apply = index("Apply task patch and enforce control-plane boundary");
+  assert.ok(index("Checkout canonical master at the task base") < copy && index("Node 22") < copy);
+  assert.ok(copy < download && download < apply, "control copies must exist before the patch reaches the runner");
+  assertControlCopy(steps[copy]);
+  assert.match(steps[index("Checkout canonical master at the task base")], /ref: \$\{\{ inputs\.base_sha \}\}/);
+  // The boundary check runs in the review job, from the control copy, on the
+  // applied patch, before any reviewer starts.
+  const applyStep = steps[apply];
+  const applyAt = applyStep.indexOf('safe_git apply --index --binary "$patch"');
+  const boundaryAt = applyStep.indexOf('safe_git status --porcelain=v1 -z --untracked-files=all --no-renames | node "$CONTROL/cloud_agent_manager.cjs" boundary');
+  assert.ok(applyAt > 0 && boundaryAt > applyAt);
+  assert.match(applyStep, /test "\$\(git rev-parse HEAD\)" = "\$BASE_SHA"/);
+  assert.ok(apply < index("Codex review") && apply < index("Claude review"));
+  assertOnlyControlCopiesAfter(steps, apply, "review");
+  // Reviewer prompt and packet come from the control copy and trusted inputs,
+  // not from anything the builder exported.
+  const prepare = steps[index("Prepare read-only review")];
+  assert.match(prepare, /node "\$CONTROL\/cloud_agent_manager\.cjs" packet \.siton-cloud-task\.md/);
+  assert.match(prepare, /node "\$CONTROL\/cloud_agent_manager\.cjs" review-prompt \.siton-review-prompt\.md/);
+  // The control copies are re-verified after the agents, before any of them
+  // extracts or parses a verdict.
+  const verify = index("Verify control copies are unchanged");
+  assert.ok(verify > index("Claude review") && verify > index("Codex review"));
+  assert.ok(verify < index("Extract Claude review") && verify < index("Parse review verdict"));
+  assert.match(steps[verify], /MANIFEST_SHA256: \$\{\{ steps\.control\.outputs\.manifest_sha256 \}\}/);
+  assert.match(steps[verify], /sha256sum -c --quiet SHA256SUMS/);
+  assert.match(steps[index("Extract Claude review")], /node "\$RUNNER_TEMP\/control\/cloud_agent_manager\.cjs" extract-claude/);
+  assert.match(steps[index("Parse review verdict")], /node "\$RUNNER_TEMP\/control\/cloud_agent_manager\.cjs" review "\$review_file"/);
+  // Reviewer read-only contract: snapshot before the agents, compare after,
+  // before the verdict is accepted.
+  const readOnly = index("Enforce reviewer read-only contract");
+  assert.ok(index("Prepare read-only review") < index("Codex review"));
+  assert.match(prepare, /siton-review-before\.diff/);
+  assert.ok(readOnly > index("Extract Claude review") && readOnly < index("Parse review verdict"));
+  assert.match(steps[readOnly], /cmp "\$RUNNER_TEMP\/siton-review-before\.diff" "\$RUNNER_TEMP\/siton-review-after\.diff"/);
+  assert.match(steps[readOnly], /cmp "\$RUNNER_TEMP\/siton-review-before\.status" "\$RUNNER_TEMP\/siton-review-after\.status"/);
+
+  // Finalize follows the same rule before it touches the final patch.
+  const finalSteps = stepsOf(jobsOf(read(MANAGER)).finalize);
+  const finalIndex = (name) => finalSteps.findIndex((step) => step.startsWith(`- name: ${name}\n`));
+  const finalCopy = finalIndex("Copy control scripts before the patch");
+  assertControlCopy(finalSteps[finalCopy]);
+  const finalDownload = finalIndex("Download final task patch");
+  assert.ok(finalCopy >= 0 && finalCopy < finalDownload && finalDownload < finalIndex("Apply final reviewed patch and enforce control-plane boundary"));
+  assertOnlyControlCopiesAfter(finalSteps, finalDownload, "finalize");
+  assert.match(finalSteps[finalIndex("Update project status and final diff checks")], /node "\$RUNNER_TEMP\/control\/cloud_agent_manager\.cjs" status PROJECT_STATUS\.md/);
+  assert.match(finalSteps[finalIndex("Record agent-run telemetry")], /node "\$RUNNER_TEMP\/control\/agent_router\.cjs" metric agent-run-metric\.json/);
+});
+
+test("a review job receives only its reviewer provider's credential and a read-only token", () => {
+  const jobs = jobsOf(read(MANAGER));
+  const review = read(REVIEW);
+  // A called workflow sees only the secrets its caller maps explicitly.
+  assert.deepEqual([...new Set(review.match(/secrets\.[A-Za-z_]+/g))].sort(), ["secrets.anthropic_api_key", "secrets.claude_code_oauth_token", "secrets.openai_api_key"]);
+  assert.match(review, /\n    secrets:\n      openai_api_key:\n        required: false\n      anthropic_api_key:\n        required: false\n      claude_code_oauth_token:\n        required: false\n/);
+  const reviewSteps = stepsOf(jobsOf(review).review);
+  for (const step of reviewSteps) {
+    const used = [...new Set(step.match(/secrets\.[a-z_]+/g) || [])].sort();
+    if (firstLine(step) === "- name: Codex review") assert.deepEqual(used, ["secrets.openai_api_key"]);
+    else if (firstLine(step) === "- name: Claude review") assert.deepEqual(used, ["secrets.anthropic_api_key", "secrets.claude_code_oauth_token"]);
+    else assert.deepEqual(used, [], `${firstLine(step)} must not touch a credential`);
+  }
+  for (const id of ["review-1", "review-2"]) {
+    const job = jobs[id];
+    const mapping = /\n    secrets:\n((?: {6}[^\n]+\n?)+)/.exec(job);
+    assert.ok(mapping, `${id} must map secrets explicitly`);
+    assert.deepEqual(mapping[1].trim().split("\n").map((line) => line.trim()), [
+      "openai_api_key: ${{ needs.route.outputs.reviewer == 'codex' && secrets.OPENAI_API_KEY || '' }}",
+      "anthropic_api_key: ${{ needs.route.outputs.reviewer == 'claude' && needs.route.outputs.claude_auth == 'api' && secrets.ANTHROPIC_API_KEY || '' }}",
+      "claude_code_oauth_token: ${{ needs.route.outputs.reviewer == 'claude' && needs.route.outputs.claude_auth == 'oauth' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}",
+    ]);
+    assert.doesNotMatch(job, /SITON_AGENT_GITHUB_TOKEN|secrets: inherit|: write\b/);
+    assert.match(job, /\n    permissions:\n      contents: read\n      pull-requests: read\n    uses: /);
+  }
+  assert.match(jobsOf(review).review, /\n    permissions:\n      contents: read\n      pull-requests: read\n    outputs:/);
+  assert.doesNotMatch(review, /: write\b/);
+});
+
+test("finalize commits exactly the bytes the last review job judged, and takes the verdict from that job", () => {
+  const manager = read(MANAGER);
+  const jobs = jobsOf(manager);
+  const review = read(REVIEW);
+  // The review job publishes, from its own runner, what it applied and said.
+  assert.match(review, /patch_sha256: \$\{\{ steps\.apply\.outputs\.patch_sha256 \}\}/);
+  assert.match(review, /review_sha256: \$\{\{ steps\.verdict\.outputs\.review_sha256 \}\}/);
+  assert.match(review, /verdict: \$\{\{ steps\.verdict\.outputs\.verdict \}\}/);
+  const select = stepNamed(jobs.finalize, "Select final review verdict");
+  for (const pass of [1, 2]) {
+    assert.match(select, new RegExp(`VERDICT_${pass}: \\$\\{\\{ needs\\.review-${pass}\\.outputs\\.verdict \\}\\}`));
+    assert.match(select, new RegExp(`REVIEW_SHA256_${pass}: \\$\\{\\{ needs\\.review-${pass}\\.outputs\\.review_sha256 \\}\\}`));
+  }
+  assert.match(select, /echo "\$review_sha  \$review" \| sha256sum -c --quiet -/);
+  assert.match(select, /node "\$RUNNER_TEMP\/control\/cloud_agent_manager\.cjs" review "\$review"/);
+  assert.match(select, /test "\$parsed" = "\$expected"/);
+  assert.match(select, /echo "verdict=NOT_RUN"/);
+  const apply = stepNamed(jobs.finalize, "Apply final reviewed patch and enforce control-plane boundary");
+  assert.match(apply, /REVIEWED_PATCH_SHA256_1: \$\{\{ needs\.review-1\.outputs\.patch_sha256 \}\}/);
+  assert.match(apply, /REVIEWED_PATCH_SHA256_2: \$\{\{ needs\.review-2\.outputs\.patch_sha256 \}\}/);
+  assert.match(apply, /echo "\$expected  \$patch" \| sha256sum -c --quiet -/);
+  // The build job's self-reported digest counts only when no review ran.
+  assert.match(apply, /\n\s+if \[ "\$REVIEWER" = none \]; then expected="\$BUILD_PATCH_SHA256"\n\s+elif \[ "\$NEEDED_FIX" = true \]; then expected="\$REVIEWED_PATCH_SHA256_2"\n\s+else expected="\$REVIEWED_PATCH_SHA256_1"; fi\n/);
+  assert.equal((apply.match(/BUILD_PATCH_SHA256/g) || []).length, 2);
+  assert.match(apply, /safe_git status --porcelain=v1 -z --untracked-files=all --no-renames \| node "\$RUNNER_TEMP\/control\/cloud_agent_manager\.cjs" boundary/);
+  // The fix pass starts from exactly the bytes review pass 1 judged.
+  const rebuild = stepNamed(jobs.fix, "Rebuild the reviewed task state");
+  assert.match(rebuild, /REVIEWED_PATCH_SHA256: \$\{\{ needs\.review-1\.outputs\.patch_sha256 \}\}/);
+  assert.match(rebuild, /echo "\$REVIEWED_PATCH_SHA256  \$patch" \| sha256sum -c --quiet -/);
+  assert.match(rebuild, /echo "\$REVIEW_SHA256  \$review" \| sha256sum -c --quiet -/);
+  // Every job starts from the one base commit the route job recorded.
+  for (const id of ["build", "fix"]) assert.match(stepNamed(jobs[id], "Checkout canonical master at the task base"), /ref: \$\{\{ needs\.route\.outputs\.base_sha \}\}/);
+  for (const id of ["review-1", "review-2"]) assert.match(jobs[id], /base_sha: \$\{\{ needs\.route\.outputs\.base_sha \}\}/);
+});
+
+test("control-plane boundary refuses protected paths and fails closed on rename or unparseable entries", () => {
+  const { spawnSync } = require("node:child_process");
+  assert.deepEqual(statusPaths(" M src/a.ts\0?? docs/new file.md\0D  old.txt\0A  web/é.ts\0"), ["src/a.ts", "docs/new file.md", "old.txt", "web/é.ts"]);
+  const blocked = [
+    ".github/workflows/ci.yml", ".github/workflows/é.yml", ".github/CODEOWNERS",
+    "scripts/cloud_agent_manager.cjs", "scripts/agent_readonly_bash_guard.cjs", "scripts/agent_router.cjs", "scripts/agent_model_tiers.cjs",
+    "AGENTS.md", "AI_WORKFLOW.md", "CLAUDE.md", "PROJECT_STATUS.md", ".siton-review-prompt.md", ".siton-control/x",
+  ];
+  assert.deepEqual(protectedPaths(blocked), blocked);
+  for (const script of CONTROL_SCRIPTS) assert.deepEqual(protectedPaths([script]), [script], script);
+  const allowed = ["src/app.ts", "docs/AGENTS.md", "tests/PROJECT_STATUS.md", "scripts/siton_verify.cjs", "scripts/agent_router.cjs.md", "web/.github/x", "a.siton-x"];
+  assert.deepEqual(protectedPaths(allowed), []);
+  assert.throws(() => statusPaths("R  new.ts\0old.ts\0"), /rename\/copy/);
+  assert.throws(() => statusPaths("garbage\0"), /unparseable/);
+  const cli = (input) => spawnSync(process.execPath, [path.join(root, "scripts/cloud_agent_manager.cjs"), "boundary"], { input, encoding: "utf8" });
+  const ok = cli(" M src/a.ts\0?? src/b.ts\0");
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.match(ok.stdout, /CLOUD_BOUNDARY_PASS paths=2/);
+  for (const input of ["?? .github/workflows/evil.yml\0", " M src/a.ts\0 D PROJECT_STATUS.md\0", "R  x\0scripts/agent_router.cjs\0"]) {
+    const refused = cli(input);
+    assert.equal(refused.status, 1, JSON.stringify(input));
+    assert.match(refused.stderr, /FAILED/);
+  }
 });

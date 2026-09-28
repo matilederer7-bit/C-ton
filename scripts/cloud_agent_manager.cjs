@@ -6,6 +6,25 @@ const path = require("node:path");
 const AGENTS = new Set(["claude", "codex"]);
 const REVIEWERS = new Set(["auto", "claude", "codex", "none"]);
 
+// Control scripts the review and finalize jobs copy from canonical master into
+// $RUNNER_TEMP/control before any task patch is applied, and then invoke only
+// from there. Every relative require of these files must be in this list.
+const CONTROL_SCRIPTS = [
+  "scripts/cloud_agent_manager.cjs",
+  "scripts/agent_readonly_bash_guard.cjs",
+  "scripts/agent_router.cjs",
+  "scripts/agent_model_tiers.cjs",
+];
+
+// Paths a cloud builder or fix pass may never change: the workflow and
+// repository control plane, the control scripts above, the binding rule files,
+// the shared status file (the manager alone writes its slot) and the manager's
+// own `.siton-*` working files. The build and fix jobs use this pattern
+// verbatim in their in-job `grep -E` checks. The review and finalize jobs run
+// the `boundary` command from the control copy, on a runner no agent touched.
+const PROTECTED_PATH_PATTERN = "^(\\.github/|scripts/cloud_agent_manager\\.cjs$|scripts/agent_readonly_bash_guard\\.cjs$|scripts/agent_router\\.cjs$|scripts/agent_model_tiers\\.cjs$|AGENTS\\.md$|AI_WORKFLOW\\.md$|CLAUDE\\.md$|PROJECT_STATUS\\.md$|\\.siton-)";
+const PROTECTED_PATH = new RegExp(PROTECTED_PATH_PATTERN);
+
 function truthy(value) {
   return ["1", "true", "yes", "on"].includes(String(value || "").trim().toLowerCase());
 }
@@ -69,6 +88,24 @@ function buildTaskPacket({ task, scope, doNotTouch, source, builder, reviewer })
 
 function buildReviewerPrompt({ baseRef = "origin/master", reviewer, builder }) {
   return `# SITON CLOUD REVIEW\n\nYou are the reviewer. Builder: ${builder}. Reviewer: ${reviewer}.\n\nReview the actual diff against ${baseRef}. Read AGENTS.md, AI_WORKFLOW.md, PROJECT_STATUS.md and task-relevant current source-of-truth files.\n\nREAD-ONLY CONTRACT\n- Do not edit files.\n- Do not commit, push, merge, reset, clean or stash.\n- Do not perform production side effects.\n- Judge correctness, regressions, tests, security, state, money, concurrency and source-of-truth drift where relevant.\n- Do not request style-only rewrites of correct code.\n\nReturn exactly one verdict marker on its own first line:\nVERDICT=PASS\nor\nVERDICT=CHANGES_REQUIRED\n\nThen give concise evidence. For required changes, include file/path and concrete failure or risk.\n`;
+}
+
+// Paths from `git status --porcelain=v1 -z --untracked-files=all --no-renames`:
+// "XY path" entries separated by NUL, unquoted, one path per entry. A rename
+// or copy entry would carry a second path, so it is refused, not half-checked.
+function statusPaths(porcelainZ) {
+  const paths = [];
+  for (const entry of String(porcelainZ || "").split("\0")) {
+    if (!entry) continue;
+    if (entry.length < 4 || entry[2] !== " ") throw new Error(`unparseable status entry: ${JSON.stringify(entry.slice(0, 200))}`);
+    if (/[RC]/.test(entry.slice(0, 2))) throw new Error(`rename/copy status entry refused; list paths with --no-renames: ${JSON.stringify(entry.slice(0, 200))}`);
+    paths.push(entry.slice(3));
+  }
+  return paths;
+}
+
+function protectedPaths(paths) {
+  return paths.filter((file) => PROTECTED_PATH.test(file));
 }
 
 function parseVerdict(text) {
@@ -172,6 +209,24 @@ function commandExtractClaude(args) {
   fs.writeFileSync(output, result, "utf8");
 }
 
+function commandBoundary() {
+  const paths = statusPaths(fs.readFileSync(0, "utf8"));
+  const offenders = protectedPaths(paths);
+  if (offenders.length) {
+    throw new Error(`task patch modifies the cloud-manager control plane or shared status: ${offenders.map((file) => JSON.stringify(file)).join(", ")}`);
+  }
+  process.stdout.write(`CLOUD_BOUNDARY_PASS paths=${paths.length}\n`);
+}
+
+function commandReviewPrompt(args) {
+  const file = args[0] || ".siton-review-prompt.md";
+  fs.writeFileSync(file, buildReviewerPrompt({
+    builder: process.env.REVIEW_BUILDER || "unknown",
+    reviewer: process.env.REVIEW_REVIEWER || "unknown",
+    baseRef: process.env.REVIEW_BASE_REF || "HEAD",
+  }), "utf8");
+}
+
 function commandStatus(args) {
   const file = args[0] || "PROJECT_STATUS.md";
   updateCloudStatus(file, {
@@ -192,6 +247,8 @@ function printHelp() {
   console.log("cloud_agent_manager.cjs review <review-file>");
   console.log("cloud_agent_manager.cjs extract-claude <execution-json> <output-text>");
   console.log("cloud_agent_manager.cjs status [PROJECT_STATUS.md]");
+  console.log("git status --porcelain=v1 -z --untracked-files=all --no-renames | cloud_agent_manager.cjs boundary");
+  console.log("cloud_agent_manager.cjs review-prompt [path]");
 }
 
 function main() {
@@ -202,6 +259,8 @@ function main() {
   if (command === "review") return commandReview(args);
   if (command === "extract-claude") return commandExtractClaude(args);
   if (command === "status") return commandStatus(args);
+  if (command === "boundary") return commandBoundary(args);
+  if (command === "review-prompt") return commandReviewPrompt(args);
   throw new Error(`unknown command: ${command}`);
 }
 
@@ -214,10 +273,14 @@ if (require.main === module) {
 }
 
 module.exports = {
+  CONTROL_SCRIPTS,
+  PROTECTED_PATH_PATTERN,
   buildReviewerPrompt,
   buildTaskPacket,
   chooseRoles,
   parseVerdict,
+  protectedPaths,
   slug,
+  statusPaths,
   updateCloudStatus,
 };
