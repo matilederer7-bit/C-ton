@@ -48,7 +48,9 @@ async function startServer(port: number, extraEnv: Record<string, string>) {
 }
 
 const appErrors = (page: BrowserPage) =>
-  page.errors().filter((e) => !/favicon/.test(e.text) && !(e.kind === "request" && /^Stylesheet /.test(e.text)));
+  page.errors().filter((e) => !/favicon/.test(e.text) && !(e.kind === "request" && /^Stylesheet /.test(e.text))
+    // TLS interception by a sandbox proxy (third-party font files); the app is served over plain local HTTP, so this can never be one of its own requests
+    && !(e.kind === "request" && /ERR_CERT_AUTHORITY_INVALID/.test(e.text)));
 
 async function main() {
   if (!chromiumPath()) {

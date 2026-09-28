@@ -1583,6 +1583,11 @@ function SystemScreen() {
 // which hands it to Supabase Auth server-side; it is never kept in state after
 // the request, stored or logged.
 const TEAM_ROLES = ["OpsAdmin", "SupportAdmin", "ReadOnlyAdmin", "SuperAdmin"] as const;
+const TEAM_ROLE_LABEL_KEYS: Record<string, string> = {
+  SuperAdmin: "admin_team.role_superadmin", OpsAdmin: "admin_team.role_opsadmin",
+  SupportAdmin: "admin_team.role_supportadmin", ReadOnlyAdmin: "admin_team.role_readonlyadmin"
+};
+const teamRoleLabel = (role: string) => (TEAM_ROLE_LABEL_KEYS[role] ? t(TEAM_ROLE_LABEL_KEYS[role]!) : role);
 const USERNAME_PATTERN = /^[a-z][a-z0-9._-]{2,31}$/;
 
 function teamPasswordProblem(password: string, username: string): string {
@@ -1595,7 +1600,14 @@ function teamPasswordProblem(password: string, username: string): string {
 }
 
 function AdminTeamScreen() {
-  const { data, error, reload } = useFetch(() => api.adminTeam(), []);
+  const [data, setData] = useState<Json | null>(null);
+  const [error, setError] = useState("");
+  // the server is the authority: a 403 (not a SuperAdmin) hides the form
+  const [denied, setDenied] = useState(false);
+  const reload = () => api.adminTeam()
+    .then((d) => { setData(d); setError(""); setDenied(false); })
+    .catch((e: any) => { setDenied(e?.status === 403); setError(e?.message || t("admin.error")); });
+  useEffect(() => { reload(); }, []);
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [role, setRole] = useState("");
@@ -1604,7 +1616,6 @@ function AdminTeamScreen() {
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState("");
   const [toast, showToast] = useToast();
-  const denied = /ADMIN_PERMISSION_DENIED|403/.test(error);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1639,7 +1650,7 @@ function AdminTeamScreen() {
   return (
     <>
       <h1>{t("admin_team.title")}</h1>
-      {denied ? <div className="notice">{t("admin_team.only_super_admin")}</div> : null}
+      {denied ? <div className="notice" data-testid="admin-team-denied">{t("admin_team.only_super_admin")}</div> : null}
       {error && !denied ? <Err msg={error} /> : null}
       {!denied ? (
         <div className="panel">
@@ -1660,7 +1671,7 @@ function AdminTeamScreen() {
               <label htmlFor="team-role">{t("admin_team.role")}</label>
               <select id="team-role" value={role} onChange={(e) => setRole(e.target.value)} data-testid="admin-team-role">
                 <option value="">{t("admin_team.choose_role")}</option>
-                {TEAM_ROLES.map((r) => <option key={r} value={r}>{t(`admin_team.role_${r}`)}</option>)}
+                {TEAM_ROLES.map((r) => <option key={r} value={r}>{teamRoleLabel(r)}</option>)}
               </select>
             </div>
             <div className="field">
@@ -1688,7 +1699,7 @@ function AdminTeamScreen() {
                   <tr key={a.admin_user_id}>
                     <td dir="ltr">{a.username || a.email}</td>
                     <td>{a.display_name || "—"}</td>
-                    <td>{t(`admin_team.role_${a.role}`)}</td>
+                    <td>{teamRoleLabel(String(a.role))}</td>
                     <td>{a.status === "Active" ? t("admin_team.active") : a.status}</td>
                     <td>{a.created_at ? fmtDate(a.created_at) : "—"}</td>
                   </tr>

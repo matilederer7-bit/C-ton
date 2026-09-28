@@ -243,7 +243,10 @@ async function main() {
 
     // the web-font stylesheet is third-party (Google Fonts); a sandbox without
     // that egress reports it as a failed Stylesheet request — not an app error
-    const errors = page.errors().filter((e) => !/favicon/.test(e.text) && !(e.kind === "request" && /^Stylesheet /.test(e.text)));
+    // (and a sandbox TLS-intercepting proxy reports its third-party font files
+    // as ERR_CERT_AUTHORITY_INVALID; the app itself is served over local HTTP)
+    const errors = page.errors().filter((e) => !/favicon/.test(e.text) && !(e.kind === "request" && /^Stylesheet /.test(e.text))
+      && !(e.kind === "request" && /ERR_CERT_AUTHORITY_INVALID/.test(e.text)));
     assert.deepEqual(errors, [], `browser errors: ${JSON.stringify(errors.slice(0, 3))}`);
     console.log("DEAL_DELIVERY_WIZARD_BROWSER_PASS");
   } catch (error) {
