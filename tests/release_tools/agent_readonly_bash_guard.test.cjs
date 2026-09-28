@@ -134,6 +134,10 @@ test('cloud Claude reviewers run under the guard, re-materialized from an immuta
     assert.match(materialize, /sha256sum -c --quiet -/);
     assert.match(materialize, /rm -rf "\$dir"/);
     assert.match(steps[index], /--settings \$\{\{ runner\.temp \}\}\/siton-review-guard\/settings\.json/);
+    // Without this, a builder-written .claude/settings*.json or
+    // ~/.claude/settings.json with disableAllHooks switches the guard off
+    // (proven with Claude Code 2.1.284).
+    assert.match(steps[index], /\n\s+--setting-sources=\n\s+--settings /);
     assert.match(steps[index], /--disallowedTools Write Edit MultiEdit NotebookEdit/);
     const condition = (text) => /\n        if: (.*)\n/.exec(text)[1];
     assert.equal(condition(materialize), condition(steps[index]));

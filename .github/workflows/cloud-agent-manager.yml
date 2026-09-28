@@ -136,12 +136,16 @@ jobs:
       # its own it permits `git diff --output=<file>`, which writes into the
       # checkout the manager later commits. The read-only guard closes that at
       # command level, loaded through `--settings` (enforced regardless of
-      # folder trust; frontmatter hooks are not). The guard is captured from
-      # canonical master into a step output before any agent runs. Step
-      # outputs live in the runner, not on disk, so a builder (which may run
-      # `node` freely) cannot rewrite them; each review step re-materializes
-      # the guard from that output and verifies its hash immediately before
-      # the reviewer starts.
+      # folder trust; frontmatter hooks are not). `--setting-sources=` loads no
+      # user, project or local settings, because a builder can write
+      # `.claude/settings*.json` or `~/.claude/settings.json` with
+      # `disableAllHooks` and switch the guard off (both proven locally).
+      # The guard is captured from canonical master into a step output before
+      # any agent runs; each review step re-materializes it with a sha256
+      # check immediately before the reviewer starts. This defeats a builder
+      # that edits files between steps. It is not full isolation: builder code
+      # still runs earlier in this same job (a leftover background process
+      # could race the check); that needs the review in a separate job.
       - name: Pin read-only review guard
         id: review_guard
         shell: bash
@@ -376,6 +380,7 @@ jobs:
           prompt: "Read .siton-review-prompt.md and perform the review exactly as instructed. This is read-only. Do not edit any repository file."
           claude_args: >-
             ${{ steps.roles.outputs.claude_reviewer_model_args }}
+            --setting-sources=
             --settings ${{ runner.temp }}/siton-review-guard/settings.json
             --max-turns 12
             --allowedTools Read Grep Glob "Bash(git diff:*)" "Bash(git status:*)" "Bash(git log:*)" "Bash(git show:*)"
@@ -509,6 +514,7 @@ jobs:
           prompt: "Re-read .siton-review-prompt.md and review the current diff after the bounded fix pass. Return the required verdict marker. Do not edit any repository file."
           claude_args: >-
             ${{ steps.roles.outputs.claude_reviewer_model_args }}
+            --setting-sources=
             --settings ${{ runner.temp }}/siton-review-guard/settings.json
             --max-turns 12
             --allowedTools Read Grep Glob "Bash(git diff:*)" "Bash(git status:*)" "Bash(git log:*)" "Bash(git show:*)"
