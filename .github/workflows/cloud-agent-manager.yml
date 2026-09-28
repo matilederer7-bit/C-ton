@@ -93,10 +93,33 @@ env:
   SITON_CODEX_MODEL_APEX: ${{ vars.SITON_CODEX_MODEL_APEX }}
 
 jobs:
-  managed-task:
+  # Security boundary: no runner that executes builder code ever executes a
+  # reviewer or receives the lifecycle token. Candidate diffs cross jobs only
+  # as immutable Actions artifacts. The final push/PR job is fresh as well.
+  managed-build:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    outputs:
+      branch: ${{ steps.task.outputs.branch }}
+      head: ${{ steps.task.outputs.head }}
+      started_epoch: ${{ steps.clock.outputs.epoch }}
+      builder: ${{ steps.roles.outputs.builder }}
+      reviewer: ${{ steps.roles.outputs.reviewer }}
+      independent_review: ${{ steps.roles.outputs.independent_review }}
+      claude_auth: ${{ steps.roles.outputs.claude_auth }}
+      type: ${{ steps.roles.outputs.type }}
+      risk: ${{ steps.roles.outputs.risk }}
+      tier: ${{ steps.roles.outputs.tier }}
+      sensitive: ${{ steps.roles.outputs.sensitive }}
+      apex_reason: ${{ steps.roles.outputs.apex_reason }}
+      codex_model: ${{ steps.roles.outputs.codex_model }}
+      claude_model: ${{ steps.roles.outputs.claude_model }}
+      claude_model_args: ${{ steps.roles.outputs.claude_model_args }}
+      claude_reviewer_model: ${{ steps.roles.outputs.claude_reviewer_model }}
+      claude_reviewer_model_args: ${{ steps.roles.outputs.claude_reviewer_model_args }}
+      builder_effort: ${{ steps.roles.outputs.builder_effort }}
+      reviewer_effort: ${{ steps.roles.outputs.reviewer_effort }}
     services:
       postgres:
         image: postgres:16-alpine
@@ -111,10 +134,13 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
-
     steps:
       - name: Start run clock
-        run: echo "SITON_RUN_STARTED_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
+        id: clock
+        shell: bash
+        run: |
+          epoch="$(date +%s)"
+          echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
 
       - name: Checkout canonical master
         uses: actions/checkout@v4
@@ -132,46 +158,22 @@ jobs:
       - name: Clean dependency install
         run: npm ci
 
-      # The Claude reviewer's `Bash(git diff:*)` allowlist is a prefix match: on
-      # its own it permits `git diff --output=<file>`, which writes into the
-      # checkout the manager later commits. The read-only guard closes that at
-      # command level, loaded through `--settings` (enforced regardless of
-      # folder trust; frontmatter hooks are not). `--setting-sources=` loads no
-      # user, project or local settings, because a builder can write
-      # `.claude/settings*.json` or `~/.claude/settings.json` with
-      # `disableAllHooks` and switch the guard off (both proven locally).
-      # The guard is captured from canonical master into a step output before
-      # any agent runs; each review step re-materializes it with a sha256
-      # check immediately before the reviewer starts. This stops a reviewer
-      # from writing, and a builder that merely edits files between steps. It
-      # is NOT isolation from a hostile builder: builder code runs earlier in
-      # this same job and can poison GITHUB_PATH/GITHUB_ENV, the tool cache or
-      # (via sudo) system binaries, and leave background processes. Only a
-      # separate review job on a fresh runner closes that (open follow-up).
-      - name: Pin read-only review guard
-        id: review_guard
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "guard_b64=$(base64 -w0 scripts/agent_readonly_bash_guard.cjs)" >> "$GITHUB_OUTPUT"
-          echo "guard_sha256=$(sha256sum scripts/agent_readonly_bash_guard.cjs | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-
       - name: Resolve cloud credentials and roles
         id: roles
         env:
           OPENAI_KEY_VALUE: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_KEY_VALUE: ${{ secrets.ANTHROPIC_API_KEY }}
           CLAUDE_OAUTH_VALUE: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          MANAGER_GH_TOKEN_VALUE: ${{ secrets.SITON_AGENT_GITHUB_TOKEN }}
-          REQUESTED_BUILDER: ${{ github.event_name == 'workflow_dispatch' && inputs.builder || 'auto' }}
-          REQUESTED_REVIEWER: ${{ github.event_name == 'workflow_dispatch' && inputs.reviewer || 'auto' }}
+          MANAGER_GH_TOKEN_PRESENT: ${{ secrets.SITON_AGENT_GITHUB_TOKEN != '' && 'true' || 'false' }}
+          REQUESTED_BUILDER: ${{ inputs.builder }}
+          REQUESTED_REVIEWER: ${{ inputs.reviewer }}
           SITON_TASK: ${{ inputs.task }}
           SITON_ISSUE_BODY: ${{ inputs.task }}
           SITON_APEX_REASON: ${{ inputs.apex_reason }}
           SITON_APEX_EVIDENCE: ${{ inputs.apex_evidence }}
-          SITON_TASK_TYPE: ${{ github.event_name == 'workflow_dispatch' && inputs.task_type || 'auto' }}
-          SITON_RISK: ${{ github.event_name == 'workflow_dispatch' && inputs.risk || 'normal' }}
-          SITON_MODEL_TIER: ${{ github.event_name == 'workflow_dispatch' && inputs.model_tier || 'auto' }}
+          SITON_TASK_TYPE: ${{ inputs.task_type }}
+          SITON_RISK: ${{ inputs.risk }}
+          SITON_MODEL_TIER: ${{ inputs.model_tier }}
         shell: bash
         run: |
           set -euo pipefail
@@ -183,30 +185,25 @@ jobs:
           if [ "$has_claude" = false ] && [ -n "$CLAUDE_OAUTH_VALUE" ]; then has_claude=true; claude_auth=oauth; fi
           echo "claude_auth=$claude_auth" >> "$GITHUB_OUTPUT"
 
-          # Presence only. No secret value is compared, printed or written anywhere.
           {
             echo "### Cloud credential state"
             echo
-            echo "- SITON_AGENT_GITHUB_TOKEN: $([ -n "$MANAGER_GH_TOKEN_VALUE" ] && echo present || echo MISSING)"
+            echo "- SITON_AGENT_GITHUB_TOKEN: $([ "$MANAGER_GH_TOKEN_PRESENT" = true ] && echo present || echo MISSING)"
             echo "- OPENAI_API_KEY: $([ -n "$OPENAI_KEY_VALUE" ] && echo present || echo MISSING)"
             echo "- Claude credential: $claude_auth"
           } > /tmp/siton-credential-blocker.md
 
-          if [ -z "$MANAGER_GH_TOKEN_VALUE" ] || { [ "$has_codex" = false ] && [ "$has_claude" = false ]; }; then
+          if [ "$MANAGER_GH_TOKEN_PRESENT" != true ] || { [ "$has_codex" = false ] && [ "$has_claude" = false ]; }; then
             {
               echo
               echo "### BLOCKER REQUIRES OWNER ACTION"
               echo
-              if [ -z "$MANAGER_GH_TOKEN_VALUE" ]; then
+              if [ "$MANAGER_GH_TOKEN_PRESENT" != true ]; then
                 echo "SITON_AGENT_GITHUB_TOKEN is required for autonomous branch/PR lifecycle and downstream CI triggering."
-                echo "Create a fine-grained personal access token scoped to this repository with Actions, Contents, Issues and Pull requests set to Read and write, then add it as an Actions secret named SITON_AGENT_GITHUB_TOKEN."
               fi
               if [ "$has_codex" = false ] && [ "$has_claude" = false ]; then
                 echo "No coding-agent credential is configured. Add OPENAI_API_KEY, ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN."
               fi
-              echo
-              echo "Secrets page: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/settings/secrets/actions"
-              echo "Then re-run Siton Cloud Credential Preflight to confirm before queuing work again."
             } >> /tmp/siton-credential-blocker.md
             cat /tmp/siton-credential-blocker.md >> "$GITHUB_STEP_SUMMARY"
             cat /tmp/siton-credential-blocker.md >&2
@@ -222,7 +219,6 @@ jobs:
           export GITHUB_OUTPUT=/tmp/siton-route-output
           node scripts/agent_router.cjs route
           cat /tmp/siton-route-output >> "$manager_output"
-          # Load only values generated by our own router. No issue text is evaluated.
           while IFS='=' read -r key value; do
             case "$key" in
               builder|reviewer|codex_model|claude_model|claude_reviewer_model|builder_effort|reviewer_effort|tier|type|risk|sensitive) printf -v "$key" '%s' "$value" ;;
@@ -303,9 +299,9 @@ jobs:
           set -euo pipefail
           test "$(git branch --show-current)" = "$EXPECTED_BRANCH" || { echo "Builder changed branch" >&2; exit 1; }
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD" || { echo "Builder committed or changed HEAD; Git lifecycle belongs to the manager" >&2; exit 1; }
-          protected='^(\.github/workflows/|scripts/cloud_agent_manager\.cjs$|AGENTS\.md$|AI_WORKFLOW\.md$|PROJECT_STATUS\.md$)'
+          protected='^(\.github/workflows/|scripts/cloud_agent_manager\.cjs$|scripts/agent_readonly_bash_guard\.cjs$|AGENTS\.md$|AI_WORKFLOW\.md$|PROJECT_STATUS\.md$)'
           if git status --porcelain=v1 --untracked-files=all | sed -E 's/^.. //' | grep -E "$protected"; then
-            echo "Builder modified the cloud-manager control plane or shared status" >&2
+            echo "Builder modified the cloud-manager control plane, reviewer guard or shared status" >&2
             exit 1
           fi
 
@@ -322,66 +318,139 @@ jobs:
       - name: Canonical verification after build
         run: node scripts/siton_verify.cjs
 
-      - name: Prepare read-only review
-        if: steps.roles.outputs.reviewer != 'none'
+      - name: Export builder candidate without lifecycle credentials
         env:
-          BUILDER: ${{ steps.roles.outputs.builder }}
-          REVIEWER: ${{ steps.roles.outputs.reviewer }}
+          EXPECTED_HEAD: ${{ steps.task.outputs.head }}
+          CLAUDE_EXECUTION_FILE: ${{ steps.claude_build.outputs.execution_file }}
         shell: bash
         run: |
           set -euo pipefail
-          node - <<'NODE'
-          const fs = require('node:fs');
-          const manager = require('./scripts/cloud_agent_manager.cjs');
-          fs.writeFileSync('.siton-review-prompt.md', manager.buildReviewerPrompt({
-            builder: process.env.BUILDER,
-            reviewer: process.env.REVIEWER,
-            baseRef: 'origin/master',
-          }));
-          NODE
+          mkdir -p .siton-handoff
+          safe_git() { git -c core.hooksPath=/dev/null -c core.fsmonitor=false -c diff.external= "$@"; }
+          safe_git add -A
+          safe_git diff --cached --binary --no-ext-diff --no-textconv "$EXPECTED_HEAD" > .siton-handoff/builder.patch
+          test -s .siton-handoff/builder.patch
+          if [ -n "${CLAUDE_EXECUTION_FILE:-}" ] && [ -f "$CLAUDE_EXECUTION_FILE" ]; then
+            cp "$CLAUDE_EXECUTION_FILE" .siton-handoff/claude-build-execution.jsonl
+          fi
+
+      - name: Upload builder handoff
+        uses: actions/upload-artifact@v4
+        with:
+          name: siton-builder-${{ github.run_id }}
+          path: .siton-handoff/
+          if-no-files-found: error
+          retention-days: 2
+
+  review-and-fix:
+    needs: managed-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    outputs:
+      needs_fix: ${{ steps.review1.outputs.needs_fix }}
+      verdict: ${{ steps.review1.outputs.verdict }}
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: siton_cloud_agent
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d siton_cloud_agent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - name: Checkout immutable build base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.managed-build.outputs.head }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Clean dependency install
+        run: npm ci
+
+      - name: Pin read-only guard before importing untrusted patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/siton-review-guard"
+          cp scripts/agent_readonly_bash_guard.cjs "$RUNNER_TEMP/siton-review-guard/guard.cjs"
+          sha256sum "$RUNNER_TEMP/siton-review-guard/guard.cjs" > "$RUNNER_TEMP/siton-review-guard/guard.sha256"
+          node -e 'const [guard,out]=process.argv.slice(1);require("node:fs").writeFileSync(out,JSON.stringify({hooks:{PreToolUse:[{matcher:"Bash",hooks:[{type:"command",command:"node \\""+guard+"\\""}]}]}}));' "$RUNNER_TEMP/siton-review-guard/guard.cjs" "$RUNNER_TEMP/siton-review-guard/settings.json"
+
+      - name: Download builder handoff
+        uses: actions/download-artifact@v4
+        with:
+          name: siton-builder-${{ github.run_id }}
+          path: .siton-builder
+
+      - name: Apply builder candidate on fresh runner
+        env:
+          BRANCH: ${{ needs.managed-build.outputs.branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git switch -c "$BRANCH"
+          git -c core.hooksPath=/dev/null apply --index --binary .siton-builder/builder.patch
+          git diff --check
           git diff --binary HEAD > /tmp/siton-review-before.diff
           git status --porcelain=v1 --untracked-files=all > /tmp/siton-review-before.status
 
+      - name: Prepare canonical review prompt
+        if: needs.managed-build.outputs.reviewer != 'none'
+        env:
+          BUILDER: ${{ needs.managed-build.outputs.builder }}
+          REVIEWER: ${{ needs.managed-build.outputs.reviewer }}
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const manager=require('./scripts/cloud_agent_manager.cjs');
+          fs.writeFileSync('.siton-review-prompt.md',manager.buildReviewerPrompt({builder:process.env.BUILDER,reviewer:process.env.REVIEWER,baseRef:'HEAD'}));
+          NODE
+
       - name: Codex review pass 1
-        id: codex_review_1
-        if: steps.roles.outputs.reviewer == 'codex'
+        if: needs.managed-build.outputs.reviewer == 'codex'
         uses: openai/codex-action@v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           permission-profile: ":read-only"
           prompt-file: .siton-review-prompt.md
           output-file: .siton-review-1.txt
-          model: ${{ steps.roles.outputs.codex_model }}
-          effort: ${{ steps.roles.outputs.reviewer_effort }}
+          model: ${{ needs.managed-build.outputs.codex_model }}
+          effort: ${{ needs.managed-build.outputs.reviewer_effort }}
           safety-strategy: drop-sudo
 
-      - name: Materialize read-only review guard (pass 1)
-        if: steps.roles.outputs.reviewer == 'claude'
-        env:
-          GUARD_B64: ${{ steps.review_guard.outputs.guard_b64 }}
-          GUARD_SHA256: ${{ steps.review_guard.outputs.guard_sha256 }}
+      - name: Verify pinned guard
+        if: needs.managed-build.outputs.reviewer == 'claude'
         shell: bash
         run: |
           set -euo pipefail
-          dir="$RUNNER_TEMP/siton-review-guard"
-          rm -rf "$dir"
-          mkdir -p "$dir"
-          printf '%s' "$GUARD_B64" | base64 -d > "$dir/guard.cjs"
-          echo "$GUARD_SHA256  $dir/guard.cjs" | sha256sum -c --quiet -
-          node -e 'const [guard, out] = process.argv.slice(1); require("node:fs").writeFileSync(out, JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: `node "${guard}"` }] }] } }));' "$dir/guard.cjs" "$dir/settings.json"
-          echo '{"tool_input":{"command":"git diff --output=x"}}' | node "$dir/guard.cjs" && { echo "read-only guard failed open" >&2; exit 1; } || test "$?" = 2
+          sha256sum -c "$RUNNER_TEMP/siton-review-guard/guard.sha256"
+          echo '{"tool_input":{"command":"git diff --output=x"}}' | node "$RUNNER_TEMP/siton-review-guard/guard.cjs" && { echo "read-only guard failed open" >&2; exit 1; } || test "$?" = 2
 
       - name: Claude review pass 1
         id: claude_review_1
-        if: steps.roles.outputs.reviewer == 'claude'
+        if: needs.managed-build.outputs.reviewer == 'claude'
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ steps.roles.outputs.claude_auth == 'api' && secrets.ANTHROPIC_API_KEY || '' }}
-          claude_code_oauth_token: ${{ steps.roles.outputs.claude_auth == 'oauth' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
+          anthropic_api_key: ${{ needs.managed-build.outputs.claude_auth == 'api' && secrets.ANTHROPIC_API_KEY || '' }}
+          claude_code_oauth_token: ${{ needs.managed-build.outputs.claude_auth == 'oauth' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
           github_token: ${{ github.token }}
           prompt: "Read .siton-review-prompt.md and perform the review exactly as instructed. This is read-only. Do not edit any repository file."
           claude_args: >-
-            ${{ steps.roles.outputs.claude_reviewer_model_args }}
+            ${{ needs.managed-build.outputs.claude_reviewer_model_args }}
             --setting-sources=
             --settings ${{ runner.temp }}/siton-review-guard/settings.json
             --max-turns 12
@@ -390,13 +459,17 @@ jobs:
           show_full_output: false
 
       - name: Extract Claude review pass 1
-        if: steps.roles.outputs.reviewer == 'claude'
+        if: needs.managed-build.outputs.reviewer == 'claude'
         env:
           CLAUDE_EXECUTION_FILE: ${{ steps.claude_review_1.outputs.execution_file }}
         run: node scripts/cloud_agent_manager.cjs extract-claude "$CLAUDE_EXECUTION_FILE" .siton-review-1.txt
 
+      - name: Materialize no-review verdict
+        if: needs.managed-build.outputs.reviewer == 'none'
+        run: printf 'VERDICT=NOT_RUN\nNo reviewer requested.\n' > .siton-review-1.txt
+
       - name: Enforce reviewer read-only contract
-        if: steps.roles.outputs.reviewer != 'none'
+        if: needs.managed-build.outputs.reviewer != 'none'
         shell: bash
         run: |
           set -euo pipefail
@@ -407,32 +480,68 @@ jobs:
 
       - name: Parse review pass 1
         id: review1
-        if: steps.roles.outputs.reviewer != 'none'
-        run: node scripts/cloud_agent_manager.cjs review .siton-review-1.txt
+        env:
+          REVIEWER: ${{ needs.managed-build.outputs.reviewer }}
+        shell: bash
+        run: |
+          if [ "$REVIEWER" = none ]; then
+            echo "verdict=NOT_RUN" >> "$GITHUB_OUTPUT"
+            echo "needs_fix=false" >> "$GITHUB_OUTPUT"
+          else
+            node scripts/cloud_agent_manager.cjs review .siton-review-1.txt
+          fi
 
-      - name: Prepare one bounded fix pass
-        if: steps.review1.outputs.needs_fix == 'true'
+      - name: Freeze first-review evidence before any fix agent runs
+        env:
+          CLAUDE_EXECUTION_FILE: ${{ steps.claude_review_1.outputs.execution_file }}
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p .siton-review1
+          cp .siton-review-1.txt .siton-review1/review.txt
+          if [ -n "${CLAUDE_EXECUTION_FILE:-}" ] && [ -f "$CLAUDE_EXECUTION_FILE" ]; then
+            cp "$CLAUDE_EXECUTION_FILE" .siton-review1/claude-review1-execution.jsonl
+          fi
+
+      - name: Upload first-review evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: siton-review1-${{ github.run_id }}
+          path: .siton-review1/
+          if-no-files-found: error
+          retention-days: 2
+
+      - name: Rebuild task packet for one bounded fix pass
+        if: steps.review1.outputs.needs_fix == 'true'
+        env:
+          SITON_TASK: ${{ inputs.task }}
+          SITON_SCOPE: ${{ inputs.scope }}
+          SITON_DO_NOT_TOUCH: ${{ inputs.do_not_touch }}
+          SITON_TASK_SOURCE: ${{ format('workflow_dispatch run {0}', github.run_id) }}
+          SITON_BUILDER: ${{ needs.managed-build.outputs.builder }}
+          SITON_REVIEWER: ${{ needs.managed-build.outputs.reviewer }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/cloud_agent_manager.cjs packet .siton-cloud-task.md
           node - <<'NODE'
-          const fs = require('node:fs');
-          const packet = fs.readFileSync('.siton-cloud-task.md', 'utf8');
-          const review = fs.readFileSync('.siton-review-1.txt', 'utf8');
-          fs.writeFileSync('.siton-fix-task.md', `${packet}\n\n# REVIEW FINDINGS\n${review}\n\nFix only valid findings required for the original task. Do not broaden scope. Do not commit, push, merge, open a PR, or edit PROJECT_STATUS.md.\n`);
+          const fs=require('node:fs');
+          const packet=fs.readFileSync('.siton-cloud-task.md','utf8');
+          const review=fs.readFileSync('.siton-review-1.txt','utf8');
+          fs.writeFileSync('.siton-fix-task.md',packet+'\n\n# REVIEW FINDINGS\n'+review+'\n\nFix only valid findings required for the original task. Do not broaden scope. Do not commit, push, merge, open a PR, or edit PROJECT_STATUS.md.\n');
           NODE
 
       - name: Claude bounded fix pass
         id: claude_fix
-        if: steps.review1.outputs.needs_fix == 'true' && steps.roles.outputs.builder == 'claude'
+        if: steps.review1.outputs.needs_fix == 'true' && needs.managed-build.outputs.builder == 'claude'
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ steps.roles.outputs.claude_auth == 'api' && secrets.ANTHROPIC_API_KEY || '' }}
-          claude_code_oauth_token: ${{ steps.roles.outputs.claude_auth == 'oauth' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
+          anthropic_api_key: ${{ needs.managed-build.outputs.claude_auth == 'api' && secrets.ANTHROPIC_API_KEY || '' }}
+          claude_code_oauth_token: ${{ needs.managed-build.outputs.claude_auth == 'oauth' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
           github_token: ${{ github.token }}
           prompt: "Read .siton-fix-task.md. Address the valid review findings within the original scope. This is the only automatic fix pass. Do not commit, push, merge, open a PR, or edit PROJECT_STATUS.md."
           claude_args: >-
-            ${{ steps.roles.outputs.claude_model_args }}
+            ${{ needs.managed-build.outputs.claude_model_args }}
             --max-turns 18
             --allowedTools Read Glob Grep Edit MultiEdit Write NotebookEdit TodoWrite
             "Bash(npm run:*)" "Bash(npm test:*)" "Bash(npx:*)" "Bash(node:*)"
@@ -441,82 +550,157 @@ jobs:
           show_full_output: false
 
       - name: Codex bounded fix pass
-        if: steps.review1.outputs.needs_fix == 'true' && steps.roles.outputs.builder == 'codex'
+        if: steps.review1.outputs.needs_fix == 'true' && needs.managed-build.outputs.builder == 'codex'
         uses: openai/codex-action@v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           permission-profile: ":workspace"
           prompt-file: .siton-fix-task.md
-          model: ${{ steps.roles.outputs.codex_model }}
-          effort: ${{ steps.roles.outputs.builder_effort }}
+          model: ${{ needs.managed-build.outputs.codex_model }}
+          effort: ${{ needs.managed-build.outputs.builder_effort }}
           safety-strategy: drop-sudo
 
       - name: Enforce fix-pass lifecycle and control-plane boundary
         if: steps.review1.outputs.needs_fix == 'true'
         env:
-          EXPECTED_BRANCH: ${{ steps.task.outputs.branch }}
-          EXPECTED_HEAD: ${{ steps.task.outputs.head }}
+          EXPECTED_BRANCH: ${{ needs.managed-build.outputs.branch }}
+          EXPECTED_HEAD: ${{ needs.managed-build.outputs.head }}
         shell: bash
         run: |
           set -euo pipefail
           test "$(git branch --show-current)" = "$EXPECTED_BRANCH" || { echo "Fix pass changed branch" >&2; exit 1; }
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD" || { echo "Fix pass committed or changed HEAD; Git lifecycle belongs to the manager" >&2; exit 1; }
-          protected='^(\.github/workflows/|scripts/cloud_agent_manager\.cjs$|AGENTS\.md$|AI_WORKFLOW\.md$|PROJECT_STATUS\.md$)'
+          protected='^(\.github/workflows/|scripts/cloud_agent_manager\.cjs$|scripts/agent_readonly_bash_guard\.cjs$|AGENTS\.md$|AI_WORKFLOW\.md$|PROJECT_STATUS\.md$)'
           if git status --porcelain=v1 --untracked-files=all | sed -E 's/^.. //' | grep -E "$protected"; then
-            echo "Fix pass modified the cloud-manager control plane or shared status" >&2
+            echo "Fix pass modified the cloud-manager control plane, reviewer guard or shared status" >&2
             exit 1
           fi
 
       - name: Re-verify after bounded fix
         if: steps.review1.outputs.needs_fix == 'true'
+        run: |
+          git diff --check
+          node scripts/siton_verify.cjs
+
+      - name: Export reviewed candidate for fresh final review/finalization
+        env:
+          EXPECTED_HEAD: ${{ needs.managed-build.outputs.head }}
+          CLAUDE_FIX_EXECUTION: ${{ steps.claude_fix.outputs.execution_file }}
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p .siton-candidate
+          safe_git() { git -c core.hooksPath=/dev/null -c core.fsmonitor=false -c diff.external= "$@"; }
+          safe_git add -A
+          safe_git diff --cached --binary --no-ext-diff --no-textconv "$EXPECTED_HEAD" > .siton-candidate/candidate.patch
+          test -s .siton-candidate/candidate.patch
+          if [ -n "${CLAUDE_FIX_EXECUTION:-}" ] && [ -f "$CLAUDE_FIX_EXECUTION" ]; then
+            cp "$CLAUDE_FIX_EXECUTION" .siton-candidate/claude-fix-execution.jsonl
+          fi
+
+      - name: Upload candidate handoff
+        uses: actions/upload-artifact@v4
+        with:
+          name: siton-candidate-${{ github.run_id }}
+          path: .siton-candidate/
+          if-no-files-found: error
+          retention-days: 2
+
+  review2:
+    needs: [managed-build, review-and-fix]
+    if: needs.review-and-fix.outputs.needs_fix == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      verdict: ${{ steps.review2.outputs.verdict }}
+      needs_fix: ${{ steps.review2.outputs.needs_fix }}
+    steps:
+      - name: Checkout immutable build base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.managed-build.outputs.head }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Clean dependency install
+        run: npm ci
+
+      - name: Pin read-only guard before importing fixed patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/siton-review-guard"
+          cp scripts/agent_readonly_bash_guard.cjs "$RUNNER_TEMP/siton-review-guard/guard.cjs"
+          sha256sum "$RUNNER_TEMP/siton-review-guard/guard.cjs" > "$RUNNER_TEMP/siton-review-guard/guard.sha256"
+          node -e 'const [guard,out]=process.argv.slice(1);require("node:fs").writeFileSync(out,JSON.stringify({hooks:{PreToolUse:[{matcher:"Bash",hooks:[{type:"command",command:"node \\""+guard+"\\""}]}]}}));' "$RUNNER_TEMP/siton-review-guard/guard.cjs" "$RUNNER_TEMP/siton-review-guard/settings.json"
+
+      - name: Download candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: siton-candidate-${{ github.run_id }}
+          path: .siton-candidate
+
+      - name: Apply fixed candidate on fresh runner
+        env:
+          BRANCH: ${{ needs.managed-build.outputs.branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git switch -c "$BRANCH"
+          git -c core.hooksPath=/dev/null apply --index --binary .siton-candidate/candidate.patch
           git diff --check
-          node scripts/siton_verify.cjs
           git diff --binary HEAD > /tmp/siton-review-before-2.diff
           git status --porcelain=v1 --untracked-files=all > /tmp/siton-review-before-2.status
 
+      - name: Prepare canonical second-review prompt
+        env:
+          BUILDER: ${{ needs.managed-build.outputs.builder }}
+          REVIEWER: ${{ needs.managed-build.outputs.reviewer }}
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const manager=require('./scripts/cloud_agent_manager.cjs');
+          fs.writeFileSync('.siton-review-prompt.md',manager.buildReviewerPrompt({builder:process.env.BUILDER,reviewer:process.env.REVIEWER,baseRef:'HEAD'}));
+          NODE
+
       - name: Codex review pass 2
-        id: codex_review_2
-        if: steps.review1.outputs.needs_fix == 'true' && steps.roles.outputs.reviewer == 'codex'
+        if: needs.managed-build.outputs.reviewer == 'codex'
         uses: openai/codex-action@v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           permission-profile: ":read-only"
           prompt-file: .siton-review-prompt.md
           output-file: .siton-review-2.txt
-          model: ${{ steps.roles.outputs.codex_model }}
-          effort: ${{ steps.roles.outputs.reviewer_effort }}
+          model: ${{ needs.managed-build.outputs.codex_model }}
+          effort: ${{ needs.managed-build.outputs.reviewer_effort }}
           safety-strategy: drop-sudo
 
-      - name: Materialize read-only review guard (pass 2)
-        if: steps.review1.outputs.needs_fix == 'true' && steps.roles.outputs.reviewer == 'claude'
-        env:
-          GUARD_B64: ${{ steps.review_guard.outputs.guard_b64 }}
-          GUARD_SHA256: ${{ steps.review_guard.outputs.guard_sha256 }}
+      - name: Verify pinned guard
+        if: needs.managed-build.outputs.reviewer == 'claude'
         shell: bash
         run: |
           set -euo pipefail
-          dir="$RUNNER_TEMP/siton-review-guard"
-          rm -rf "$dir"
-          mkdir -p "$dir"
-          printf '%s' "$GUARD_B64" | base64 -d > "$dir/guard.cjs"
-          echo "$GUARD_SHA256  $dir/guard.cjs" | sha256sum -c --quiet -
-          node -e 'const [guard, out] = process.argv.slice(1); require("node:fs").writeFileSync(out, JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: `node "${guard}"` }] }] } }));' "$dir/guard.cjs" "$dir/settings.json"
-          echo '{"tool_input":{"command":"git diff --output=x"}}' | node "$dir/guard.cjs" && { echo "read-only guard failed open" >&2; exit 1; } || test "$?" = 2
+          sha256sum -c "$RUNNER_TEMP/siton-review-guard/guard.sha256"
+          echo '{"tool_input":{"command":"git diff --output=x"}}' | node "$RUNNER_TEMP/siton-review-guard/guard.cjs" && { echo "read-only guard failed open" >&2; exit 1; } || test "$?" = 2
 
       - name: Claude review pass 2
         id: claude_review_2
-        if: steps.review1.outputs.needs_fix == 'true' && steps.roles.outputs.reviewer == 'claude'
+        if: needs.managed-build.outputs.reviewer == 'claude'
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ steps.roles.outputs.claude_auth == 'api' && secrets.ANTHROPIC_API_KEY || '' }}
-          claude_code_oauth_token: ${{ steps.roles.outputs.claude_auth == 'oauth' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
+          anthropic_api_key: ${{ needs.managed-build.outputs.claude_auth == 'api' && secrets.ANTHROPIC_API_KEY || '' }}
+          claude_code_oauth_token: ${{ needs.managed-build.outputs.claude_auth == 'oauth' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
           github_token: ${{ github.token }}
           prompt: "Re-read .siton-review-prompt.md and review the current diff after the bounded fix pass. Return the required verdict marker. Do not edit any repository file."
           claude_args: >-
-            ${{ steps.roles.outputs.claude_reviewer_model_args }}
+            ${{ needs.managed-build.outputs.claude_reviewer_model_args }}
             --setting-sources=
             --settings ${{ runner.temp }}/siton-review-guard/settings.json
             --max-turns 12
@@ -525,13 +709,12 @@ jobs:
           show_full_output: false
 
       - name: Extract Claude review pass 2
-        if: steps.review1.outputs.needs_fix == 'true' && steps.roles.outputs.reviewer == 'claude'
+        if: needs.managed-build.outputs.reviewer == 'claude'
         env:
           CLAUDE_EXECUTION_FILE: ${{ steps.claude_review_2.outputs.execution_file }}
         run: node scripts/cloud_agent_manager.cjs extract-claude "$CLAUDE_EXECUTION_FILE" .siton-review-2.txt
 
       - name: Enforce second reviewer read-only contract
-        if: steps.review1.outputs.needs_fix == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -540,49 +723,127 @@ jobs:
           cmp /tmp/siton-review-before-2.diff /tmp/siton-review-after-2.diff
           cmp /tmp/siton-review-before-2.status /tmp/siton-review-after-2.status
 
-      - name: Select final review verdict
-        id: final_review
+      - name: Parse review pass 2
+        id: review2
+        run: node scripts/cloud_agent_manager.cjs review .siton-review-2.txt
+
+      - name: Freeze second-review evidence
         env:
-          REVIEWER: ${{ steps.roles.outputs.reviewer }}
-          NEEDED_FIX: ${{ steps.review1.outputs.needs_fix }}
+          CLAUDE_EXECUTION_FILE: ${{ steps.claude_review_2.outputs.execution_file }}
         shell: bash
         run: |
           set -euo pipefail
-          if [ "$REVIEWER" = "none" ]; then
-            echo "verdict=NOT_RUN" >> "$GITHUB_OUTPUT"
-            echo "needs_fix=false" >> "$GITHUB_OUTPUT"
-          elif [ "$NEEDED_FIX" = "true" ]; then
-            node scripts/cloud_agent_manager.cjs review .siton-review-2.txt
+          mkdir -p .siton-review2
+          cp .siton-review-2.txt .siton-review2/review.txt
+          if [ -n "${CLAUDE_EXECUTION_FILE:-}" ] && [ -f "$CLAUDE_EXECUTION_FILE" ]; then
+            cp "$CLAUDE_EXECUTION_FILE" .siton-review2/claude-review2-execution.jsonl
+          fi
+
+      - name: Upload second-review evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: siton-review2-${{ github.run_id }}
+          path: .siton-review2/
+          if-no-files-found: error
+          retention-days: 2
+
+  finalize:
+    needs: [managed-build, review-and-fix, review2]
+    if: always() && needs.managed-build.result == 'success' && needs.review-and-fix.result == 'success' && (needs.review2.result == 'success' || needs.review2.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    outputs:
+      pr_url: ${{ steps.pr.outputs.url }}
+      verdict: ${{ steps.final_review.outputs.verdict }}
+    steps:
+      - name: Checkout immutable build base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.managed-build.outputs.head }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Clean dependency install
+        run: npm ci
+
+      - name: Download final candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: siton-candidate-${{ github.run_id }}
+          path: .siton-candidate
+
+      - name: Download builder telemetry evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: siton-builder-${{ github.run_id }}
+          path: .siton-builder
+
+      - name: Download first-review evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: siton-review1-${{ github.run_id }}
+          path: .siton-review1
+
+      - name: Download second-review evidence
+        if: needs.review-and-fix.outputs.needs_fix == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: siton-review2-${{ github.run_id }}
+          path: .siton-review2
+
+      - name: Apply reviewed candidate on lifecycle runner
+        env:
+          BRANCH: ${{ needs.managed-build.outputs.branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git switch -c "$BRANCH"
+          git -c core.hooksPath=/dev/null apply --index --binary .siton-candidate/candidate.patch
+          git diff --check
+
+      - name: Select final review verdict
+        id: final_review
+        env:
+          NEEDED_FIX: ${{ needs.review-and-fix.outputs.needs_fix }}
+          REVIEW1: ${{ needs.review-and-fix.outputs.verdict }}
+          REVIEW2: ${{ needs.review2.outputs.verdict }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          verdict="$REVIEW1"
+          if [ "$NEEDED_FIX" = true ]; then verdict="$REVIEW2"; fi
+          test -n "$verdict"
+          echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+          if [ "$verdict" = CHANGES_REQUIRED ] || [ "$verdict" = INVALID ]; then
+            echo "needs_fix=true" >> "$GITHUB_OUTPUT"
           else
-            node scripts/cloud_agent_manager.cjs review .siton-review-1.txt
+            echo "needs_fix=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Update project status and final diff checks
         env:
-          STATUS_BRANCH: ${{ steps.task.outputs.branch }}
-          STATUS_BUILDER: ${{ steps.roles.outputs.builder }}
-          STATUS_REVIEWER: ${{ steps.roles.outputs.reviewer }}
-          STATUS_COMPLETED: "Cloud-managed task executed on a GitHub-hosted runner; builder completed the task and the manager performed canonical verification."
-          STATUS_TESTED: "git diff --check and node scripts/siton_verify.cjs passed on a disposable local PostgreSQL service in GitHub Actions."
+          STATUS_BRANCH: ${{ needs.managed-build.outputs.branch }}
+          STATUS_BUILDER: ${{ needs.managed-build.outputs.builder }}
+          STATUS_REVIEWER: ${{ needs.managed-build.outputs.reviewer }}
+          STATUS_COMPLETED: "Cloud-managed task executed with builder, reviewer and lifecycle authority isolated on separate GitHub-hosted runners."
+          STATUS_TESTED: "Builder/fix canonical verification passed; reviewer evidence came from fresh runners; final lifecycle runner applied only the reviewed artifact."
           STATUS_OPEN: ${{ steps.final_review.outputs.verdict == 'CHANGES_REQUIRED' && 'Final review still requires changes after the single bounded fix pass; PR will remain draft for follow-up.' || 'No manager-side blocker remains; merge remains owner-controlled and repository CI remains authoritative.' }}
           STATUS_PERCENTAGE: ${{ steps.final_review.outputs.verdict == 'CHANGES_REQUIRED' && '80%' || '95% pending PR merge' }}
           STATUS_NEXT: ${{ steps.final_review.outputs.verdict == 'CHANGES_REQUIRED' && 'Address final reviewer findings in a fresh bounded run; do not loop automatically.' || 'Open PR, let repository CI run, then merge only when required checks are green.' }}
         shell: bash
         run: |
-          set -euo pipefail
           node scripts/cloud_agent_manager.cjs status PROJECT_STATUS.md
           git diff --check
 
-      # Black-Sky E3: the agent tree (including its .git/hooks, .git/config and
-      # .gitattributes filters) was writable by the builder, so no git command
-      # may run there while the lifecycle token is in the environment. The
-      # diff is exported credential-free with hooks, fsmonitor, external diff
-      # and textconv disabled, then applied and committed in a pristine
-      # control checkout that the builder never touched, and only that
-      # checkout ever sees SITON_AGENT_GITHUB_TOKEN.
       - name: Export managed diff without credentials
         env:
-          EXPECTED_HEAD: ${{ steps.task.outputs.head }}
+          EXPECTED_HEAD: ${{ needs.managed-build.outputs.head }}
         shell: bash
         run: |
           set -euo pipefail
@@ -598,7 +859,7 @@ jobs:
       - name: Pristine control checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.task.outputs.head }}
+          ref: ${{ needs.managed-build.outputs.head }}
           path: .siton-control
           fetch-depth: 1
           persist-credentials: false
@@ -606,8 +867,8 @@ jobs:
       - name: Commit and push managed branch
         working-directory: .siton-control
         env:
-          BRANCH: ${{ steps.task.outputs.branch }}
-          EXPECTED_HEAD: ${{ steps.task.outputs.head }}
+          BRANCH: ${{ needs.managed-build.outputs.branch }}
+          EXPECTED_HEAD: ${{ needs.managed-build.outputs.head }}
           GH_TOKEN: ${{ secrets.SITON_AGENT_GITHUB_TOKEN }}
         shell: bash
         run: |
@@ -623,13 +884,13 @@ jobs:
 
       - name: Run required parallel analysis swarm
         id: swarm
-        if: steps.roles.outputs.sensitive == 'true' || steps.roles.outputs.tier == 'apex'
+        if: needs.managed-build.outputs.sensitive == 'true' || needs.managed-build.outputs.tier == 'apex'
         env:
           GH_TOKEN: ${{ secrets.SITON_AGENT_GITHUB_TOKEN }}
-          BRANCH: ${{ steps.task.outputs.branch }}
+          BRANCH: ${{ needs.managed-build.outputs.branch }}
           SITON_TASK: ${{ inputs.task }}
-          SITON_RISK: ${{ steps.roles.outputs.risk }}
-          SITON_APEX_REASON: ${{ steps.roles.outputs.apex_reason }}
+          SITON_RISK: ${{ needs.managed-build.outputs.risk }}
+          SITON_APEX_REASON: ${{ needs.managed-build.outputs.apex_reason }}
           SITON_APEX_EVIDENCE: ${{ inputs.apex_evidence }}
         shell: bash
         run: |
@@ -642,34 +903,21 @@ jobs:
             -f risk="$SITON_RISK" \
             -f apex_reason="${SITON_APEX_REASON:-none}" \
             -f apex_evidence="${SITON_APEX_EVIDENCE:-}"
-
           run_id=""
           for _ in $(seq 1 30); do
             run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow cloud-analysis-swarm.yml --event workflow_dispatch --limit 50 --json databaseId,displayTitle --jq ".[] | select(.displayTitle == \"Siton Analysis ${request_id}\") | .databaseId" | head -n1)
             if [ -n "$run_id" ]; then break; fi
             sleep 2
           done
-          if [ -z "$run_id" ]; then
-            echo "Could not locate analysis swarm run for $request_id" >&2
-            exit 1
-          fi
-
+          test -n "$run_id"
           gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status
           run_url=$(gh run view "$run_id" --repo "$GITHUB_REPOSITORY" --json url --jq .url)
-          rm -rf /tmp/siton-swarm
-          mkdir -p /tmp/siton-swarm
+          rm -rf /tmp/siton-swarm && mkdir -p /tmp/siton-swarm
           gh run download "$run_id" --repo "$GITHUB_REPOSITORY" -n "swarm-synthesis-${run_id}" -D /tmp/siton-swarm
           synthesis=$(find /tmp/siton-swarm -type f -name 'swarm-synthesis.md' -print -quit)
-          if [ -z "$synthesis" ]; then
-            echo "Analysis swarm synthesis artifact missing" >&2
-            exit 1
-          fi
+          test -n "$synthesis"
           verdict=$(grep -E '^VERDICT=(PASS|FINDINGS)$' "$synthesis" | tail -n1 | cut -d= -f2 || true)
-          if [ -z "$verdict" ]; then
-            echo "Analysis swarm returned no machine-readable verdict" >&2
-            cat "$synthesis" >&2
-            exit 1
-          fi
+          test -n "$verdict"
           cp "$synthesis" /tmp/siton-swarm-synthesis.md
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
           echo "url=$run_url" >> "$GITHUB_OUTPUT"
@@ -679,10 +927,10 @@ jobs:
         id: pr
         env:
           GH_TOKEN: ${{ secrets.SITON_AGENT_GITHUB_TOKEN }}
-          BRANCH: ${{ steps.task.outputs.branch }}
-          BUILDER: ${{ steps.roles.outputs.builder }}
-          REVIEWER: ${{ steps.roles.outputs.reviewer }}
-          INDEPENDENT_REVIEW: ${{ steps.roles.outputs.independent_review }}
+          BRANCH: ${{ needs.managed-build.outputs.branch }}
+          BUILDER: ${{ needs.managed-build.outputs.builder }}
+          REVIEWER: ${{ needs.managed-build.outputs.reviewer }}
+          INDEPENDENT_REVIEW: ${{ needs.managed-build.outputs.independent_review }}
           VERDICT: ${{ steps.final_review.outputs.verdict }}
           SWARM_VERDICT: ${{ steps.swarm.outputs.verdict }}
           SWARM_URL: ${{ steps.swarm.outputs.url }}
@@ -690,28 +938,41 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node - <<'NODE'
-          const fs = require('node:fs');
-          const task = String(process.env.SITON_TASK || '').trim().slice(0, 3000);
-          fs.writeFileSync('/tmp/cloud-pr-body.md', `Cloud Agent Manager run ${process.env.GITHUB_RUN_ID}\n\nBuilder: ${process.env.BUILDER}\nReviewer: ${process.env.REVIEWER}\nIndependent review: ${process.env.INDEPENDENT_REVIEW}\nFinal reviewer verdict: ${process.env.VERDICT}\nParallel analysis verdict: ${process.env.SWARM_VERDICT || 'NOT_REQUIRED'}\nParallel analysis run: ${process.env.SWARM_URL || 'not required'}\n\nTask\n${task}\n\nVerification\n- git diff --check: PASS\n- canonical siton_verify: PASS\n- real money: 0\n- Grow: untouched\n- auto-merge: disabled\n`);
-          NODE
+          cat > /tmp/cloud-pr-body.md <<EOF
+          Cloud Agent Manager run ${GITHUB_RUN_ID}
+
+          Builder: ${BUILDER}
+          Reviewer: ${REVIEWER}
+          Independent review: ${INDEPENDENT_REVIEW}
+          Final reviewer verdict: ${VERDICT}
+          Parallel analysis verdict: ${SWARM_VERDICT:-NOT_REQUIRED}
+          Parallel analysis run: ${SWARM_URL:-not required}
+
+          Task
+          ${SITON_TASK}
+
+          Verification
+          - builder, reviewer and lifecycle runner isolation: PASS by workflow topology
+          - canonical siton_verify: PASS on builder/fix candidate
+          - real money: 0
+          - Grow: untouched
+          - auto-merge: disabled
+          EOF
           draft_arg=""
-          if [ "$VERDICT" = "CHANGES_REQUIRED" ] || [ "$VERDICT" = "INVALID" ] || [ "${SWARM_VERDICT:-}" = "FINDINGS" ]; then draft_arg="--draft"; fi
+          if [ "$VERDICT" = CHANGES_REQUIRED ] || [ "$VERDICT" = INVALID ] || [ "${SWARM_VERDICT:-}" = FINDINGS ]; then draft_arg="--draft"; fi
           pr_url=$(gh pr create --repo "$GITHUB_REPOSITORY" --base master --head "$BRANCH" --title "Cloud agent manager run ${GITHUB_RUN_ID}" --body-file /tmp/cloud-pr-body.md $draft_arg)
           echo "url=$pr_url" >> "$GITHUB_OUTPUT"
-          echo "CLOUD_AGENT_PR=$pr_url"
 
       - name: Attach reviewer evidence to PR
-        if: steps.roles.outputs.reviewer != 'none'
+        if: needs.managed-build.outputs.reviewer != 'none'
         env:
           GH_TOKEN: ${{ secrets.SITON_AGENT_GITHUB_TOKEN }}
           PR_URL: ${{ steps.pr.outputs.url }}
-          NEEDED_FIX: ${{ steps.review1.outputs.needs_fix }}
+          NEEDED_FIX: ${{ needs.review-and-fix.outputs.needs_fix }}
         shell: bash
         run: |
-          set -euo pipefail
-          review_file=.siton-review-1.txt
-          if [ "$NEEDED_FIX" = "true" ] && [ -f .siton-review-2.txt ]; then review_file=.siton-review-2.txt; fi
+          review_file=.siton-review1/review.txt
+          if [ "$NEEDED_FIX" = true ]; then review_file=.siton-review2/review.txt; fi
           gh pr comment "$PR_URL" --body-file "$review_file"
 
       - name: Attach parallel analysis evidence
@@ -719,36 +980,33 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.SITON_AGENT_GITHUB_TOKEN }}
           PR_URL: ${{ steps.pr.outputs.url }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh pr comment "$PR_URL" --body-file /tmp/siton-swarm-synthesis.md
+        run: gh pr comment "$PR_URL" --body-file /tmp/siton-swarm-synthesis.md
 
       - name: Record agent-run telemetry
         if: always()
         continue-on-error: true
         env:
-          SITON_TASK_TYPE: ${{ steps.roles.outputs.type }}
-          SITON_RISK: ${{ steps.roles.outputs.risk }}
-          SITON_MODEL_TIER: ${{ steps.roles.outputs.tier }}
-          SITON_CODEX_MODEL: ${{ steps.roles.outputs.codex_model }}
-          SITON_CLAUDE_MODEL: ${{ steps.roles.outputs.builder == 'claude' && steps.roles.outputs.claude_model || 'none' }}
-          SITON_CLAUDE_REVIEWER_MODEL: ${{ steps.roles.outputs.reviewer == 'claude' && steps.roles.outputs.claude_reviewer_model || 'none' }}
-          SITON_CLAUDE_BUILD_EXECUTION: ${{ steps.claude_build.outputs.execution_file }}
-          SITON_CLAUDE_FIX_EXECUTION: ${{ steps.claude_fix.outputs.execution_file }}
-          SITON_CLAUDE_REVIEW1_EXECUTION: ${{ steps.claude_review_1.outputs.execution_file }}
-          SITON_CLAUDE_REVIEW2_EXECUTION: ${{ steps.claude_review_2.outputs.execution_file }}
-          SITON_APEX_REASON: ${{ steps.roles.outputs.apex_reason }}
-          SITON_BUILDER: ${{ steps.roles.outputs.builder }}
-          SITON_REVIEWER: ${{ steps.roles.outputs.reviewer }}
-          SITON_FIX_PASSES: ${{ steps.review1.outputs.needs_fix == 'true' && '1' || '0' }}
+          SITON_TASK_TYPE: ${{ needs.managed-build.outputs.type }}
+          SITON_RISK: ${{ needs.managed-build.outputs.risk }}
+          SITON_MODEL_TIER: ${{ needs.managed-build.outputs.tier }}
+          SITON_CODEX_MODEL: ${{ needs.managed-build.outputs.codex_model }}
+          SITON_CLAUDE_MODEL: ${{ needs.managed-build.outputs.builder == 'claude' && needs.managed-build.outputs.claude_model || 'none' }}
+          SITON_CLAUDE_REVIEWER_MODEL: ${{ needs.managed-build.outputs.reviewer == 'claude' && needs.managed-build.outputs.claude_reviewer_model || 'none' }}
+          SITON_CLAUDE_BUILD_EXECUTION: .siton-builder/claude-build-execution.jsonl
+          SITON_CLAUDE_FIX_EXECUTION: .siton-candidate/claude-fix-execution.jsonl
+          SITON_CLAUDE_REVIEW1_EXECUTION: .siton-review1/claude-review1-execution.jsonl
+          SITON_CLAUDE_REVIEW2_EXECUTION: .siton-review2/claude-review2-execution.jsonl
+          SITON_APEX_REASON: ${{ needs.managed-build.outputs.apex_reason }}
+          SITON_BUILDER: ${{ needs.managed-build.outputs.builder }}
+          SITON_REVIEWER: ${{ needs.managed-build.outputs.reviewer }}
+          SITON_FIX_PASSES: ${{ needs.review-and-fix.outputs.needs_fix == 'true' && '1' || '0' }}
           SITON_VERIFICATION: ${{ job.status }}
           SITON_REVIEW_VERDICT: ${{ steps.final_review.outputs.verdict }}
           SITON_PR_URL: ${{ steps.pr.outputs.url }}
+          STARTED_EPOCH: ${{ needs.managed-build.outputs.started_epoch }}
         shell: bash
         run: |
-          set -euo pipefail
-          export SITON_DURATION_SECONDS="$(( $(date +%s) - SITON_RUN_STARTED_EPOCH ))"
+          export SITON_DURATION_SECONDS="$(( $(date +%s) - STARTED_EPOCH ))"
           node scripts/agent_router.cjs metric agent-run-metric.json
           cat agent-run-metric.json >> "$GITHUB_STEP_SUMMARY"
 
@@ -771,20 +1029,35 @@ jobs:
           PR_URL: ${{ steps.pr.outputs.url }}
           VERDICT: ${{ steps.final_review.outputs.verdict }}
           SWARM_VERDICT: ${{ steps.swarm.outputs.verdict }}
-          BUILDER: ${{ steps.roles.outputs.builder }}
-          REVIEWER: ${{ steps.roles.outputs.reviewer }}
+          BUILDER: ${{ needs.managed-build.outputs.builder }}
+          REVIEWER: ${{ needs.managed-build.outputs.reviewer }}
           JOB_STATUS: ${{ job.status }}
         shell: bash
         run: |
-          set -euo pipefail
           issue_number=$(printf '%s\n' "$SITON_TASK" | sed -nE 's/^\[source-issue:([0-9]+)\]$/\1/p' | head -n1)
           if [ -z "$issue_number" ]; then exit 0; fi
           run_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          printf 'Cloud Agent Manager finished this run.\n\nStatus: %s\nBuilder: %s\nReviewer: %s\nFinal review: %s\nParallel analysis: %s\nPR: %s\nRun: %s\n\nNo auto-merge was performed.\n' "$JOB_STATUS" "${BUILDER:-unknown}" "${REVIEWER:-unknown}" "${VERDICT:-unknown}" "${SWARM_VERDICT:-not-required}" "${PR_URL:-none}" "$run_url" > /tmp/cloud-issue-result.md
-          # Presence-only credential state; a blocked run must still tell the
-          # owner what to do instead of leaving the issue silent.
-          if [ -f /tmp/siton-credential-blocker.md ]; then
-            printf '\n' >> /tmp/cloud-issue-result.md
-            cat /tmp/siton-credential-blocker.md >> /tmp/cloud-issue-result.md
-          fi
+          printf 'Cloud Agent Manager finished this run.\n\nStatus: %s\nBuilder: %s\nReviewer: %s\nFinal review: %s\nParallel analysis: %s\nPR: %s\nRun: %s\n\nNo auto-merge was performed.\n' "$JOB_STATUS" "$BUILDER" "$REVIEWER" "$VERDICT" "${SWARM_VERDICT:-not-required}" "${PR_URL:-none}" "$run_url" > /tmp/cloud-issue-result.md
           gh issue comment "$issue_number" --body-file /tmp/cloud-issue-result.md
+
+  report-failure:
+    needs: [managed-build, review-and-fix, review2, finalize]
+    if: always() && needs.finalize.result != 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Report blocked run to source issue from a clean runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SITON_TASK: ${{ inputs.task }}
+          BUILD_RESULT: ${{ needs.managed-build.result }}
+          REVIEW1_RESULT: ${{ needs.review-and-fix.result }}
+          REVIEW2_RESULT: ${{ needs.review2.result }}
+          FINALIZE_RESULT: ${{ needs.finalize.result }}
+        shell: bash
+        run: |
+          issue_number=$(printf '%s\n' "$SITON_TASK" | sed -nE 's/^\[source-issue:([0-9]+)\]$/\1/p' | head -n1)
+          if [ -z "$issue_number" ]; then exit 0; fi
+          run_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          printf 'Cloud Agent Manager stopped before successful finalization.\n\nBuild: %s\nReview/fix: %s\nSecond review: %s\nFinalize: %s\nRun: %s\n\nNo auto-merge was performed.\n' "$BUILD_RESULT" "$REVIEW1_RESULT" "$REVIEW2_RESULT" "$FINALIZE_RESULT" "$run_url" > /tmp/cloud-issue-failure.md
+          gh issue comment "$issue_number" --body-file /tmp/cloud-issue-failure.md
