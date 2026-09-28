@@ -326,7 +326,7 @@ test("managed commit/push runs hook-free in a pristine control checkout; the age
   assert.match(exportStep, /--no-ext-diff --no-textconv/);
   const control = stepOf("Pristine control checkout");
   assert.match(control, /actions\/checkout@v4/);
-  assert.match(control, /ref: \\$\\{\\{ needs\\.managed-build\\.outputs\\.head \\$\\}\\}/);
+  assert.match(control, /ref: \$\{\{ needs\.managed-build\.outputs\.head \}\}/);
   assert.match(control, /path: \.siton-control/);
   assert.match(control, /persist-credentials: false/);
   const commit = stepOf("Commit and push managed branch");
