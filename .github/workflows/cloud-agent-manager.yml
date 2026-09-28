@@ -97,6 +97,8 @@ jobs:
   # reviewer or receives the lifecycle token. Candidate diffs cross jobs only
   # as immutable Actions artifacts. The final push/PR job is fresh as well.
   managed-build:
+    permissions:
+      contents: read
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
@@ -200,11 +202,13 @@ jobs:
               echo
               if [ "$MANAGER_GH_TOKEN_PRESENT" != true ]; then
                 echo "SITON_AGENT_GITHUB_TOKEN is required for autonomous branch/PR lifecycle and downstream CI triggering."
+                echo "Create a fine-grained personal access token scoped to this repository with Actions, Contents, Issues and Pull requests set to Read and write, then add it as an Actions secret named SITON_AGENT_GITHUB_TOKEN."
               fi
               if [ "$has_codex" = false ] && [ "$has_claude" = false ]; then
                 echo "No coding-agent credential is configured. Add OPENAI_API_KEY, ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN."
               fi
               echo "Secrets page: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/settings/secrets/actions"
+              echo "Then re-run Siton Cloud Credential Preflight to confirm before queuing work again."
             } >> /tmp/siton-credential-blocker.md
             cat /tmp/siton-credential-blocker.md >> "$GITHUB_STEP_SUMMARY"
             cat /tmp/siton-credential-blocker.md >&2
@@ -344,6 +348,8 @@ jobs:
           retention-days: 2
 
   review1:
+    permissions:
+      contents: read
     needs: managed-build
     runs-on: ubuntu-24.04
     timeout-minutes: 180
@@ -519,6 +525,8 @@ jobs:
 
 
   fix:
+    permissions:
+      contents: read
     needs: [managed-build, review1]
     runs-on: ubuntu-24.04
     timeout-minutes: 180
@@ -679,6 +687,8 @@ jobs:
           retention-days: 2
 
   review2:
+    permissions:
+      contents: read
     needs: [managed-build, review1, fix]
     if: needs.review1.outputs.needs_fix == 'true'
     runs-on: ubuntu-24.04
@@ -825,6 +835,10 @@ jobs:
           retention-days: 2
 
   finalize:
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: write
     needs: [managed-build, review1, fix, review2]
     if: always() && needs.managed-build.result == 'success' && needs.review1.result == 'success' && needs.fix.result == 'success' && (needs.review2.result == 'success' || needs.review2.result == 'skipped')
     runs-on: ubuntu-24.04
@@ -1123,6 +1137,9 @@ jobs:
           gh issue comment "$issue_number" --body-file /tmp/cloud-issue-result.md
 
   report-failure:
+    permissions:
+      contents: read
+      issues: write
     needs: [managed-build, review1, fix, review2, finalize]
     if: always() && needs.finalize.result != 'success'
     runs-on: ubuntu-24.04
