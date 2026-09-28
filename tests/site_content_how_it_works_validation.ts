@@ -168,6 +168,35 @@ try {
     // and the server-side contract is the same one (validateContent)
     assert.throws(() => validateContent("home", { blocks: contract.defaults().map(b => b.id === HOW_IT_WORKS_BLOCK_ID ? { ...b, fields: { ...b.fields, [F.stepIcon("buyers", 4)]: "nope" } } : b) }), /invalid_content_option/);
   });
+  await run("a draft saved before the infographic (old `how` steps + `audiences`) is flagged unpublishable as stored; the server guard holds; re-saving the shown draft publishes it (Codex P2 on #121)", async () => {
+    const before = await reload();
+    const legacy = JSON.parse(JSON.stringify(before.published));
+    legacy.blocks = legacy.blocks.map((b: any) => b.id === HOW_IT_WORKS_BLOCK_ID
+      ? { id: "how", type: "steps", enabled: true, fields: { title: LANDING_HE.howItWorks.title }, items: LANDING_HE.howItWorks.steps.map(s => ({ title: s.title, body: s.body })) }
+      : b);
+    legacy.blocks.splice(2, 0, { id: "audiences", type: "columns", enabled: true, fields: { title: "" }, items: [{ title: LANDING_HE.forBuyers.title, body: LANDING_HE.forBuyers.body, cta_label: "", cta_link: "" }] });
+    await pool.query(`UPDATE siton.site_content SET draft_jsonb=$1::jsonb, draft_updated_at=now() WHERE content_key='home'`, [JSON.stringify(legacy)]);
+    const section = await reload();
+    assert.equal(section.draft_publishable, false, "a draft stored under the old contract must be reported as not publishable as stored");
+    assert.equal(section.draft.blocks[1].type, "how_it_works", "the editor still receives the normalized draft");
+    assert.ok(!section.draft.blocks.some((b: any) => b.id === "audiences"));
+    // the publish-time guard is NOT weakened: the stored draft itself is still refused
+    const refused = await request("POST", "/api/admin/site-content/home/publish", headers, { revision });
+    assert.equal(refused.status, 409); assert.equal(refused.json().error, "draft_invalid");
+    // what the editor does: save the draft it shows, then publish
+    let r = await request("PUT", "/api/admin/site-content/home/draft", headers, { value: section.draft, revision }); assert.equal(r.status, 200, r.body);
+    assert.equal(r.json().sections.home.draft_publishable, true);
+    await reload();
+    r = await request("POST", "/api/admin/site-content/home/publish", headers, { revision }); assert.equal(r.status, 200, r.body);
+    const pub = await home();
+    assert.deepEqual(pub.blocks.map((b: any) => b.id), ["hero", "how", "trust", "faq", "contact"]);
+    assert.equal(pub.blocks[1].type, "how_it_works");
+    // a valid stored draft reports publishable
+    const d = JSON.parse(JSON.stringify((await reload()).published)); howOf(d).fields[F.stepText("sellers", 1)] = "פותחים עסקה חדשה";
+    r = await request("PUT", "/api/admin/site-content/home/draft", headers, { value: d, revision }); assert.equal(r.status, 200, r.body);
+    assert.equal(r.json().sections.home.draft_publishable, true);
+    await request("POST", "/api/admin/site-content/home/discard", headers, { revision: r.json().sections.home.revision });
+  });
   console.log(`SITE_CONTENT_HOW_IT_WORKS_PASS passed=${passed}`);
 } finally {
   await app.close().catch(() => undefined);

@@ -258,6 +258,33 @@ async function main() {
       assert.equal(snap.buyers.steps[1].icon, NEW_ICON);
       assert.deepEqual(appErrors(page!), []);
     });
+    // ── 4. a draft saved before the infographic publishes from the editor as shown (Codex P2 on #121) ──
+    await run("a draft stored under the old home contract publishes from the editor without an edit, exactly as shown", async () => {
+      const current = (await pool.query(`SELECT value_jsonb FROM siton.site_content WHERE content_key='home'`)).rows[0]!.value_jsonb;
+      const legacy = JSON.parse(JSON.stringify(current));
+      legacy.blocks = legacy.blocks.map((b: any) => b.id === "how"
+        ? { id: "how", type: "steps", enabled: true, fields: { title: "איך זה עובד" }, items: [{ title: "שלב ישן", body: "גוף ישן" }] }
+        : b);
+      legacy.blocks.splice(2, 0, { id: "audiences", type: "columns", enabled: true, fields: { title: "" }, items: [{ title: "לקונים", body: "טקסט ישן", cta_label: "", cta_link: "" }] });
+      await pool.query(`UPDATE siton.site_content SET draft_jsonb=$1::jsonb, draft_updated_at=now() WHERE content_key='home'`, [JSON.stringify(legacy)]);
+      await page!.setViewport(DESKTOP);
+      page!.clearErrors();
+      await page!.goto(`${BASE}?legacy-draft=1#/admin/content`, { waitMs: 600 });
+      await waitFor(page!, `(() => { const s = document.querySelector('[data-testid="cms-status"]'); return s && s.getAttribute('data-has-draft') === '1' && document.querySelector('[data-testid="cms-block-how"]') && document.querySelector('[data-testid="cms-block-how"]').getAttribute('data-block-type') === 'how_it_works'; })()`, 30_000, "the editor showing the migrated draft");
+      assert.equal(await page!.evaluate<boolean>(`!document.querySelector('[data-testid="cms-block-audiences"]')`), true, "the retired block is not shown in the editor");
+      assert.equal(await page!.evaluate<string>(`document.querySelector('[data-testid="cms-status"]').getAttribute('data-dirty')`), "0", "the editor is not dirty — this is the case Codex described");
+      await page!.evaluate(`document.querySelector('[data-testid="cms-publish"]').click()`);
+      await waitFor(page!, `(() => { const s = document.querySelector('[data-testid="cms-status"]'); const m = document.querySelector('[data-testid="cms-message"]'); return s && s.getAttribute('data-has-draft') === '0' && m && (m.classList.contains('ok') || m.classList.contains('err')) ? true : null; })()`, 30_000, "publish of the migrated draft to finish");
+      const message = await page!.evaluate<any>(`({ ok: document.querySelector('[data-testid="cms-message"]').classList.contains('ok'), text: document.querySelector('[data-testid="cms-message"]').textContent })`);
+      assert.equal(message.ok, true, `publishing the migrated draft failed: ${message.text}`);
+      const stored = (await pool.query(`SELECT value_jsonb, draft_jsonb FROM siton.site_content WHERE content_key='home'`)).rows[0]!;
+      assert.equal(stored.draft_jsonb, null);
+      // the stored page keeps its hidden blocks too; it must equal the page before the old draft, without `audiences`
+      assert.deepEqual(stored.value_jsonb.blocks.map((b: any) => b.id), current.blocks.map((b: any) => b.id));
+      assert.ok(!stored.value_jsonb.blocks.some((b: any) => b.id === "audiences"), "the retired block was published");
+      assert.equal(stored.value_jsonb.blocks[1].type, "how_it_works");
+      assert.deepEqual(appErrors(page!), []);
+    });
     console.log("HOW_IT_WORKS_BROWSER_PASS");
   } finally {
     await page?.close().catch(() => undefined);

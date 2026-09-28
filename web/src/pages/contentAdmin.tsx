@@ -23,6 +23,8 @@ type Section = {
   label: string; description: string; contract: PageContract;
   published: PageContent; draft: PageContent | null; revision: number;
   updated_at: string | null; updated_by: string | null; draft_updated_at: string | null; draft_updated_by: string | null; published_at: string | null;
+  /** false when the STORED draft would be refused at publish as stored (e.g. saved under an older template contract) */
+  draftPublishable: boolean;
 };
 type Message = { tone: "ok" | "err" | "info"; text: string } | null;
 
@@ -47,7 +49,9 @@ function toSection(key: string, raw: Json): Section {
   return {
     label: raw?.label || contract.label, description: raw?.description || contract.description, contract,
     published, draft: raw?.draft ? normalizePage(raw.draft, contract) : null, revision: Number(raw?.revision || 0),
-    updated_at: raw?.updated_at || null, updated_by: raw?.updated_by || null, draft_updated_at: raw?.draft_updated_at || null, draft_updated_by: raw?.draft_updated_by || null, published_at: raw?.published_at || null
+    updated_at: raw?.updated_at || null, updated_by: raw?.updated_by || null, draft_updated_at: raw?.draft_updated_at || null, draft_updated_by: raw?.draft_updated_by || null, published_at: raw?.published_at || null,
+    // an older server does not send the flag: keep the previous behaviour (publish the stored draft)
+    draftPublishable: raw?.draft_publishable !== false
   };
 }
 function toSections(raw: Json): Record<string, Section> {
@@ -122,7 +126,10 @@ export function ContentAdmin() {
   };
   const publish = async () => {
     if (!section) return;
-    if (dirty || !section.draft) { const page = validateLocally(); if (!page) return; const r = await mutate(`/api/admin/site-content/${key}/draft`, "PUT", { value: page }, ""); if (!r) return; }
+    // The editor shows the NORMALIZED draft. When the stored one would be
+    // refused as stored (saved under an older template contract), save what is
+    // on screen first, so what the admin sees is exactly what gets published.
+    if (dirty || !section.draft || !section.draftPublishable) { const page = validateLocally(); if (!page) return; const r = await mutate(`/api/admin/site-content/${key}/draft`, "PUT", { value: page }, ""); if (!r) return; }
     await mutate(`/api/admin/site-content/${key}/publish`, "POST", {}, t("content_admin.the_content_published_live_site"));
   };
   const discard = async () => { if (!window.confirm(t("content_admin.discard_draft_go_back_content"))) return; await mutate(`/api/admin/site-content/${key}/discard`, "POST", {}, t("content_admin.the_draft_discarded_published_content")); };
