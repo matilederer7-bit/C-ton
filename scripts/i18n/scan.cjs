@@ -33,7 +33,8 @@ const EXEMPT = new Map([
   ["i18n/glossary.ts", "the he↔en terminology table"],
   ["i18n/LanguageSwitch.tsx", "each language is named in its own language"],
   ["content/landing.he.ts", "Hebrew CMS default CONTENT (its sibling is landing.en.ts)"],
-  ["content/seller.he.ts", "Hebrew CMS default CONTENT (its sibling is seller.en.ts)"]
+  ["content/seller.he.ts", "Hebrew CMS default CONTENT (its sibling is seller.en.ts)"],
+  ["content/howItWorks.he.ts", "Hebrew CMS default CONTENT of the how-it-works infographic (its sibling is howItWorks.en.ts)"]
 ]);
 
 function walk(dir, out = []) {
