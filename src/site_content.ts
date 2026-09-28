@@ -55,6 +55,14 @@ export type SectionState = {
   value_en: Record<string, string>;
   /** Siton-owned content values on this page that have NO English version and are therefore served as Hebrew */
   missing_english: string[];
+  /**
+   * Would the STORED draft pass the publish-time validation exactly as stored?
+   * The editor only ever sees the normalized draft, so a draft saved under an
+   * older template contract (e.g. the home page's former `how` steps block)
+   * looks valid there while `publish` refuses it (`draft_invalid`). When this
+   * is false the editor re-saves the draft it shows before publishing it.
+   */
+  draft_publishable: boolean;
 };
 
 export async function readContent(c: Db): Promise<Record<string, SectionState>> {
@@ -63,6 +71,8 @@ export async function readContent(c: Db): Promise<Record<string, SectionState>> 
     const row = rows.find((r: any) => r.content_key === key);
     const published = normalizePage(row?.value_jsonb, contract);
     const draft = row?.draft_jsonb ? normalizePage(row.draft_jsonb, contract) : null;
+    let draftPublishable = false;
+    if (row?.draft_jsonb) { try { validatePage(row.draft_jsonb, contract); draftPublishable = true; } catch { draftPublishable = false; } }
     const state: SectionState = {
       label: contract.label, description: contract.description,
       contract: { locked: contract.locked, addable: contract.addable, maxBlocks: contract.maxBlocks },
@@ -70,6 +80,7 @@ export async function readContent(c: Db): Promise<Record<string, SectionState>> 
       value: projectLegacy(published, contract),
       value_en: projectLegacy(published, contract, "en"),
       missing_english: missingEnglishContent(published),
+      draft_publishable: draftPublishable,
       revision: row?.revision || 0, updated_at: row?.updated_at || null, updated_by: row?.updated_by || null,
       draft_updated_at: row?.draft_updated_at || null, draft_updated_by: row?.draft_updated_by || null, published_at: row?.published_at || null
     };
