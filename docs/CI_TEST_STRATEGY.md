@@ -11,12 +11,12 @@ It replaces `backend-quality-gates.yml`, `release-readiness.yml` and `web-runtim
 ```
 classify ──┬─ static-gates                      (every profile)
            ├─ tests (10 lanes, parallel)        (STANDARD, FULL)
-           ├─ focused-tests                     (FAST)
+           ├─ focused-tests                     (FAST: release-tool tests + focused tests)
            ├─ web-runtime-core                  (STANDARD, FULL)
-           ├─ web-runtime-resilience            (FULL; STANDARD when backend runtime inputs changed)
-           ├─ docker-smoke                      (FULL; STANDARD when backend runtime inputs changed)
+           ├─ web-runtime-resilience            (STANDARD, FULL)
+           ├─ docker-smoke                      (STANDARD, FULL)
            ├─ docker-release-lab                (STANDARD, FULL)
-           └─ preflight-database                (FULL; STANDARD when backend runtime inputs changed)
+           └─ preflight-database                (STANDARD, FULL)
                          └──────────────► ci-verdict   (always; the single required check)
 ```
 
@@ -26,14 +26,14 @@ classify ──┬─ static-gates                      (every profile)
 
 | Profile | Level | Typical change | What runs |
 |---|---|---|---|
-| FAST | trivial, low | docs/prose, copy-only dictionary edits, CSS or images only; at most 25 files and 300 changed non-doc lines | `static-gates` + `focused-tests`: the tests that name a changed path or assert removed copy, plus the browser/i18n/brand suites for visual or copy changes |
-| STANDARD | normal | ordinary frontend/backend change (`src/**`, `web/src/**`, tests of non-critical groups, mobile shell, assets) | all ten test groups; web-runtime-core; Docker release lab. When only web/mobile/assets/docs/non-critical tests changed, the backend-runtime proofs (resilience, Docker smoke, DB preflight) are skipped with a declared reason. |
-| FULL | high, critical | DB/migrations/supabase, money, auth/security, state machine, worker/outbox, CI, dependencies, Docker/Render/tsconfig/config, shared test helpers, tests in the payments/security/db/concurrency/failure groups, deleted or renamed tests, special file modes, cross-cutting (>25 source files), **anything unclassified**, every push to `master`, the nightly run, manual runs | everything; nothing is skipped |
+| FAST | trivial, low | docs/prose, copy-only edits of the three bilingual copy sources, stylesheets or raster images only (never SVG); at most 25 files and 300 changed non-doc lines | `static-gates` + `focused-tests`: **all** release-tool tests (they read the canonical docs, AGENTS.md, CLAUDE.md and PROJECT_STATUS.md), the `tests/*.ts` files that name a changed path or assert removed copy, and the browser/i18n/brand suites for visual or copy changes |
+| STANDARD | normal | ordinary frontend/backend change (`src/**`, `web/src/**`, tests of non-critical groups, mobile shell, assets, plain SVG) | every lane FULL runs. No lane can be proven irrelevant to a functional change: the backend imports `web/src` modules, and the Docker image, the reproducible build and the HTTP smoke all bundle or serve `web/` and `frontend/`. STANDARD differs from FULL in the review it needs (no senior reviewer), not in CI coverage. |
+| FULL | high, critical | DB/migrations/supabase, money, auth/security, state machine, worker/outbox, CI, dependencies, Docker/Render/tsconfig/config, native mobile security configuration (manifest, network security config, entitlements, Info.plist, Gradle), active SVG (script, event handlers, `javascript:`, foreignObject), shared test helpers, tests in the payments/security/db/concurrency/failure groups, deleted or renamed tests, special file modes, cross-cutting (>25 source files), **anything unclassified**, every push to `master`, the nightly run, manual runs | everything; nothing is skipped |
 
 ### How the classifier decides (`scripts/ci_change_classifier.cjs`)
 
 1. **Paths.** An ordered allowlist of rules gives each changed file a level. A file that no rule matches is critical ("unclassified"). The risk families are those of `scripts/team_plan_check.cjs`: database, money, security, state-machine and ci-gates.
-2. **Change kind.** Renames count as the riskier of their two ends. A deleted or renamed test is critical. Tests are placed in groups with the same `classify()` that `run_test_group.cjs` uses, and a test in a money, security, db, concurrency or failure group is critical. A symlink, a submodule, a file-type change or a new executable bit is critical. Diffs are read with `-z` and `core.quotePath=false`, so no path is mangled.
+2. **Change kind and parsing.** Renames count as the riskier of their two ends. A deleted or renamed test is critical. Tests are placed in groups with the same `classify()` that `run_test_group.cjs` uses, and a test in a money, security, db, concurrency or failure group is critical. A symlink, a submodule, a file-type change or a new executable bit is critical. Diffs are read with `-z`, `core.quotePath=false` and forced `a/`/`b/` prefixes. Parsing is hunk-aware, so a removed `-- ` SQL comment or an added `++ ` line cannot end a file's content early. It fails closed: when the lines collected for a text file do not match git's own numstat, the file is critical.
 3. **Changed lines.** Code files are checked on both the added and the removed lines. Any line with destructive SQL, transaction or locking vocabulary, money vocabulary, credential/session vocabulary, or destructive filesystem calls makes the file critical. Deleting a `FOR UPDATE` is as critical as adding one.
 4. **Size.** Beyond the FAST limits, a trivial or low change becomes STANDARD.
 5. **Proposal.** The team lead may propose a profile, either as a PR label (`ci:fast`, `ci:standard`, `ci:full`) or as a `CI-Profile: FAST` line in the PR body. A proposal can only escalate. A proposal below the computed profile is rejected: the lanes still run at the computed profile, and `ci-verdict` fails until the proposal is removed or raised.
@@ -89,7 +89,11 @@ Every test lane builds `.demo_dist`, `web/dist` and `.mobile_dist` from its own 
 | `npm run lint` + `npm run scan:backend` | both, and they are the same script (`backend_enforcement_scan.cjs`) | once (inside the static preflight) |
 | `test:all` on every push to `master` | re-ran the ten groups (15m00s) right after the same ten groups had passed in the same job | removed from the merge path; the whole pipeline runs FULL nightly (`schedule`), which keeps the order and frequency repetition signal |
 | `web-runtime-resilience` waited for `web-runtime-core` | serial | parallel (no data dependency) |
-| `preflight-database` | re-ran the static gates before its DB gates | `--only migration-preflight,backup-restore-rehearsal,health-contract,http-security-smoke,reproducible-build,release-tools-tests` |
+| `preflight-database` | re-ran the static gates before its DB gates | `--only migration-preflight,backup-restore-rehearsal,health-contract,http-security-smoke,reproducible-build,release-tools-tests`. A release-tool test proves that every standard-profile gate runs in exactly one CI job: static-gates, this `--only` list, or the security lane / Docker lab. `release_preflight.cjs` now refuses unknown `--only`/`--skip` ids, so a renamed gate cannot silently drop out. |
+
+Environment: the test environment (`NODE_ENV=test`, `DISABLE_OUTBOX_WORKER=1`, mock payment provider) is set only where the former workflows set it: the backend-derived static steps, the test lanes, focused-tests and preflight-database. The static release preflight, the web runtime jobs and the Docker jobs run without it, as before.
+
+The nightly run replaces the `test:all` repetition that ran after every push to master. It blocks nothing directly. A red nightly run is reported by GitHub's failed-scheduled-workflow notification, and it has to be triaged like any red master check. Every push to `master` still runs the complete FULL pipeline, and its `ci-verdict` is what Render's `checksPass` deploy waits for.
 
 Kept on purpose: `web:routes` in web-runtime-core and the route inventory inside the static preflight. Each takes about 2 s and produces the artefact its own consumer reads.
 

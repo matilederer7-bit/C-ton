@@ -58,6 +58,10 @@ const CRITICAL_CONTENT = [
 
 const CODE_EXTENSIONS = /\.(c?js|mjs|tsx?|sql|sh|ya?ml|json)$/i;
 const IMAGE = /\.(png|jpe?g|gif|webp|avif|ico|svg)$/i;
+// Raster images only: an SVG is a document that can carry script and is
+// served from the site's own origin, so it is never a FAST "visual" change.
+const RASTER_IMAGE = /\.(png|jpe?g|gif|webp|avif|ico)$/i;
+const ACTIVE_SVG = /(<script|\son\w+\s*=|javascript:|<foreignObject|<iframe|<embed|<object|xlink:href\s*=\s*["']\s*(?!#))/i;
 
 // Ordered path rules. The first matching rule gives the file's level.
 // Anything that no rule matches is critical ("unclassified").
@@ -70,12 +74,13 @@ const PATH_RULES = [
   { level: "critical", id: "database", test: (p) => /^(src\/migrations\/|supabase\/)|\.sql$/i.test(p) || /^(scripts|tests\/release_tools)\/[^/]*(migrat|schema|db_|_db|database|backup|restore)[^/]*$/i.test(p) },
   { level: "critical", id: "money-or-security-tooling", test: (p) => /^(scripts|tests\/release_tools)\/[^/]*(money|payment|refund|payout|secret|real_money|route_auth|protected_route|security|compliance|legal|tax|destructive|runtime_env|startup)[^/]*$/i.test(p) },
   { level: "critical", id: "policy-config", test: (p) => /^config\//.test(p) },
+  { level: "critical", id: "native-security-config", test: (p) => /^(android|ios|mobile|mobile-plugins)\/.*(AndroidManifest\.xml|network_security_config[^/]*\.xml|\.entitlements|Info\.plist|\.gradle(\.kts)?|Package\.swift|Podfile|\.pbxproj|proguard[^/]*|capacitor\.config\.[a-z]+)$/i.test(p) },
   { level: "critical", id: "legacy-excluded-surfaces", test: (p) => /^(base44|legacy)\//.test(p) },
   { level: "critical", id: "high-risk-family", test: (p) => riskFamilies([p]).length > 0 },
 
   // --- normal: copy sources of the bilingual dictionaries (before the
   // scripts/ rule below; copyOnly() may lower them to low) ---
-  { level: "normal", id: "i18n-dictionary", test: (p) => /^scripts\/i18n\/[^/]+\.json$/.test(p) },
+  { level: "normal", id: "i18n-dictionary", test: (p) => /^scripts\/i18n\/(en|seed\.he|extracted\.he)\.json$/.test(p) },
 
   // --- high: shared test infrastructure and gates/tooling ---
   { level: "high", id: "shared-test-infrastructure", test: (p) => /^tests\/(helpers|support|fixtures|blackbox)\//.test(p) },
@@ -97,13 +102,15 @@ const PATH_RULES = [
   { level: "trivial", id: "docs-documents", test: (p) => /^docs\/.+\.(docx|pdf|png|jpe?g|svg|json)$/i.test(p) }
 ];
 
+const COPY_SOURCE = /^(scripts\/i18n\/(en|seed\.he|extracted\.he)\.json|web\/src\/i18n\/dictionaries\/(en|he)\.ts)$/;
+
 // Low-risk refinements of a "normal" web/asset path: pure styling, images and
 // copy dictionaries whose changed lines are only string entries.
 function lowRiskRefinement(file) {
   const p = file.path;
   if (/^web\/src\/.+\.css$/.test(p)) return "visual-stylesheet";
-  if (IMAGE.test(p) && /^(web\/public|assets|frontend\/icons)\//.test(p)) return "visual-image";
-  if (/^(scripts\/i18n\/[^/]+\.json|web\/src\/i18n\/dictionaries\/[^/]+\.ts)$/.test(p) && file.status === "M" && copyOnly(file)) return "copy-dictionary";
+  if (RASTER_IMAGE.test(p) && /^(web\/public|assets|frontend\/icons)\//.test(p)) return "visual-image";
+  if (COPY_SOURCE.test(p) && file.status === "M" && copyOnly(file)) return "copy-dictionary";
   return null;
 }
 
@@ -174,8 +181,6 @@ function focusedTests(files, testSources) {
   }
   return { files: [...selected].sort(), reasons };
 }
-
-const COPY_SOURCE = /^(scripts\/i18n\/[^/]+\.json|web\/src\/i18n\/dictionaries\/[^/]+\.ts)$/;
 
 function removedLiterals(file) {
   const out = new Set();
@@ -250,11 +255,22 @@ function classifyChanges({ event = "pull_request", files = [], claim = null, tes
       }
     }
 
+    if (/\.svg$/i.test(p) && !/^docs\//.test(p)) {
+      const changed = [...(file.added || []), ...(file.removed || [])];
+      if (file.binary || changed.some((line) => ACTIVE_SVG.test(line))) { record.level = "critical"; record.rule = "active-svg"; }
+    }
+
     // Symlinks (120000), submodules (160000), file-type changes and new
     // executable bits can redirect what a harmless-looking path means.
     const modes = [file.oldMode, file.newMode].filter(Boolean);
     if (file.status === "T" || modes.some((mode) => /^1[26]0000$/.test(mode)) || (file.newMode === "100755" && file.oldMode !== "100755" && !/^scripts\//.test(p))) {
       record.level = "critical"; record.rule = "special-file-mode";
+    }
+
+    // Fail closed: if the changed lines the parser collected do not match
+    // git's own numstat, the content checks above cannot be trusted.
+    if (file.numstat && !file.binary && (file.numstat.added !== (file.added || []).length || file.numstat.removed !== (file.removed || []).length)) {
+      record.level = "critical"; record.rule = "diff-parse-mismatch";
     }
 
     if (file.binary && !IMAGE.test(p) && record.level !== "critical" && !/^docs\//.test(p)) {
@@ -352,18 +368,12 @@ function groupMatrix() {
   return TEST_LANES.map((lane) => ({ ...lane }));
 }
 
-// Paths whose change can affect the backend runtime, Docker image, database
-// or process model (the inputs of the resilience/Docker/migration proofs).
-function touchesBackendRuntime(records) {
-  const webOnly = new Set(["web-app", "legacy-frontend", "mobile", "i18n-regen", "i18n-dictionary", "assets", "docs", "docs-documents", "tests", "visual-stylesheet", "visual-image", "copy-dictionary"]);
-  return records.some((record) => !webOnly.has(record.rule));
-}
-
 function lanesFor(profile, records, focused) {
   const skipped = {};
   const lanes = {
     static: true,
-    groups: [],
+    groups: groupMatrix(),
+    focused_job: false,
     focused: "",
     web_runtime_core: true,
     web_runtime_resilience: true,
@@ -372,28 +382,24 @@ function lanesFor(profile, records, focused) {
     preflight_database: true,
     skipped
   };
-  if (profile === "FULL") {
-    lanes.groups = groupMatrix();
-    return lanes;
-  }
-  if (profile === "STANDARD") {
-    lanes.groups = groupMatrix();
-    if (!touchesBackendRuntime(records)) {
-      for (const key of ["web_runtime_resilience", "docker_smoke", "preflight_database"]) {
-        lanes[key] = false;
-        skipped[key] = "STANDARD: the diff touches only the web bundle, mobile shell, assets, docs or non-critical tests; this job proves backend runtime, database and process behaviour that those files cannot change (the web bundle is still proven by all ten test groups, web-runtime-core and the Docker release lab)";
-      }
-    }
-    return lanes;
-  }
-  // FAST: static gates plus the focused tests only.
+  // STANDARD runs every lane FULL runs: the backend imports web/src modules,
+  // the Docker image and the reproducible build bundle web/ and frontend/,
+  // and the HTTP smoke serves them, so no lane can be proven irrelevant to an
+  // ordinary functional change. STANDARD differs from FULL in review depth
+  // (no senior reviewer required), not in CI coverage.
+  if (profile !== "FAST") return lanes;
+
+  // FAST: static gates, the release-tool tests (they read the canonical
+  // docs, AGENTS.md, CLAUDE.md and PROJECT_STATUS.md) and the focused tests.
+  lanes.groups = [];
+  lanes.focused_job = true;
   for (const key of ["web_runtime_core", "web_runtime_resilience", "docker_smoke", "docker_release_lab", "preflight_database"]) {
     lanes[key] = false;
-    skipped[key] = "FAST: docs/copy/visual-only change proven by the classifier; no runtime, database or Docker input changed";
+    skipped[key] = "FAST: docs/copy/raster-image/stylesheet-only change proven by the classifier; no runtime, database or Docker input changed";
   }
-  skipped.groups = "FAST: only the focused tests that reference the changed files (or assert changed copy) run";
+  skipped.groups = "FAST: only the focused tests that reference the changed files (or assert changed copy) run, plus all release-tool tests";
   if (focused.length) lanes.focused = `^(${focused.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})$`;
-  else skipped.focused = "FAST: no test references the changed files";
+  else skipped.focused = "FAST: no tests/*.ts file references the changed files (the release-tool tests still run)";
   return lanes;
 }
 
@@ -433,13 +439,32 @@ function readDiff(base, head, cwd) {
     let target = match[3];
     if (target === "") { index += 1; target = numstat[++index]; } // rename: "\0old\0new"
     const record = byPath.get(target);
-    if (record && match[1] === "-") record.binary = true;
+    if (!record) continue;
+    if (match[1] === "-") record.binary = true;
+    else record.numstat = { added: Number(match[1]), removed: Number(match[2]) };
   }
+  // Hunk-aware: `---`/`+++` are headers only before the first `@@` of a
+  // file block; inside hunks every `+`/`-` line is content, whatever follows.
+  // Prefixes are forced so a runner's diff.noprefix/mnemonicPrefix cannot
+  // break the lookups; readDiff's caller cross-checks counts with numstat.
   let current = null;
-  for (const line of git(["-c", "core.quotePath=false", "diff", "-U0", "-M", "--no-color", "--no-ext-diff", "--no-textconv", range], cwd).split("\n")) {
-    if (line.startsWith("diff --git ")) { current = null; continue; }
-    if (line.startsWith("--- ")) { const name = line.slice(4).replace(/^a\//, ""); current = files.find((item) => (item.status === "D" && item.path === name)) || null; continue; }
-    if (line.startsWith("+++ ")) { const name = line.slice(4); if (name !== "/dev/null") current = byPath.get(name.replace(/^b\//, "")) || null; continue; }
+  let inHeader = false;
+  let headerOld = null;
+  const diffArgs = ["-c", "core.quotePath=false", "-c", "diff.noprefix=false", "-c", "diff.mnemonicPrefix=false", "diff", "-U0", "-M", "--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", range];
+  for (const line of git(diffArgs, cwd).split("\n")) {
+    if (line.startsWith("diff --git ")) { current = null; inHeader = true; headerOld = null; continue; }
+    if (inHeader) {
+      if (line.startsWith("--- ")) { headerOld = line.slice(4).replace(/\t$/, ""); continue; }
+      if (line.startsWith("+++ ")) {
+        const name = line.slice(4).replace(/\t$/, "");
+        if (name === "/dev/null") current = files.find((item) => item.status === "D" && `a/${item.path}` === headerOld) || null;
+        else current = byPath.get(name.replace(/^b\//, "")) || null;
+        continue;
+      }
+      if (line.startsWith("@@")) inHeader = false;
+      continue;
+    }
+    if (line.startsWith("@@")) continue;
     if (!current) continue;
     if (line.startsWith("+")) current.added.push(line.slice(1));
     else if (line.startsWith("-")) current.removed.push(line.slice(1));
@@ -528,7 +553,8 @@ function main(argv) {
       `claim_error=${(result.claim.error || "").replace(/\n/g, " ")}`,
       `groups=${JSON.stringify({ include: result.lanes.groups.length ? result.lanes.groups : [{ lane: "none", groups: "", shard: "", extras: "" }] })}`,
       `run_groups=${result.lanes.groups.length ? "true" : "false"}`,
-      `focused=${result.lanes.focused}`
+      `focused=${result.lanes.focused}`,
+      `focused_job=${result.lanes.focused_job ? "true" : "false"}`
     ];
     for (const key of ["web_runtime_core", "web_runtime_resilience", "docker_smoke", "docker_release_lab", "preflight_database"]) out.push(`${key}=${result.lanes[key] ? "true" : "false"}`);
     fs.appendFileSync(args.githubOutput, out.join("\n") + "\n");

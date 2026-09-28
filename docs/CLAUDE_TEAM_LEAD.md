@@ -68,8 +68,8 @@ node scripts/ci_change_classifier.cjs --base origin/master --head HEAD
 
 | Profile | Typical change | Local before the PR | CI (`.github/workflows/ci.yml`) |
 |---|---|---|---|
-| FAST | docs, copy dictionaries, CSS/images only, small | the tests the classifier lists as focused | static gates + focused tests (a few minutes) |
-| STANDARD | ordinary frontend/backend change | focused tests of the change | all ten test groups in parallel lanes + runtime/Docker jobs the diff can affect |
+| FAST | docs, copy dictionaries, CSS/raster images only, small | the tests the classifier lists as focused | static gates + release-tool tests + focused tests (a few minutes) |
+| STANDARD | ordinary frontend/backend change | focused tests of the change | every lane, in parallel (same CI as FULL; the difference is review depth) |
 | FULL | DB, migrations, money, auth/security, state machine, concurrency, CI, dependencies, shared test infra, cross-cutting, anything unclassified | focused tests + the dedicated gates of the area (+ canonical verifier when a disposable PostgreSQL exists) | every lane, nothing skipped |
 
 - The lead may write `CI-Profile: FAST|STANDARD|FULL` in the PR body (or add a `ci:fast|ci:standard|ci:full` label). A proposal can only escalate: one below the computed profile turns `ci-verdict` red. Never argue with the classifier by renaming or splitting files; if a rule is wrong, fix the rule in its own FULL-profile PR.

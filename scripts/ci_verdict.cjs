@@ -23,7 +23,7 @@ const { GROUPS, testInventory } = require("./run_test_group.cjs");
 const JOBS = {
   "static-gates": { lane: null },
   tests: { lane: "groups" },
-  "focused-tests": { lane: "focused" },
+  "focused-tests": { lane: "focused_job" },
   "web-runtime-core": { lane: "web_runtime_core" },
   "web-runtime-resilience": { lane: "web_runtime_resilience", sameRepoOnly: true },
   "docker-smoke": { lane: "docker_smoke", sameRepoOnly: true },

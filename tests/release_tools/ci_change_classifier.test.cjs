@@ -63,17 +63,47 @@ test("a docs change runs the tests that read that document", () => {
   assert.deepEqual(result.focused_tests, ["operational_runbooks_validation.ts"]);
 });
 
-test("an ordinary frontend change gets STANDARD, keeps every test group, and skips only backend-runtime proofs", () => {
+test("an ordinary frontend change gets STANDARD and still runs every lane (the backend imports web/src; Docker and the reproducible build bundle web/)", () => {
   const result = classify([mod("web/src/pages/landing.tsx", ["  <h2 className=\"hero\">{t(\"landing.title\")}</h2>"], ["  <h2>{t(\"landing.title\")}</h2>"])]);
   assert.equal(result.level, "normal");
   assert.equal(result.profile, "STANDARD");
   assert.equal(result.lanes.groups.length, TEST_LANES.length, "all ten groups run");
-  assert.equal(result.lanes.web_runtime_core, true);
-  assert.equal(result.lanes.docker_release_lab, true, "the Docker image bundles the web app");
-  assert.equal(result.lanes.docker_smoke, false);
-  assert.equal(result.lanes.web_runtime_resilience, false);
-  assert.equal(result.lanes.preflight_database, false);
-  assert.match(result.lanes.skipped.preflight_database, /^STANDARD/);
+  for (const key of ["web_runtime_core", "web_runtime_resilience", "docker_smoke", "docker_release_lab", "preflight_database"]) assert.equal(result.lanes[key], true, key);
+  assert.deepEqual(Object.keys(result.lanes.skipped), []);
+  assert.equal(result.lanes.focused_job, false);
+});
+
+test("FAST always runs the focused-tests job (release-tool tests read the canonical docs, AGENTS.md and PROJECT_STATUS.md)", () => {
+  const result = classify([mod("AGENTS.md", ["rule"], [])]);
+  assert.equal(result.profile, "FAST");
+  assert.equal(result.lanes.focused_job, true);
+});
+
+test("an SVG is never a FAST visual change; an active SVG is FULL; raster images stay FAST", () => {
+  assert.equal(classify([add("web/public/logo.png", [])]).profile, "FAST");
+  assert.equal(classify([add("web/public/logo.svg", ['<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0h1"/></svg>'])]).profile, "STANDARD");
+  for (const line of ['<svg><script>fetch("/api/admin")</script></svg>', '<svg onload="x()"></svg>', '<svg><a href="javascript:x()"/></svg>', "<svg><foreignObject/></svg>"]) {
+    assert.equal(classify([add("web/public/logo.svg", [line])]).profile, "FULL", line);
+  }
+});
+
+test("native mobile security configuration is FULL", () => {
+  for (const p of ["android/app/src/main/AndroidManifest.xml", "android/app/src/main/res/xml/network_security_config.xml", "ios/App/App/App.entitlements", "ios/App/App/Info.plist", "android/app/build.gradle"]) {
+    assert.equal(classify([mod(p, ['cleartextTrafficPermitted="true"'], [])]).profile, "FULL", p);
+  }
+  assert.equal(classify([mod("android/app/src/main/res/values/strings.xml", ["<string name=\"a\">b</string>"], [])]).profile, "STANDARD");
+});
+
+test("a parsed line count that disagrees with numstat fails closed", () => {
+  const file = { ...mod("web/src/pages/landing.tsx", ["x"], []), numstat: { added: 3, removed: 0 } };
+  const result = classify([file]);
+  assert.equal(result.profile, "FULL");
+  assert.equal(result.files[0].rule, "diff-parse-mismatch");
+});
+
+test("only the three bilingual copy sources can be copy dictionaries", () => {
+  assert.equal(classify([mod("scripts/i18n/en.json", ['  "a": "Hello there",'], ['  "a": "Hello",'])]).profile, "FAST");
+  assert.equal(classify([mod("scripts/i18n/allowlist.json", ['  "a": "b",'], [])]).profile, "FULL");
 });
 
 test("an ordinary backend change gets STANDARD with every lane on", () => {
@@ -300,10 +330,11 @@ test("the verdict fails a required job that was skipped, cancelled or failed", (
 test("the verdict accepts declared FAST skips and fork-only Docker skips, and rejects a downgrade proposal", () => {
   const inventory = testInventory(root);
   const fast = classify([mod("docs/a.md", ["x"], [])]);
-  const skippedAll = { classify: { result: "success" }, "static-gates": { result: "success" } };
-  for (const job of ["tests", "focused-tests", "web-runtime-core", "web-runtime-resilience", "docker-smoke", "docker-release-lab", "preflight-database"]) skippedAll[job] = { result: "skipped" };
+  const skippedAll = { classify: { result: "success" }, "static-gates": { result: "success" }, "focused-tests": { result: "success" } };
+  for (const job of ["tests", "web-runtime-core", "web-runtime-resilience", "docker-smoke", "docker-release-lab", "preflight-database"]) skippedAll[job] = { result: "skipped" };
   assert.equal(evaluate({ classification: fast, needs: skippedAll, manifests: [], inventory }).ok, true);
   assert.equal(evaluate({ classification: fast, needs: { ...skippedAll, "static-gates": { result: "failure" } }, manifests: [], inventory }).ok, false);
+  assert.equal(evaluate({ classification: fast, needs: { ...skippedAll, "focused-tests": { result: "skipped" } }, manifests: [], inventory }).ok, false, "FAST requires the release-tool tests");
 
   const full = classify([mod("src/app.ts", ["x"], [])]);
   const forkNeeds = fullNeeds({ "docker-smoke": { result: "skipped" }, "docker-release-lab": { result: "skipped" }, "web-runtime-resilience": { result: "skipped" } });
@@ -408,7 +439,55 @@ test("the CLI classifies a real git diff and writes GitHub outputs", () => {
     assert.equal(hebrew.level, "trivial");
     assert.equal(json.files.find((file) => file.path === "docs/pointer.md").rule, "special-file-mode");
     assert.equal(json.profile, "FULL");
+
+    // Hunk-aware parsing: a spaced path keeps its content; a removed "-- " SQL
+    // comment or an added "++ " line does not end the file's content early.
+    const base2 = git("rev-parse", "HEAD");
+    fs.mkdirSync(path.join(dir, "web", "src"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "web", "src", "Pay Form.tsx"), "export const x = 1;\n");
+    fs.writeFileSync(path.join(dir, "web", "src", "query.ts"), "const q = `\n-- a comment\nSELECT 1`;\nconst a = 1;\n");
+    git("add", "-A");
+    git("commit", "-qm", "files");
+    const base3 = git("rev-parse", "HEAD");
+    fs.writeFileSync(path.join(dir, "web", "src", "Pay Form.tsx"), "export const x = 1;\nexport const refundAmount = 100;\n");
+    git("commit", "-qam", "spaced");
+    result = spawnSync(process.execPath, [path.join(root, "scripts", "ci_change_classifier.cjs"), "--base", base3, "--head", "HEAD", "--json", path.join(dir, "c.json")], { cwd: dir, encoding: "utf8" });
+    json = JSON.parse(fs.readFileSync(path.join(dir, "c.json"), "utf8"));
+    assert.equal(json.profile, "FULL", JSON.stringify(json.files));
+    assert.match(json.files[0].rule, /^content:money/);
+    const base4 = git("rev-parse", "HEAD");
+    fs.writeFileSync(path.join(dir, "web", "src", "query.ts"), "const q = `\nSELECT 1`;\n++ weird\nconst a = 1;\nconst chargeAmount = await lockRow('FOR UPDATE');\n");
+    git("commit", "-qam", "tricky lines");
+    result = spawnSync(process.execPath, [path.join(root, "scripts", "ci_change_classifier.cjs"), "--base", base4, "--head", "HEAD", "--json", path.join(dir, "c.json")], { cwd: dir, encoding: "utf8" });
+    json = JSON.parse(fs.readFileSync(path.join(dir, "c.json"), "utf8"));
+    assert.equal(json.profile, "FULL", JSON.stringify(json.files));
+    assert.notEqual(json.files[0].rule, "diff-parse-mismatch", "the parser must read every line itself");
+    assert.ok(base2);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("every standard-profile release gate runs in exactly one Siton CI job (no gate lost by --only)", () => {
+  const workflow = fs.readFileSync(path.join(root, ".github", "workflows", "ci.yml"), "utf8");
+  const catalogue = JSON.parse(fs.readFileSync(path.join(root, "config", "release-preflight-gates.json"), "utf8"));
+  const only = /release:preflight -- --profile standard --only ([\w,-]+)/.exec(workflow);
+  assert.ok(only, "preflight-database must use an explicit --only list");
+  const onlyIds = only[1].split(",");
+  assert.match(workflow, /npm run release:preflight:static/);
+  assert.match(workflow, /npm run ci:route-authorization/, "route-authorization-behavioural runs in the security lane");
+  assert.match(workflow, /npm run release:local-lab/, "release-local-lab runs in docker-release-lab");
+  const elsewhere = new Set(["route-authorization-behavioural", "release-local-lab"]);
+  const staticIds = new Set(catalogue.gates.filter((gate) => gate.profiles.includes("static")).map((gate) => gate.id));
+  for (const gate of catalogue.gates.filter((item) => item.profiles.includes("standard"))) {
+    const homes = [staticIds.has(gate.id), onlyIds.includes(gate.id), elsewhere.has(gate.id)].filter(Boolean).length;
+    assert.equal(homes, 1, `${gate.id} must run in exactly one CI job (found ${homes})`);
+  }
+  for (const id of onlyIds) assert.ok(catalogue.gates.some((gate) => gate.id === id), `unknown gate id ${id}`);
+});
+
+test("release preflight refuses unknown gate ids instead of silently dropping them", () => {
+  const result = spawnSync(process.execPath, [path.join(root, "scripts", "release_preflight.cjs"), "--profile", "static", "--only", "no-such-gate"], { cwd: root, encoding: "utf8" });
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /unknown gate id\(s\) in --only\/--skip: no-such-gate/);
 });

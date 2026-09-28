@@ -18,6 +18,9 @@ name: Siton CI
 on:
   pull_request:
     branches: [master]
+    # labeled/unlabeled/edited: a `ci:*` label or a `CI-Profile:` line added
+    # after the push is re-classified instead of being ignored.
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled, edited]
   push:
     branches: [master]
   workflow_dispatch:
@@ -34,12 +37,10 @@ concurrency:
   group: siton-ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  CI: "true"
-  NODE_ENV: test
-  DISABLE_OUTBOX_WORKER: "1"
-  PAYMENT_PROVIDER: mockpay
-  PAYMENT_PROVIDER_MODE: mock-backed
+# The test environment is set per job, exactly where the former workflows set
+# it (backend-derived steps, test lanes, focused tests, DB preflight); the
+# static release preflight, the web runtime and the Docker jobs run without
+# it, as they did before.
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -54,6 +55,7 @@ jobs:
       groups: ${{ steps.classify.outputs.groups }}
       run_groups: ${{ steps.classify.outputs.run_groups }}
       focused: ${{ steps.classify.outputs.focused }}
+      focused_job: ${{ steps.classify.outputs.focused_job }}
       web_runtime_core: ${{ steps.classify.outputs.web_runtime_core }}
       web_runtime_resilience: ${{ steps.classify.outputs.web_runtime_resilience }}
       docker_smoke: ${{ steps.classify.outputs.docker_smoke }}
@@ -137,6 +139,11 @@ jobs:
           fi
 
       - name: Distributor attribution-only contract
+        env:
+          NODE_ENV: test
+          DISABLE_OUTBOX_WORKER: "1"
+          PAYMENT_PROVIDER: mockpay
+          PAYMENT_PROVIDER_MODE: mock-backed
         run: |
           node scripts/distributor_attribution_only_gate.cjs --self-test 2>&1 | tee .ci-artifacts/distributor-attribution-gate.log
           node scripts/distributor_attribution_only_gate.cjs 2>&1 | tee -a .ci-artifacts/distributor-attribution-gate.log
@@ -145,16 +152,31 @@ jobs:
       # shipped UI, and the generated dictionaries match their checked-in
       # sources. A forgotten system string cannot reach English any other way.
       - name: Bilingual (i18n) gate
+        env:
+          NODE_ENV: test
+          DISABLE_OUTBOX_WORKER: "1"
+          PAYMENT_PROVIDER: mockpay
+          PAYMENT_PROVIDER_MODE: mock-backed
         run: npm run gate:i18n 2>&1 | tee .ci-artifacts/i18n-gate.log
 
       # Reads the real text inside the .docx constitution/spec/UX documents, not
       # just Markdown, because that is where the retired seven-day deal cap hid.
       - name: Seven-day deal-cap contract
+        env:
+          NODE_ENV: test
+          DISABLE_OUTBOX_WORKER: "1"
+          PAYMENT_PROVIDER: mockpay
+          PAYMENT_PROVIDER_MODE: mock-backed
         run: |
           node scripts/seven_day_cap_sweep.cjs --self-test 2>&1 | tee .ci-artifacts/seven-day-cap.log
           npm run gate:seven-day-cap 2>&1 | tee -a .ci-artifacts/seven-day-cap.log
 
       - name: Canonical integrity and operational repair validation
+        env:
+          NODE_ENV: test
+          DISABLE_OUTBOX_WORKER: "1"
+          PAYMENT_PROVIDER: mockpay
+          PAYMENT_PROVIDER_MODE: mock-backed
         run: |
           npm run test:base44-canonical-integrity 2>&1 | tee .ci-artifacts/base44-canonical-integrity-test.log
           npm run test:operational-repair 2>&1 | tee .ci-artifacts/operational-repair-test.log
@@ -215,6 +237,10 @@ jobs:
           --health-timeout 5s
           --health-retries 20
     env:
+      NODE_ENV: test
+      DISABLE_OUTBOX_WORKER: "1"
+      PAYMENT_PROVIDER: mockpay
+      PAYMENT_PROVIDER_MODE: mock-backed
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/siton_ci
     steps:
       - uses: actions/checkout@v4
@@ -278,13 +304,14 @@ jobs:
           include-hidden-files: true
 
   # ---------------------------------------------------------------------------
-  # FAST profile only: the tests that reference the changed files (or assert
-  # changed copy), on one fresh database per file.
+  # FAST profile only: every release-tool test (they read the canonical docs,
+  # AGENTS.md, CLAUDE.md and PROJECT_STATUS.md) plus the tests that reference
+  # the changed files (or assert changed copy), one fresh database per file.
   # ---------------------------------------------------------------------------
   focused-tests:
     name: focused-tests
     needs: classify
-    if: needs.classify.outputs.focused != ''
+    if: needs.classify.outputs.focused_job == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     defaults:
@@ -305,6 +332,10 @@ jobs:
           --health-timeout 5s
           --health-retries 20
     env:
+      NODE_ENV: test
+      DISABLE_OUTBOX_WORKER: "1"
+      PAYMENT_PROVIDER: mockpay
+      PAYMENT_PROVIDER_MODE: mock-backed
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/siton_ci
     steps:
       - uses: actions/checkout@v4
@@ -313,7 +344,12 @@ jobs:
       - uses: ./.github/actions/siton-setup
         with:
           build: "true"
+      - name: Release-tool tests
+        run: |
+          mkdir -p .ci-artifacts/manifests
+          npm run test:release-tools 2>&1 | tee .ci-artifacts/test-release-tools.log
       - name: Focused tests
+        if: needs.classify.outputs.focused != ''
         env:
           TEST_FILE_PATTERN: ${{ needs.classify.outputs.focused }}
           TEST_RESULTS_FILE: .ci-artifacts/manifests/focused.json
@@ -482,6 +518,10 @@ jobs:
           --health-timeout 5s
           --health-retries 20
     env:
+      NODE_ENV: test
+      DISABLE_OUTBOX_WORKER: "1"
+      PAYMENT_PROVIDER: mockpay
+      PAYMENT_PROVIDER_MODE: mock-backed
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/siton_release
       SITON_AGENT: ci
     steps:
