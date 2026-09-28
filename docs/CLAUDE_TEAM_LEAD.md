@@ -19,7 +19,7 @@ Follow-ups arrive by themselves. The lead subscribes to its own Pull Requests (C
 | GitHub Actions team: intake, manager, four-lane swarm, credential preflight | `.github/workflows/agent-manager-intake.yml`, `cloud-agent-manager.yml`, `cloud-analysis-swarm.yml`, `cloud-credential-preflight.yml` | built; **not operational** until the owner adds the repository secrets (see `docs/CLOUD_AGENT_MANAGER.md`) | A second execution path, for ChatGPT-originated issues. The lead does not depend on it. |
 | Codex independent review | ChatGPT Codex connector on every Pull Request; comment `@codex review` to re-request | **active**; it produced 3 real findings on PR #80, all fixed | The cross-provider reviewer on every PR |
 | Specialist sub-agent definitions | `.claude/agents/*.md`, in open PR #79 | pending review and merge | Once merged, they are the `subagent_type` for builders and reviewers. Until then, use the general-purpose and Explore agents with the same packet. |
-| Local worktree helper | `scripts/agent.cjs` | active | Only for the owner's machine. Cloud sessions use sub-agent worktree isolation. |
+| Local worktree helper | `scripts/agent.cjs` | active | Only for the owner's machine. Cloud sessions dispatch builders directly — usually into one shared worktree kept apart by the plan's disjoint `allowed` paths (see Dispatch below), or a separate worktree per builder when scopes cannot be made disjoint. |
 | Repository CI | `.github/workflows/backend-quality-gates.yml`, `release-readiness.yml`, `web-runtime-depth.yml`, `mobile-readiness.yml` | active | Authoritative merge gate |
 | Error monitoring | Sentry `c-ton/siton-staging`, `docs/ERROR_MONITORING.md` | active | First stop for runtime faults |
 | Staging runtime | Render `siton-staging-web`, `siton-staging-worker`; Supabase `siton-staging` | active | Deploy verification and investigation, through the connectors |
@@ -33,12 +33,12 @@ The one piece this file adds is `scripts/team_plan_check.cjs`: an executable che
    - Confirm `master`, open PRs, and active branches with recent commits.
    - Record in the plan every open branch whose files the task might touch.
    - Create the task branch `claude/<slug>` from `master` and push it before dispatching anyone. This follows the `AGENTS.md` checkpoint rule. If the push fails, stop and follow the authorization fallback in `CLAUDE.md`; never accumulate work only inside the container.
-2. **Plan.** Decompose the task. Write `docs/team-plans/<date>-<slug>.json`, with one assignment per builder and reviewer (format below). Assign each of them the cheapest model that fits its risk (`haiku` for recon/lookup, `sonnet` for ordinary build work, `opus` for database, security, payments/money, auth, state-machine or architecture work, and for any senior reviewer). Prefer dispatching independent builders in parallel over serialising them, and prefer splitting a builder whose scope spans two or more areas over keeping it solo. Run `node scripts/team_plan_check.cjs <plan>`. It must print `TEAM_PLAN_PASS` before any writer starts.
+2. **Plan.** Decompose the task. Write `docs/team-plans/<date>-<slug>.json`, with one assignment per builder and reviewer (format below). Assign each of them the cheapest model that fits its risk (`haiku` for recon/lookup, `sonnet` for ordinary build work, `opus` for database, security, payments/money, auth, state-machine or architecture work, and for any senior reviewer). Prefer dispatching independent builders in parallel over serialising them, and prefer splitting a builder whose scope spans two or more areas over keeping it solo. When the task's scope must touch a path an open branch also touches, record that path in `plan.accepted_overlaps` with a justified `plan.overlap_decision` (see the work plan format below) rather than treating a failing overlap check as unsatisfiable or dispatching around it. Run `node scripts/team_plan_check.cjs <plan>`. It must print `TEAM_PLAN_PASS` before any writer starts.
 3. **Dispatch.**
-   - Builders are sub-agents started with worktree isolation and given their exact packet.
+   - Builders are sub-agents given their exact packet. Isolation is one of two honest options, chosen per plan: the default is one shared worktree, with builders kept apart by the plan's disjoint `allowed` paths and the mechanical `writer_overlap` check in `scripts/team_plan_check.cjs` (no two builders can be granted the same path) — there is no runtime guard enforcing a builder's `forbidden` list inside a shared tree, so it is the disjoint `allowed` grants, mechanically checked before dispatch, that make this safe, not a sandbox. When a task's scopes cannot be made disjoint, the lead gives each builder its own worktree instead.
    - Independent builders run in parallel.
    - A builder with a dependency receives a fixed interface contract, so its authoring can still run in parallel. Only the verification waits.
-   - Builders commit locally in their worktree. Only the lead pushes.
+   - Builders commit locally, into the shared or separate worktree per the choice above. Only the lead pushes.
 4. **Integrate.** The lead brings every builder commit onto the task branch and pushes a checkpoint at each coherent milestone. It re-reads the combined diff and runs the focused tests, the relevant gates, and the canonical verifier when a disposable PostgreSQL is available. It also re-runs mutation checks on security claims.
 5. **Pull Request.** One PR per work unit. The body names who built what, who reviews, the plan file, and the evidence.
 6. **Review.**
@@ -69,6 +69,8 @@ The one piece this file adds is `scripts/team_plan_check.cjs`: an executable che
   "interface_contract": { "<path>": "<exported signature and behaviour>" },
   "solo_justification": "",
   "serialization_justification": "",
+  "accepted_overlaps": ["<path an open branch also touches, accepted deliberately>"],
+  "overlap_decision": "",
   "assignments": [
     {
       "id": "B1",
@@ -82,40 +84,65 @@ The one piece this file adds is `scripts/team_plan_check.cjs`: an executable che
       "dod": ["verifiable completion criteria"]
     },
     {
+      "id": "B2",
+      "agent": "claude-subagent",
+      "model": "sonnet",
+      "role": "builder",
+      "scope": "work authored against the fixed interface contract; only its verification waits on B1",
+      "allowed": ["another/exact/file.ts"],
+      "forbidden": ["paths it must not touch"],
+      "depends_on": ["B1"],
+      "depends_on_reason": "",
+      "dod": ["verifiable completion criteria"]
+    },
+    {
       "id": "R1",
       "agent": "claude-subagent",
       "model": "opus",
       "role": "reviewer",
       "senior": true,
       "scope": "independent review",
-      "reviews": ["B1"],
-      "depends_on": ["B1"],
+      "reviews": ["B1", "B2"],
+      "depends_on": ["B1", "B2"],
       "dod": ["verdict with concrete failure scenarios"]
+    },
+    {
+      "id": "R2",
+      "agent": "codex",
+      "model": "n/a",
+      "role": "reviewer",
+      "scope": "independent cross-provider review through the Codex connector on the Pull Request",
+      "reviews": ["B1", "B2"],
+      "depends_on": ["B1", "B2"],
+      "dod": ["every Codex finding fixed or answered before merge"]
     }
   ]
 }
 ```
 
-`agent` is one of `claude-lead`, `claude-subagent`, `codex`, `chatgpt`, `cloud-manager`. `model` is required on every assignment (builder and reviewer alike) and must be one of exactly `haiku`, `sonnet` or `opus`.
+`agent` is one of `claude-lead`, `claude-subagent`, `codex`, `chatgpt`, `cloud-manager`. `model` is required on every assignment (builder and reviewer alike) and must be one of exactly `haiku`, `sonnet`, `opus`, or `n/a`. `n/a` is valid only when `agent` is not `claude-lead` or `claude-subagent`: Siton does not choose which underlying model a non-Claude agent runs on, so it is never forced to state an Anthropic model it does not use. A `claude-lead` or `claude-subagent` assignment that declares `model: n/a` fails the check (`model_not_applicable_misused`), and all of the model-tier rules below (senior-risk requires `opus`, a `senior` reviewer requires `opus`, the `opus`-on-standard-risk warning) are skipped entirely for an assignment carrying `model: n/a`.
 
-Two top-level strings are optional and only meaningful at 40 characters or more (after trim): `plan.solo_justification` and `plan.serialization_justification`. Below that length they count as absent. Drop the key entirely rather than leaving an empty placeholder in a real plan — the example above shows the fields only to name them.
+Four strings share one justification bar, met only when the value (internal whitespace collapsed, then trimmed) is **both** at least 40 characters **and** at least 8 words: the two top-level plan strings `plan.solo_justification` and `plan.serialization_justification`, the top-level `plan.overlap_decision`, and the per-assignment `depends_on_reason` on a builder that depends on another builder. Below that bar they count as absent — a filler string no longer unlocks an escape hatch. `plan.accepted_overlaps` itself is a plain array of paths, not a justified string; it is `plan.overlap_decision` that has to justify accepting them (see below). Drop a key entirely rather than leaving an empty placeholder in a real plan — the example above shows the fields only to name them.
 
 The check fails when:
 - an assignment lacks a scope, a DoD or dependencies
 - a builder lacks allowed or forbidden paths
 - two builders can write the same path
-- a builder can write a path changed on a listed open branch (computed from git, not trusted)
+- a builder can write a path changed on a listed open branch, computed from git, not trusted (`open_work_overlap`) — unless that path is listed in `plan.accepted_overlaps`, which downgrades it to the warning `open_work_overlap_accepted`, but only when `plan.overlap_decision` meets the justification bar above; an `accepted_overlaps` entry with no qualifying `overlap_decision` leaves the original finding standing and adds `overlap_decision_missing`
 - a reviewer can write
 - a builder has no independent reviewer
 - senior-risk paths lack an independent `senior` reviewer
 - a dependency is unknown or cyclic
-- an assignment has no `model`, or one that is not `haiku`/`sonnet`/`opus` (`model_missing`, `model_invalid`)
-- a builder whose allowed paths touch any senior-risk family (below) declares a `model` other than `opus` (`model_underpowered`)
-- a reviewer marked `senior: true` declares a `model` other than `opus` (`reviewer_model_underpowered`)
-- there are two or more builders and fewer than two of them can start in parallel (no unmet `depends_on`), unless `plan.serialization_justification` is at least 40 characters (`parallel_dispatch_missing`)
-- there is exactly one builder and its allowed paths span two or more areas, unless `plan.solo_justification` is at least 40 characters (`solo_justification_missing`)
+- an assignment has no `model`, or one that is not `haiku`/`sonnet`/`opus`/`n/a` (`model_missing`, `model_invalid`); a `claude-lead` or `claude-subagent` assignment declares `model: n/a` (`model_not_applicable_misused`)
+- a builder whose allowed paths touch any senior-risk family (below) declares a `model` other than `opus` (`model_underpowered`) — this check does not run for a non-Claude agent's `model: n/a`
+- a reviewer marked `senior: true` declares a `model` other than `opus` (`reviewer_model_underpowered`) — this check does not run for a non-Claude agent's `model: n/a`
+- there are two or more builders and fewer than two independent agent **identities** among them can start in parallel: a root is a builder whose `depends_on` names no other assignment of any role (a dependency on a reviewer disqualifies it too), and roots that share the same non-`claude-subagent` `agent` value collapse to one identity — for example two `claude-lead` builders, or two `codex` builders, count as one, not two — unless `plan.serialization_justification` meets the justification bar above (`parallel_dispatch_missing`)
+- a builder whose `depends_on` names another builder's id has no `depends_on_reason` meeting the justification bar above (`serial_dependency_unjustified`)
+- there is exactly one builder and its allowed paths span two or more areas — a whole-tree grant such as `allowed: ["src/"]` counts as wide on its own, even though it names a single directory, because it necessarily reaches more than one risk family — unless `plan.solo_justification` meets the justification bar above (`solo_justification_missing`)
 
-One warning does not fail the check: a builder with no senior-risk paths that declares `model: opus` (`model_overpowered`) — standard-risk work on the most expensive model is flagged so the lead can downshift it, but the plan still passes. `claude-lead` itself is exempt from this warning: the lead always runs at `opus` even on a standard-risk assignment.
+Before this round, a task whose scope genuinely and legitimately overlapped a file an open branch also touched had no way to pass: `open_work_overlap` always failed the check, so `TEAM_PLAN_PASS` was unreachable for that task and the `CLAUDE.md` rule that a plan must print `TEAM_PLAN_PASS` before any writer starts was silently unsatisfiable — it broke the first time a real task needed it, which was this same round-two plan (`docs/team-plans/2026-09-28-orchestration-enforcement-round2.json` lists `CLAUDE.md` and `PROJECT_STATUS.md` in its own `accepted_overlaps`). `plan.accepted_overlaps` plus a justified `plan.overlap_decision` fixes that: it lets the lead accept one specific, reasoned overlap instead of the check being unsatisfiable or the lead dispatching around a failing result.
+
+Two warnings do not fail the check: a builder with no senior-risk paths that declares `model: opus` (`model_overpowered`) — standard-risk work on the most expensive model is flagged so the lead can downshift it, but the plan still passes, and this warning (like the other model-tier rules) never fires for a non-Claude agent's `model: n/a`; and an accepted overlap downgraded per `plan.accepted_overlaps` above (`open_work_overlap_accepted`). `claude-lead` itself is exempt from the overpowered-model warning: the lead always runs at `opus` even on a standard-risk assignment.
 
 Codex writes only through its own PRs. It is never assigned files that a Claude builder holds, and in this model it is primarily the independent and adversarial reviewer.
 
@@ -127,7 +154,7 @@ Codex writes only through its own PRs. It is never assigned files that a Claude 
 | money | payment, payout, invoice, fee, VAT, Grow, reconciliation, webhooks | senior reviewer + Codex; `gate:money-tax`, `proof:no-real-money` |
 | security | auth, sessions, OTP, tracking tokens, production guards, route policy, PII redaction (`error_monitoring`, `log_redaction`), web client auth/session/token handling (`web/src/auth*`, `session`, `api`, `admin*`) | senior reviewer + Codex; `ci:route-authorization`, security test group |
 | state-machine | `src/app.ts`, worker, inventory, authorization lifecycle, outbox | senior reviewer + Codex; affected test groups |
-| ci-gates | `.github/workflows/`, and the plan/route gate tooling itself (`scripts/team_plan_check.cjs`, `scripts/agent_router.cjs`, `scripts/agent_readonly_bash_guard.cjs`) | senior reviewer + Codex; never weaken a gate |
+| ci-gates | `.github/workflows/`, and **every script under `scripts/`** — gates, proofs, policy checks and migration tooling alike, for example `scripts/team_plan_check.cjs` and `scripts/agent_router.cjs` (`scripts/agent_readonly_bash_guard.cjs` is not on `master` yet; it arrives with the open bootstrap PR, see the sub-agent definitions row above) | senior reviewer + Codex; never weaken a gate |
 | everything else | docs, UI, tooling | independent reviewer + Codex |
 
 ## Product invariants the lead enforces

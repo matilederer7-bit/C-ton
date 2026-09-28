@@ -1,7 +1,8 @@
 {
   "task": "Team-lead smoke: the outbox worker must not write personal data or credentials from error objects into hosted logs. Its pino logger currently serializes raw errors (message, stack and pg fields such as detail) to Render logs.",
   "lead": "claude-lead",
-  "model_backfill_note": "The `model` field on every assignment below was added on 2026-09-28 to satisfy the new required-model rule in docs/CLAUDE_TEAM_LEAD.md (scripts/team_plan_check.cjs now fails a plan with no model). It was inferred after the fact, not recorded when this plan ran: opus for B1 (security-risk: src/log_redaction.ts, src/worker.ts) and B3 (security-risk: src/error_monitoring.ts, and agent claude-lead), and for the senior reviewer R1; sonnet for B2 (adversarial test authoring) and R2 (codex review, non-senior).",
+  "model_backfill_note": "The `model` field on every assignment below was added on 2026-09-28 to satisfy the required-model rule in docs/CLAUDE_TEAM_LEAD.md (scripts/team_plan_check.cjs fails a plan with no model). The whole field is a 2026-09-28 backfill, not a value recorded when this plan actually ran. For the Claude assignments the value was inferred from role and risk: opus for B1 (security-risk: src/log_redaction.ts, src/worker.ts) and B3 (security-risk: src/error_monitoring.ts, and agent claude-lead), and for the senior reviewer R1; sonnet for B2 (adversarial test authoring, standard risk). R2 is the ChatGPT Codex connector, not a Claude agent: Siton does not choose which underlying model Codex runs on, and no record of it exists from when this plan ran, so as of 2026-09-28 R2's model is recorded as n/a rather than guessed. An earlier backfill of this note stated R2 as sonnet; that was a fabrication (Codex does not run on Anthropic's Sonnet) and is corrected here.",
+  "depends_on_reason_backfill_note": "B2's `depends_on_reason` field was added on 2026-09-28 to satisfy the new `serial_dependency_unjustified` rule in scripts/team_plan_check.cjs (a builder that depends on another builder must carry its own justification). Like `model_backfill_note` above, this is a 2026-09-28 reconstruction, not a value recorded when this plan actually ran, and it restates rather than invents: the wording is built only from what B2's own `scope` and `dependency_note` and `dod` already said on this file before today — that authoring ran in parallel against the fixed interface contract, and that only the passing verification run, not the authoring, depended on B1's integrated result.",
   "base": "origin/master",
   "open_branches": [
     "origin/chatgpt/render-rate-limit-hardening-20260920",
@@ -58,6 +59,7 @@
         "B1"
       ],
       "dependency_note": "Authoring is parallel against the fixed interface contract; only the passing run depends on B1's integrated result.",
+      "depends_on_reason": "B2 authored its adversarial tests in parallel with B1, against the fixed interface contract, exactly as this assignment's own scope and dependency_note already say. The depends_on edge is real anyway, because two of B2's own dod items are not checkable from the contract text alone: that the live worker logger's err serializer is literally errorLogSerializer, and that it never throws on hostile input. Only that passing verification run, not the authoring, had to wait on B1's integrated result.",
       "dod": [
         "hostile pg-style and nested errors carry email, phone, card, JWT, bearer, password and IP values; none survive serialization",
         "type, code and UUID correlation ids survive",
@@ -114,7 +116,7 @@
     {
       "id": "R2",
       "agent": "codex",
-      "model": "sonnet",
+      "model": "n/a",
       "role": "reviewer",
       "scope": "Independent cross-provider review through the ChatGPT Codex connector on the Pull Request",
       "reviews": [

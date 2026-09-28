@@ -105,6 +105,14 @@ jobs:
       - name: Runtime DDL scan
         run: npm run scan:runtime-ddl 2>&1 | tee .ci-artifacts/runtime-ddl-scan.log
 
+      # The team lead writes one work plan per task (docs/team-plans/*.json) and
+      # scripts/team_plan_check.cjs enforces the owner's coordination rules on it.
+      # These controls hold the checker itself to those rules: disjoint writer
+      # scopes, read-only reviewers, senior review on the risk families, and the
+      # declared model per assignment. Static; needs no database.
+      - name: Team work-plan coordination gate
+        run: node --test tests/release_tools/team_plan_check.test.cjs 2>&1 | tee .ci-artifacts/team-plan-check.log
+
       # Reads the real text inside the .docx constitution/spec/UX documents, not
       # just Markdown, because that is where the retired seven-day deal cap hid.
       - name: Seven-day deal-cap contract

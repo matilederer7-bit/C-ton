@@ -1,0 +1,128 @@
+{
+  "task": "Close the senior review of the orchestration enforcement change: the gate-tooling risk tier must cover every enforcement script, the parallel-dispatch rule must count real agent identities rather than plan rows, justifications must carry content, the solo rule must react to a whole-tree grant, a non-Claude agent must not be forced to record a false model, an accepted overlap must be machine-checked rather than prose, and the new controls must actually run in CI",
+  "lead": "claude-lead",
+  "base": "origin/master",
+  "open_branches": [
+    "origin/codex/bootstrap-reconcile-20260924",
+    "origin/claude/festive-wright-kx4e5a",
+    "origin/claude/homepage-how-it-works-infographic-ed3is4"
+  ],
+  "accepted_overlaps": ["CLAUDE.md", "PROJECT_STATUS.md"],
+  "overlap_decision": "Two overlaps are accepted and neither is speculative. CLAUDE.md is also touched by origin/codex/bootstrap-reconcile-20260924 (PR #79): that branch appends one section at end of file, this branch inserts strictly above the closing section and leaves the final three lines byte-identical, and the trial three-way merge of this branch against it returns exit 0 with zero conflicts, re-run on every head. PROJECT_STATUS.md is touched by two open claude branches, but each agent owns its own marked slot and this branch writes only the claude slot; that file already conflicts between master and origin/claude/festive-wright-kx4e5a independently of this work, which was verified by merging master against it directly.",
+  "interface_contract": {
+    "ci-gates family": "pattern becomes /^\\.github\\/workflows\\/|^scripts\\//, so EVERY script under scripts/ is gate tooling, named individually or granted as a directory. HIGH_RISK_PREFIXES ci-gates stays ['.github/workflows/', 'scripts/'].",
+    "justified(value)": "collapse internal whitespace to single spaces, trim, then require BOTH >= 40 characters AND >= 8 whitespace-separated words. Used by solo_justification, serialization_justification, depends_on_reason and overlap_decision.",
+    "root builder": "a builder is a root only when its depends_on contains NO known assignment id of ANY role. A dependency on a reviewer id therefore blocks root status.",
+    "parallelBuilders": "CORRECTED BY THE LEAD after C2 caught the contradiction: the first draft of this contract said parallelBuilders was 'unchanged' while also redefining what a root is, and parallelBuilders IS the root count, so the two sentences could not both hold. The truthful number is the one that answers 'how many builders can actually start now', so parallelBuilders counts roots under the new any-role definition: a builder waiting on a reviewer is not counted. workstreams deliberately keeps the builder-only dependency graph, because a reviewer does not join two builders into one workstream.",
+    "parallelIdentities": "count of concurrent real identities among root builders: each root with agent 'claude-subagent' counts as one identity; all roots sharing any other agent value collapse to one identity for that agent value. Returned on the result as parallelIdentities, alongside parallelBuilders.",
+    "rule parallel_dispatch_missing": "now fires when there are >= 2 builders and parallelIdentities < 2, unless plan.serialization_justification passes justified().",
+    "rule serial_dependency_unjustified": "NEW failing code. A builder whose depends_on includes another builder's id must carry its own depends_on_reason passing justified(); message names the builder and the dependency.",
+    "planAreas": "root-level files that are NOT *.md now all map to the single area 'root' instead of one area each. Root-level *.md still maps to 'docs'. Everything else unchanged.",
+    "rule solo_justification_missing": "span = planAreas(allowed).length + (riskFamilies(allowed).length >= 2 ? 1 : 0). Fires when span >= 2 and plan.solo_justification does not pass justified(). This makes a whole-tree grant such as ['src/'] fire while a single gate script or a package.json pair does not.",
+    "model n/a": "MODELS gains 'n/a', valid ONLY for agents that are not 'claude-lead' or 'claude-subagent'. A Claude agent declaring 'n/a' fails with NEW code model_not_applicable_misused. model_underpowered and reviewer_model_underpowered are skipped entirely for non-Claude agents, because Siton does not choose their model. model_overpowered likewise never fires for them.",
+    "accepted overlaps": "plan.accepted_overlaps is an array of paths. An open_work_overlap whose builder path matches a listed path is downgraded from a finding to the warning open_work_overlap_accepted. The downgrade applies ONLY when plan.overlap_decision passes justified(); otherwise the finding stands and NEW code overlap_decision_missing is added.",
+    "result shape": "result gains parallelIdentities. Existing keys ok, findings, warnings, builders, workstreams, parallelBuilders are unchanged. TEAM_PLAN_SUMMARY gains parallel_identities.",
+    "npm + CI": "package.json gains \"team:plan-check\": \"node scripts/team_plan_check.cjs\". backend-quality-gates.yml gains ONE step running `node --test tests/release_tools/team_plan_check.test.cjs`, NOT the whole release-tools suite, which carries 9 failures that already exist on master."
+  },
+  "assignments": [
+    {
+      "id": "C0",
+      "agent": "claude-lead",
+      "model": "opus",
+      "role": "builder",
+      "scope": "round-two work plan and the claude slot of the project status",
+      "allowed": [
+        "docs/team-plans/2026-09-28-orchestration-enforcement-round2.json",
+        "PROJECT_STATUS.md"
+      ],
+      "forbidden": ["scripts/", "tests/", "CLAUDE.md", "docs/CLAUDE_TEAM_LEAD.md", ".github/", "package.json"],
+      "depends_on": [],
+      "dod": [
+        "plan passes the round-one checker except for overlaps listed in accepted_overlaps",
+        "status slot records completed, checked, open, percent and next, and classifies every test result honestly"
+      ]
+    },
+    {
+      "id": "C1",
+      "agent": "claude-subagent",
+      "model": "opus",
+      "role": "builder",
+      "scope": "every logic fix from the senior review inside the work-plan checker",
+      "allowed": ["scripts/team_plan_check.cjs"],
+      "forbidden": ["tests/", "docs/", "CLAUDE.md", "PROJECT_STATUS.md", ".github/", "package.json", "src/", ".claude/"],
+      "depends_on": [],
+      "dod": [
+        "P0-1, P1-2, P1-3, P1-4, P1-5 and P1-7 are closed exactly as the interface contract states",
+        "the accepted-overlap downgrade is implemented and cannot be used without a justified overlap_decision",
+        "no pre-existing finding code, message or export is changed",
+        "the exploit plan from the review now fails"
+      ]
+    },
+    {
+      "id": "C2",
+      "agent": "claude-subagent",
+      "model": "sonnet",
+      "role": "builder",
+      "scope": "controls that pin every review finding closed, each failing on the round-one code",
+      "allowed": ["tests/release_tools/team_plan_check.test.cjs"],
+      "forbidden": ["scripts/", "docs/", "CLAUDE.md", "PROJECT_STATUS.md", ".github/", "package.json", "src/"],
+      "depends_on": [],
+      "dod": [
+        "a control reproducing the reviewer's exploit plan and asserting it now fails",
+        "positive and negative controls for identity-aware parallelism, reviewer-blocked roots, serial_dependency_unjustified, filler justifications, whole-tree solo grants, model n/a and the accepted-overlap downgrade",
+        "every earlier control still passes with no assertion weakened"
+      ]
+    },
+    {
+      "id": "C3",
+      "agent": "claude-subagent",
+      "model": "sonnet",
+      "role": "builder",
+      "scope": "documentation truthfulness: the new rules and fields, the non-existent guard script, the shared-worktree statement, and the false model recorded for a Codex reviewer",
+      "allowed": [
+        "docs/CLAUDE_TEAM_LEAD.md",
+        "CLAUDE.md",
+        "docs/team-plans/2026-09-24-smoke-worker-log-scrub.json"
+      ],
+      "forbidden": ["scripts/", "tests/", "PROJECT_STATUS.md", ".github/", "package.json", "src/", ".claude/", "AGENTS.md"],
+      "depends_on": [],
+      "dod": [
+        "the R2 Codex reviewer no longer carries a fabricated Anthropic model and the backfill note says so",
+        "the guard script is marked as arriving with the open bootstrap PR rather than presented as existing",
+        "the worktree-isolation sentence matches what actually happens",
+        "CLAUDE.md stays insertion-only with its final three lines byte-identical"
+      ]
+    },
+    {
+      "id": "C4",
+      "agent": "claude-subagent",
+      "model": "opus",
+      "role": "builder",
+      "scope": "make the gate executable in CI rather than procedural",
+      "allowed": [".github/workflows/backend-quality-gates.yml", "package.json"],
+      "forbidden": ["scripts/", "tests/", "docs/", "CLAUDE.md", "PROJECT_STATUS.md", "src/", ".claude/"],
+      "depends_on": [],
+      "dod": [
+        "npm run team:plan-check exists and runs the checker",
+        "exactly one new CI step runs the plan-check controls, and it is green on this branch",
+        "the 9 release-tools failures that already exist on master are NOT pulled into CI by this change",
+        "no existing CI step is removed, reordered or weakened"
+      ]
+    },
+    {
+      "id": "R2",
+      "agent": "claude-subagent",
+      "model": "opus",
+      "role": "reviewer",
+      "senior": true,
+      "scope": "independent read-only senior re-review: confirm each round-one finding is closed at the root rather than papered over, and hunt new false negatives created by the fixes",
+      "reviews": ["C0", "C1", "C2", "C3", "C4"],
+      "depends_on": ["C0", "C1", "C2", "C3", "C4"],
+      "dod": [
+        "per-finding verdict: closed, partially closed or still open, each with evidence",
+        "new false negatives introduced by the fixes, or an explicit statement that none were found after listing what was attacked",
+        "explicit list of what was not reviewed"
+      ]
+    }
+  ]
+}

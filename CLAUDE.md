@@ -118,7 +118,7 @@ Parallel sub-agent orchestration is the default operating mode for meaningful wo
 - Do not spawn an agent that earns nothing: no sub-agent for work that is faster to do directly, and no extra reviewer for a change too small to need one.
 - Use the cheapest model that fits the risk: cheap (`haiku`) for recon and lookup, mid (`sonnet`) for ordinary build work, senior (`opus`) for anything touching database, security, payments/money, auth, the state machine, or architecture.
 - The builder and its reviewer are never the same agent; Codex is an additional independent reviewer on top of the Claude reviewer, not a replacement for one.
-- Every work plan is machine-checked by `scripts/team_plan_check.cjs` before any writer starts; a plan that does not print `TEAM_PLAN_PASS` is not dispatched.
+- Every work plan is machine-checked by `scripts/team_plan_check.cjs` before any writer starts; a plan that does not print `TEAM_PLAN_PASS` is not dispatched. An overlap with an open branch is accepted by listing the path in `plan.accepted_overlaps` with a written `plan.overlap_decision`, never by dispatching around a failing or ignored check output.
 
 Where this default would conflict with an existing repository rule, the repository rule wins — this section adds a default on top of `AGENTS.md` and `docs/CLAUDE_TEAM_LEAD.md`, it does not relax either, and it does not restate the product invariants already binding in `AGENTS.md`.
 

@@ -153,6 +153,7 @@
     "check:reproducible-build": "node scripts/reproducible_build_check.cjs",
     "check:repo-hygiene": "node scripts/repository_hygiene_check.cjs",
     "check:docker-static": "node scripts/docker_readiness_static.cjs",
+    "team:plan-check": "node scripts/team_plan_check.cjs",
     "migrations:preflight": "node scripts/migration_preflight.cjs",
     "migrations:doctor": "node scripts/migrations_doctor.cjs",
     "migrations:repair": "node scripts/migrations_repair.cjs",

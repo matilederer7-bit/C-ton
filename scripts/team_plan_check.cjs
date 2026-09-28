@@ -18,15 +18,25 @@
 //     the state machine or the gate tooling itself require a reviewer marked
 //     `senior: true`
 //   - dependencies reference existing assignments and contain no cycle
-//   - every assignment declares the model it runs on (haiku, sonnet or opus)
+//   - every assignment declares the model it runs on (haiku, sonnet or opus,
+//     or `n/a` for an agent whose model this project does not choose)
 //   - the model matches the risk tier: senior-risk builders and senior
 //     reviewers run on opus, and standard-risk work on opus is flagged as a
-//     (non-failing) warning so the lead can downshift it
+//     (non-failing) warning so the lead can downshift it; no tier is asserted
+//     for a non-Claude agent, because Siton does not pick its model
 //   - independent workstreams are dispatched in parallel: with two or more
-//     builders at least two must be able to start at once, unless the plan
-//     carries a `serialization_justification`
-//   - a lone builder spanning two or more areas needs a `solo_justification`;
+//     builders at least two real agent identities must be able to start at
+//     once, unless the plan carries a `serialization_justification`
+//   - a builder that waits on another builder argues it in `depends_on_reason`:
+//     a dependent builder is normally handed a fixed interface contract and
+//     authors in parallel anyway, so a true serial chain has to be defended
+//   - a lone builder spanning two or more areas, or one whole-tree grant that
+//     carries two or more risk families, needs a `solo_justification`;
 //     otherwise the work is split across parallel builders
+//   - every justification carries an argument: >= 40 characters and >= 8 words
+//   - an overlap with open work is tolerated only when the plan lists the exact
+//     path in `accepted_overlaps` and argues it in `overlap_decision`; the
+//     finding is then downgraded to a warning, never silently dropped
 //
 // Exit 1 on any violation; warnings never fail the gate.
 // Output is one line per finding, one per warning, plus a JSON summary.
@@ -39,7 +49,13 @@ const ROLES = new Set(["builder", "reviewer"]);
 const AGENTS = new Set(["claude-lead", "claude-subagent", "codex", "chatgpt", "cloud-manager"]);
 // Declared model per assignment. Cheap work must not silently run on opus and
 // risky work must not silently run on haiku, so the plan states it explicitly.
-const MODELS = new Set(["haiku", "sonnet", "opus"]);
+// "n/a" exists for agents whose model this project does not choose (Codex,
+// ChatGPT, the cloud manager): making them record an Anthropic tier would
+// write a fabricated claim about another vendor into the historic record.
+const MODELS = new Set(["haiku", "sonnet", "opus", "n/a"]);
+// The only agents running on a model Siton picks; the model-tier rules apply
+// to these and to nobody else.
+const CLAUDE_AGENTS = new Set(["claude-lead", "claude-subagent"]);
 
 // High-risk path families. Touching any of them makes the builder "senior":
 // it needs an independent reviewer with `senior: true` before merge.
@@ -50,14 +66,27 @@ const HIGH_RISK = [
   { family: "money", pattern: /^src\/(.*payment.*|.*payout.*|platform_fee_money|money_input|vat_authority|invoice_.*|grow_.*|synthetic_payment_provider|payment_reconciliation|webhook_ingestion)\.ts$/ },
   { family: "security", pattern: /^src\/(.*auth.*|seller_auth|admin_identity|otp_rail|participant_tracking_security|production_guards|seller_enforcement|buyer_session|error_monitoring|log_redaction)\.ts$|^config\/(runtime-environment-policy|route-classification)\.json$|^scripts\/protected_route_policy\.cjs$|^web\/src\/(auth|authRedirect|authTrace|session|adminGate|adminStepUp|api)\.tsx?$/ },
   { family: "state-machine", pattern: /^src\/(app|inventory_repository|authorization_lifecycle|outbox_worker_helpers|worker|worker_scheduler)\.ts$/ },
-  // The gate tooling itself is as load-bearing as the workflows that run it:
-  // whoever edits the plan check, the router or the read-only bash guard can
-  // switch every other control off.
-  { family: "ci-gates", pattern: /^\.github\/workflows\/|^scripts\/(team_plan_check|agent_router|agent_readonly_bash_guard)\.cjs$/ }
+  // The gate tooling itself is as load-bearing as the workflows that run it,
+  // and that is the whole of scripts/: every file under it is a gate, a proof,
+  // a policy or migration tooling, and whoever edits one of them can switch
+  // another off. Naming three files here let a plan grant the real-money proof
+  // and the legal gate by name and still be scored standard risk.
+  { family: "ci-gates", pattern: /^\.github\/workflows\/|^scripts\// }
 ];
 
 function declaredModel(item) {
   return String(item?.model || "").trim();
+}
+
+function isClaudeAgent(item) {
+  return CLAUDE_AGENTS.has(item?.agent);
+}
+
+// A justification has to carry an argument, not filler: under a length-only
+// bar both "." x 40 and "because " x 6 counted as a reasoned decision.
+function justified(value) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  return text.length >= 40 && text.split(" ").filter(Boolean).length >= 8;
 }
 
 function normalizePath(value) {
@@ -116,8 +145,10 @@ function planAreas(paths) {
   for (const raw of paths || []) {
     const value = normalizePath(raw);
     if (!value) continue;
-    // Root-level markdown (CLAUDE.md, PROJECT_STATUS.md) is documentation.
-    if (!value.includes("/") && value.endsWith(".md")) { areas.add("docs"); continue; }
+    // Root-level markdown (CLAUDE.md, PROJECT_STATUS.md) is documentation;
+    // every other root-level file shares one "root" area, so a manifest pair
+    // such as package.json + package-lock.json is not a two-area sprawl.
+    if (!value.includes("/")) { areas.add(value.endsWith(".md") ? "docs" : "root"); continue; }
     const hit = AREAS.find(([, prefixes]) => prefixes.some((prefix) => value.startsWith(prefix)));
     areas.add(hit ? hit[0] : value.split("/")[0]);
   }
@@ -154,8 +185,9 @@ function checkPlan(plan, options = {}) {
     if (!Array.isArray(item.dod) || !item.dod.length) fail("dod_missing", `${id}: dod (Definition of Done) must list at least one item`);
     if (!Array.isArray(item.depends_on)) fail("depends_on_missing", `${id}: depends_on must be an array (empty when independent)`);
     const model = declaredModel(item);
-    if (!model) fail("model_missing", `${id}: model must be declared (haiku, sonnet or opus)`);
+    if (!model) fail("model_missing", `${id}: model must be declared (haiku, sonnet, opus, or n/a for an agent whose model this project does not choose)`);
     else if (!MODELS.has(model)) fail("model_invalid", `${id}: model must be one of ${[...MODELS].join(", ")}`);
+    else if (model === "n/a" && isClaudeAgent(item)) fail("model_not_applicable_misused", `${id}: model n/a is only for agents whose model this project does not choose; a Claude agent must declare haiku, sonnet or opus`);
     if (item.role === "builder") {
       if (!Array.isArray(item.allowed) || !item.allowed.length) fail("allowed_missing", `${id}: builder must declare allowed paths`);
       if (!Array.isArray(item.forbidden)) fail("forbidden_missing", `${id}: builder must declare forbidden paths (may be empty only deliberately)`);
@@ -208,20 +240,51 @@ function checkPlan(plan, options = {}) {
     }
   }
 
+  // An overlap with open work is normally fatal. The lead may accept a named
+  // one, but only in machine-checkable form: the exact granted path listed in
+  // plan.accepted_overlaps, plus a justified plan.overlap_decision arguing it.
+  // Prose alone left "print TEAM_PLAN_PASS before dispatch" unsatisfiable for
+  // any task touching a file an open Pull Request also touches.
+  const acceptedOverlaps = [...new Set((Array.isArray(plan?.accepted_overlaps) ? plan.accepted_overlaps : []).map(normalizePath).filter(Boolean))];
+  const overlapDecisionOk = justified(plan?.overlap_decision);
+  const usedOverlapEntries = new Set();
+  let unjustifiedAcceptance = false;
   const openBranchPaths = options.openBranchPaths || {};
   for (const [branch, paths] of Object.entries(openBranchPaths)) {
     for (const builder of builders) {
       for (const allowed of builder.allowed) {
         const hit = paths.find((changed) => pathsOverlap(allowed, changed));
-        if (hit) fail("open_work_overlap", `${builder.id}: ${normalizePath(allowed)} overlaps ${hit}, already changed on open branch ${branch}`);
+        if (!hit) continue;
+        const message = `${builder.id}: ${normalizePath(allowed)} overlaps ${hit}, already changed on open branch ${branch}`;
+        // Exact granted path, not a prefix: an entry of "src/" must not wave
+        // through every overlap under it.
+        const entry = acceptedOverlaps.find((accepted) => accepted === normalizePath(allowed));
+        if (entry && overlapDecisionOk) { usedOverlapEntries.add(entry); warn("open_work_overlap_accepted", `${message}; accepted by plan.accepted_overlaps entry ${entry}`); continue; }
+        if (entry) unjustifiedAcceptance = true;
+        fail("open_work_overlap", message);
       }
     }
   }
+  if (unjustifiedAcceptance) fail("overlap_decision_missing", "plan.accepted_overlaps claims an overlap with open work, but plan.overlap_decision does not argue it (>= 40 characters and >= 8 words); the overlaps above stand");
+  // An entry that matched nothing is stale rather than wrong: it is reported
+  // so the reader can see the plan carries an acceptance it never used.
+  const acceptedOverlapsUnused = acceptedOverlaps.length - usedOverlapEntries.size;
 
-  // Builder-only dependency graph: reviewer ids never block a builder's start.
+  // Builder-only dependency graph: used for the workstream count below.
   const builderIds = new Set(builders.map((builder) => String(builder.id)));
   const builderDeps = (item) => (item?.depends_on || []).map(String).filter((dep) => builderIds.has(dep));
-  const parallelBuilders = builders.filter((builder) => !builderDeps(builder).length).length;
+  // A builder is a root only when nothing known blocks it. A reviewer id
+  // blocks just as hard as a builder id: build -> review -> rework is a serial
+  // plan, and filtering reviewers out of the dependency list made it look like
+  // two independent roots.
+  const blockingDeps = (item) => (item?.depends_on || []).map(String).filter((dep) => byId.has(dep));
+  const roots = builders.filter((builder) => !blockingDeps(builder).length);
+  const parallelBuilders = roots.length;
+  // Real concurrency is bounded by agent identities, not by plan rows. Each
+  // claude-subagent root is its own instance; every other agent value is a
+  // single identity, so two rows both assigned to claude-lead (or both to
+  // codex) run one after the other however the plan is drawn.
+  const parallelIdentities = new Set(roots.map((builder, index) => (builder.agent === "claude-subagent" ? `claude-subagent#${index}` : `agent:${builder.agent}`))).size;
 
   // Weakly-connected components (union-find, direction ignored): one component
   // is one workstream that must run end to end before the next one can.
@@ -236,19 +299,33 @@ function checkPlan(plan, options = {}) {
   }
   const workstreams = new Set([...builderIds].map(find)).size;
 
-  const justified = (value) => String(value || "").trim().length >= 40;
-  if (builders.length >= 2 && parallelBuilders < 2 && !justified(plan?.serialization_justification)) {
-    fail("parallel_dispatch_missing", `${builders.length} builders but only ${parallelBuilders} can start in parallel; split the independent workstreams or set plan.serialization_justification (>= 40 chars)`);
+  if (builders.length >= 2 && parallelIdentities < 2 && !justified(plan?.serialization_justification)) {
+    fail("parallel_dispatch_missing", `${builders.length} builders but only ${parallelIdentities} can start in parallel; split the independent workstreams or set plan.serialization_justification (>= 40 characters and >= 8 words)`);
+  }
+  // Chaining one builder behind another is the thing parallel dispatch exists
+  // to avoid. The lead's own procedure hands a dependent builder a fixed
+  // interface contract so its authoring still runs at the same time, so a real
+  // serial dependency is an argument to make, not an assertion to record.
+  for (const builder of builders) {
+    for (const dep of builderDeps(builder)) {
+      if (!justified(builder.depends_on_reason)) fail("serial_dependency_unjustified", `${builder.id}: waits on builder ${dep}; author against a fixed interface contract in parallel, or set ${builder.id}.depends_on_reason (>= 40 characters and >= 8 words) explaining why it cannot`);
+    }
   }
   if (builders.length === 1) {
     const areas = planAreas(builders[0].allowed);
-    if (areas.length >= 2 && !justified(plan?.solo_justification)) {
-      fail("solo_justification_missing", `${builders[0].id}: one builder spans ${areas.join(", ")}; split the areas across parallel builders or set plan.solo_justification (>= 40 chars)`);
+    // One area can still be the whole of it: src/ is a single area and every
+    // risk family at once. Two or more families count as an extra span, so a
+    // whole-tree grant fires here while one gate script does not.
+    const span = areas.length + (riskFamilies(builders[0].allowed).length >= 2 ? 1 : 0);
+    if (span >= 2 && !justified(plan?.solo_justification)) {
+      fail("solo_justification_missing", `${builders[0].id}: one builder spans ${areas.join(", ")}; split the areas across parallel builders or set plan.solo_justification (>= 40 characters and >= 8 words)`);
     }
   }
 
   for (const reviewer of reviewers) {
-    if (reviewer.senior === true && declaredModel(reviewer) !== "opus") fail("reviewer_model_underpowered", `${reviewer.id}: senior reviewer requires model: opus`);
+    // Skipped for a non-Claude reviewer: Siton does not select its model, so
+    // demanding a tier from it would only produce a made-up declaration.
+    if (reviewer.senior === true && isClaudeAgent(reviewer) && declaredModel(reviewer) !== "opus") fail("reviewer_model_underpowered", `${reviewer.id}: senior reviewer requires model: opus`);
   }
 
   const summary = [];
@@ -264,17 +341,19 @@ function checkPlan(plan, options = {}) {
     if (families.length && !independent.some((reviewer) => reviewer.senior === true)) {
       fail("senior_review_missing", `${builder.id}: touches ${families.join(", ")}; an independent reviewer with senior: true is required before merge`);
     }
-    if (families.length && model !== "opus") {
+    // Both tier rules apply to Claude agents only, for the same reason the
+    // "n/a" model exists: this project does not choose another vendor's model.
+    if (families.length && isClaudeAgent(builder) && model !== "opus") {
       fail("model_underpowered", `${builder.id}: touches ${families.join(", ")}; senior-risk builders require model: opus`);
     }
     // The lead itself is always opus, so it never counts as over-provisioned.
-    if (!families.length && model === "opus" && builder.agent !== "claude-lead") {
+    if (!families.length && model === "opus" && isClaudeAgent(builder) && builder.agent !== "claude-lead") {
       warn("model_overpowered", `${builder.id}: standard-risk work (${planAreas(builder.allowed).join(", ")}) on opus; a cheaper model is likely sufficient`);
     }
     summary.push({ id: builder.id, agent: builder.agent, model, risk: families.length ? "senior" : "standard", families, reviewers: covering.map((reviewer) => reviewer.id) });
   }
 
-  return { ok: findings.length === 0, findings, warnings, builders: summary, workstreams, parallelBuilders };
+  return { ok: findings.length === 0, findings, warnings, builders: summary, workstreams, parallelBuilders, parallelIdentities, acceptedOverlapsUnused };
 }
 
 function main(argv) {
@@ -305,7 +384,7 @@ function main(argv) {
   for (const finding of result.findings) console.log(`TEAM_PLAN_FINDING ${finding.code} ${finding.message}`);
   for (const warning of result.warnings) console.log(`TEAM_PLAN_WARN ${warning.code} ${warning.message}`);
   for (const builder of result.builders) console.log(`TEAM_PLAN_BUILDER ${builder.id} agent=${builder.agent} risk=${builder.risk}${builder.families.length ? " families=" + builder.families.join(",") : ""} reviewers=${builder.reviewers.join(",") || "none"} model=${builder.model || "none"}`);
-  console.log(`TEAM_PLAN_SUMMARY ${JSON.stringify({ ok: result.ok, findings: result.findings.length, warnings: result.warnings.length, builders: result.builders.length, workstreams: result.workstreams, parallel_builders: result.parallelBuilders, open_branches_checked: Object.keys(openBranchPaths).length })}`);
+  console.log(`TEAM_PLAN_SUMMARY ${JSON.stringify({ ok: result.ok, findings: result.findings.length, warnings: result.warnings.length, builders: result.builders.length, workstreams: result.workstreams, parallel_builders: result.parallelBuilders, parallel_identities: result.parallelIdentities, accepted_overlaps_unused: result.acceptedOverlapsUnused, open_branches_checked: Object.keys(openBranchPaths).length })}`);
   console.log(result.ok ? "TEAM_PLAN_PASS" : "TEAM_PLAN_FAIL");
   return result.ok ? 0 : 1;
 }
