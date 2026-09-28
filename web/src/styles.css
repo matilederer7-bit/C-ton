@@ -153,7 +153,7 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
   max-width: var(--max); margin: 0 auto; padding: 9px 16px;
   /* Extra room on the PHYSICAL left keeps the brand and nav controls clear
      of the admin corner hotspot's 30px column, in both text directions. */
-  padding-left: 38px;
+  padding-left: calc(38px + env(safe-area-inset-left, 0px));
   display: flex; align-items: center; gap: 14px;
 }
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); min-width: 0; }
@@ -223,7 +223,8 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
    The TAP TARGET stays a generous 30px for the admin while the VISIBLE dot is
    a faint 7px speck that a buyer's eye does not catch. */
 .admin-dot {
-  position: fixed; left: 0; right: auto; z-index: 60;
+  /* offset by the device safe area so a notch / rounded corner never swallows it */
+  position: fixed; left: env(safe-area-inset-left, 0px); right: auto; z-index: 60;
   width: 30px; height: 30px; border: none; background: transparent;
   cursor: pointer; padding: 0;
   display: flex; align-items: center; justify-content: center;
@@ -233,7 +234,7 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
   background: var(--ink-faint); opacity: .1;
 }
 .admin-dot:hover::after, .admin-dot:focus-visible::after { opacity: .45; }
-.admin-dot.top { top: 0; }
+.admin-dot.top { top: env(safe-area-inset-top, 0px); }
 .admin-dot.bottom { bottom: 0; }
 
 /* ── branded loading (the C-ton mark breathing on the paper ground) ────── */

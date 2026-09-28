@@ -365,7 +365,10 @@ async function main() {
               .filter((o) => { const b = o.getBoundingClientRect(); return b.width > 0 && b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top; })
               .map((o) => o.className || o.tagName);
             const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-            return { left: r.left, top: r.top, w: r.width, dotW: parseFloat(dot.width), dotOpacity: Number(dot.opacity), overlaps, onTop: hit === e };
+            // the corner is the device's SAFE corner (0 on a plain screen, the notch inset on a cutout device)
+            const probe = document.createElement('div'); probe.style.cssText = 'position:fixed;left:env(safe-area-inset-left,0px);top:env(safe-area-inset-top,0px)';
+            document.body.appendChild(probe); const safe = probe.getBoundingClientRect(); probe.remove();
+            return { left: r.left - safe.left, top: r.top - safe.top, w: r.width, dotW: parseFloat(dot.width), dotOpacity: Number(dot.opacity), overlaps, onTop: hit === e };
           })()`) as null | { left: number; top: number; w: number; dotW: number; dotOpacity: number; overlaps: string[]; onTop: boolean };
           if (!s) { problems.push(`${where}: no admin entry`); continue; }
           if (s.left > 1 || s.top > 1) problems.push(`${where}: not in the top-left corner (${s.left},${s.top})`);
