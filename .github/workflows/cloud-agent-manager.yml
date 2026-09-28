@@ -371,7 +371,7 @@ jobs:
           set -euo pipefail
           test "$(git branch --show-current)" = "$EXPECTED_BRANCH" || { echo "Builder changed branch" >&2; exit 1; }
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD" || { echo "Builder committed or changed HEAD; Git lifecycle belongs to the manager" >&2; exit 1; }
-          protected='^(\.github/|scripts/cloud_agent_manager\.cjs$|scripts/agent_readonly_bash_guard\.cjs$|scripts/agent_router\.cjs$|scripts/agent_model_tiers\.cjs$|AGENTS\.md$|AI_WORKFLOW\.md$|CLAUDE\.md$|PROJECT_STATUS\.md$|\.siton-)'
+          protected='^(\.github/|scripts/cloud_agent_manager\.cjs$|scripts/agent_readonly_bash_guard\.cjs$|scripts/agent_router\.cjs$|scripts/agent_model_tiers\.cjs$|AI_WORKFLOW\.md$|PROJECT_STATUS\.md$|\.siton-|\.mcp\.json$|(.*/)?(AGENTS|CLAUDE)(\.[A-Za-z0-9_-]+)*\.md$|(.*/)?\.claude/|(.*/)?\.codex/)'
           git status --porcelain=v1 -z --untracked-files=all --no-renames > "$RUNNER_TEMP/siton-build-status.z"
           if cut -z -c4- "$RUNNER_TEMP/siton-build-status.z" | grep -zE "$protected" | tr '\0' '\n'; then
             echo "Builder modified the cloud-manager control plane or shared status" >&2
@@ -555,8 +555,9 @@ jobs:
           git switch -c "$BRANCH" "$BASE_SHA"
           printf '%s\n' '.siton-cloud-task.md' '.siton-review-prompt.md' '.siton-review-1.txt' '.siton-review-2.txt' '.siton-fix-task.md' >> .git/info/exclude
           node scripts/cloud_agent_manager.cjs packet .siton-cloud-task.md
-          # Same working-tree state the builder left: unstaged edits, new files untracked.
-          safe_git apply --binary "$patch"
+          # Into the index as well, exactly as the review job applied it, so a
+          # reviewed file under a .gitignore path is not silently dropped.
+          safe_git apply --index --binary "$patch"
           cp "$review" .siton-review-1.txt
 
       - name: Prepare one bounded fix pass
@@ -608,7 +609,7 @@ jobs:
           set -euo pipefail
           test "$(git branch --show-current)" = "$EXPECTED_BRANCH" || { echo "Fix pass changed branch" >&2; exit 1; }
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD" || { echo "Fix pass committed or changed HEAD; Git lifecycle belongs to the manager" >&2; exit 1; }
-          protected='^(\.github/|scripts/cloud_agent_manager\.cjs$|scripts/agent_readonly_bash_guard\.cjs$|scripts/agent_router\.cjs$|scripts/agent_model_tiers\.cjs$|AGENTS\.md$|AI_WORKFLOW\.md$|CLAUDE\.md$|PROJECT_STATUS\.md$|\.siton-)'
+          protected='^(\.github/|scripts/cloud_agent_manager\.cjs$|scripts/agent_readonly_bash_guard\.cjs$|scripts/agent_router\.cjs$|scripts/agent_model_tiers\.cjs$|AI_WORKFLOW\.md$|PROJECT_STATUS\.md$|\.siton-|\.mcp\.json$|(.*/)?(AGENTS|CLAUDE)(\.[A-Za-z0-9_-]+)*\.md$|(.*/)?\.claude/|(.*/)?\.codex/)'
           git status --porcelain=v1 -z --untracked-files=all --no-renames > "$RUNNER_TEMP/siton-fix-status.z"
           if cut -z -c4- "$RUNNER_TEMP/siton-fix-status.z" | grep -zE "$protected" | tr '\0' '\n'; then
             echo "Fix pass modified the cloud-manager control plane or shared status" >&2
@@ -834,7 +835,10 @@ jobs:
           { test -f "$patch" && test ! -L "$patch" && test -s "$patch"; } || { echo "final patch missing or not a regular file" >&2; exit 1; }
           echo "$expected  $patch" | sha256sum -c --quiet - || { echo "final patch differs from the reviewed patch" >&2; exit 1; }
           test "$(git rev-parse HEAD)" = "$BASE_SHA"
-          safe_git apply --binary "$patch"
+          # --index, exactly as the review job applied it: a reviewed file whose
+          # path is ignored by .gitignore stays in the commit instead of being
+          # skipped by `git add -A`.
+          safe_git apply --index --binary "$patch"
           safe_git status --porcelain=v1 -z --untracked-files=all --no-renames | node "$RUNNER_TEMP/control/cloud_agent_manager.cjs" boundary
           if [ -z "$(safe_git status --porcelain --untracked-files=all)" ]; then
             echo "Final patch produced no repository changes." >&2

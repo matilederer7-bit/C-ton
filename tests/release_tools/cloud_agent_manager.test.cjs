@@ -225,11 +225,20 @@ test("manager records telemetry even when a managed run fails before PR creation
     assert.ok(names.indexOf(name) > gate, name);
     assert.match(steps[names.indexOf(name)], /\n        if: always\(\)\n/, `${name} must run after an upstream failure`);
   }
+  // The gate is the only thing between a failed or skipped review and a
+  // push: it may not be softened, and no lifecycle step may opt out of it.
+  assert.doesNotMatch(steps[gate], /continue-on-error|\n        if:/, "the upstream gate must always run and always fail the job");
+  assert.doesNotMatch(finalize, /\n    continue-on-error/, "finalize itself must not swallow the gate");
   for (const name of ["Download final task patch", "Apply final reviewed patch and enforce control-plane boundary", "Update project status and final diff checks", "Commit and push managed branch", "Open Pull Request"]) {
     const index = names.indexOf(name);
     assert.ok(index > gate, `${name} must come after the upstream gate`);
-    assert.doesNotMatch(steps[index], /\n        if: always\(\)/, `${name} must not run after an upstream failure`);
+    assert.doesNotMatch(steps[index], /continue-on-error/, `${name} must not continue on error`);
+    const condition = /\n        if: (.*)\n/.exec(steps[index]);
+    if (condition) assert.doesNotMatch(condition[1], /always\(\)|failure\(\)|cancelled\(\)/, `${name} must not run after an upstream failure`);
   }
+  // Every step after the gate that is not explicitly always() is a lifecycle
+  // step; count them so a reformat that hides steps fails instead of passing.
+  assert.ok(steps.length - gate > 8, `expected the lifecycle steps after the gate, found ${steps.length - gate}`);
   const collect = stepNamed(finalize, "Collect upstream job results");
   for (const job of ["route", "build", "review-1", "fix", "review-2"]) assert.match(collect, new RegExp(`\\$\\{\\{ needs\\.${job}\\.result \\}\\}`));
   assert.match(collect, /\[ "\$REVIEW1" = success \] \|\| status=failure/);
@@ -409,7 +418,8 @@ test("the lifecycle token exists only in finalize, where no agent runs, and comm
   const apply = stepNamed(finalize, "Apply final reviewed patch and enforce control-plane boundary");
   assert.doesNotMatch(apply, /GH_TOKEN|SITON_AGENT_GITHUB_TOKEN|secrets\./, "the patch is applied without any credential");
   assert.match(apply, /safe_git\(\) \{ git -c core\.hooksPath=\/dev\/null -c core\.fsmonitor=false -c diff\.external= "\$@"; \}/);
-  assert.match(apply, /safe_git apply --binary "\$patch"/);
+  assert.match(apply, /safe_git apply --index --binary "\$patch"/);
+  assert.doesNotMatch(finalize + jobs.fix, /safe_git apply --binary/, "every patch apply must use --index, as the review job does");
   const commit = stepNamed(finalize, "Commit and push managed branch");
   assert.match(commit, /test "\$\(git rev-parse HEAD\)" = "\$BASE_SHA"/);
   assert.match(commit, /git -c core\.hooksPath=\/dev\/null -c core\.fsmonitor=false add -A/);
@@ -639,10 +649,13 @@ test("control-plane boundary refuses protected paths and fails closed on rename 
     ".github/workflows/ci.yml", ".github/workflows/é.yml", ".github/CODEOWNERS",
     "scripts/cloud_agent_manager.cjs", "scripts/agent_readonly_bash_guard.cjs", "scripts/agent_router.cjs", "scripts/agent_model_tiers.cjs",
     "AGENTS.md", "AI_WORKFLOW.md", "CLAUDE.md", "PROJECT_STATUS.md", ".siton-review-prompt.md", ".siton-control/x",
+    // Anything an agent loads as instructions or configuration.
+    "docs/AGENTS.md", "AGENTS.override.md", "src/AGENTS.override.md", "CLAUDE.local.md", "web/CLAUDE.md",
+    ".claude/settings.json", ".claude/agents/x.md", "web/.claude/settings.local.json", ".codex/config.toml", "src/.codex/x", ".mcp.json",
   ];
   assert.deepEqual(protectedPaths(blocked), blocked);
   for (const script of CONTROL_SCRIPTS) assert.deepEqual(protectedPaths([script]), [script], script);
-  const allowed = ["src/app.ts", "docs/AGENTS.md", "tests/PROJECT_STATUS.md", "scripts/siton_verify.cjs", "scripts/agent_router.cjs.md", "web/.github/x", "a.siton-x"];
+  const allowed = ["src/app.ts", "docs/AGENTS_GUIDE.txt", "docs/agents.md", "src/.mcp.json.example", "tests/PROJECT_STATUS.md", "scripts/siton_verify.cjs", "scripts/agent_router.cjs.md", "web/.github/x", "a.siton-x"];
   assert.deepEqual(protectedPaths(allowed), []);
   assert.throws(() => statusPaths("R  new.ts\0old.ts\0"), /rename\/copy/);
   assert.throws(() => statusPaths("garbage\0"), /unparseable/);

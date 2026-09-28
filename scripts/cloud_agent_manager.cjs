@@ -18,11 +18,15 @@ const CONTROL_SCRIPTS = [
 
 // Paths a cloud builder or fix pass may never change: the workflow and
 // repository control plane, the control scripts above, the binding rule files,
-// the shared status file (the manager alone writes its slot) and the manager's
-// own `.siton-*` working files. The build and fix jobs use this pattern
+// the shared status file (the manager alone writes its slot), the manager's
+// own `.siton-*` working files, and every file an agent loads as instructions
+// or configuration: AGENTS*.md / CLAUDE*.md at any depth (Codex reads nested
+// and AGENTS.override.md files, Claude reads CLAUDE.local.md), .claude/,
+// .codex/ and .mcp.json. A patch must not be able to talk to its reviewer
+// through anything but the diff itself. The build and fix jobs use this pattern
 // verbatim in their in-job `grep -E` checks. The review and finalize jobs run
 // the `boundary` command from the control copy, on a runner no agent touched.
-const PROTECTED_PATH_PATTERN = "^(\\.github/|scripts/cloud_agent_manager\\.cjs$|scripts/agent_readonly_bash_guard\\.cjs$|scripts/agent_router\\.cjs$|scripts/agent_model_tiers\\.cjs$|AGENTS\\.md$|AI_WORKFLOW\\.md$|CLAUDE\\.md$|PROJECT_STATUS\\.md$|\\.siton-)";
+const PROTECTED_PATH_PATTERN = "^(\\.github/|scripts/cloud_agent_manager\\.cjs$|scripts/agent_readonly_bash_guard\\.cjs$|scripts/agent_router\\.cjs$|scripts/agent_model_tiers\\.cjs$|AI_WORKFLOW\\.md$|PROJECT_STATUS\\.md$|\\.siton-|\\.mcp\\.json$|(.*/)?(AGENTS|CLAUDE)(\\.[A-Za-z0-9_-]+)*\\.md$|(.*/)?\\.claude/|(.*/)?\\.codex/)";
 const PROTECTED_PATH = new RegExp(PROTECTED_PATH_PATTERN);
 
 function truthy(value) {
