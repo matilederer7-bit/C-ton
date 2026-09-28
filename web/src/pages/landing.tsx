@@ -1,3 +1,4 @@
+// proof PR: STANDARD profile (layout note)
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { getSellerToken } from "../api";
 import { BRAND_LOGO_URL } from "../config";
