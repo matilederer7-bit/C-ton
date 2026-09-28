@@ -45,7 +45,9 @@ let supabaseUrl = "";
 const b64u = (value: Buffer | string) => Buffer.from(value).toString("base64url");
 function mint(sub: string, email: string, aal: "aal1" | "aal2" = "aal1"): string {
   const now = Math.floor(Date.now() / 1000);
-  const payload = { iss: `${supabaseUrl}/auth/v1`, aud: "authenticated", role: "authenticated", iat: now, exp: now + 3600, session_id: randomUUID(), sub, email, aal };
+  // like GoTrue, amr records each method with its time; an AAL2 session carries the TOTP entry
+  const amr = [{ method: "password", timestamp: now }, ...(aal === "aal2" ? [{ method: "totp", timestamp: now }] : [])];
+  const payload = { iss: `${supabaseUrl}/auth/v1`, aud: "authenticated", role: "authenticated", iat: now, exp: now + 3600, session_id: randomUUID(), sub, email, aal, amr };
   const input = `${b64u(JSON.stringify({ alg: "ES256", typ: "JWT", kid: KID }))}.${b64u(JSON.stringify(payload))}`;
   return `${input}.${b64u(createSign("SHA256").update(input).sign({ key: privateKey, dsaEncoding: "ieee-p1363" }))}`;
 }
