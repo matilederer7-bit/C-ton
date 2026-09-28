@@ -353,15 +353,18 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
-### Claude Code latest milestone — Admin entry: top-left, subtler (UX/UI only)
+### Claude Code latest milestone — Admin entry: top-left, subtler (UX/UI only) — LIVE on staging
 
 - UPDATED: 2026-09-28
 - BRANCH: `claude/festive-wright-kx4e5a` from master `ea04f31`; no parallel work touching the header/admin entry.
 - COMPLETED: the existing hidden admin entry (`AdminHotspot` in `web/src/App.tsx`, `.admin-dot` in `web/src/styles.css`) now sits in the physical TOP-LEFT corner in both Hebrew and English. It had been rendering top-RIGHT on staging because a logical `inset-inline-end` was cancelled by `left/right: auto` in the same rule, and on a 390px phone it overlapped the brand. The topbar's reserved 38px column moved to the physical left in both directions, so the entry never covers the logo, nav or language switch. Visible mark reduced from a 9px dot @ 15% to a 7px speck @ 10% (hover/focus 45%); the 30px tap target is unchanged. No change to the entry mechanism (two deliberate taps → admin password step-up) or to any admin authorization.
-- TESTED: new CI regression in `tests/frontend_browser_i18n_validation.ts` (he + en × 1440 + 390): corner position, no overlap with brand/links/buttons/inputs, not covered, mark ≤7px/≤10%, one tap does nothing, second tap reaches `#/admin` + `admin-stepup`. It FAILS on the previous CSS (he: top-right 1410,0 / 360,0; brand overlap at 390; 9px@0.15) and passes after. Lint and the i18n gate pass.
-- OPEN: staging deploy + browser verification of the live build (recorded below when done).
-- PERCENTAGE: 80% (code + tests done; merge/deploy/live check pending).
-- NEXT STEP: PR → CI → merge → verify staging deploy in a real browser at desktop and mobile.
+- TESTED: new CI regression in `tests/frontend_browser_i18n_validation.ts` (he + en × 1440 + 390): corner position, no overlap with brand/links/buttons/inputs, not covered, mark ≤7px/≤10%, one tap does nothing, second tap reaches `#/admin` + `admin-stepup`. It FAILS on the previous CSS (he: top-right 1410,0 / 360,0; brand overlap at 390; 9px@0.15) and passes after. Lint and th- REVIEW: Codex P2 (keep the hotspot inside the device safe area on notched phones) fixed in `28454c6`: hotspot at `env(safe-area-inset-left/top)`, topbar reserve `calc(38px + env(safe-area-inset-left))`; thread resolved. PR #119 CI 8/8 green on `28454c6`.
+- MERGED: PR #119 squash-merged as `49de3d6`; master `backend-gates` run 36402712038 green (all groups incl. e2e with the new check, complete suite, Docker smoke).
+- STAGING VERIFIED (live, `49de3d6`): web `dep-dat3h2bl550s739qtve0` and worker `dep-dat3h2jl550s739qtvrg` live; zero warn/error/fatal log lines; the served stylesheet carries the new `.admin-dot` rules. Real-browser check of the deployed site (cloud Chromium): he/en × 1366 desktop and 390 mobile — entry at (0,0) top-left, 30×30 tap target, visible mark 7px @ 10%, no overlap with brand or language switch, not covered (clickable); emulated notch (44px left safe-area inset, landscape) — entry moves to x=44 inside the safe area, clear of the brand, clickable, in he and en; one tap does nothing, the second opens `#/admin` with the admin password step-up.
+- OPEN: none.
+- PERCENTAGE: 100%.
+- NEXT STEP: none for this item.
+sktop and mobile.
 
 ### Claude Code latest milestone — Black Sky Engineering: 100% (closed) — #99, BSC-2 (#117) and BSC-3 (#116) merged, clean reviews, staging verified
 
