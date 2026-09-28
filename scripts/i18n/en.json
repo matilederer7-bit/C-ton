@@ -2518,5 +2518,6 @@
   "admin_mfa.failed": "Two-step verification failed. Please try again.",
   "admin_mfa.unavailable": "Two-step verification is not available in this environment.",
   "admin_mfa.verify": "Verify and continue",
-  "admin_mfa.cancel": "Cancel"
+  "admin_mfa.cancel": "Cancel",
+  "admin_mfa.other_factor": "Your account already uses a different verification method. Ask a SuperAdmin to reset your two-step verification, then set up an authenticator app."
 }

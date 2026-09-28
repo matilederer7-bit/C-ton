@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { api } from "./api";
-import { beginSession, readSession, type AuthSessionPayload } from "./session";
+import { beginSession, ensureFreshSession, readSession, type AuthSessionPayload } from "./session";
 import { QrCode } from "./qrcode";
 import { localizedError } from "./he";
 import { t } from "./i18n/index.js";
@@ -17,6 +17,7 @@ type Factor = { id: string; factor_type: string; status: string };
 async function authCall(path: string, init: RequestInit = {}): Promise<any> {
   const cfg = await api.authConfig();
   if (!cfg.configured) throw new Error(t("admin_mfa.unavailable"));
+  await ensureFreshSession(); // a near-expiry token would otherwise yield a spurious 401
   const token = readSession()?.access_token || "";
   const res = await fetch(`${cfg.supabase_url}${path}`, {
     ...init,
@@ -43,13 +44,27 @@ export function AdminMfaStepUp({ onVerified, onCancel }: { onVerified: () => voi
     (async () => {
       try {
         const user = await authCall(`/auth/v1/user`);
-        const verified = (user?.factors || []).find((f: Factor) => f.factor_type === "totp" && f.status === "verified");
+        const factors: Factor[] = Array.isArray(user?.factors) ? user.factors : [];
+        const verified = factors.find((f) => f.factor_type === "totp" && f.status === "verified");
         if (verified) {
           if (!cancelled) setFactorId(String(verified.id));
+        } else if (factors.some((f) => f.status === "verified")) {
+          // A verified non-TOTP factor (e.g. phone) blocks enrolling TOTP at AAL1.
+          if (!cancelled) setError(t("admin_mfa.other_factor"));
         } else {
+          // Clear abandoned unverified TOTP enrollments (cancelled/reloaded
+          // attempts) so they neither collide on friendly_name nor pile up
+          // toward the per-user factor cap. GoTrue allows this at AAL1.
+          for (const f of factors) {
+            if (f.factor_type === "totp" && f.status !== "verified") {
+              await authCall(`/auth/v1/factors/${encodeURIComponent(String(f.id))}`, { method: "DELETE" });
+            }
+          }
+          if (cancelled) return;
+          const suffix = Math.random().toString(36).slice(2, 8);
           const created = await authCall(`/auth/v1/factors`, {
             method: "POST",
-            body: JSON.stringify({ factor_type: "totp", friendly_name: `Siton admin ${new Date().toISOString().slice(0, 16)}` })
+            body: JSON.stringify({ factor_type: "totp", friendly_name: `Siton admin ${new Date().toISOString().slice(0, 19)} ${suffix}` })
           });
           if (!cancelled) {
             setFactorId(String(created.id));

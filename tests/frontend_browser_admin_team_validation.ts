@@ -63,7 +63,7 @@ const bearerSub = (auth: unknown) => {
 const supabase = createServer((req, res) => {
   res.setHeader("access-control-allow-origin", "*");
   res.setHeader("access-control-allow-headers", "apikey, content-type, authorization, x-client-info");
-  res.setHeader("access-control-allow-methods", "GET, POST, OPTIONS");
+  res.setHeader("access-control-allow-methods", "GET, POST, DELETE, OPTIONS");
   if (req.method === "OPTIONS") { res.statusCode = 204; res.end(); return; }
   const url = String(req.url || "");
   if (url.startsWith("/auth/v1/.well-known/jwks.json")) {
@@ -99,6 +99,16 @@ const supabase = createServer((req, res) => {
       const factor = { id: randomUUID(), factor_type: "totp", status: "unverified" };
       factorsBySub.set(sub, [...(factorsBySub.get(sub) || []), factor]);
       res.end(JSON.stringify({ id: factor.id, type: "totp", totp: { qr_code: "", secret: "JBSWY3DPEHPK3PXP", uri: "otpauth://totp/Siton:admin?secret=JBSWY3DPEHPK3PXP&issuer=Siton" } }));
+      return;
+    }
+    const unenroll = url.match(/^\/auth\/v1\/factors\/([0-9a-f-]{36})$/);
+    if (unenroll && req.method === "DELETE" && sub) {
+      const list = factorsBySub.get(sub) || [];
+      const factor = list.find((f) => f.id === unenroll[1]);
+      if (!factor) { res.statusCode = 404; res.end(JSON.stringify({ code: "mfa_factor_not_found" })); return; }
+      mfaCalls.push("delete");
+      factorsBySub.set(sub, list.filter((f) => f.id !== factor.id));
+      res.end(JSON.stringify({ id: factor.id }));
       return;
     }
     const factorOp = url.match(/^\/auth\/v1\/factors\/([0-9a-f-]{36})\/(challenge|verify)$/);
@@ -238,6 +248,17 @@ if (!chromiumPath()) {
       await waitFor(page!, `document.querySelector('[data-testid="admin-mfa"]') && document.querySelector('[data-testid="admin-mfa-secret"]')`, "MFA enrollment step");
       assert.equal(credentials.has(`${username}@admins.siton.invalid`), false, "nothing was created before the second factor");
       assert.equal(await page!.evaluate<string>(`document.querySelector('[data-testid="admin-mfa-secret"]').textContent`), "JBSWY3DPEHPK3PXP");
+      // cancel the half-done enrollment, then submit again: the abandoned
+      // unverified factor is deleted before a fresh one is enrolled
+      await click(page!, '[data-testid="admin-mfa"] button[type="button"]');
+      await waitFor(page!, `!document.querySelector('[data-testid="admin-mfa"]')`, "MFA step closed on cancel");
+      assert.deepEqual(mfaCalls, ["enroll"]);
+      await set(page!, '[data-testid="admin-team-password"]', NEW_PASSWORD);
+      await set(page!, '[data-testid="admin-team-password-confirm"]', NEW_PASSWORD);
+      await click(page!, '[data-testid="admin-team-submit"]');
+      await waitFor(page!, `document.querySelector('[data-testid="admin-mfa"]') && document.querySelector('[data-testid="admin-mfa-secret"]')`, "MFA enrollment step after retry");
+      assert.deepEqual(mfaCalls, ["enroll", "delete", "enroll"]);
+      assert.equal(factorsBySub.get(SUPER.sub)?.length, 1, "only the fresh unverified factor remains");
       await set(page!, '[data-testid="admin-mfa-code"]', "000000");
       await click(page!, '[data-testid="admin-mfa-submit"]');
       await waitFor(page!, `document.querySelector('[data-testid="admin-mfa-error"]')`, "wrong-code error");
@@ -246,7 +267,7 @@ if (!chromiumPath()) {
       await click(page!, '[data-testid="admin-mfa-submit"]');
       await waitFor(page!, `(document.querySelector('[data-testid="admin-team-list"]') || {}).innerText?.includes(${JSON.stringify(username)})`, "new admin in the list after the second factor");
       assert.equal(await page!.evaluate<boolean>(`!!document.querySelector('[data-testid="admin-mfa"]')`), false, "the MFA step closes after success");
-      assert.deepEqual(mfaCalls, ["enroll", "challenge", "verify:000000", "challenge", `verify:${MFA_CODE}`]);
+      assert.deepEqual(mfaCalls, ["enroll", "delete", "enroll", "challenge", "verify:000000", "challenge", `verify:${MFA_CODE}`]);
       const fields = await page!.evaluate<{ pw: string; confirm: string; error: boolean }>(`({ pw: document.querySelector('[data-testid="admin-team-password"]').value, confirm: document.querySelector('[data-testid="admin-team-password-confirm"]').value, error: !!document.querySelector('[data-testid="admin-team-error"]') })`);
       assert.deepEqual(fields, { pw: "", confirm: "", error: false }, "the password is cleared from the form after success");
     });

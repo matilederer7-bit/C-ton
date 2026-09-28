@@ -454,6 +454,7 @@ export const HE: Record<string, string> = {
   "admin_mfa.code_hint": "הוספת מנהל דורשת אימות דו־שלבי. הקלידו את הקוד בן 6 הספרות מאפליקציית האימות.",
   "admin_mfa.enroll_hint": "הוספת מנהל דורשת אימות דו־שלבי. סרקו את הקוד באפליקציית אימות (Google Authenticator, Microsoft Authenticator וכדומה) או הזינו את מפתח ההגדרה, ואז הקלידו את הקוד בן 6 הספרות.",
   "admin_mfa.failed": "האימות הדו־שלבי נכשל. נסו שוב.",
+  "admin_mfa.other_factor": "לחשבון שלך כבר מוגדרת שיטת אימות אחרת. בקשו ממנהל-על לאפס את האימות הדו־שלבי, ואז הגדירו אפליקציית אימות.",
   "admin_mfa.qr_label": "קוד QR להגדרת אפליקציית האימות",
   "admin_mfa.setup_key": "מפתח הגדרה",
   "admin_mfa.title": "אימות דו־שלבי",

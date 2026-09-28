@@ -455,6 +455,7 @@ export const EN: Record<string, string> = {
   "admin_mfa.code_hint": "Adding an admin requires two-step verification. Type the 6-digit code from your authenticator app.",
   "admin_mfa.enroll_hint": "Adding an admin requires two-step verification. Scan the code with an authenticator app (Google Authenticator, Microsoft Authenticator, etc.) or enter the setup key, then type the 6-digit code.",
   "admin_mfa.failed": "Two-step verification failed. Please try again.",
+  "admin_mfa.other_factor": "Your account already uses a different verification method. Ask a SuperAdmin to reset your two-step verification, then set up an authenticator app.",
   "admin_mfa.qr_label": "QR code for setting up the authenticator app",
   "admin_mfa.setup_key": "Setup key",
   "admin_mfa.title": "Two-step verification",
