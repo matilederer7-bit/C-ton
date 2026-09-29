@@ -74,6 +74,24 @@ test("codex model availability is reported per routed tier without downgrading",
   assert.ok(report.warnings.some((warning) => /gpt-6-astra/.test(warning) && /apex \(Astra\)/.test(warning)));
 });
 
+test("OpenAI preflight blocks on real inference quota failure even when model metadata exists", async () => {
+  const openai = await checkOpenAi({
+    apiKey: "k",
+    fetchImpl: async (url, options = {}) => {
+      if (url === "https://api.openai.com/v1/responses") {
+        assert.equal(options.method, "POST");
+        return { ok: false, status: 429 };
+      }
+      return { ok: true, status: 200 };
+    },
+  });
+  assert.equal(openai.present, true);
+  assert.equal(openai.valid, false);
+  assert.match(openai.detail, /real inference unavailable/);
+  assert.match(openai.detail, /HTTP 429/);
+  assert.deepEqual(openai.models, {});
+});
+
 test("an unreachable routed tier blocks READY instead of warning", () => {
   const base = {
     github: { present: true, valid: true, detail: "ok", unverified: [] },
@@ -219,6 +237,7 @@ test("runPreflight wires every credential from the environment", async () => {
   assert.equal(report.ready, true);
   assert.equal(report.repository, "o/r");
   assert.ok(seen.some((url) => url.includes("api.anthropic.com")));
+  assert.ok(seen.some((url) => url.includes("api.openai.com/v1/responses")));
   assert.ok(seen.some((url) => url.includes("api.openai.com/v1/models/gpt-6-astra")));
 });
 
