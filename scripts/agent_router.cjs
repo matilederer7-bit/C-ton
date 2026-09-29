@@ -51,11 +51,6 @@ const MIXED_SCOPE_ACTION = /\b(?:fix|resolve|patch|repair|implement|update|chang
 
 function whollyProtectedFragment(fragment, index, total) {
   if (!PROTECTED_SCOPE_PREFIX.test(fragment)) return false;
-  // A protected-looking fragment followed by another sentence is ambiguous:
-  // keep it. This prevents "Do not modify docs, fix payment bug. Add tests."
-  // from hiding the sensitive action.
-  if (index < total - 1) return false;
-
   const commas = (fragment.match(/,/g) || []).length;
   if (!commas) return true;
 
