@@ -98,6 +98,16 @@ try {
     assert.equal(codes(emptyValue), "required_field_missing", "the locked value proposition cannot be emptied through the CMS");
     const recoveredValue = normalizePage(emptyValue, contract).blocks.find(b => b.id === "value")!;
     assert.equal(recoveredValue.fields.body, LANDING_HE.valueProposition.body, "lenient rendering restores canonical value copy instead of hiding the locked block");
+    const oldMaxedPage = {
+      blocks: [
+        ...contract.defaults().filter(b => b.id !== "value"),
+        ...Array.from({ length: 20 }, (_, i) => ({ id: `legacy_extra_${i}`, type: "text" as const, enabled: true, fields: { title: `extra ${i}`, body: `body ${i}` } }))
+      ].slice(0, contract.maxBlocks)
+    };
+    assert.equal(oldMaxedPage.blocks.length, contract.maxBlocks, "precondition: legacy page already sits at the block ceiling");
+    const normalizedMaxed = normalizePage(oldMaxedPage, contract);
+    assert.equal(normalizedMaxed.blocks.length, contract.maxBlocks, "restoring the missing locked value block must not create an oversized page");
+    assert.deepEqual(normalizedMaxed.blocks.slice(0, 3).map(b => b.id), ["hero", "value", "how"], "all locked blocks remain pinned first when the tail is trimmed");
     assert.equal(codes({ blocks: [...contract.defaults(), { id: "columns_1", type: "columns", enabled: true, fields: { title: "" }, items: [{ title: "x", body: "", cta_label: "", cta_link: "" }] }] }), "ok", "other columns blocks stay addable");
     // a stored page with NO how block at all gets it too
     const without = normalizePage({ blocks: contract.defaults().filter(b => b.id !== HOW_IT_WORKS_BLOCK_ID) }, contract);
