@@ -286,7 +286,7 @@ jobs:
           # one tiny real inference before scheduling any Codex agent. If an
           # auto-selected Codex route is unavailable and Claude exists, reroute
           # once with Codex disabled. Explicit Codex requests fail closed.
-          if [ "$HAS_CODEX" = true ] && { [ "$selected_builder" = codex ] || [ "$selected_reviewer" = codex ]; }; then
+          if [ "$HAS_CODEX" = true ] && { [ "$selected_builder" = codex ] || [ "$selected_reviewer" = codex ] || [ "$sensitive" = true ] || [ "$tier" = apex ]; }; then
             if ! SITON_CODEX_MODEL="$codex_model" node scripts/agent_model_access.cjs; then
               {
                 echo
