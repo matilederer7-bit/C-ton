@@ -372,9 +372,12 @@ test("engineering operating system has routing, parallel analysis and telemetry 
   assert.match(workflow, /gh run watch/);
   assert.match(workflow, /swarm-synthesis/);
   assert.match(swarm, /max-parallel: 4/);
-  assert.match(swarm, /gpt-5\.6-luna/);
-  assert.match(swarm, /gpt-5\.6-terra/);
-  assert.match(swarm, /gpt-5\.6-sol/);
+  assert.match(swarm, /tier: economy/);
+  assert.match(swarm, /tier: standard/);
+  assert.match(swarm, /tier: senior/);
+  assert.match(swarm, /Resolve analyst model from tier policy/);
+  assert.match(swarm, /codexModelForTier/);
+  assert.doesNotMatch(swarm, /model: gpt-5\.6-/);
   assert.match(swarm, /architecture/);
   assert.match(swarm, /security/);
   assert.match(swarm, /source-of-truth/);
