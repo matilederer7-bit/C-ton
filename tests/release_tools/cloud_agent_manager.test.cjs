@@ -104,6 +104,16 @@ test("binding agent rules make cloud manager the sole Git and status lifecycle o
   assert.match(rules, /auto-merge is forbidden/);
 });
 
+test("cloud Codex steps explicitly trust only the manager dispatch bot", () => {
+  const workflow = read(".github/workflows/cloud-agent-manager.yml");
+  const codexSteps = workflow.match(/uses: openai\/codex-action@v1/g) || [];
+  const botAllowlist = workflow.match(/allow-bot-users: "github-actions\\[bot\\]"/g) || [];
+
+  assert.ok(codexSteps.length > 0, "expected at least one Codex action step");
+  assert.equal(botAllowlist.length, codexSteps.length, "every Codex action step must explicitly allow github-actions[bot]");
+  assert.doesNotMatch(workflow, /allow-bots:\s*true/, "do not broadly trust all bot actors");
+});
+
 test("cloud workflow is owner-gated at intake, serialized, lifecycle-guarded and never auto-merges", () => {
   const workflow = read(".github/workflows/cloud-agent-manager.yml");
   const intake = read(".github/workflows/agent-manager-intake.yml");
