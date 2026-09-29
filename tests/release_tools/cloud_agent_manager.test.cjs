@@ -107,7 +107,7 @@ test("binding agent rules make cloud manager the sole Git and status lifecycle o
 test("cloud Codex steps explicitly trust only the manager dispatch bot", () => {
   const workflow = read(".github/workflows/cloud-agent-manager.yml");
   const codexSteps = workflow.match(/uses: openai\/codex-action@v1/g) || [];
-  const botAllowlist = workflow.match(/^\\s*allow-bot-users:\\s*"github-actions\\[bot\\]"\\s*$/gm) || [];
+  const botAllowlist = workflow.split("\n").filter((line) => line.trim() === 'allow-bot-users: "github-actions[bot]"');
 
   assert.ok(codexSteps.length > 0, "expected at least one Codex action step");
   assert.equal(botAllowlist.length, codexSteps.length, "every Codex action step must explicitly allow github-actions[bot]");
