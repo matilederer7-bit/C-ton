@@ -815,15 +815,15 @@ Prior rounds (retained for history — the fields below describe earlier milesto
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
 
 <!-- AGENT_STATUS:chatgpt:START -->
-### ChatGPT latest milestone — integrate fresh-runner reviewer isolation on current master
+### ChatGPT latest milestone — quota-aware provider failover + routing false-positive fix
 
 - UPDATED: 2026-09-29
-- BRANCH: `chatgpt/integrate-review-isolation-20260929` from master `68cedee` (includes PR #135).
-- COMPLETED: integrated the reviewed PR #134 fresh-runner architecture onto current master without rewriting Claude's branch. Cloud orchestration is split into trusted route, build, isolated review-1, one bounded fix, isolated review-2 when needed, and finalize. Review/finalize use control-script copies from the canonical base rather than patched code; patch and review artifacts are sha256-bound; protected paths include workflows, control scripts, nested AGENTS/CLAUDE instructions, .claude/.codex and .mcp.json; non-ASCII status parsing uses NUL-delimited git porcelain. The narrow #135 Codex bot authorization is preserved across all three Codex action sites, including the reusable review workflow.
-- TESTED / CHECKED: source PR #134 had FULL Siton CI green on head `52fd665` and an independent senior Claude review marked SAFE TO MERGE after four P2 fixes. The current integration branch is rebased by construction on master `68cedee`; new hosted CI and a current-head independent review are still required before merge.
-- OPEN: open integration PR; current-head FULL CI; current-head independent review; then merge only if both are clean. PR #133 and PR #134 should be closed as superseded only after the integration PR is established.
-- PERCENTAGE: 80%.
-- NEXT: diff-review the integration against master and source PR #134, open the integration PR, obtain FULL CI and an independent current-head review, then merge and close superseded PRs.
+- BRANCH: `chatgpt/provider-failover-router-fix-20260929` from merged master `ecdd297` (PR #136).
+- COMPLETED: fixed the smoke-test routing false positive by classifying actionable task text separately from protected-scope clauses such as "do not change database/payments/auth"; cheap docs work now stays economy while real state-machine/DB/security/payment work still escalates to Senior. Replaced Codex metadata-only access checks with a tiny real Responses API inference so quota/billing/rate-limit failures are detected before a builder is scheduled. The Cloud Agent Manager now reroutes one time to Claude when Codex was auto-selected, runtime inference is unavailable, and a Claude credential exists. Explicit Codex requests remain fail-closed and are never silently changed. Phone credential preflight now also performs real OpenAI inference so an exhausted key cannot report READY.
+- TESTED / CHECKED: regression coverage added for the exact smoke-test wording, auto classification with protected scope, real Responses API probe shape, HTTP 429 quota failure, auto failover, explicit-provider refusal, missing-Claude fail-closed behaviour, and credential-state reporting. Diff review confirms only agent control-plane scripts/workflow/tests/status changed; no product runtime, DB, payments, Grow or real-money code changed. Hosted CI and independent review are still pending.
+- OPEN: hosted FULL CI on the exact PR head; independent review; fix any findings without weakening gates; merge; then re-run the harmless Cloud Agent Manager smoke. Operational control still requires at least one provider with usable runtime quota. The current GitHub environment reported OpenAI quota exhausted and no Claude credential in smoke run 36525277829, which code cannot provision by itself.
+- PERCENTAGE: 70%.
+- NEXT: open PR, require FULL CI and independent review, merge only when green, then re-run the docs-only smoke. If OpenAI quota is still exhausted and no Claude credential is configured, the smoke should now fail early with an actionable provider blocker rather than starting a doomed builder.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 
