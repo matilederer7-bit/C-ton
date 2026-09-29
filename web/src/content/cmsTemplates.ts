@@ -330,27 +330,25 @@ export const PAGE_CONTRACTS: Record<string, PageContract> = {
   home: {
     label: "cms.page_contracts.home.label",
     description: "cms.page_contracts.home.description",
-    // The infographic is LOCKED right after the hero: it is always on the page
-    // (with the canonical content when nothing was ever saved) and its id is
-    // the one the former "how it works" steps block used, so a stored page
-    // from before the infographic shows it in the same place — and never both.
-    locked: [{ id: "hero", type: "hero" }, { id: HOW_IT_WORKS_BLOCK_ID, type: "how_it_works" }],
+    // The owner value proposition is locked immediately after the hero, and
+    // the infographic is locked immediately after it. Stored older pages gain
+    // both canonical blocks deterministically during normalization.
+    locked: [{ id: "hero", type: "hero" }, { id: "value", type: "text" }, { id: HOW_IT_WORKS_BLOCK_ID, type: "how_it_works" }],
     addable: ["text", "image_text", "cta", "steps", "faq", "columns"],
-    // The infographic REPLACES the former "לקונים / למוכרים" columns block
-    // (owner decision 2026-09-28): the same explanation never appears twice
-    // in two formats, so a page stored with that block drops it.
-    retired: ["audiences"],
+    // Retired home blocks are dropped from stored older pages and refused on
+    // write, so removed public sections cannot be accidentally re-enabled.
+    retired: ["audiences", "trust"],
     maxBlocks: 20,
     legacy: { title: ["hero", "title"], sub: ["hero", "subtitle"], intro: ["hero", "body"], image: ["hero", "image"], login_cta: ["hero", "primary_cta_label"], signup_cta: ["hero", "secondary_cta_label"] },
     defaults: () => [
       HERO_DEFAULT(),
+      { id: "value", type: "text", enabled: true,
+        fields: { title: LANDING_HE.valueProposition.title, body: LANDING_HE.valueProposition.body },
+        fields_en: { title: LANDING_EN.valueProposition.title, body: LANDING_EN.valueProposition.body } },
       HOW_IT_WORKS_DEFAULT(),
       { id: "why", type: "text", enabled: false,
         fields: { title: LANDING_HE.whyGroupBuying.title, body: LANDING_HE.whyGroupBuying.body },
         fields_en: { title: LANDING_EN.whyGroupBuying.title, body: LANDING_EN.whyGroupBuying.body } },
-      { id: "trust", type: "text", enabled: true,
-        fields: { title: LANDING_HE.trust.title, body: LANDING_HE.trust.body },
-        fields_en: { title: LANDING_EN.trust.title, body: LANDING_EN.trust.body } },
       { id: "about", type: "text", enabled: false,
         fields: { title: LANDING_HE.about.title, body: LANDING_HE.about.body },
         fields_en: { title: LANDING_EN.about.title, body: LANDING_EN.about.body } },
