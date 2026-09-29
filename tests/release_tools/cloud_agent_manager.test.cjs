@@ -198,19 +198,21 @@ test("cloud Codex steps explicitly trust only the manager dispatch bot", () => {
     "an env entry must never satisfy the action-input guard",
   );
 
-  const broadWithComment = [
-    "header",
-    "      - name: Sample",
-    "        uses: openai/codex-action@v1",
-    "        with:",
-    "          allow-bot-users: \"github-actions[bot]\"",
-    "          allow-bots: \"true\" # broad bypass",
-  ].join(newline);
-  assert.throws(
-    () => assertNarrowBotTrust(broadWithComment),
-    (error) => String(error && error.message).includes("broadly trusts bot actors"),
-    "quoted broad bot trust with an inline YAML comment must be rejected",
-  );
+  for (const broadValue of ["true # broad bypass", '\"true\" # broad bypass', "'true' # broad bypass"]) {
+    const broadWithComment = [
+      "header",
+      "      - name: Sample",
+      "        uses: openai/codex-action@v1",
+      "        with:",
+      "          allow-bot-users: \"github-actions[bot]\"",
+      `          allow-bots: ${broadValue}`,
+    ].join(newline);
+    assert.throws(
+      () => assertNarrowBotTrust(broadWithComment),
+      (error) => String(error && error.message).includes("broadly trusts bot actors"),
+      `broad bot trust must be rejected for scalar: ${broadValue}`,
+    );
+  }
 });
 
 
