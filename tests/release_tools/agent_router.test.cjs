@@ -112,6 +112,24 @@ test("auto classification ignores protected scope but keeps real sensitive work"
     tier: "economy",
   });
   assert.equal(conjunctionAction.tier, "senior");
+  const mixedBeforeLaterSentence = routeTask({
+    task: "Do not modify docs, fix the payment bug. Add regression coverage.",
+    taskType: "docs",
+    risk: "low",
+    tier: "economy",
+  });
+  assert.equal(mixedBeforeLaterSentence.tier, "senior");
+  assert.equal(mixedBeforeLaterSentence.sensitive, true);
+  assert.match(actionableTaskText("Do not modify docs, fix the payment bug. Add regression coverage."), /payment bug/);
+
+  const mixedOxfordList = routeTask({
+    task: "Do not modify docs, tests, or workflow, fix the payment bug, and add regression coverage.",
+    taskType: "docs",
+    risk: "low",
+    tier: "economy",
+  });
+  assert.equal(mixedOxfordList.tier, "senior");
+  assert.equal(mixedOxfordList.sensitive, true);
   assert.equal(conjunctionAction.sensitive, true);
 });
 
