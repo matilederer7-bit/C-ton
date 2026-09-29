@@ -8,6 +8,7 @@
 const fs = require("node:fs");
 
 const { TIER_ORDER, codexModelForTier } = require("./agent_model_tiers.cjs");
+const { verifyModelAccess } = require("./agent_model_access.cjs");
 
 // Derived from the tier policy so a Codex rename (or a per-tier
 // SITON_CODEX_MODEL_<TIER> override) is checked without editing this file.
@@ -15,8 +16,8 @@ const CODEX_NAMES = { "gpt-5.6-luna": "Luna", "gpt-5.6-terra": "Terra", "gpt-5.6
 const CODEX_MODELS = TIER_ORDER.map((tier) => codexModelForTier(tier));
 // Astra is reachable only through an explicit Apex escalation, so its absence
 // degrades one exceptional path. Luna, Terra and Sol carry every ordinary
-// routed task, so their absence stops normal work at the manager's own
-// `Verify selected Codex model access` gate.
+// routed task, so their absence stops normal Codex work. The manager now
+// performs a real inference probe before scheduling Codex, not a metadata-only gate.
 const ROUTINE_CODEX_MODELS = new Set(TIER_ORDER.filter((tier) => tier !== "apex").map((tier) => codexModelForTier(tier)));
 const TIER_BY_MODEL = Object.fromEntries(TIER_ORDER.map((tier) => {
   const model = codexModelForTier(tier);
@@ -109,6 +110,19 @@ async function checkGithubActions({ token, repository, fetchImpl = fetch } = {})
 async function checkOpenAi({ apiKey, models = CODEX_MODELS, fetchImpl = fetch } = {}) {
   if (!present(apiKey)) return { present: false, valid: false, detail: "not configured", models: {} };
   const headers = { Authorization: `Bearer ${apiKey}` };
+  const probeModel = models.find((model) => ROUTINE_CODEX_MODELS.has(model)) || models[0];
+  if (probeModel) {
+    try {
+      await verifyModelAccess({ apiKey, model: probeModel, fetchImpl });
+    } catch (error) {
+      return {
+        present: true,
+        valid: false,
+        detail: `real inference unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        models: {},
+      };
+    }
+  }
   const account = await fetchImpl("https://api.openai.com/v1/models", { headers, signal: AbortSignal.timeout(30000) });
   if (!account.ok) return { present: true, valid: false, detail: describeStatus(account.status), models: {} };
   const availability = {};
@@ -116,7 +130,7 @@ async function checkOpenAi({ apiKey, models = CODEX_MODELS, fetchImpl = fetch } 
     const response = await fetchImpl(`https://api.openai.com/v1/models/${encodeURIComponent(model)}`, { headers, signal: AbortSignal.timeout(30000) });
     availability[model] = response.ok ? "available" : `unavailable (HTTP ${response.status})`;
   }
-  return { present: true, valid: true, detail: "OpenAI credential accepted", models: availability };
+  return { present: true, valid: true, detail: `OpenAI credential accepted; real inference verified on ${probeModel}`, models: availability };
 }
 
 async function checkAnthropic({ apiKey, fetchImpl = fetch } = {}) {
