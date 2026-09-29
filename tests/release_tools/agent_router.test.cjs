@@ -39,6 +39,15 @@ test("protected do-not-touch scope never escalates a cheap task", () => {
 
 test("auto classification ignores protected scope but keeps real sensitive work", () => {
   assert.equal(inferType("Update documentation. Do not change database, payments or auth."), "docs");
+  assert.equal(inferType("Do not change database, payments or auth. Update documentation."), "docs");
+  const leadingScope = routeTask({
+    task: "Do not change database, payments or auth. Update documentation.",
+    taskType: "docs",
+    risk: "low",
+    tier: "economy",
+  });
+  assert.equal(leadingScope.tier, "economy");
+  assert.equal(leadingScope.sensitive, false);
   const sensitive = routeTask({
     task: "Fix the deal state machine transition race. Do not change documentation.",
     taskType: "backend",
