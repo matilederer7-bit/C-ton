@@ -372,7 +372,7 @@ input.invalid, textarea.invalid, select.invalid { border-color: var(--pomegranat
 }
 .hiw-icon svg { width: 24px; height: 24px; }
 .hiw-num {
-  position: absolute; top: -10px; inset-inline-end: -10px; width: 18px; height: 18px; padding: 0; border-radius: 50%;
+  position: absolute; top: -12px; inset-inline-end: -12px; width: 18px; height: 18px; padding: 0; border-radius: 50%;
   background: var(--live); color: var(--brand); font-family: var(--font-display); font-weight: 800; font-size: .65rem; line-height: 16px;
   text-align: center; border: 1px solid var(--surface); font-variant-numeric: tabular-nums; box-sizing: border-box;
 }
