@@ -47,18 +47,28 @@ function normalize(value) {
 // unrelated protected schema/auth/payment scope into sensitivity checks.
 const PROTECTED_SCOPE_PREFIX = /^(?:(?:do not|don't|must not|never)\s+(?:change|touch|modify|edit|alter|update|migrate|deploy|affect)\b|without\s+(?:changing|touching|modifying|editing|altering|updating|migrating|deploying|affecting)\b|no\s+(?:changes?|edits?|modifications?|migrations?|deployments?)\s+(?:to|in)\b|leave\b.*?\b(?:untouched|unchanged)\b)/i;
 
-const MIXED_SCOPE_ACTION = /\b(?:fix|resolve|patch|repair|implement|update|change|modify|add|remove|correct|refactor|rewrite|adjust|secure|harden|prevent|enforce|create|investigate|audit|address|handle|remediate)\b/i;
 // Negative invariants are executable correctness requirements, not protected
 // scope. Keep them even when they begin with "must not update/touch/...".
 const NEGATIVE_INVARIANT_TEXT = /state[ -]?machine|transition|concurren|idempoten|race condition|deadlock|outbox|webhook|ledger|\btwice\b|double[ -]?(?:charge|capture|update|write)|duplicate[ -]?(?:charge|capture|update|write)|exactly once|at most once/i;
+
+// Identify only known scope-item starts. Anything else is kept conservatively
+// as possible work. This avoids an impossible-to-complete allowlist of action
+// verbs: "debug", "diagnose", or any future verb remains actionable.
+const PROTECTED_SCOPE_ITEM_PREFIX = /^(?:(?:the|any|unrelated|existing|shared|canonical|other)\s+)*(?:runtime|code|workflow|test|tests|database|db|payment|payments|auth|authentication|security|product|configuration|config|doc|docs|documentation|schema|migration|migrations|token|tokens|secret|secrets|ui|frontend|backend|api|apis|infra|infrastructure|deployment|deployments|production|grow|money|status|ci)\b/i;
+
+function looksLikeProtectedScopeItem(value) {
+  const item = String(value || "").trim().replace(/^(?:and|or)\s+/i, "");
+  return PROTECTED_SCOPE_ITEM_PREFIX.test(item);
+}
 
 function whollyProtectedFragment(fragment) {
   if (!PROTECTED_SCOPE_PREFIX.test(fragment)) return false;
   if (NEGATIVE_INVARIANT_TEXT.test(fragment)) return false;
 
-  // A conjunction followed by an action is mixed work, not pure scope.
-  const conjunction = /\b(?:and|but|then|however)\s+(?:please\s+|also\s+)?(.+)$/i.exec(fragment);
-  if (conjunction && MIXED_SCOPE_ACTION.test(conjunction[1])) return false;
+  // A conjunction is pure scope only when its suffix starts like a known scope
+  // item. Unknown wording is kept rather than risking a sensitive bypass.
+  const conjunction = /\b(?:and|but|then|however)\s+(.+)$/i.exec(fragment);
+  if (conjunction && !looksLikeProtectedScopeItem(conjunction[1])) return false;
 
   const commas = (fragment.match(/,/g) || []).length;
   if (!commas) return true;
@@ -67,13 +77,9 @@ function whollyProtectedFragment(fragment) {
   if (/,\s*or\s+[^,]+,\s*.+/i.test(fragment)) return false;
 
   const last = fragment.slice(fragment.lastIndexOf(",") + 1).trim();
-  // A one-comma protected list such as "database, payments or auth" is scope.
-  // Otherwise keep the ambiguity rather than suppress a real action.
-  if (commas === 1) return /\bor\b/i.test(last);
-
-  // For longer lists, a final action marker means the sentence is mixed.
-  if (MIXED_SCOPE_ACTION.test(last)) return false;
-  return true;
+  // The final comma item must also look like protected scope. Unknown suffixes
+  // are preserved conservatively as work.
+  return looksLikeProtectedScopeItem(last);
 }
 
 function actionableTaskText(task) {
