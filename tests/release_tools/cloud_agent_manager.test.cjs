@@ -136,6 +136,121 @@ test("binding agent rules make cloud manager the sole Git and status lifecycle o
   assert.match(rules, /auto-merge is forbidden/);
 });
 
+test("cloud Codex steps explicitly trust only the manager dispatch bot", () => {
+  const newline = String.fromCharCode(10);
+
+  const yamlScalar = (raw) => {
+    let value = String(raw || "").trim();
+    let quote = null;
+    let commentIndex = -1;
+    for (let index = 0; index < value.length; index += 1) {
+      const char = value[index];
+      if (quote) {
+        if (char === quote && value.charCodeAt(index - 1) !== 92) quote = null;
+        continue;
+      }
+      if (char === '"' || char === "'") {
+        quote = char;
+        continue;
+      }
+      if (char === "#") {
+        commentIndex = index;
+        break;
+      }
+    }
+    if (commentIndex >= 0) value = value.slice(0, commentIndex).trim();
+    if (
+      value.length >= 2 &&
+      ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'")))
+    ) {
+      value = value.slice(1, -1);
+    }
+    return value.trim();
+  };
+
+  const actionInputs = (step) => {
+    const lines = step.split(newline);
+    const withIndex = lines.findIndex((line) => line.trim().split("#", 1)[0].trim() === "with:");
+    assert.notEqual(withIndex, -1, "Codex action step must have a with: mapping");
+    const withIndent = lines[withIndex].length - lines[withIndex].trimStart().length;
+    const inputs = new Map();
+    for (let index = withIndex + 1; index < lines.length; index += 1) {
+      const line = lines[index];
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const indent = line.length - line.trimStart().length;
+      if (indent <= withIndent) break;
+      if (indent !== withIndent + 2) continue;
+      const colon = trimmed.indexOf(":");
+      if (colon <= 0) continue;
+      const key = trimmed.slice(0, colon).trim();
+      const rawValue = trimmed.slice(colon + 1);
+      inputs.set(key, yamlScalar(rawValue));
+    }
+    return inputs;
+  };
+
+  const assertNarrowBotTrust = (workflow) => {
+    const steps = workflow.split(newline + "      - name: ").slice(1);
+    const codexSteps = steps.filter((step) => step.includes("uses: openai/codex-action@v1"));
+    assert.ok(codexSteps.length > 0, "expected at least one Codex action step");
+    for (const step of codexSteps) {
+      const name = step.split(newline, 1)[0];
+      const inputs = actionInputs(step);
+      assert.equal(
+        inputs.get("allow-bot-users"),
+        "github-actions[bot]",
+        `Codex step is missing the narrow github-actions[bot] action input: ${name}`,
+      );
+      assert.notEqual(
+        String(inputs.get("allow-bots") || "").toLowerCase(),
+        "true",
+        `Codex step broadly trusts bot actors: ${name}`,
+      );
+    }
+  };
+
+  // Codex runs in the manager (build, fix) and in the separate review
+  // workflow; every Codex action step in both must carry the narrow trust.
+  const workflow = read(".github/workflows/cloud-agent-manager.yml");
+  assertNarrowBotTrust(workflow);
+  assertNarrowBotTrust(read(".github/workflows/cloud-agent-review.yml"));
+
+  const envOnly = [
+    "header",
+    "      - name: Sample",
+    "        uses: openai/codex-action@v1",
+    "        with:",
+    "          openai-api-key: secret",
+    "          permission-profile: \":read-only\"",
+    "        env:",
+    "          allow-bot-users: \"github-actions[bot]\"",
+  ].join(newline);
+  assert.throws(
+    () => assertNarrowBotTrust(envOnly),
+    (error) => String(error && error.message).includes("missing the narrow github-actions[bot] action input"),
+    "an env entry must never satisfy the action-input guard",
+  );
+
+  for (const broadValue of ["true # broad bypass", '\"true\" # broad bypass', "'true' # broad bypass"]) {
+    const broadWithComment = [
+      "header",
+      "      - name: Sample",
+      "        uses: openai/codex-action@v1",
+      "        with:",
+      "          allow-bot-users: \"github-actions[bot]\"",
+      `          allow-bots: ${broadValue}`,
+    ].join(newline);
+    assert.throws(
+      () => assertNarrowBotTrust(broadWithComment),
+      (error) => String(error && error.message).includes("broadly trusts bot actors"),
+      `broad bot trust must be rejected for scalar: ${broadValue}`,
+    );
+  }
+});
+
+
 test("cloud workflow is owner-gated at intake, serialized, lifecycle-guarded and never auto-merges", () => {
   const workflow = read(".github/workflows/cloud-agent-manager.yml");
   const intake = read(".github/workflows/agent-manager-intake.yml");
