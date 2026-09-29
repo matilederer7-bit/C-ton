@@ -140,11 +140,11 @@ test("configuration cannot pin a sensitive tier to a weaker model family", () =>
     assert.throws(() => routeTask({ taskType: tier === "senior" ? "payments" : "backend", tier: tier === "apex" ? "apex" : "auto", apexReason: tier === "apex" ? "critical-cross-layer" : "none", risk: tier === "apex" ? "critical" : "normal", apexEvidence: evidence, env: { [key]: pin } }), /downgrade/);
   }
   assert.throws(() => claudeModelForTier("senior", { SITON_CLAUDE_MODEL_SENIOR: "opus --dangerously-skip-permissions" }), /not a Claude alias/);
-  assert.throws(() => claudeModelForTier("senior", { SITON_CLAUDE_MODEL_SENIOR: "gpt-5.6-sol" }), /not a Claude alias/);
-  assert.throws(() => codexModelForTier("senior", { SITON_CODEX_MODEL_SENIOR: "gpt-5.6-luna" }), /downgrade/);
-  assert.throws(() => codexModelForTier("apex", { SITON_CODEX_MODEL_APEX: "gpt-5.6-sol" }), /downgrade/);
-  assert.throws(() => routeTask({ taskType: "payments", env: { SITON_CODEX_MODEL_SENIOR: "gpt-5.6-terra" } }), /downgrade/);
-  assert.equal(codexModelForTier("economy", { SITON_CODEX_MODEL_ECONOMY: "gpt-5.6-terra" }), "gpt-5.6-terra");
+  assert.throws(() => claudeModelForTier("senior", { SITON_CLAUDE_MODEL_SENIOR: "gpt-6-sol" }), /not a Claude alias/);
+  assert.throws(() => codexModelForTier("senior", { SITON_CODEX_MODEL_SENIOR: "gpt-6-luna" }), /downgrade/);
+  assert.throws(() => codexModelForTier("apex", { SITON_CODEX_MODEL_APEX: "gpt-6-sol" }), /downgrade/);
+  assert.throws(() => routeTask({ taskType: "payments", env: { SITON_CODEX_MODEL_SENIOR: "gpt-6-sol" } }), /downgrade/);
+  assert.equal(codexModelForTier("economy", { SITON_CODEX_MODEL_ECONOMY: "gpt-6-sol" }), "gpt-6-sol");
 });
 
 test("sensitive work never routes to a cheaper Claude model, whatever tier is requested", () => {
@@ -367,7 +367,7 @@ test("the plan check reports the model of the builder's own provider, with pins 
       { id: "R1", agent: "claude-subagent", role: "reviewer", scope: "s", reviews: ["B1"], depends_on: ["B1"], dod: ["d"] },
     ],
   });
-  assert.equal(checkPlan(plan("codex"), { env: NO_ENV }).builders[0].model, "gpt-5.6-sol");
+  assert.equal(checkPlan(plan("codex"), { env: NO_ENV }).builders[0].model, "gpt-6-sol");
   assert.equal(checkPlan(plan("claude-subagent"), { env: NO_ENV }).builders[0].model, "opus");
   assert.equal(checkPlan(plan("chatgpt"), { env: NO_ENV }).builders[0].model, "provider-managed");
   assert.equal(checkPlan(plan("codex"), { env: { SITON_CODEX_MODEL_SENIOR: "gpt-7-sol" } }).builders[0].model, "gpt-7-sol");
