@@ -41,8 +41,11 @@ test("telemetry records the Claude model of each role, including the raised revi
   assert.equal(metric.claude_reviewer_model_requested, "sonnet");
   assert.equal(metric.claude_reviewer_model_executed, "unknown");
   const workflow = fs.readFileSync(path.join(root, ".github/workflows/cloud-agent-manager.yml"), "utf8");
-  assert.match(workflow, /SITON_CLAUDE_MODEL: \$\{\{ steps\.roles\.outputs\.builder == 'claude' && steps\.roles\.outputs\.claude_model \|\| 'none' \}\}/);
-  assert.match(workflow, /SITON_CLAUDE_REVIEWER_MODEL: \$\{\{ steps\.roles\.outputs\.reviewer == 'claude' && steps\.roles\.outputs\.claude_reviewer_model \|\| 'none' \}\}/);
+  assert.match(workflow, /SITON_CLAUDE_MODEL: \$\{\{ needs\.route\.outputs\.builder == 'claude' && needs\.route\.outputs\.claude_model \|\| 'none' \}\}/);
+  assert.match(workflow, /SITON_CLAUDE_REVIEWER_MODEL: \$\{\{ needs\.route\.outputs\.reviewer == 'claude' && needs\.route\.outputs\.claude_reviewer_model \|\| 'none' \}\}/);
+  // Those job outputs are the router's own step outputs in the route job.
+  assert.match(workflow, /\n      claude_model: \$\{\{ steps\.roles\.outputs\.claude_model \}\}\n/);
+  assert.match(workflow, /\n      claude_reviewer_model: \$\{\{ steps\.roles\.outputs\.claude_reviewer_model \}\}\n/);
 });
 
 test("router maps work to the right Claude tier model", () => {
@@ -254,13 +257,28 @@ test("the agent check catches pinned, inherited, downgraded and untiered agents"
 
 test("the cloud manager passes the routed tier model to every Claude step", () => {
   const workflow = fs.readFileSync(path.join(root, ".github/workflows/cloud-agent-manager.yml"), "utf8");
+  const review = fs.readFileSync(path.join(root, ".github/workflows/cloud-agent-review.yml"), "utf8");
+  // Builder and fix pass run in the manager; both review passes run the one
+  // Claude step of the review workflow, which the manager calls twice.
   const steps = workflow.split(/\n      - name: /).filter((step) => step.includes("anthropics/claude-code-action@v1"));
-  assert.equal(steps.length, 4);
+  assert.deepEqual(steps.map((step) => step.split("\n")[0]), ["Claude builder", "Claude bounded fix pass"]);
   for (const step of steps) {
-    const role = /review/i.test(step.split("\n")[0]) ? "claude_reviewer_model_args" : "claude_model_args";
-    assert.match(step, new RegExp(`claude_args: >-\\n\\s+\\$\\{\\{ steps\\.roles\\.outputs\\.${role} \\}\\}\\n`), step.split("\n")[0]);
+    assert.match(step, /claude_args: >-\n\s+\$\{\{ needs\.route\.outputs\.claude_model_args \}\}\n/, step.split("\n")[0]);
   }
-  assert.doesNotMatch(workflow, /--model (claude-|haiku|sonnet|opus|fable)/, "workflow must not pin a Claude model");
+  const reviewSteps = review.split(/\n      - name: /).filter((step) => step.includes("anthropics/claude-code-action@v1"));
+  assert.deepEqual(reviewSteps.map((step) => step.split("\n")[0]), ["Claude review"]);
+  assert.match(reviewSteps[0], /claude_args: >-\n\s+\$\{\{ inputs\.claude_reviewer_model_args \}\}\n/);
+  const calls = workflow.match(/\n      claude_reviewer_model_args: [^\n]*/g) || [];
+  // One route job output (the router's value) and the two review calls.
+  assert.deepEqual(calls.map((line) => line.trim()), [
+    "claude_reviewer_model_args: ${{ steps.roles.outputs.claude_reviewer_model_args }}",
+    "claude_reviewer_model_args: ${{ needs.route.outputs.claude_reviewer_model_args }}",
+    "claude_reviewer_model_args: ${{ needs.route.outputs.claude_reviewer_model_args }}",
+  ]);
+  assert.match(workflow, /\n      claude_model_args: \$\{\{ steps\.roles\.outputs\.claude_model_args \}\}\n/);
+  for (const text of [workflow, review]) {
+    assert.doesNotMatch(text, /--model (claude-|haiku|sonnet|opus|fable)/, "workflow must not pin a Claude model");
+  }
   for (const tier of TIER_ORDER) {
     assert.match(workflow, new RegExp(`SITON_CLAUDE_MODEL_${tier.toUpperCase()}: \\$\\{\\{ vars\\.SITON_CLAUDE_MODEL_${tier.toUpperCase()} \\}\\}`));
   }
@@ -288,10 +306,18 @@ test("telemetry records the model Claude Code actually executed, separately from
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+  // Each Claude step runs in its own job now: its execution file travels as an
+  // artifact to finalize, whose telemetry step parses it.
   const workflow = fs.readFileSync(path.join(root, ".github/workflows/cloud-agent-manager.yml"), "utf8");
-  for (const [key, step] of [["BUILD", "claude_build"], ["FIX", "claude_fix"], ["REVIEW1", "claude_review_1"], ["REVIEW2", "claude_review_2"]]) {
-    assert.match(workflow, new RegExp(`SITON_CLAUDE_${key}_EXECUTION: \\$\\{\\{ steps\\.${step}\\.outputs\\.execution_file \\}\\}`));
-    assert.match(workflow, new RegExp(`\\n        id: ${step}\\n`));
+  const review = fs.readFileSync(path.join(root, ".github/workflows/cloud-agent-review.yml"), "utf8");
+  for (const [key, artifact] of [["BUILD", "siton-exec-build"], ["FIX", "siton-exec-fix"], ["REVIEW1", "siton-review-1"], ["REVIEW2", "siton-review-2"]]) {
+    assert.match(workflow, new RegExp(`SITON_CLAUDE_${key}_EXECUTION: \\$\\{\\{ runner\\.temp \\}\\}/siton-telemetry/${artifact}/claude-execution\\.json\\n`));
+  }
+  assert.match(workflow, /name: Download agent execution records\n        if: always\(\)\n[\s\S]*?pattern: siton-\*\n\s+path: \$\{\{ runner\.temp \}\}\/siton-telemetry\n/);
+  for (const [text, step, artifact] of [[workflow, "claude_build", "siton-exec-build"], [workflow, "claude_fix", "siton-exec-fix"], [review, "claude_review", "siton-review-\\$\\{\\{ inputs\\.pass \\}\\}"]]) {
+    assert.match(text, new RegExp(`\\n        id: ${step}\\n`));
+    assert.match(text, new RegExp(`CLAUDE_EXECUTION_FILE: \\$\\{\\{ steps\\.${step}\\.outputs\\.execution_file \\}\\}\\n[\\s\\S]*?cp "\\$CLAUDE_EXECUTION_FILE" "[^"]+/claude-execution\\.json"`));
+    assert.match(text, new RegExp(`\\n          name: ${artifact}\\n`));
   }
 });
 
