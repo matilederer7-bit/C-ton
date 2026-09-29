@@ -26,6 +26,7 @@ import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import { chromiumPath, launchPage, type BrowserPage } from "./helpers/browser_cdp.js";
 import { HOW_IT_WORKS_HE } from "../web/src/content/howItWorks.he.js";
+import { LANDING_HE } from "../web/src/content/landing.he.js";
 import { issueAdminSession } from "../src/admin_identity.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
