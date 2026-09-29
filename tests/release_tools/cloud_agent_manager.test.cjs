@@ -426,7 +426,7 @@ test('manager and swarm wire Apex end to end without raising all analyst tiers',
   assert.match(intake, /\[source-issue:/);
   assert.match(workflow, /SITON_ISSUE_BODY: \$\{\{ inputs\.task \}\}/);
   assert.match(workflow, /export SITON_MODEL_TIER="\$tier"/);
-  assert.match(workflow, /SITON_CODEX_MODEL="\$codex_model" node scripts\/agent_model_access\.cjs/);
+  assert.match(workflow, /SITON_CODEX_MODEL="\$model" node scripts\/agent_model_access\.cjs/);
   assert.match(workflow, /SITON_CODEX_MODEL: \$\{\{ needs\.route\.outputs\.codex_model \}\}/);
   assert.match(workflow, /apex_reason: \$\{\{ steps\.roles\.outputs\.apex_reason \}\}/);
   assert.match(workflow, /SITON_APEX_REASON: \$\{\{ needs\.route\.outputs\.apex_reason \}\}/);
