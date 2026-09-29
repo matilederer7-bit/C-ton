@@ -59,7 +59,7 @@ test("auto classification ignores protected scope but keeps real sensitive work"
 
   assert.equal(
     inferType("Do not change database, but update documentation."),
-    "docs",
+    "database",
   );
   const commaAction = routeTask({
     task: "Do not modify unrelated docs, fix the payment refund race condition.",
@@ -88,6 +88,14 @@ test("auto classification ignores protected scope but keeps real sensitive work"
   assert.match(
     actionableTaskText("Do not modify docs, tests, tooling, resolve the payment bug."),
     /resolve the payment bug/,
+  );
+  assert.match(
+    actionableTaskText("Do not modify docs, tests, or workflow, fix the payment bug, and add regression coverage."),
+    /payment bug/,
+  );
+  assert.equal(
+    inferType("Update documentation. Do not change database, payments or auth."),
+    "docs",
   );
   assert.doesNotMatch(
     actionableTaskText("Add a note. Do not change workflow, test infrastructure, database, payments, auth, or product behavior."),
