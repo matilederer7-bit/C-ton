@@ -287,11 +287,29 @@ jobs:
           # auto-selected Codex route is unavailable and Claude exists, reroute
           # once with Codex disabled. Explicit Codex requests fail closed.
           if [ "$HAS_CODEX" = true ] && { [ "$selected_builder" = codex ] || [ "$selected_reviewer" = codex ] || [ "$sensitive" = true ] || [ "$tier" = apex ]; }; then
-            if ! SITON_CODEX_MODEL="$codex_model" node scripts/agent_model_access.cjs; then
+            probe_models="$codex_model"
+            if [ "$sensitive" = true ] || [ "$tier" = apex ]; then
+              probe_models="$probe_models gpt-5.6-terra gpt-5.6-sol gpt-5.6-luna"
+            fi
+            codex_runtime_ok=true
+            checked_models=""
+            failed_model=""
+            for model in $probe_models; do
+              case " $checked_models " in
+                *" $model "*) continue ;;
+              esac
+              checked_models="$checked_models $model"
+              if ! SITON_CODEX_MODEL="$model" node scripts/agent_model_access.cjs; then
+                codex_runtime_ok=false
+                failed_model="$model"
+                break
+              fi
+            done
+            if [ "$codex_runtime_ok" != true ]; then
               {
                 echo
                 echo "### Codex runtime unavailable"
-                echo "The OpenAI credential exists, but a real inference on the selected model failed. Treating Codex as unavailable for this run."
+                echo "The OpenAI credential exists, but real inference failed for required model $failed_model. Treating Codex as unavailable for this run."
               } >> /tmp/siton-credential-blocker.md
 
               if [ "$REQUESTED_BUILDER" = codex ] || [ "$REQUESTED_REVIEWER" = codex ]; then
