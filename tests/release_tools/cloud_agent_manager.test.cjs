@@ -450,6 +450,8 @@ test("route probes real Codex inference and fails over only for auto-selected ro
   assert.match(roles, /REQUESTED_REVIEWER.*codex/);
   assert.match(roles, /will not silently change provider/);
   assert.match(roles, /No Claude credential is available for failover/);
+  assert.match(roles, /requires the Codex-backed analysis swarm/);
+  assert.match(roles, /\[ "\$sensitive" = true \] \|\| \[ "\$tier" = apex \]/);
   assert.match(route, /credential_state: \$\{\{ steps\.roles\.outputs\.credential_state \|\| steps\.credentials\.outputs\.state_b64 \}\}/);
   assert.equal((route.match(/node scripts\/agent_model_access\.cjs/g) || []).length, 1);
 });
