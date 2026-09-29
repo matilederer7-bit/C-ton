@@ -103,7 +103,7 @@ jobs:
           effort: ${{ matrix.effort }}
           safety-strategy: drop-sudo
       - name: Upload lane report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: analysis-${{ matrix.lane }}-${{ github.run_id }}
           path: analysis-${{ matrix.lane }}.md
@@ -164,7 +164,7 @@ jobs:
           effort: high
           safety-strategy: drop-sudo
       - name: Publish synthesis artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: swarm-synthesis-${{ github.run_id }}
           path: swarm-synthesis.md
