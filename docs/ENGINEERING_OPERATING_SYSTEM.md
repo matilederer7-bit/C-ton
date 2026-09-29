@@ -40,16 +40,16 @@ Policy is written in tiers, never in model versions. `scripts/agent_model_tiers.
 
 | Tier | Use | Claude (stable alias) | Fallback | Codex |
 |---|---|---|---|---|
-| Economy | scans, inventories, simple checks | `haiku` | upward to `sonnet` | `gpt-5.6-luna` |
-| Standard | ordinary development | `sonnet` | upward to `opus` | `gpt-5.6-terra` |
-| Senior | database, security, payments, auth, state machine, architecture; every review of those and of CI gates | `opus` | none: fail closed | `gpt-5.6-sol` |
+| Economy | scans, inventories, simple checks | `haiku` | upward to `sonnet` | `gpt-6-luna` |
+| Standard | ordinary development | `sonnet` | upward to `opus` | `gpt-6-sol` (`medium`) |
+| Senior | database, security, payments, auth, state machine, architecture; every review of those and of CI gates | `opus` | none: fail closed | `gpt-6-sol` (`high`) |
 | Apex | explicit escalation only (contract below) | `fable` | none: fail closed | `gpt-6-astra` (`high` reasoning) |
 
 - Claude tiers use the provider's stable aliases. Claude Code resolves each alias to the newest model of its family, so a model release needs no change here. Verified 2026-09-28 in Claude Code 2.1.284: `haiku` → `claude-haiku-4-5-20251001`, `sonnet` → `claude-sonnet-5-5`, `opus` → `claude-opus-5-5`, `fable` → `claude-fable-5-1`.
 - Fallback is upward only and never into Apex. Senior and Apex never fall back. Nothing ever falls back to a cheaper model.
 - A Claude reviewer is never below Standard.
 - Pins: repository variables `SITON_CLAUDE_MODEL_<TIER>` and `SITON_CODEX_MODEL_<TIER>` override a tier without a code change, e.g. to adopt a renamed Codex model. A Claude pin from a weaker family than the tier default (for example `sonnet` for Senior) is refused.
-- Codex has no provider tier alias, so its identifiers stay exact and live only in the tier table. The four swarm lanes still name their Codex model in `cloud-analysis-swarm.yml` and must be reviewed with the table.
+- Codex has no provider tier alias, so its identifiers stay exact and live in the tier table. The read-only swarm mirrors the same GPT-6 family: architecture uses Sol/medium, security uses Sol/high, and cheap test/source-of-truth lanes use Luna/low. Keep those literals synchronized with the tier table until the workflow consumes the table directly.
 - Claude sub-agents in `.claude/agents/` declare their tier alias in `model:`; `AGENT_TIERS` assigns the tier and `npm run agents:check-models` fails on a pinned version, `inherit`, a weaker family or an untiered agent.
 - The security lane and default head synthesis use Senior; only explicitly justified head synthesis escalates to Apex; test and source-of-truth scans use Economy.
 
@@ -90,7 +90,7 @@ Apex applies to the Codex role. If Claude builds, Astra reviews; if Codex builds
 
 ## Verified model support and access boundary (2026-09-22)
 
-- Official [model catalog](https://developers.openai.com/api/docs/models) lists Luna, Terra, Sol and Astra with the exact IDs above. [Astra documentation](https://developers.openai.com/api/docs/models/gpt-6-astra) supports high reasoning and tool use through Responses.
+- Official [model catalog](https://developers.openai.com/api/docs/models) lists GPT-6 Luna, Sol and Astra with the exact IDs above. [Astra documentation](https://developers.openai.com/api/docs/models/gpt-6-astra) supports high reasoning and tool use through Responses.
 - The local Codex app advertises `gpt-6-astra` among its available task/agent models. This is app availability, not an entitlement check for a GitHub API key.
 - The [Codex GitHub Action](https://learn.chatgpt.com/docs/github-action) accepts `model` and `effort` and invokes Codex through the Responses API. The workflow passes the routed model on every Codex build/review/fix call.
 - Inspected the actual OpenAI Action v1 source at commit `86365089eb2b84e0a8fb0717b304f8bdcb13b20e`: `action.yml` declares `model`, `effort` and `permission-profile`; `src/runCodexExec.ts` passes the model directly as `--model` and effort as `model_reasoning_effort`, with no three-model allowlist.
