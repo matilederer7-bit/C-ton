@@ -94,6 +94,10 @@ try {
     const withTrust = normalizePage({ blocks: [...contract.defaults(), { id: "trust", type: "text", enabled: true, fields: { title: LANDING_HE.trust.title, body: LANDING_HE.trust.body } }] }, contract);
     assert.ok(!withTrust.blocks.some(b => b.id === "trust"), "a stored trust block is dropped on read");
     assert.equal(codes({ blocks: [...contract.defaults(), { id: "trust", type: "text", enabled: true, fields: { title: LANDING_HE.trust.title, body: LANDING_HE.trust.body } }] }), "template_not_allowed", "the removed trust block cannot be re-enabled by an admin write");
+    const emptyValue = { blocks: contract.defaults().map(b => b.id === "value" ? { ...b, fields: { ...b.fields, body: "" } } : b) };
+    assert.equal(codes(emptyValue), "required_field_missing", "the locked value proposition cannot be emptied through the CMS");
+    const recoveredValue = normalizePage(emptyValue, contract).blocks.find(b => b.id === "value")!;
+    assert.equal(recoveredValue.fields.body, LANDING_HE.valueProposition.body, "lenient rendering restores canonical value copy instead of hiding the locked block");
     assert.equal(codes({ blocks: [...contract.defaults(), { id: "columns_1", type: "columns", enabled: true, fields: { title: "" }, items: [{ title: "x", body: "", cta_label: "", cta_link: "" }] }] }), "ok", "other columns blocks stay addable");
     // a stored page with NO how block at all gets it too
     const without = normalizePage({ blocks: contract.defaults().filter(b => b.id !== HOW_IT_WORKS_BLOCK_ID) }, contract);
