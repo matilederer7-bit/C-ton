@@ -38,7 +38,7 @@ const CLAUDE_FAMILY_RANK = Object.freeze({ haiku: 0, sonnet: 1, opus: 2, fable: 
 
 const CLAUDE_TIER_ALIASES = Object.freeze({ economy: "haiku", standard: "sonnet", senior: "opus", apex: "fable" });
 
-const CODEX_TIER_MODELS = Object.freeze({ economy: "gpt-5.6-luna", standard: "gpt-5.6-terra", senior: "gpt-5.6-sol", apex: "gpt-6-astra" });
+const CODEX_TIER_MODELS = Object.freeze({ economy: "gpt-6-luna", standard: "gpt-6-sol", senior: "gpt-6-sol", apex: "gpt-6-astra" });
 
 // Tiers whose model must never be replaced by anything else automatically.
 const NO_FALLBACK_TIERS = new Set(["senior", "apex"]);
