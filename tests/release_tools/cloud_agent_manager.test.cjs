@@ -401,8 +401,8 @@ test('model access preflight proves a tiny real inference and never downgrades',
     assert.equal(options.headers['Content-Type'], 'application/json');
     const body = JSON.parse(options.body);
     assert.equal(body.model, model);
-    assert.equal(body.reasoning.effort, 'none');
-    assert.equal(body.max_output_tokens, 4);
+    assert.equal(body.reasoning, undefined);
+    assert.equal(body.max_output_tokens, 16);
     assert.equal(body.store, false);
     return { ok: true, status: 200 };
   } });
