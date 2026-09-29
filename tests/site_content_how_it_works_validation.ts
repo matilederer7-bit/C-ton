@@ -90,6 +90,10 @@ try {
     const withAudiences = normalizePage({ blocks: [...contract.defaults(), { id: "audiences", type: "columns", enabled: true, fields: { title: "" }, items: [{ title: LANDING_HE.forBuyers.title, body: LANDING_HE.forBuyers.body, cta_label: "", cta_link: "" }] }] }, contract);
     assert.ok(!withAudiences.blocks.some(b => b.id === "audiences"), "a stored audiences block is dropped on read");
     assert.equal(codes({ blocks: [...contract.defaults(), { id: "audiences", type: "columns", enabled: true, fields: { title: "" }, items: [{ title: "x", body: "", cta_label: "", cta_link: "" }] }] }), "template_not_allowed");
+    assert.ok(!contract.defaults().some(b => b.id === "trust"), "the removed trust section is no longer a default");
+    const withTrust = normalizePage({ blocks: [...contract.defaults(), { id: "trust", type: "text", enabled: true, fields: { title: LANDING_HE.trust.title, body: LANDING_HE.trust.body } }] }, contract);
+    assert.ok(!withTrust.blocks.some(b => b.id === "trust"), "a stored trust block is dropped on read");
+    assert.equal(codes({ blocks: [...contract.defaults(), { id: "trust", type: "text", enabled: true, fields: { title: LANDING_HE.trust.title, body: LANDING_HE.trust.body } }] }), "template_not_allowed", "the removed trust block cannot be re-enabled by an admin write");
     assert.equal(codes({ blocks: [...contract.defaults(), { id: "columns_1", type: "columns", enabled: true, fields: { title: "" }, items: [{ title: "x", body: "", cta_label: "", cta_link: "" }] }] }), "ok", "other columns blocks stay addable");
     // a stored page with NO how block at all gets it too
     const without = normalizePage({ blocks: contract.defaults().filter(b => b.id !== HOW_IT_WORKS_BLOCK_ID) }, contract);
