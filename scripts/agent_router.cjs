@@ -48,9 +48,18 @@ function normalize(value) {
 const PROTECTED_SCOPE_PREFIX = /^(?:(?:do not|don't|must not|never)\s+(?:change|touch|modify|edit|alter|update|migrate|deploy|affect)\b|without\s+(?:changing|touching|modifying|editing|altering|updating|migrating|deploying|affecting)\b|no\s+(?:changes?|edits?|modifications?|migrations?|deployments?)\s+(?:to|in)\b|leave\b.*?\b(?:untouched|unchanged)\b)/i;
 
 const MIXED_SCOPE_ACTION = /\b(?:fix|resolve|patch|repair|implement|update|change|modify|add|remove|correct|refactor|rewrite|adjust|secure|harden|prevent|enforce|create|investigate|audit|address|handle|remediate)\b/i;
+// Negative invariants are executable correctness requirements, not protected
+// scope. Keep them even when they begin with "must not update/touch/...".
+const NEGATIVE_INVARIANT_TEXT = /state[ -]?machine|transition|concurren|idempoten|race condition|deadlock|outbox|webhook|ledger|\btwice\b|double[ -]?(?:charge|capture|update|write)|duplicate[ -]?(?:charge|capture|update|write)|exactly once|at most once/i;
 
-function whollyProtectedFragment(fragment, index, total) {
+function whollyProtectedFragment(fragment) {
   if (!PROTECTED_SCOPE_PREFIX.test(fragment)) return false;
+  if (NEGATIVE_INVARIANT_TEXT.test(fragment)) return false;
+
+  // A conjunction followed by an action is mixed work, not pure scope.
+  const conjunction = /\b(?:and|but|then|however)\s+(?:please\s+|also\s+)?(.+)$/i.exec(fragment);
+  if (conjunction && MIXED_SCOPE_ACTION.test(conjunction[1])) return false;
+
   const commas = (fragment.match(/,/g) || []).length;
   if (!commas) return true;
 
@@ -75,7 +84,7 @@ function actionableTaskText(task) {
 
   if (fragments.length <= 1) return fragments[0] || "";
 
-  const actionable = fragments.filter((fragment, index) => !whollyProtectedFragment(fragment, index, fragments.length));
+  const actionable = fragments.filter((fragment) => !whollyProtectedFragment(fragment));
   // Fail safe: if every fragment looks protected, retain the original text
   // rather than hiding potentially sensitive work.
   return (actionable.length ? actionable : fragments)
@@ -107,9 +116,8 @@ const SENSITIVE_TEXT = /architect|state[ -]?machine|transition|concurren|idempot
 const INTRINSIC_SENSITIVE_TEXT = /architect|state[ -]?machine|transition|concurren|idempoten|race condition|deadlock|outbox|webhook|login|session|token|otp|permission|rbac|secret|password|migration|schema|postgres|supabase|\bsql\b|ledger|payout|refund|charge|invoice|\bvat\b|\bfee\b/;
 
 function sensitiveText(task) {
-  const original = normalize(task);
   const value = actionableTaskText(task);
-  return INTRINSIC_SENSITIVE_TEXT.test(original) || SENSITIVE_TEXT.test(value) || ["database", "security", "payments"].includes(inferType(value));
+  return INTRINSIC_SENSITIVE_TEXT.test(value) || SENSITIVE_TEXT.test(value) || ["database", "security", "payments"].includes(inferType(value));
 }
 
 function routeTask({ task = "", taskType = "auto", risk = "normal", tier = "auto", apexReason = "none", apexEvidence = "", hasClaude = true, hasCodex = true, env = process.env } = {}) {
