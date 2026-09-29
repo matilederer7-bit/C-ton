@@ -352,6 +352,7 @@ jobs:
         if: needs.route.outputs.builder == 'codex'
         uses: openai/codex-action@v1
         with:
+          allow-bot-users: "github-actions[bot]"
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           permission-profile: ":workspace"
           prompt-file: .siton-cloud-task.md
@@ -593,6 +594,7 @@ jobs:
         if: needs.route.outputs.builder == 'codex'
         uses: openai/codex-action@v1
         with:
+          allow-bot-users: "github-actions[bot]"
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           permission-profile: ":workspace"
           prompt-file: .siton-fix-task.md
