@@ -105,24 +105,98 @@ test("binding agent rules make cloud manager the sole Git and status lifecycle o
 });
 
 test("cloud Codex steps explicitly trust only the manager dispatch bot", () => {
-  const workflow = read(".github/workflows/cloud-agent-manager.yml");
-  const steps = workflow.split("\n      - name: ").slice(1);
-  const codexSteps = steps.filter((step) => /uses: openai\/codex-action@v1/.test(step));
+  const yamlScalar = (raw) => {
+    let value = String(raw || "").trim();
+    let quote = null;
+    for (let index = 0; index < value.length; index += 1) {
+      const char = value[index];
+      if (quote) {
+        if (char === quote && value[index - 1] !== "\\") quote = null;
+        continue;
+      }
+      if (char === '"' || char === "'") {
+        quote = char;
+        continue;
+      }
+      if (char === "#" && (index === 0 || /\\s/.test(value[index - 1]))) {
+        value = value.slice(0, index).trim();
+        break;
+      }
+    }
+    if (
+      value.length >= 2 &&
+      ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'")))
+    ) {
+      value = value.slice(1, -1);
+    }
+    return value.trim();
+  };
 
-  assert.ok(codexSteps.length > 0, "expected at least one Codex action step");
-  for (const step of codexSteps) {
-    const name = step.split("\n", 1)[0];
-    assert.match(
-      step,
-      /^\s*allow-bot-users:\s*"github-actions\[bot\]"\s*$/m,
-      `Codex step is missing the narrow github-actions[bot] allowlist: ${name}`,
-    );
-    assert.doesNotMatch(
-      step,
-      /^\s*allow-bots:\s*["']?true["']?\s*$/m,
-      `Codex step broadly trusts bot actors: ${name}`,
-    );
-  }
+  const actionInputs = (step) => {
+    const lines = step.split("\n");
+    const withIndex = lines.findIndex((line) => /^\\s*with:\\s*(?:#.*)?$/.test(line));
+    assert.notEqual(withIndex, -1, "Codex action step must have a with: mapping");
+    const withIndent = (lines[withIndex].match(/^\\s*/) || [""])[0].length;
+    const inputs = new Map();
+    for (let index = withIndex + 1; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (!line.trim() || line.trimStart().startsWith("#")) continue;
+      const indent = (line.match(/^\\s*/) || [""])[0].length;
+      if (indent <= withIndent) break;
+      if (indent !== withIndent + 2) continue;
+      const match = line.trim().match(/^([A-Za-z0-9_-]+):\\s*(.*)$/);
+      if (match) inputs.set(match[1], yamlScalar(match[2]));
+    }
+    return inputs;
+  };
+
+  const assertNarrowBotTrust = (workflow) => {
+    const steps = workflow.split("\n      - name: ").slice(1);
+    const codexSteps = steps.filter((step) => /uses: openai\\/codex-action@v1/.test(step));
+    assert.ok(codexSteps.length > 0, "expected at least one Codex action step");
+    for (const step of codexSteps) {
+      const name = step.split("\n", 1)[0];
+      const inputs = actionInputs(step);
+      assert.equal(
+        inputs.get("allow-bot-users"),
+        "github-actions[bot]",
+        `Codex step is missing the narrow github-actions[bot] action input: ${name}`,
+      );
+      assert.notEqual(
+        String(inputs.get("allow-bots") || "").toLowerCase(),
+        "true",
+        `Codex step broadly trusts bot actors: ${name}`,
+      );
+    }
+  };
+
+  const workflow = read(".github/workflows/cloud-agent-manager.yml");
+  assertNarrowBotTrust(workflow);
+
+  const sample = `Sample
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: secret
+          permission-profile: ":read-only"
+        env:
+          allow-bot-users: "github-actions[bot]"`;
+  assert.throws(
+    () => assertNarrowBotTrust(`header\\n      - name: ${sample}`),
+    /missing the narrow github-actions\\[bot\\] action input/,
+    "an env entry must never satisfy the action-input guard",
+  );
+
+  const broad = `Sample
+        uses: openai/codex-action@v1
+        with:
+          allow-bot-users: "github-actions[bot]"
+          allow-bots: "true" # broad bypass`;
+  assert.throws(
+    () => assertNarrowBotTrust(`header\\n      - name: ${broad}`),
+    /broadly trusts bot actors/,
+    "quoted broad bot trust with an inline YAML comment must be rejected",
+  );
 });
 
 
