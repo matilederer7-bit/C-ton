@@ -469,7 +469,7 @@ test("a credential-blocked run still reaches the owner on the source issue", () 
   // job output.
   const route = jobsOf(workflow).route;
   const names = stepsOf(route).map((step) => step.split("\n")[0]);
-  assert.ok(names.indexOf("- name: Record cloud credential state") < names.indexOf("- name: Resolve cloud credentials and roles"));
+  assert.ok(names.indexOf("- name: Record cloud credential state") < names.indexOf("- name: Resolve runtime-capable providers and roles"));
   assert.doesNotMatch(stepNamed(route, "Record cloud credential state"), /exit 1/);
   assert.match(route, /credential_state: \$\{\{ steps\.credentials\.outputs\.state_b64 \}\}/);
   assert.match(stepNamed(jobsOf(workflow).finalize, "Report result to source issue"), /CREDENTIAL_STATE: \$\{\{ needs\.route\.outputs\.credential_state \}\}/);
