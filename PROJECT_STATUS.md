@@ -815,15 +815,15 @@ Prior rounds (retained for history — the fields below describe earlier milesto
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
 
 <!-- AGENT_STATUS:chatgpt:START -->
-### ChatGPT latest milestone — automatic Codex re-review on every updated PR head
+### ChatGPT latest milestone — Cloud Agent Manager Codex bot-auth blocker
 
-- UPDATED: 2026-09-26
-- BRANCH: `chatgpt/codex-rereview-latest-head-20260926`
-- COMPLETED: added `.github/workflows/codex-rereview.yml`. Every non-draft same-repository Pull Request `synchronize` event and every `ready_for_review` transition requests `@codex review` for the exact current head SHA, with per-SHA deduplication; fork PRs are excluded from automatic spend. `AGENTS.md` and `AI_WORKFLOW.md` now state that a review attached only to an older commit is stale after fixes are pushed.
-- TESTED: the workflow is permission-minimal and does not checkout or execute PR code: `contents: read`, `pull-requests: read`, `issues: write` only. The request is keyed by an HTML marker containing the exact head SHA, and deduplication trusts only markers authored by `github-actions[bot]`, so a PR author cannot forge the marker to suppress review.
-- OPEN: the workflow becomes active only after merge to `master`. One live post-merge `synchronize` event is still required to prove that the Codex GitHub App responds to a GitHub-Actions-authored `@codex review` comment.
-- PERCENTAGE: 90% until merged and one live trigger is observed.
-- NEXT STEP: open and review the PR, merge after applicable checks, then observe the first subsequent updated PR and confirm Codex reviews its latest SHA.
+- UPDATED: 2026-09-29
+- BRANCH: `chatgpt/codex-bot-auth-fix-20260929` from master `0ca2e5b`.
+- COMPLETED: root-caused Issue #131 manager run `36477212183`: `openai/codex-action@v1` stopped before inference because the workflow-dispatched actor was `github-actions[bot]` and the action's write-access guard reported permission `none`. Added the action's narrow explicit `allow-bot-users: "github-actions[bot]"` input to every Codex builder/reviewer/fix invocation. This does not grant repository write permission and does not enable all bots.
+- TESTED: the pinned OpenAI action source confirms `allow-bot-users` bypasses the collaborator check only for explicitly listed bot usernames and rejects wildcard bot lists. Hosted CI exposed the original bad matcher. Independent Codex reviews then found three false-pass classes in the regression: file-wide counting, `env:` placement instead of the action's `with:` inputs, and quoted/unquoted `allow-bots: true` with YAML comments. The regression now parses each Codex step's `with:` mapping, requires the exact narrow bot input there, rejects broad bot trust, and mutation-tests env-only placement plus quoted and unquoted commented broad values.
+- OPEN: exact-head hosted CI and Codex re-review on this final post-review-fix head, merge, then a real Cloud Agent Manager run must pass the former Codex authorization point before Issue #131 is declared unblocked.
+- PERCENTAGE: 90%.
+- NEXT: require green CI and clean independent review on the exact head; merge only then, prove the manager path live, and retrigger Issue #131.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 

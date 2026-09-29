@@ -293,6 +293,7 @@ jobs:
           model: ${{ steps.roles.outputs.codex_model }}
           effort: ${{ steps.roles.outputs.builder_effort }}
           safety-strategy: drop-sudo
+          allow-bot-users: "github-actions[bot]"
 
       - name: Enforce builder lifecycle and control-plane boundary
         env:
@@ -354,6 +355,7 @@ jobs:
           model: ${{ steps.roles.outputs.codex_model }}
           effort: ${{ steps.roles.outputs.reviewer_effort }}
           safety-strategy: drop-sudo
+          allow-bot-users: "github-actions[bot]"
 
       - name: Materialize read-only review guard (pass 1)
         if: steps.roles.outputs.reviewer == 'claude'
@@ -450,6 +452,7 @@ jobs:
           model: ${{ steps.roles.outputs.codex_model }}
           effort: ${{ steps.roles.outputs.builder_effort }}
           safety-strategy: drop-sudo
+          allow-bot-users: "github-actions[bot]"
 
       - name: Enforce fix-pass lifecycle and control-plane boundary
         if: steps.review1.outputs.needs_fix == 'true'
@@ -489,6 +492,7 @@ jobs:
           model: ${{ steps.roles.outputs.codex_model }}
           effort: ${{ steps.roles.outputs.reviewer_effort }}
           safety-strategy: drop-sudo
+          allow-bot-users: "github-actions[bot]"
 
       - name: Materialize read-only review guard (pass 2)
         if: steps.review1.outputs.needs_fix == 'true' && steps.roles.outputs.reviewer == 'claude'
