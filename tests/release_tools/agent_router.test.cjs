@@ -77,6 +77,18 @@ test("auto classification ignores protected scope but keeps real sensitive work"
     actionableTaskText("Add a note. Do not change runtime code, workflow, test, database, payments, auth, product behavior or configuration."),
     /database|payments|auth/,
   );
+  assert.doesNotMatch(
+    actionableTaskText("Add a note. Do not change workflow, test infrastructure, database, payments, auth, or product behavior."),
+    /test infrastructure|database|payments|auth/,
+  );
+  assert.match(
+    actionableTaskText("Do not modify unrelated docs, resolve the payment bug."),
+    /resolve the payment bug/,
+  );
+  assert.match(
+    actionableTaskText("Do not modify unrelated docs and please resolve a payment bug."),
+    /please resolve a payment bug/,
+  );
   const conjunctionAction = routeTask({
     task: "Do not modify unrelated docs and fix the payment refund race condition.",
     taskType: "docs",
