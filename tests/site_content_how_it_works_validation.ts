@@ -49,8 +49,8 @@ try {
     assert.deepEqual(contract.locked, [{ id: "hero", type: "hero" }, { id: "value", type: "text" }, { id: HOW_IT_WORKS_BLOCK_ID, type: "how_it_works" }]);
     const page = normalizePage(undefined, contract);
     assert.equal(page.blocks[1]!.id, "value");
-    assert.equal(page.blocks[2]!.fields.title, LANDING_HE.valueProposition.title);
-    assert.equal(page.blocks[2]!.fields.body, LANDING_HE.valueProposition.body);
+    assert.equal(page.blocks[1]!.fields.title, LANDING_HE.valueProposition.title);
+    assert.equal(page.blocks[1]!.fields.body, LANDING_HE.valueProposition.body);
     const how = page.blocks[2]!;
     assert.equal(how.id, HOW_IT_WORKS_BLOCK_ID); assert.equal(how.type, "how_it_works"); assert.equal(how.enabled, true);
     assert.ok(!page.blocks.some(b => b.type === "steps"), "the former steps block is gone from the home defaults");
@@ -128,7 +128,7 @@ try {
     assert.equal((await pool.query(`SELECT 1 FROM siton.site_content WHERE content_key='home'`)).rowCount, 0, "precondition: no stored home page");
     const pub = await home();
     assert.equal(pub.blocks[2].id, HOW_IT_WORKS_BLOCK_ID); assert.equal(pub.blocks[2].type, "how_it_works");
-    assert.deepEqual(pub.blocks.map((b: any) => b.id), ["hero", "how", "trust", "faq", "contact"], "the infographic sits where the audience columns were; nothing else left the page");
+    assert.deepEqual(pub.blocks.map((b: any) => b.id), ["hero", "value", "how", "faq", "contact"], "the owner value block precedes the infographic and the retired trust section stays gone");
     assert.deepEqual(howItWorksContentOf(pub.blocks[2].fields, HOW_IT_WORKS_EN), HOW_IT_WORKS_HE);
     assert.equal(pub.blocks[2].fields_en[F.stepText("buyers", 2)], HOW_IT_WORKS_EN.buyers.steps[1]!.text, "the shipped English is served");
     const section = await reload();
@@ -192,7 +192,7 @@ try {
     await reload();
     r = await request("POST", "/api/admin/site-content/home/publish", headers, { revision }); assert.equal(r.status, 200, r.body);
     const pub = await home();
-    assert.deepEqual(pub.blocks.map((b: any) => b.id), ["hero", "how", "trust", "faq", "contact"]);
+    assert.deepEqual(pub.blocks.map((b: any) => b.id), ["hero", "value", "how", "faq", "contact"]);
     assert.equal(pub.blocks[2].type, "how_it_works");
     // a valid stored draft reports publishable
     const d = JSON.parse(JSON.stringify((await reload()).published)); howOf(d).fields[F.stepText("sellers", 1)] = "פותחים עסקה חדשה";
