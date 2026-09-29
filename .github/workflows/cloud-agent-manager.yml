@@ -289,7 +289,12 @@ jobs:
           if [ "$HAS_CODEX" = true ] && { [ "$selected_builder" = codex ] || [ "$selected_reviewer" = codex ] || [ "$sensitive" = true ] || [ "$tier" = apex ]; }; then
             probe_models="$codex_model"
             if [ "$sensitive" = true ] || [ "$tier" = apex ]; then
-              probe_models="$probe_models gpt-5.6-terra gpt-5.6-sol gpt-5.6-luna"
+              swarm_models="$(node - <<'NODE'
+const { codexModelForTier } = require("./scripts/agent_model_tiers.cjs");
+process.stdout.write(["economy", "standard", "senior"].map((tier) => codexModelForTier(tier)).join(" "));
+NODE
+)"
+              probe_models="$probe_models $swarm_models"
             fi
             codex_runtime_ok=true
             checked_models=""
