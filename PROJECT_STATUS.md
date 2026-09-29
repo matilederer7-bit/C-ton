@@ -7,6 +7,14 @@ Render staging: LIVE on `e6a5b18` (PR #122, review fixes; web `dep-datasve0tbcc7
 Supabase staging (`siton-staging`, hnptacfzuqebfgeshadq): **080** (admin team) + grant file `supabase/staging/028` applied 2026-09-28 (ledger **73/73**) and Edge Function `admin-provisioner` deployed, ahead of the PR #120 merge. Before that, migrations through **079** applied (077 → position 70, 078 → 71, 079 → 72, plus grant file `supabase/staging/027`, all on 2026-09-27 through the Supabase connector before the #99 merge, checksums from the canonical bodies); **72/72** ledger rows succeeded. Verified: ClosedForJoining→Failed edge, 6 new triggers enabled, 0 NOT VALID constraints, `test.*` refused, deal→participant FK = RESTRICT, 027 self-check passed. BSC-2 (#117) needs no migration.
 
 
+## CODEX GPT-6 ROUTING — 2026-09-29
+
+- COMPLETED: GPT-6 routing update prepared: Economy → gpt-6-luna; Standard → gpt-6-sol; Senior → gpt-6-sol; Apex → gpt-6-astra. Read-only swarm literals and engineering docs updated consistently.
+- TESTED: source/test expectations updated; hosted CI on the PR is the authoritative execution proof and is still pending at this status write.
+- OPEN: independent review, green CI on the current PR head, merge, and harmless managed-run inference verification with the repository credential.
+- PERCENT: 60% — implementation complete; review/CI/merge/runtime proof remain open.
+- NEXT: open PR, run independent review and CI; merge only on a green current head, then verify actual GPT-6 inference in the managed cloud path.
+
 ## TRACKS (owner decision 2026-09-27: two separate percentages)
 
 - **Black Sky Engineering: 100% — CLOSED.** All code fixes merged (#99 `c1c361f`, #117 `f02414b`, #116 `73026b4`); CI green on master `73026b4`; the latest Codex review of each final head is clean (#117 `26a6f82`, #116 `1534bde`); migrations 077–079 + grant file 027 applied to staging (ledger 72/72); staging live and checked on `73026b4`; recovery / failure / money / DB suites pass (314 files / 0 failures, `RECOVERY_PROOF_PASS`, `DB_BACKUP_RESTORE_REHEARSAL_PASS`). No further hardening, adversarial round or scope expansion on this track unless a new concrete finding appears.
