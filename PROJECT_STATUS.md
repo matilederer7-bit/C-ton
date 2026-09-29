@@ -815,15 +815,15 @@ Prior rounds (retained for history — the fields below describe earlier milesto
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
 
 <!-- AGENT_STATUS:chatgpt:START -->
-### ChatGPT latest milestone — integrate fresh-runner reviewer isolation on current master
+### ChatGPT latest milestone — homepage closeout slice #139
 
 - UPDATED: 2026-09-29
-- BRANCH: `chatgpt/integrate-review-isolation-20260929` from master `68cedee` (includes PR #135).
-- COMPLETED: integrated the reviewed PR #134 fresh-runner architecture onto current master without rewriting Claude's branch. Cloud orchestration is split into trusted route, build, isolated review-1, one bounded fix, isolated review-2 when needed, and finalize. Review/finalize use control-script copies from the canonical base rather than patched code; patch and review artifacts are sha256-bound; protected paths include workflows, control scripts, nested AGENTS/CLAUDE instructions, .claude/.codex and .mcp.json; non-ASCII status parsing uses NUL-delimited git porcelain. The narrow #135 Codex bot authorization is preserved across all three Codex action sites, including the reusable review workflow.
-- TESTED / CHECKED: source PR #134 had FULL Siton CI green on head `52fd665` and an independent senior Claude review marked SAFE TO MERGE after four P2 fixes. The current integration branch is rebased by construction on master `68cedee`; new hosted CI and a current-head independent review are still required before merge.
-- OPEN: open integration PR; current-head FULL CI; current-head independent review; then merge only if both are clean. PR #133 and PR #134 should be closed as superseded only after the integration PR is established.
-- PERCENTAGE: 80%.
-- NEXT: diff-review the integration against master and source PR #134, open the integration PR, obtain FULL CI and an independent current-head review, then merge and close superseded PRs.
+- BRANCH: `chatgpt/homepage-closeout-139` from master `ecdd297`.
+- COMPLETED: decomposed failed mega-task #131 into five independent product slices (#139–#143), closed #131 and stale smoke issues #74/#77, and stopped retrying the quota-blocked Cloud Agent Manager. In #139, retained the already-shipped homepage video pipeline rather than rebuilding it; added the owner value proposition as a locked homepage block immediately above the how-it-works infographic; retired the public `trust` block so the standalone "מה קורה אם לא מגיעים אל היעד?" section cannot return while the FAQ answer remains; reduced step number badges to a fixed 18px marker with minimal overlap; updated CMS, browser and dedicated CMS-proof expectations for the new canonical order.
+- TESTED / CHECKED: pre-PR diff review fixed bad block-index replacements and stale flow assertions. PR #144 has been through repeated current-head CI rather than blind reruns. The dedicated badge E2E initially failed at 11x11 overlap against a 10px ceiling; the CSS was moved farther out and the same lane passed on the next head. Independent Codex review found three P2 issues and each was fixed rather than waived: stale `proof:cms` assumptions; a locked value block that could be emptied and disappear; and normalization that could restore the new locked block on top of an already-maxed legacy page and create 21 blocks. The contract now requires the value title/body, lenient normalization restores canonical required copy, and restored locked blocks trim only the optional tail to stay within `maxBlocks`; regressions cover all three findings.
+- OPEN: final current-head CI and independent Codex re-review after the third P2 fix; merge only if both are clean; then verify the exact master SHA deployed to staging and inspect the public homepage at desktop/mobile. OpenAI API quota still blocks the Cloud Agent Manager and no Claude cloud credential is configured; that path is deliberately not being retried.
+- PERCENTAGE: 92%.
+- NEXT: final current-head CI + Codex re-review, merge PR #144 if clean, staging verification, then move to the next focused product slice rather than reopening #131.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 
