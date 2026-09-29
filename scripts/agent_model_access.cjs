@@ -22,8 +22,7 @@ async function verifyModelAccess({ apiKey, model, fetchImpl = fetch, env = proce
     body: JSON.stringify({
       model,
       input: "Reply exactly OK.",
-      reasoning: { effort: "none" },
-      max_output_tokens: 4,
+      max_output_tokens: 16,
       store: false,
     }),
     signal: AbortSignal.timeout(30000),
