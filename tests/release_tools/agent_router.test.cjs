@@ -47,6 +47,20 @@ test("auto classification ignores protected scope but keeps real sensitive work"
   });
   assert.equal(sensitive.tier, "senior");
   assert.equal(sensitive.sensitive, true);
+
+  const negativeRequirement = routeTask({
+    task: "Fix the invariant: the worker must not update the payment ledger twice.",
+    taskType: "backend",
+    risk: "normal",
+    tier: "economy",
+  });
+  assert.equal(negativeRequirement.tier, "senior");
+  assert.equal(negativeRequirement.sensitive, true);
+
+  assert.equal(
+    inferType("Do not change database, but update documentation."),
+    "docs",
+  );
 });
 
 test("router prefers separate ecosystems and degrades honestly", () => {
