@@ -82,10 +82,10 @@ on:
 #          merges), and always records telemetry and reports to the issue.
 #
 # The default workflow token is read-only everywhere except `issues: write` in
-# finalize, so a blocked run can still report to the phone. Git lifecycle uses
-# the dedicated SITON_AGENT_GITHUB_TOKEN, only in finalize, so workflow-created
-# branches/PRs can trigger normal repository CI instead of being suppressed by
-# GITHUB_TOKEN.
+# finalize, so a blocked run can still report to the phone. The trusted route
+# job checks only whether SITON_AGENT_GITHUB_TOKEN exists; no agent runs there.
+# Builder/fix/review jobs never reference that secret. Lifecycle commands consume
+# it only in finalize so workflow-created branches/PRs can trigger normal CI.
 permissions:
   contents: read
 
@@ -867,7 +867,9 @@ jobs:
       # .git (hooks, config, filters) is pristine, and the patch was applied
       # as data (git apply refuses paths inside .git). The lifecycle token
       # appears only here and in the steps after it, never on a runner where
-      # a builder or reviewer ran. Commit and push stay hook-free anyway.
+      # a builder or reviewer ran. The trusted route job performs only a presence
+      # check for the lifecycle secret; no agent runs there. Commit and push
+      # stay hook-free anyway.
       - name: Commit and push managed branch
         env:
           BRANCH: ${{ needs.route.outputs.branch }}
