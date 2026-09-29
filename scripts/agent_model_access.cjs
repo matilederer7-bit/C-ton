@@ -30,7 +30,7 @@ async function verifyModelAccess({ apiKey, model, fetchImpl = fetch, env = proce
   // Never read or log provider bodies: status is enough to prove runtime
   // availability and avoids leaking provider diagnostics into CI.
   if (!response.ok) throw new Error(`Codex inference preflight failed for ${model}: HTTP ${response.status}; check API project access, billing/quota or rate limits. No downgrade performed.`);
-  return { model, metadataAccess: true, inferenceVerified: true };
+  return { model, runtimeAvailable: true, inferenceVerified: true };
 }
 
 if (require.main === module) {
