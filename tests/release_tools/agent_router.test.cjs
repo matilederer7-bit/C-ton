@@ -70,6 +70,15 @@ test("auto classification ignores protected scope but keeps real sensitive work"
   assert.equal(commaAction.tier, "senior");
   assert.equal(commaAction.sensitive, true);
   assert.match(actionableTaskText("Do not modify unrelated docs, fix payment bug."), /fix payment bug/);
+  assert.match(actionableTaskText("Do not modify unrelated docs and fix payment bug."), /fix payment bug/);
+  const conjunctionAction = routeTask({
+    task: "Do not modify unrelated docs and fix the payment refund race condition.",
+    taskType: "docs",
+    risk: "low",
+    tier: "economy",
+  });
+  assert.equal(conjunctionAction.tier, "senior");
+  assert.equal(conjunctionAction.sensitive, true);
 });
 
 test("router prefers separate ecosystems and degrades honestly", () => {
