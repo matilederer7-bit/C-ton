@@ -1,7 +1,7 @@
 // HOME "HOW IT WORKS" INFOGRAPHIC — deterministic proof of its content contract.
 // Runs against the real Fastify router on an isolated migrated database:
-//   * the infographic is a LOCKED block of the home page (id `how`, right after
-//     the hero) so it is always on the page — with the canonical owner content
+//   * the infographic is a LOCKED block of the home page (id `how`, after
+//     the locked owner value proposition) so it is always on the page — with the canonical owner content
 //     when nothing was ever saved, and with the same content when a stored page
 //     predates it (its former `steps` block is replaced, never duplicated);
 //   * every word and every icon is a field: the words are the exact owner copy,
@@ -45,10 +45,13 @@ const codes = (raw: unknown) => { try { validatePage(raw, contract); return "ok"
 const F = howItWorksField;
 try {
   await app.ready();
-  await run("the infographic is the locked second block of the home page and carries the exact owner content", async () => {
-    assert.deepEqual(contract.locked, [{ id: "hero", type: "hero" }, { id: HOW_IT_WORKS_BLOCK_ID, type: "how_it_works" }]);
+  await run("the value proposition and infographic are locked in the owner-defined home order", async () => {
+    assert.deepEqual(contract.locked, [{ id: "hero", type: "hero" }, { id: "value", type: "text" }, { id: HOW_IT_WORKS_BLOCK_ID, type: "how_it_works" }]);
     const page = normalizePage(undefined, contract);
-    const how = page.blocks[1]!;
+    assert.equal(page.blocks[1]!.id, "value");
+    assert.equal(page.blocks[2]!.fields.title, LANDING_HE.valueProposition.title);
+    assert.equal(page.blocks[2]!.fields.body, LANDING_HE.valueProposition.body);
+    const how = page.blocks[2]!;
     assert.equal(how.id, HOW_IT_WORKS_BLOCK_ID); assert.equal(how.type, "how_it_works"); assert.equal(how.enabled, true);
     assert.ok(!page.blocks.some(b => b.type === "steps"), "the former steps block is gone from the home defaults");
     assert.deepEqual(Object.keys(TEMPLATES.how_it_works.fields), howItWorksFieldNames(), "the template fields are the contract's, in editor order");
@@ -70,7 +73,7 @@ try {
     // the English sibling ships for every word, and icons are structural (not part of it)
     assert.ok(!missingEnglishContent(page).some(p => p.startsWith(`${HOW_IT_WORKS_BLOCK_ID}.`)), "no default word is missing its English");
     for (const name of howItWorksIconFieldNames()) assert.equal(how.fields_en![name], undefined, `${name} is not an English field`);
-    const en = howItWorksContentOf(localizedPage(page, "en").blocks[1]!.fields, HOW_IT_WORKS_EN);
+    const en = howItWorksContentOf(localizedPage(page, "en").blocks[2]!.fields, HOW_IT_WORKS_EN);
     assert.equal(en.title, HOW_IT_WORKS_EN.title); assert.deepEqual(en.sellers.steps.map(s => s.icon), HOW_IT_WORKS_HE.sellers.steps.map(s => s.icon));
   });
   await run("a stored page from before the infographic shows it in the same place — once — with the canonical content", async () => {
@@ -79,9 +82,9 @@ try {
       : b);
     const page = normalizePage({ blocks: stored }, contract);
     assert.equal(page.blocks.filter(b => b.id === "how").length, 1);
-    assert.equal(page.blocks[1]!.type, "how_it_works");
+    assert.equal(page.blocks[2]!.type, "how_it_works");
     assert.ok(!page.blocks.some(b => b.type === "steps"));
-    assert.deepEqual(howItWorksContentOf(page.blocks[1]!.fields, HOW_IT_WORKS_EN), HOW_IT_WORKS_HE);
+    assert.deepEqual(howItWorksContentOf(page.blocks[2]!.fields, HOW_IT_WORKS_EN), HOW_IT_WORKS_HE);
     // the former "לקונים / למוכרים" columns block is RETIRED: not in the defaults, dropped from a stored page, refused on write
     assert.ok(!contract.defaults().some(b => b.id === "audiences"), "the audiences columns block is no longer a default");
     const withAudiences = normalizePage({ blocks: [...contract.defaults(), { id: "audiences", type: "columns", enabled: true, fields: { title: "" }, items: [{ title: LANDING_HE.forBuyers.title, body: LANDING_HE.forBuyers.body, cta_label: "", cta_link: "" }] }] }, contract);
@@ -90,7 +93,7 @@ try {
     assert.equal(codes({ blocks: [...contract.defaults(), { id: "columns_1", type: "columns", enabled: true, fields: { title: "" }, items: [{ title: "x", body: "", cta_label: "", cta_link: "" }] }] }), "ok", "other columns blocks stay addable");
     // a stored page with NO how block at all gets it too
     const without = normalizePage({ blocks: contract.defaults().filter(b => b.id !== HOW_IT_WORKS_BLOCK_ID) }, contract);
-    assert.equal(without.blocks[1]!.id, HOW_IT_WORKS_BLOCK_ID);
+    assert.equal(without.blocks[2]!.id, HOW_IT_WORKS_BLOCK_ID);
     // strict validation refuses the OLD shape under the same id and the block's absence / hiding
     assert.equal(codes({ blocks: stored }), "template_not_allowed");
     assert.equal(codes({ blocks: contract.defaults().filter(b => b.id !== HOW_IT_WORKS_BLOCK_ID) }), "locked_block_missing");
@@ -124,12 +127,12 @@ try {
   await run("public API: with nothing ever saved the home page carries the infographic with the canonical content", async () => {
     assert.equal((await pool.query(`SELECT 1 FROM siton.site_content WHERE content_key='home'`)).rowCount, 0, "precondition: no stored home page");
     const pub = await home();
-    assert.equal(pub.blocks[1].id, HOW_IT_WORKS_BLOCK_ID); assert.equal(pub.blocks[1].type, "how_it_works");
+    assert.equal(pub.blocks[2].id, HOW_IT_WORKS_BLOCK_ID); assert.equal(pub.blocks[2].type, "how_it_works");
     assert.deepEqual(pub.blocks.map((b: any) => b.id), ["hero", "how", "trust", "faq", "contact"], "the infographic sits where the audience columns were; nothing else left the page");
-    assert.deepEqual(howItWorksContentOf(pub.blocks[1].fields, HOW_IT_WORKS_EN), HOW_IT_WORKS_HE);
-    assert.equal(pub.blocks[1].fields_en[F.stepText("buyers", 2)], HOW_IT_WORKS_EN.buyers.steps[1]!.text, "the shipped English is served");
+    assert.deepEqual(howItWorksContentOf(pub.blocks[2].fields, HOW_IT_WORKS_EN), HOW_IT_WORKS_HE);
+    assert.equal(pub.blocks[2].fields_en[F.stepText("buyers", 2)], HOW_IT_WORKS_EN.buyers.steps[1]!.text, "the shipped English is served");
     const section = await reload();
-    assert.equal(section.published.blocks[1].type, "how_it_works");
+    assert.equal(section.published.blocks[2].type, "how_it_works");
     assert.ok(!section.missing_english.some((p: string) => p.startsWith(`${HOW_IT_WORKS_BLOCK_ID}.`)));
   });
   await run("admin edits a word and an icon: the draft is private, publish changes the site, the English of the changed word is reported", async () => {
@@ -144,20 +147,20 @@ try {
     how.fields[F.summaryIcon("sellers")] = "check_circle";
     let r = await request("PUT", "/api/admin/site-content/home/draft", headers, { value: draft, revision }); assert.equal(r.status, 200, r.body);
     let pub = await home();
-    assert.equal(pub.blocks[1].fields[F.stepText("buyers", 2)], "בוחרים כמות ומשלוח", "public site unchanged until publish");
-    assert.equal(pub.blocks[1].fields[F.stepIcon("buyers", 2)], "cart");
+    assert.equal(pub.blocks[2].fields[F.stepText("buyers", 2)], "בוחרים כמות ומשלוח", "public site unchanged until publish");
+    assert.equal(pub.blocks[2].fields[F.stepIcon("buyers", 2)], "cart");
     const preview = (await request("GET", "/api/admin/site-content/preview", headers)).json().content.home;
-    assert.equal(preview.blocks[1].fields[F.stepIcon("buyers", 2)], "truck", "preview shows the draft");
+    assert.equal(preview.blocks[2].fields[F.stepIcon("buyers", 2)], "truck", "preview shows the draft");
     await reload();
     r = await request("POST", "/api/admin/site-content/home/publish", headers, { revision }); assert.equal(r.status, 200, r.body);
     pub = await home();
-    const data = howItWorksContentOf(pub.blocks[1].fields, HOW_IT_WORKS_HE);
+    const data = howItWorksContentOf(pub.blocks[2].fields, HOW_IT_WORKS_HE);
     assert.equal(data.buyers.steps[1]!.text, "בוחרים כמות ומשלוח מהיר");
     assert.equal(data.buyers.steps[1]!.icon, "truck");
     assert.equal(data.sellers.summary.icon, "check_circle");
     assert.equal(data.sellers.steps[1]!.text, "מגדירים כמות ותאריך", "untouched words stay");
-    assert.equal(pub.blocks[1].fields_en[F.stepText("buyers", 2)], "", "no invented English for the owner's new words");
-    assert.equal(pub.blocks[1].fields_en[F.stepText("buyers", 1)], HOW_IT_WORKS_EN.buyers.steps[0]!.text);
+    assert.equal(pub.blocks[2].fields_en[F.stepText("buyers", 2)], "", "no invented English for the owner's new words");
+    assert.equal(pub.blocks[2].fields_en[F.stepText("buyers", 1)], HOW_IT_WORKS_EN.buyers.steps[0]!.text);
     const after = await reload();
     assert.ok(after.missing_english.includes(`${HOW_IT_WORKS_BLOCK_ID}.${F.stepText("buyers", 2)}`));
     // the server refuses an icon that is not on the whitelist, in any disguise
@@ -178,7 +181,7 @@ try {
     await pool.query(`UPDATE siton.site_content SET draft_jsonb=$1::jsonb, draft_updated_at=now() WHERE content_key='home'`, [JSON.stringify(legacy)]);
     const section = await reload();
     assert.equal(section.draft_publishable, false, "a draft stored under the old contract must be reported as not publishable as stored");
-    assert.equal(section.draft.blocks[1].type, "how_it_works", "the editor still receives the normalized draft");
+    assert.equal(section.draft.blocks[2].type, "how_it_works", "the editor still receives the normalized draft");
     assert.ok(!section.draft.blocks.some((b: any) => b.id === "audiences"));
     // the publish-time guard is NOT weakened: the stored draft itself is still refused
     const refused = await request("POST", "/api/admin/site-content/home/publish", headers, { revision });
@@ -190,7 +193,7 @@ try {
     r = await request("POST", "/api/admin/site-content/home/publish", headers, { revision }); assert.equal(r.status, 200, r.body);
     const pub = await home();
     assert.deepEqual(pub.blocks.map((b: any) => b.id), ["hero", "how", "trust", "faq", "contact"]);
-    assert.equal(pub.blocks[1].type, "how_it_works");
+    assert.equal(pub.blocks[2].type, "how_it_works");
     // a valid stored draft reports publishable
     const d = JSON.parse(JSON.stringify((await reload()).published)); howOf(d).fields[F.stepText("sellers", 1)] = "פותחים עסקה חדשה";
     r = await request("PUT", "/api/admin/site-content/home/draft", headers, { value: d, revision }); assert.equal(r.status, 200, r.body);
