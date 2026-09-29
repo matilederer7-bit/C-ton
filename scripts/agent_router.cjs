@@ -53,7 +53,8 @@ const ACTION_CLAUSE_VERBS = "fix|add|implement|refactor|audit|test|document|crea
 
 function actionableTaskText(task) {
   let value = normalize(task)
-    .replace(new RegExp(`,\\s*(?:and\\s+|but\\s+|however\\s+)?(?=(?:${ACTION_CLAUSE_VERBS})\\b)`, "gi"), ". ")
+    .replace(new RegExp(`,\\s*(?:and\\s+|but\\s+|however\\s+|then\\s+)?(?=(?:${ACTION_CLAUSE_VERBS})\\b)`, "gi"), ". ")
+    .replace(new RegExp(`\\s+(?:and|but|however|then)\\s+(?=(?:${ACTION_CLAUSE_VERBS})\\b)`, "gi"), ". ")
     .replace(/,\s*(but|however|instead)\b/gi, ". $1 ");
   for (const pattern of PROTECTED_SCOPE_CLAUSES) value = value.replace(pattern, " ");
   return value.replace(/\s+/g, " ").trim();
