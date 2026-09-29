@@ -136,18 +136,6 @@ test("binding agent rules make cloud manager the sole Git and status lifecycle o
   assert.match(rules, /auto-merge is forbidden/);
 });
 
-test("lifecycle token never reaches builder, fix or review jobs", () => {
-  const managerJobs = jobsOf(read(MANAGER));
-  for (const name of ["build", "fix"]) {
-    assert.ok(managerJobs[name], "missing job: " + name);
-    assert.doesNotMatch(managerJobs[name], /SITON_AGENT_GITHUB_TOKEN|MANAGER_GH_TOKEN_VALUE/);
-  }
-  const review = read(REVIEW);
-  assert.doesNotMatch(review, /SITON_AGENT_GITHUB_TOKEN|MANAGER_GH_TOKEN_VALUE/);
-  assert.match(managerJobs.route, /MANAGER_GH_TOKEN_VALUE: \$\{\{ secrets\.SITON_AGENT_GITHUB_TOKEN \}\}/);
-  assert.match(managerJobs.finalize, /GH_TOKEN: \$\{\{ secrets\.SITON_AGENT_GITHUB_TOKEN/);
-});
-
 test("all cloud Codex actions trust only github-actions[bot]", () => {
   const newline = String.fromCharCode(10);
   const yamlScalar = (raw) => {
@@ -195,7 +183,10 @@ test("all cloud Codex actions trust only github-actions[bot]", () => {
       if (indent !== withIndent + 2) continue;
       const colon = trimmed.indexOf(":");
       if (colon <= 0) continue;
-      inputs.set(trimmed.slice(0, colon).trim(), yamlScalar(trimmed.slice(colon + 1)));
+      const key = trimmed.slice(0, colon).trim();
+      // A duplicate key is invalid for GitHub Actions and hides which value wins.
+      assert.ok(!inputs.has(key), `duplicate action input ${key}`);
+      inputs.set(key, yamlScalar(trimmed.slice(colon + 1)));
     }
     return inputs;
   };
@@ -236,15 +227,18 @@ test("all cloud Codex actions trust only github-actions[bot]", () => {
   ].join(newline);
   assert.throws(() => assertNarrowBotTrust(envOnly), /missing the narrow github-actions\[bot\] input/);
 
-  const broad = [
-    "header",
-    "      - name: Sample",
-    "        uses: openai/codex-action@v1",
-    "        with:",
-    '          allow-bot-users: "github-actions[bot]"',
-    "          allow-bots: true # forbidden broad trust",
-  ].join(newline);
-  assert.throws(() => assertNarrowBotTrust(broad), /broadly trusts bot actors/);
+  // Every YAML spelling of a broad bypass is refused (#135).
+  for (const broadValue of ["true # broad bypass", '"true" # broad bypass', "'true' # broad bypass"]) {
+    const broad = [
+      "header",
+      "      - name: Sample",
+      "        uses: openai/codex-action@v1",
+      "        with:",
+      '          allow-bot-users: "github-actions[bot]"',
+      `          allow-bots: ${broadValue}`,
+    ].join(newline);
+    assert.throws(() => assertNarrowBotTrust(broad), /broadly trusts bot actors/, broadValue);
+  }
 });
 
 test("cloud workflow is owner-gated at intake, serialized, lifecycle-guarded and never auto-merges", () => {
@@ -504,9 +498,9 @@ const firstLine = (step) => step.split("\n")[0];
 // Black-Sky E3: a builder can write its tree's .git/hooks, .git/config and
 // .gitattributes filters, and on its own runner much more (sudo, GITHUB_PATH,
 // tool cache). The lifecycle token therefore never exists on a runner where an
-// agent ran: it is used only in finalize, on a fresh runner, after the patch
-// was applied there as data. Commit and push stay hook-free anyway.
-test("the lifecycle token exists only in finalize, where no agent runs, and commit/push stay hook-free", () => {
+// agent ran. The trusted route job checks presence only; lifecycle use happens
+// in finalize on a fresh runner after the patch was applied there as data.
+test("the lifecycle token never reaches an agent runner; route only checks presence and finalize owns lifecycle use", () => {
   const workflow = read(MANAGER);
   const jobs = jobsOf(workflow);
   for (const [id, job] of Object.entries(jobs)) {
