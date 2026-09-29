@@ -38,30 +38,55 @@ function normalize(value) {
   return String(value || "").trim().toLowerCase();
 }
 
-// Routing must classify the work being requested, not protected scope. A task
-// packet often says "do not change database/payments/auth"; those words are
-// safety constraints and must not buy a Senior model by themselves.
-const PROTECTED_SCOPE_CLAUSES = [
-  /\b(?:do not|don't|must not|never)\s+(?:change|touch|modify|edit|alter|update|migrate|deploy|affect)\b[^.;\n]*/gi,
-  /\bwithout\s+(?:changing|touching|modifying|editing|altering|updating|migrating|deploying|affecting)\b[^.;\n]*/gi,
-  /\bno\s+(?:changes?|edits?|modifications?|migrations?|deployments?)\s+(?:to|in)\b[^.;\n]*/gi,
-  /(?:^|[.;\n])\s*no\s+[^.;\n]{0,120}\b(?:changes?|edits?|modifications?|migrations?|deployments?)\b/gi,
-  /\bleave\b[^.;\n]{0,120}\b(?:untouched|unchanged)\b/gi,
-];
+// Routing must classify the work being requested, not protected scope. Do not
+// try to infer English imperative verbs here: that approach is brittle. Instead
+// split on sentence boundaries and treat clearly protected fragments
+// structurally. Ambiguous mixed fragments are preserved conservatively.
+const PROTECTED_SCOPE_PREFIX = /^(?:(?:do not|don't|must not|never)\s+(?:change|touch|modify|edit|alter|update|migrate|deploy|affect)\b|without\s+(?:changing|touching|modifying|editing|altering|updating|migrating|deploying|affecting)\b|no\s+(?:changes?|edits?|modifications?|migrations?|deployments?)\s+(?:to|in)\b|leave\b.*?\b(?:untouched|unchanged)\b)/i;
 
-const ACTION_CLAUSE_VERBS = "fix|add|implement|refactor|audit|test|document|create|remove|repair|investigate|ensure|prevent|enforce|build|write|review|migrate|deploy|update|change";
-// Treat a separator as a new imperative only when the verb has an object.
-// This keeps noun-like protected lists such as "workflow, test, database"
-// inside the protected clause while preserving "..., fix the payment bug".
-const ACTION_CLAUSE_START = `(?:(?:please|also)\\s+){0,2}(?:${ACTION_CLAUSE_VERBS})\\b(?=\\s+[^,.;\\n])`;
+function protectedFragmentRemainder(fragment) {
+  if (!PROTECTED_SCOPE_PREFIX.test(fragment)) return fragment;
+
+  // A long comma-separated fragment is overwhelmingly a protected list, e.g.
+  // "do not change workflow, test infrastructure, database, payments, auth".
+  // Drop the whole fragment instead of mistaking noun phrases for imperatives.
+  const commas = (fragment.match(/,/g) || []).length;
+  if (commas >= 2) return "";
+
+  // Explicit contrast always starts a new clause.
+  const contrast = /\b(?:but|however|then|instead)\b\s+(.+)$/i.exec(fragment);
+  if (contrast) return contrast[1].trim();
+
+  // A single comma after a protected prefix is ambiguous. Preserve the suffix:
+  // false-positive escalation is safer than hiding real work such as
+  // "do not modify docs, resolve the payment bug".
+  if (commas === 1) {
+    return fragment.slice(fragment.indexOf(",") + 1)
+      .replace(/^\s*(?:and|but|however|then|instead)\s+/i, "")
+      .trim();
+  }
+
+  // Likewise preserve a conjunction suffix when no comma-list exists. This
+  // covers "do not modify docs and please/also fix ..." without maintaining a
+  // finite verb allowlist. Two-item protected lists may conservatively
+  // over-escalate, but cannot hide sensitive work.
+  const conjunction = /\band\s+(.+)$/i.exec(fragment);
+  if (conjunction) return conjunction[1].trim();
+
+  return "";
+}
 
 function actionableTaskText(task) {
-  let value = normalize(task)
-    .replace(new RegExp(`,\\s*(?:and\\s+|but\\s+|however\\s+|then\\s+)?(?=${ACTION_CLAUSE_START})`, "gi"), ". ")
-    .replace(new RegExp(`\\s+(?:and|but|however|then)\\s+(?=${ACTION_CLAUSE_START})`, "gi"), ". ")
-    .replace(/,\s*(but|however|instead)\b/gi, ". $1 ");
-  for (const pattern of PROTECTED_SCOPE_CLAUSES) value = value.replace(pattern, " ");
-  return value.replace(/\s+/g, " ").trim();
+  const fragments = normalize(task)
+    .split(/[.;\n]+/)
+    .map((fragment) => fragment.trim())
+    .filter(Boolean);
+  return fragments
+    .map(protectedFragmentRemainder)
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function inferType(task) {
