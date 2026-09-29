@@ -136,6 +136,18 @@ test("binding agent rules make cloud manager the sole Git and status lifecycle o
   assert.match(rules, /auto-merge is forbidden/);
 });
 
+test("lifecycle token never reaches builder, fix or review jobs", () => {
+  const managerJobs = jobsOf(read(MANAGER));
+  for (const name of ["build", "fix"]) {
+    assert.ok(managerJobs[name], "missing job: " + name);
+    assert.doesNotMatch(managerJobs[name], /SITON_AGENT_GITHUB_TOKEN|MANAGER_GH_TOKEN_VALUE/);
+  }
+  const review = read(REVIEW);
+  assert.doesNotMatch(review, /SITON_AGENT_GITHUB_TOKEN|MANAGER_GH_TOKEN_VALUE/);
+  assert.match(managerJobs.route, /MANAGER_GH_TOKEN_VALUE: \$\{\{ secrets\.SITON_AGENT_GITHUB_TOKEN \}\}/);
+  assert.match(managerJobs.finalize, /GH_TOKEN: \$\{\{ secrets\.SITON_AGENT_GITHUB_TOKEN/);
+});
+
 test("all cloud Codex actions trust only github-actions[bot]", () => {
   const newline = String.fromCharCode(10);
   const yamlScalar = (raw) => {
