@@ -627,7 +627,9 @@ export function normalizePage(raw: unknown, contract: PageContract): PageContent
     }
     return { ...found, enabled: true, fields };
   });
-  const rest = blocks.filter(b => !contract.locked.some(l => l.id === b.id));
+  const limit = Math.min(contract.maxBlocks, CMS_LIMITS.maxBlocksAbsolute);
+  const restLimit = Math.max(0, limit - lockedBlocks.length);
+  const rest = blocks.filter(b => !contract.locked.some(l => l.id === b.id)).slice(0, restLimit);
   return withShippedEnglish({ blocks: [...lockedBlocks, ...rest] }, contract);
 }
 
