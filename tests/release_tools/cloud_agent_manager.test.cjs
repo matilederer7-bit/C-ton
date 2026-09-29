@@ -183,7 +183,10 @@ test("all cloud Codex actions trust only github-actions[bot]", () => {
       if (indent !== withIndent + 2) continue;
       const colon = trimmed.indexOf(":");
       if (colon <= 0) continue;
-      inputs.set(trimmed.slice(0, colon).trim(), yamlScalar(trimmed.slice(colon + 1)));
+      const key = trimmed.slice(0, colon).trim();
+      // A duplicate key is invalid for GitHub Actions and hides which value wins.
+      assert.ok(!inputs.has(key), `duplicate action input ${key}`);
+      inputs.set(key, yamlScalar(trimmed.slice(colon + 1)));
     }
     return inputs;
   };

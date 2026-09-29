@@ -359,7 +359,6 @@ jobs:
           model: ${{ needs.route.outputs.codex_model }}
           effort: ${{ needs.route.outputs.builder_effort }}
           safety-strategy: drop-sudo
-          allow-bot-users: "github-actions[bot]"
 
       # In-job check on the builder's own runner. It stops an honest mistake
       # early; the authoritative check is repeated from a control copy on the
@@ -602,7 +601,6 @@ jobs:
           model: ${{ needs.route.outputs.codex_model }}
           effort: ${{ needs.route.outputs.builder_effort }}
           safety-strategy: drop-sudo
-          allow-bot-users: "github-actions[bot]"
 
       - name: Enforce fix-pass lifecycle and control-plane boundary
         env:

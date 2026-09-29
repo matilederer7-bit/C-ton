@@ -221,7 +221,6 @@ jobs:
           model: ${{ inputs.codex_model }}
           effort: ${{ inputs.reviewer_effort }}
           safety-strategy: drop-sudo
-          allow-bot-users: "github-actions[bot]"
 
       - name: Claude review
         id: claude_review
