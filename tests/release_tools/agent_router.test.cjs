@@ -61,6 +61,15 @@ test("auto classification ignores protected scope but keeps real sensitive work"
     inferType("Do not change database, but update documentation."),
     "docs",
   );
+  const commaAction = routeTask({
+    task: "Do not modify unrelated docs, fix the payment refund race condition.",
+    taskType: "docs",
+    risk: "low",
+    tier: "economy",
+  });
+  assert.equal(commaAction.tier, "senior");
+  assert.equal(commaAction.sensitive, true);
+  assert.match(actionableTaskText("Do not modify unrelated docs, fix payment bug."), /fix payment bug/);
 });
 
 test("router prefers separate ecosystems and degrades honestly", () => {
