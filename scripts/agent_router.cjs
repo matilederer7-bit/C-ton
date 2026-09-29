@@ -41,10 +41,10 @@ function normalize(value) {
 // Routing must classify requested work, not a separate do-not-touch sentence.
 // Natural-language clause parsing proved too brittle: a mixed single sentence
 // is therefore NEVER trimmed. It stays intact and routes conservatively. Only
-// clearly separate protected fragments are removed when another fragment
-// contains the actual task. Intrinsic-sensitive checks still inspect the
-// original text, so invariants such as "must not update the ledger twice" keep
-// the Senior floor even when written as their own sentence.
+// clearly separate protected fragments are removed. Genuine negative
+// invariants are retained by whollyProtectedFragment(), so "must not update
+// the ledger twice" still keeps the Senior floor without reintroducing
+// unrelated protected schema/auth/payment scope into sensitivity checks.
 const PROTECTED_SCOPE_PREFIX = /^(?:(?:do not|don't|must not|never)\s+(?:change|touch|modify|edit|alter|update|migrate|deploy|affect)\b|without\s+(?:changing|touching|modifying|editing|altering|updating|migrating|deploying|affecting)\b|no\s+(?:changes?|edits?|modifications?|migrations?|deployments?)\s+(?:to|in)\b|leave\b.*?\b(?:untouched|unchanged)\b)/i;
 
 const MIXED_SCOPE_ACTION = /\b(?:fix|resolve|patch|repair|implement|update|change|modify|add|remove|correct|refactor|rewrite|adjust|secure|harden|prevent|enforce|create|investigate|audit|address|handle|remediate)\b/i;
