@@ -48,6 +48,32 @@ test("auto classification ignores protected scope but keeps real sensitive work"
   });
   assert.equal(leadingScope.tier, "economy");
   assert.equal(leadingScope.sensitive, false);
+  const protectedSchema = routeTask({
+    task: "Do not modify database schema. Update documentation.",
+    taskType: "docs",
+    risk: "low",
+    tier: "economy",
+  });
+  assert.equal(protectedSchema.tier, "economy");
+  assert.equal(protectedSchema.sensitive, false);
+
+  const conjunctionSensitive = routeTask({
+    task: "Do not modify docs and fix the auth bug. Add regression coverage.",
+    taskType: "docs",
+    risk: "low",
+    tier: "economy",
+  });
+  assert.equal(conjunctionSensitive.tier, "senior");
+  assert.equal(conjunctionSensitive.sensitive, true);
+
+  const standaloneInvariant = routeTask({
+    task: "Must not update the payment ledger twice. Add regression coverage.",
+    taskType: "backend",
+    risk: "normal",
+    tier: "economy",
+  });
+  assert.equal(standaloneInvariant.tier, "senior");
+  assert.equal(standaloneInvariant.sensitive, true);
   const sensitive = routeTask({
     task: "Fix the deal state machine transition race. Do not change documentation.",
     taskType: "backend",
