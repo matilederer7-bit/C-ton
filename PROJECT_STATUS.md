@@ -820,10 +820,10 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 - UPDATED: 2026-09-29
 - BRANCH: `chatgpt/codex-bot-auth-fix-20260929` from master `0ca2e5b`.
 - COMPLETED: root-caused Issue #131 manager run `36477212183`: `openai/codex-action@v1` stopped before inference because the workflow-dispatched actor was `github-actions[bot]` and the action's write-access guard reported permission `none`. Added the action's narrow explicit `allow-bot-users: "github-actions[bot]"` input to every Codex builder/reviewer/fix invocation. This does not grant repository write permission and does not enable all bots.
-- TESTED: source audit confirms four Codex action invocations and four explicit bot allowlist entries; a release-tools regression now requires one narrow allowlist entry per Codex step and rejects `allow-bots: true`. Hosted CI on this branch is still pending.
-- OPEN: independent review, exact-head hosted CI, merge, then a harmless managed-run proof must succeed before declaring the blocker closed. Issue #131 itself must only be retriggered after that proof.
-- PERCENTAGE: 75%.
-- NEXT: open PR, run independent review and CI on the current head; merge only if green, then re-run a managed task and finally #131.
+- TESTED: the pinned OpenAI action source confirms `allow-bot-users` bypasses the collaborator check only for explicitly listed bot usernames and rejects wildcard bot lists. The first hosted CI correctly exposed a bad matcher in the new regression test. Codex review then found the file-wide count could still false-pass and did not catch quoted `allow-bots: "true"`; the test now isolates every individual Codex action step, requires the exact narrow allowlist inside that step, and rejects broad bot trust with or without YAML quotes.
+- OPEN: exact-head hosted CI and Codex re-review on the post-review-fix head, merge, then a real Cloud Agent Manager run must pass the former Codex authorization point before Issue #131 is declared unblocked.
+- PERCENTAGE: 85%.
+- NEXT: require green CI and clean independent review on the exact head; merge only then, prove the manager path live, and retrigger Issue #131.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 
