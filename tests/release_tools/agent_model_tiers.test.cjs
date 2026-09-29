@@ -218,7 +218,7 @@ test("a new model version is adopted by override without code changes, end to en
 test("Codex model access follows the tier policy instead of a frozen list", async () => {
   const env = { SITON_CODEX_MODEL_STANDARD: "gpt-7-terra" };
   const fetchImpl = async () => ({ ok: true, json: async () => ({ id: "gpt-7-terra" }) });
-  assert.deepEqual(await verifyModelAccess({ apiKey: "test-only", model: "gpt-7-terra", fetchImpl, env }), { model: "gpt-7-terra", metadataAccess: true, inferenceVerified: false });
+  assert.deepEqual(await verifyModelAccess({ apiKey: "test-only", model: "gpt-7-terra", fetchImpl, env }), { model: "gpt-7-terra", runtimeAvailable: true, inferenceVerified: true });
   await assert.rejects(verifyModelAccess({ apiKey: "test-only", model: "gpt-7-terra", fetchImpl, env: NO_ENV }), /Unknown routed Codex model/);
 });
 
