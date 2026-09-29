@@ -815,15 +815,15 @@ Prior rounds (retained for history — the fields below describe earlier milesto
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
 
 <!-- AGENT_STATUS:chatgpt:START -->
-### ChatGPT latest milestone — Cloud Agent Manager Codex bot-auth blocker
+### ChatGPT latest milestone — integrate fresh-runner reviewer isolation on current master
 
 - UPDATED: 2026-09-29
-- BRANCH: `chatgpt/codex-bot-auth-fix-20260929` from master `0ca2e5b`.
-- COMPLETED: root-caused Issue #131 manager run `36477212183`: `openai/codex-action@v1` stopped before inference because the workflow-dispatched actor was `github-actions[bot]` and the action's write-access guard reported permission `none`. Added the action's narrow explicit `allow-bot-users: "github-actions[bot]"` input to every Codex builder/reviewer/fix invocation. This does not grant repository write permission and does not enable all bots.
-- TESTED: the pinned OpenAI action source confirms `allow-bot-users` bypasses the collaborator check only for explicitly listed bot usernames and rejects wildcard bot lists. Hosted CI exposed the original bad matcher. Independent Codex reviews then found three false-pass classes in the regression: file-wide counting, `env:` placement instead of the action's `with:` inputs, and quoted/unquoted `allow-bots: true` with YAML comments. The regression now parses each Codex step's `with:` mapping, requires the exact narrow bot input there, rejects broad bot trust, and mutation-tests env-only placement plus quoted and unquoted commented broad values.
-- OPEN: exact-head hosted CI and Codex re-review on this final post-review-fix head, merge, then a real Cloud Agent Manager run must pass the former Codex authorization point before Issue #131 is declared unblocked.
-- PERCENTAGE: 90%.
-- NEXT: require green CI and clean independent review on the exact head; merge only then, prove the manager path live, and retrigger Issue #131.
+- BRANCH: `chatgpt/integrate-review-isolation-20260929` from master `68cedee` (includes PR #135).
+- COMPLETED: integrated the reviewed PR #134 fresh-runner architecture onto current master without rewriting Claude's branch. Cloud orchestration is split into trusted route, build, isolated review-1, one bounded fix, isolated review-2 when needed, and finalize. Review/finalize use control-script copies from the canonical base rather than patched code; patch and review artifacts are sha256-bound; protected paths include workflows, control scripts, nested AGENTS/CLAUDE instructions, .claude/.codex and .mcp.json; non-ASCII status parsing uses NUL-delimited git porcelain. The narrow #135 Codex bot authorization is preserved across all three Codex action sites, including the reusable review workflow.
+- TESTED / CHECKED: source PR #134 had FULL Siton CI green on head `52fd665` and an independent senior Claude review marked SAFE TO MERGE after four P2 fixes. The current integration branch is rebased by construction on master `68cedee`; new hosted CI and a current-head independent review are still required before merge.
+- OPEN: open integration PR; current-head FULL CI; current-head independent review; then merge only if both are clean. PR #133 and PR #134 should be closed as superseded only after the integration PR is established.
+- PERCENTAGE: 80%.
+- NEXT: diff-review the integration against master and source PR #134, open the integration PR, obtain FULL CI and an independent current-head review, then merge and close superseded PRs.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 
