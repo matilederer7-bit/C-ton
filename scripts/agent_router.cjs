@@ -47,21 +47,20 @@ const PROTECTED_SCOPE_PREFIX = /^(?:(?:do not|don't|must not|never)\s+(?:change|
 function protectedFragmentRemainder(fragment) {
   if (!PROTECTED_SCOPE_PREFIX.test(fragment)) return fragment;
 
-  // A long comma-separated fragment is overwhelmingly a protected list, e.g.
-  // "do not change workflow, test infrastructure, database, payments, auth".
-  // Drop the whole fragment instead of mistaking noun phrases for imperatives.
   const commas = (fragment.match(/,/g) || []).length;
-  if (commas >= 2) return "";
 
-  // Explicit contrast always starts a new clause.
+  // Explicit contrast always starts a new clause, even after a protected list.
   const contrast = /\b(?:but|however|then|instead)\b\s+(.+)$/i.exec(fragment);
   if (contrast) return contrast[1].trim();
 
-  // A single comma after a protected prefix is ambiguous. Preserve the suffix:
-  // false-positive escalation is safer than hiding real work such as
-  // "do not modify docs, resolve the payment bug".
-  if (commas === 1) {
-    return fragment.slice(fragment.indexOf(",") + 1)
+  // For comma-separated protected text, preserve only the final ambiguous
+  // suffix. That keeps "..., resolve the payment bug" visible without leaking
+  // earlier protected nouns such as database/payments/auth into routing. A
+  // final "or ..." is structurally still a list item and can be dropped.
+  if (commas >= 1) {
+    const suffix = fragment.slice(fragment.lastIndexOf(",") + 1).trim();
+    if (/^or\b/i.test(suffix)) return "";
+    return suffix
       .replace(/^\s*(?:and|but|however|then|instead)\s+/i, "")
       .trim();
   }
