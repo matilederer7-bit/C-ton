@@ -38,8 +38,25 @@ function normalize(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+// Routing must classify the work being requested, not protected scope. A task
+// packet often says "do not change database/payments/auth"; those words are
+// safety constraints and must not buy a Senior model by themselves.
+const PROTECTED_SCOPE_CLAUSES = [
+  /\b(?:do not|don't|must not|never)\s+(?:change|touch|modify|edit|alter|update|migrate|deploy|affect)\b[^.;\n]*/gi,
+  /\bwithout\s+(?:changing|touching|modifying|editing|altering|updating|migrating|deploying|affecting)\b[^.;\n]*/gi,
+  /\bno\s+(?:changes?|edits?|modifications?|migrations?|deployments?)\s+(?:to|in)\b[^.;\n]*/gi,
+  /(?:^|[.;\n])\s*no\s+[^.;\n]{0,120}\b(?:changes?|edits?|modifications?|migrations?|deployments?)\b/gi,
+  /\bleave\b[^.;\n]{0,120}\b(?:untouched|unchanged)\b/gi,
+];
+
+function actionableTaskText(task) {
+  let value = normalize(task);
+  for (const pattern of PROTECTED_SCOPE_CLAUSES) value = value.replace(pattern, " ");
+  return value.replace(/\s+/g, " ").trim();
+}
+
 function inferType(task) {
-  const value = normalize(task);
+  const value = actionableTaskText(task);
   if (/payment|grow|money|charge|refund|payout|vat|invoice/.test(value)) return "payments";
   if (/migration|postgres|database|schema|sql|supabase/.test(value)) return "database";
   if (/security|auth|permission|secret|rbac|attack/.test(value)) return "security";
@@ -57,7 +74,7 @@ function inferType(task) {
 const SENSITIVE_TEXT = /architect|state[ -]?machine|transition|concurren|idempoten|race condition|deadlock|outbox|webhook|\bauth|login|session|token|otp|permission|rbac|secret|password|migration|schema|postgres|supabase|\bsql\b|payment|payout|refund|charge|invoice|\bvat\b|\bfee\b|money|grow\b/;
 
 function sensitiveText(task) {
-  const value = normalize(task);
+  const value = actionableTaskText(task);
   return SENSITIVE_TEXT.test(value) || ["database", "security", "payments"].includes(inferType(value));
 }
 
@@ -201,4 +218,4 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = { APEX_REASONS, buildMetric, executedModels, inferType, sensitiveText, issueFields, routingInput, routeTask };
+module.exports = { APEX_REASONS, actionableTaskText, buildMetric, executedModels, inferType, sensitiveText, issueFields, routingInput, routeTask };
