@@ -815,15 +815,15 @@ Prior rounds (retained for history — the fields below describe earlier milesto
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
 
 <!-- AGENT_STATUS:chatgpt:START -->
-### ChatGPT latest milestone — integrate fresh-runner reviewer isolation on current master
+### ChatGPT latest milestone — homepage closeout slice #139
 
 - UPDATED: 2026-09-29
-- BRANCH: `chatgpt/integrate-review-isolation-20260929` from master `68cedee` (includes PR #135).
-- COMPLETED: integrated the reviewed PR #134 fresh-runner architecture onto current master without rewriting Claude's branch. Cloud orchestration is split into trusted route, build, isolated review-1, one bounded fix, isolated review-2 when needed, and finalize. Review/finalize use control-script copies from the canonical base rather than patched code; patch and review artifacts are sha256-bound; protected paths include workflows, control scripts, nested AGENTS/CLAUDE instructions, .claude/.codex and .mcp.json; non-ASCII status parsing uses NUL-delimited git porcelain. The narrow #135 Codex bot authorization is preserved across all three Codex action sites, including the reusable review workflow.
-- TESTED / CHECKED: source PR #134 had FULL Siton CI green on head `52fd665` and an independent senior Claude review marked SAFE TO MERGE after four P2 fixes. The current integration branch is rebased by construction on master `68cedee`; new hosted CI and a current-head independent review are still required before merge.
-- OPEN: open integration PR; current-head FULL CI; current-head independent review; then merge only if both are clean. PR #133 and PR #134 should be closed as superseded only after the integration PR is established.
-- PERCENTAGE: 80%.
-- NEXT: diff-review the integration against master and source PR #134, open the integration PR, obtain FULL CI and an independent current-head review, then merge and close superseded PRs.
+- BRANCH: `chatgpt/homepage-closeout-139` from master `ecdd297`.
+- COMPLETED: decomposed the failed mega-task #131 into five independent product slices (#139–#143) and closed #131 so it cannot be rerun. In #139, retained the already-shipped video pipeline rather than rebuilding it; added the owner value proposition as a locked homepage block immediately above the how-it-works infographic; retired the public `trust` block so the standalone "מה קורה אם לא מגיעים אל היעד?" section cannot return while the FAQ answer remains; reduced step number badges to an 18px subordinate marker; updated CMS and browser regressions for the new canonical order and retirement behavior.
+- TESTED / CHECKED: pre-PR diff review completed against master; one bad index replacement and two stale flow assertions were found and fixed before PR. Regression coverage now checks the exact owner value copy, retired trust refusal, canonical block order, mobile/desktop no-overflow path, and that the number badge remains at most 20px and visually subordinate to the icon. Hosted CI has not run yet.
+- OPEN: open PR, run CI on the current head, obtain an independent current-head review if available, fix any findings, then merge and verify staging visually. OpenAI API quota currently blocks the Cloud Agent Manager and no Claude cloud credential is configured, so the old manager path is deliberately not being retried.
+- PERCENTAGE: 70%.
+- NEXT: open the focused PR for #139 and use repository CI as the next gate; do not resume #131.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 
