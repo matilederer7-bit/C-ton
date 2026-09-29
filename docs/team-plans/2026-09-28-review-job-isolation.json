@@ -1,0 +1,50 @@
+{
+  "task": "Owner-approved follow-up to #124: run every cloud review pass in its own job on a fresh runner so a same-job builder cannot influence the reviewer or the verdict",
+  "lead": "claude-lead",
+  "base": "origin/master",
+  "open_branches": [],
+  "assignments": [
+    {
+      "id": "B1",
+      "agent": "claude-subagent",
+      "role": "builder",
+      "tier": "senior",
+      "scope": "split cloud-agent-manager into route/build/review/fix/finalize jobs, reusable review workflow, boundary command, tests",
+      "allowed": [".github/workflows/cloud-agent-manager.yml", ".github/workflows/cloud-agent-review.yml", "scripts/cloud_agent_manager.cjs", "tests/release_tools/cloud_agent_manager.test.cjs", "tests/release_tools/agent_readonly_bash_guard.test.cjs", "tests/release_tools/agent_model_tiers.test.cjs"],
+      "forbidden": ["src/", "web/", "PROJECT_STATUS.md", ".github/workflows/ci.yml", ".github/workflows/cloud-analysis-swarm.yml"],
+      "depends_on": [],
+      "dod": ["release-tools green", "regressions caught", "no guarantee weakened without saying so"]
+    },
+    {
+      "id": "B2",
+      "agent": "claude-lead",
+      "role": "builder",
+      "tier": "standard",
+      "scope": "integration, strict MCP flag, status, docs",
+      "allowed": ["PROJECT_STATUS.md", "docs/ENGINEERING_OPERATING_SYSTEM.md", "docs/team-plans/2026-09-28-review-job-isolation.json"],
+      "forbidden": ["src/", "web/"],
+      "depends_on": ["B1"],
+      "dod": ["status slot updated", "plan checked"]
+    },
+    {
+      "id": "R1",
+      "agent": "claude-subagent",
+      "role": "reviewer",
+      "senior": true,
+      "tier": "senior",
+      "scope": "independent security review of the job split",
+      "reviews": ["B1", "B2"],
+      "depends_on": ["B1", "B2"],
+      "dod": ["verdict with concrete failure scenarios"]
+    },
+    {
+      "id": "R2",
+      "agent": "codex",
+      "role": "reviewer",
+      "scope": "cross-provider review on the Pull Request",
+      "reviews": ["B1", "B2"],
+      "depends_on": ["B1", "B2"],
+      "dod": ["every finding fixed or answered"]
+    }
+  ]
+}
