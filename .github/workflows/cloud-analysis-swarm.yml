@@ -44,6 +44,12 @@ concurrency:
   group: siton-analysis-${{ github.run_id }}
   cancel-in-progress: false
 
+env:
+  SITON_CODEX_MODEL_ECONOMY: ${{ vars.SITON_CODEX_MODEL_ECONOMY }}
+  SITON_CODEX_MODEL_STANDARD: ${{ vars.SITON_CODEX_MODEL_STANDARD }}
+  SITON_CODEX_MODEL_SENIOR: ${{ vars.SITON_CODEX_MODEL_SENIOR }}
+  SITON_CODEX_MODEL_APEX: ${{ vars.SITON_CODEX_MODEL_APEX }}
+
 jobs:
   analyze:
     name: ${{ matrix.lane }} lane
@@ -55,19 +61,19 @@ jobs:
       matrix:
         include:
           - lane: architecture
-            model: gpt-5.6-terra
+            tier: standard
             effort: medium
             focus: "Architecture, state transitions, concurrency, boundaries and structural defects."
           - lane: security
-            model: gpt-5.6-sol
+            tier: senior
             effort: high
             focus: "Authentication, authorization, secrets, input boundaries, money and abuse cases."
           - lane: tests
-            model: gpt-5.6-luna
+            tier: economy
             effort: low
             focus: "Coverage gaps, weak assertions, flakes, CI topology and missing regression proof."
           - lane: source-of-truth
-            model: gpt-5.6-luna
+            tier: economy
             effort: low
             focus: "Canonical documents, implementation drift, stale obligations and acceptance criteria."
     steps:
@@ -76,6 +82,17 @@ jobs:
           ref: ${{ inputs.target_ref }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Resolve analyst model from tier policy
+        id: analyst_model
+        env:
+          ANALYST_TIER: ${{ matrix.tier }}
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const { codexModelForTier } = require("./scripts/agent_model_tiers.cjs");
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `model=${codexModelForTier(process.env.ANALYST_TIER)}\n`);
+          NODE
       - name: Build lane packet
         env:
           TASK: ${{ inputs.task }}
@@ -90,7 +107,7 @@ jobs:
       - name: Verify analyst model access
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          SITON_CODEX_MODEL: ${{ matrix.model }}
+          SITON_CODEX_MODEL: ${{ steps.analyst_model.outputs.model }}
         run: node scripts/agent_model_access.cjs
       - name: Run isolated Codex analyst
         uses: openai/codex-action@v1
@@ -99,7 +116,7 @@ jobs:
           permission-profile: ":read-only"
           prompt-file: .analysis-packet.md
           output-file: analysis-${{ matrix.lane }}.md
-          model: ${{ matrix.model }}
+          model: ${{ steps.analyst_model.outputs.model }}
           effort: ${{ matrix.effort }}
           safety-strategy: drop-sudo
       - name: Upload lane report
