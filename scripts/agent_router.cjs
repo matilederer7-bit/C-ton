@@ -49,8 +49,11 @@ const PROTECTED_SCOPE_CLAUSES = [
   /\bleave\b[^.;\n]{0,120}\b(?:untouched|unchanged)\b/gi,
 ];
 
+const ACTION_CLAUSE_VERBS = "fix|add|implement|refactor|audit|test|document|create|remove|repair|investigate|ensure|prevent|enforce|build|write|review|migrate|deploy|update|change";
+
 function actionableTaskText(task) {
   let value = normalize(task)
+    .replace(new RegExp(`,\\s*(?:and\\s+|but\\s+|however\\s+)?(?=(?:${ACTION_CLAUSE_VERBS})\\b)`, "gi"), ". ")
     .replace(/,\s*(but|however|instead)\b/gi, ". $1 ");
   for (const pattern of PROTECTED_SCOPE_CLAUSES) value = value.replace(pattern, " ");
   return value.replace(/\s+/g, " ").trim();
