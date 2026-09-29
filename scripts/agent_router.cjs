@@ -50,11 +50,15 @@ const PROTECTED_SCOPE_CLAUSES = [
 ];
 
 const ACTION_CLAUSE_VERBS = "fix|add|implement|refactor|audit|test|document|create|remove|repair|investigate|ensure|prevent|enforce|build|write|review|migrate|deploy|update|change";
+// Treat a separator as a new imperative only when the verb has an object.
+// This keeps noun-like protected lists such as "workflow, test, database"
+// inside the protected clause while preserving "..., fix the payment bug".
+const ACTION_CLAUSE_START = `(?:(?:please|also)\\s+){0,2}(?:${ACTION_CLAUSE_VERBS})\\b(?=\\s+[^,.;\\n])`;
 
 function actionableTaskText(task) {
   let value = normalize(task)
-    .replace(new RegExp(`,\\s*(?:and\\s+|but\\s+|however\\s+|then\\s+)?(?=(?:${ACTION_CLAUSE_VERBS})\\b)`, "gi"), ". ")
-    .replace(new RegExp(`\\s+(?:and|but|however|then)\\s+(?=(?:${ACTION_CLAUSE_VERBS})\\b)`, "gi"), ". ")
+    .replace(new RegExp(`,\\s*(?:and\\s+|but\\s+|however\\s+|then\\s+)?(?=${ACTION_CLAUSE_START})`, "gi"), ". ")
+    .replace(new RegExp(`\\s+(?:and|but|however|then)\\s+(?=${ACTION_CLAUSE_START})`, "gi"), ". ")
     .replace(/,\s*(but|however|instead)\b/gi, ". $1 ");
   for (const pattern of PROTECTED_SCOPE_CLAUSES) value = value.replace(pattern, " ");
   return value.replace(/\s+/g, " ").trim();
