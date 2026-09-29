@@ -106,13 +106,25 @@ test("binding agent rules make cloud manager the sole Git and status lifecycle o
 
 test("cloud Codex steps explicitly trust only the manager dispatch bot", () => {
   const workflow = read(".github/workflows/cloud-agent-manager.yml");
-  const codexSteps = workflow.match(/uses: openai\/codex-action@v1/g) || [];
-  const botAllowlist = workflow.split("\n").filter((line) => line.trim() === 'allow-bot-users: "github-actions[bot]"');
+  const steps = workflow.split("\n      - name: ").slice(1);
+  const codexSteps = steps.filter((step) => /uses: openai\/codex-action@v1/.test(step));
 
   assert.ok(codexSteps.length > 0, "expected at least one Codex action step");
-  assert.equal(botAllowlist.length, codexSteps.length, "every Codex action step must explicitly allow github-actions[bot]");
-  assert.doesNotMatch(workflow, /allow-bots:\s*true/, "do not broadly trust all bot actors");
+  for (const step of codexSteps) {
+    const name = step.split("\n", 1)[0];
+    assert.match(
+      step,
+      /^\s*allow-bot-users:\s*"github-actions\[bot\]"\s*$/m,
+      `Codex step is missing the narrow github-actions[bot] allowlist: ${name}`,
+    );
+    assert.doesNotMatch(
+      step,
+      /^\s*allow-bots:\s*["']?true["']?\s*$/m,
+      `Codex step broadly trusts bot actors: ${name}`,
+    );
+  }
 });
+
 
 test("cloud workflow is owner-gated at intake, serialized, lifecycle-guarded and never auto-merges", () => {
   const workflow = read(".github/workflows/cloud-agent-manager.yml");
