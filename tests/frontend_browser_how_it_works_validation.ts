@@ -81,8 +81,8 @@ const SNAPSHOT = `(() => {
     steps: [...s.querySelectorAll('[data-testid^="hiw-step-' + a + '-"]')].map(li => ({
       n: li.getAttribute('data-step'), num: li.querySelector('.hiw-num').textContent.trim(), text: li.querySelector('.hiw-text').textContent.trim(),
       icon: li.getAttribute('data-icon'), svgIcon: li.querySelector('svg').getAttribute('data-icon'), left: Math.round(li.getBoundingClientRect().left), top: Math.round(li.getBoundingClientRect().top),
-      badge: (() => { const r = li.querySelector('.hiw-num').getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height) }; })(),
-      iconBox: (() => { const r = li.querySelector('.hiw-icon').getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height) }; })()
+      badge: (() => { const r = li.querySelector('.hiw-num').getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }; })(),
+      iconBox: (() => { const r = li.querySelector('.hiw-icon').getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }; })()
     })),
     summary: { text: s.querySelector('[data-testid="hiw-summary-' + a + '"] span:last-child').textContent.trim(), icon: s.querySelector('[data-testid="hiw-summary-' + a + '"]').getAttribute('data-icon') },
     line: (() => { const cs = getComputedStyle(s.querySelector('[data-testid="hiw-steps-' + a + '"]'), '::before'); return { position: cs.position, height: cs.height }; })()
@@ -129,6 +129,9 @@ function assertDefaultContent(snap: any, viewport: { width: number }) {
     for (const step of t.steps) {
       assert.ok(step.badge.w <= 20 && step.badge.h <= 20, `${audience}: step badge must stay subtle, got ${step.badge.w}x${step.badge.h}`);
       assert.ok(step.iconBox.w >= step.badge.w * 2, `${audience}: the icon must remain visually dominant over the number badge`);
+      const overlapW = Math.max(0, Math.min(step.badge.x + step.badge.w, step.iconBox.x + step.iconBox.w) - Math.max(step.badge.x, step.iconBox.x));
+      const overlapH = Math.max(0, Math.min(step.badge.y + step.badge.h, step.iconBox.y + step.iconBox.h) - Math.max(step.badge.y, step.iconBox.y));
+      assert.ok(overlapW <= 10 && overlapH <= 10, `${audience}: number badge must only kiss the icon edge, overlap=${overlapW}x${overlapH}`);
     }
     assert.deepEqual(t.steps.map((s: any) => s.text), expected.steps.map((s) => s.text), `${audience} steps, in order`);
     assert.deepEqual(t.steps.map((s: any) => s.icon), expected.steps.map((s) => s.icon));
