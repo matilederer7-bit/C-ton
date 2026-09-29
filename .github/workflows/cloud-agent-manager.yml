@@ -313,6 +313,13 @@ jobs:
               run_router
               load_route
               select_requested_roles
+
+              if [ "$sensitive" = true ] || [ "$tier" = apex ]; then
+                echo "This task requires the Codex-backed analysis swarm, so Claude-only failover would still fail later. Restore OpenAI runtime quota/access before running sensitive or Apex work." >> /tmp/siton-credential-blocker.md
+                publish_credential_state
+                cat /tmp/siton-credential-blocker.md >> "$GITHUB_STEP_SUMMARY"
+                exit 1
+              fi
             fi
           fi
 
