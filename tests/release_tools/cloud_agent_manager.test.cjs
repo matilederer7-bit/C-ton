@@ -136,9 +136,8 @@ test("binding agent rules make cloud manager the sole Git and status lifecycle o
   assert.match(rules, /auto-merge is forbidden/);
 });
 
-test("cloud Codex steps explicitly trust only the manager dispatch bot", () => {
+test("all cloud Codex actions trust only github-actions[bot]", () => {
   const newline = String.fromCharCode(10);
-
   const yamlScalar = (raw) => {
     let value = String(raw || "").trim();
     let quote = null;
@@ -184,9 +183,7 @@ test("cloud Codex steps explicitly trust only the manager dispatch bot", () => {
       if (indent !== withIndent + 2) continue;
       const colon = trimmed.indexOf(":");
       if (colon <= 0) continue;
-      const key = trimmed.slice(0, colon).trim();
-      const rawValue = trimmed.slice(colon + 1);
-      inputs.set(key, yamlScalar(rawValue));
+      inputs.set(trimmed.slice(0, colon).trim(), yamlScalar(trimmed.slice(colon + 1)));
     }
     return inputs;
   };
@@ -201,21 +198,20 @@ test("cloud Codex steps explicitly trust only the manager dispatch bot", () => {
       assert.equal(
         inputs.get("allow-bot-users"),
         "github-actions[bot]",
-        `Codex step is missing the narrow github-actions[bot] action input: ${name}`,
+        "Codex step is missing the narrow github-actions[bot] input: " + name,
       );
       assert.notEqual(
         String(inputs.get("allow-bots") || "").toLowerCase(),
         "true",
-        `Codex step broadly trusts bot actors: ${name}`,
+        "Codex step broadly trusts bot actors: " + name,
       );
     }
+    return codexSteps.length;
   };
 
-  // Codex runs in the manager (build, fix) and in the separate review
-  // workflow; every Codex action step in both must carry the narrow trust.
-  const workflow = read(".github/workflows/cloud-agent-manager.yml");
-  assertNarrowBotTrust(workflow);
-  assertNarrowBotTrust(read(".github/workflows/cloud-agent-review.yml"));
+  const managerCount = assertNarrowBotTrust(read(MANAGER));
+  const reviewCount = assertNarrowBotTrust(read(REVIEW));
+  assert.equal(managerCount + reviewCount, 3, "every current Cloud Manager Codex action must be guarded");
 
   const envOnly = [
     "header",
@@ -223,33 +219,24 @@ test("cloud Codex steps explicitly trust only the manager dispatch bot", () => {
     "        uses: openai/codex-action@v1",
     "        with:",
     "          openai-api-key: secret",
-    "          permission-profile: \":read-only\"",
     "        env:",
-    "          allow-bot-users: \"github-actions[bot]\"",
+    '          allow-bot-users: "github-actions[bot]"',
   ].join(newline);
-  assert.throws(
-    () => assertNarrowBotTrust(envOnly),
-    (error) => String(error && error.message).includes("missing the narrow github-actions[bot] action input"),
-    "an env entry must never satisfy the action-input guard",
-  );
+  assert.throws(() => assertNarrowBotTrust(envOnly), /missing the narrow github-actions\[bot\] input/);
 
-  for (const broadValue of ["true # broad bypass", '\"true\" # broad bypass', "'true' # broad bypass"]) {
-    const broadWithComment = [
+  // Every YAML spelling of a broad bypass is refused (#135).
+  for (const broadValue of ["true # broad bypass", '"true" # broad bypass', "'true' # broad bypass"]) {
+    const broad = [
       "header",
       "      - name: Sample",
       "        uses: openai/codex-action@v1",
       "        with:",
-      "          allow-bot-users: \"github-actions[bot]\"",
+      '          allow-bot-users: "github-actions[bot]"',
       `          allow-bots: ${broadValue}`,
     ].join(newline);
-    assert.throws(
-      () => assertNarrowBotTrust(broadWithComment),
-      (error) => String(error && error.message).includes("broadly trusts bot actors"),
-      `broad bot trust must be rejected for scalar: ${broadValue}`,
-    );
+    assert.throws(() => assertNarrowBotTrust(broad), /broadly trusts bot actors/, broadValue);
   }
 });
-
 
 test("cloud workflow is owner-gated at intake, serialized, lifecycle-guarded and never auto-merges", () => {
   const workflow = read(".github/workflows/cloud-agent-manager.yml");

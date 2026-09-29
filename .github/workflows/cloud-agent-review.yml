@@ -213,6 +213,7 @@ jobs:
         if: inputs.reviewer == 'codex'
         uses: openai/codex-action@v1
         with:
+          allow-bot-users: "github-actions[bot]"
           openai-api-key: ${{ secrets.openai_api_key }}
           permission-profile: ":read-only"
           prompt-file: .siton-review-prompt.md
