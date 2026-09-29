@@ -8,7 +8,7 @@
 //
 // Proven here end to end against the real server, the real database and the
 // real React bundle:
-//   * the public landing (desktop + mobile): the section sits right after the
+//   * the public landing (desktop + mobile): the section sits after the locked value proposition under the
 //     hero, in RTL, with the exact default words in the right order, numbers
 //     1–4, one icon per step, the two summary lines with DIFFERENT icons, the
 //     connector line, no seller sign-up button inside it, no old "steps"
@@ -85,10 +85,12 @@ const SNAPSHOT = `(() => {
     line: (() => { const cs = getComputedStyle(s.querySelector('[data-testid="hiw-steps-' + a + '"]'), '::before'); return { position: cs.position, height: cs.height }; })()
   });
   const r = s.getBoundingClientRect();
-  const hero = document.querySelector('[data-testid="landing-block-hero"]');
+  const value = document.querySelector('[data-testid="landing-block-value"]');
   return {
     dir: getComputedStyle(s).direction, title: s.querySelector('h2').textContent.trim(),
-    afterHero: !!hero && s.previousElementSibling === hero, width: Math.round(r.width), visible: r.height > 0,
+    previousBlock: s.previousElementSibling ? s.previousElementSibling.getAttribute('data-testid') : null,
+    value: value ? { title: value.querySelector('h2')?.textContent.trim(), body: value.querySelector('p')?.textContent.trim() } : null,
+    width: Math.round(r.width), visible: r.height > 0,
     buttons: s.querySelectorAll('button, a').length, svgs: s.querySelectorAll('svg').length,
     oldSteps: document.querySelectorAll('[data-block-type="steps"]').length,
     oldColumns: document.querySelectorAll('[data-block-type="columns"], [data-testid="landing-block-audiences"]').length,
@@ -103,12 +105,14 @@ const SNAPSHOT = `(() => {
 function assertDefaultContent(snap: any, viewport: { width: number }) {
   assert.equal(snap.dir, "rtl");
   assert.equal(snap.title, HOW_IT_WORKS_HE.title);
-  assert.equal(snap.afterHero, true, "the infographic is not right after the hero");
+  assert.equal(snap.previousBlock, "landing-block-value", "the infographic must sit immediately after the value proposition");
+  assert.deepEqual(snap.value, { title: LANDING_HE.valueProposition.title, body: LANDING_HE.valueProposition.body }, "the owner value proposition is missing or changed");
   assert.equal(snap.visible, true);
   assert.equal(snap.oldSteps, 0, "the former text steps section is still on the page");
   assert.equal(snap.oldColumns, 0, "the former buyers/sellers columns block must be gone (the infographic replaces it, no duplicate explanation)");
-  assert.deepEqual(snap.blocks, ["hero", "how", "trust", "faq", "contact"], "the home flow: hero → infographic → trust → FAQ → contact");
-  assert.equal(snap.nextBlock, "landing-block-trust", "the infographic takes the columns block's place, before the trust section");
+  assert.deepEqual(snap.blocks, ["hero", "value", "how", "faq", "contact"], "the home flow: hero → value proposition → infographic → FAQ → contact");
+  assert.equal(snap.nextBlock, "landing-block-faq", "the removed trust section must not sit between the infographic and FAQ");
+  assert.equal(snap.blocks.includes("trust"), false, "the removed 'what happens if the target is not reached' section returned to the homepage");
   assert.equal(snap.buttons, 0, "no button or link belongs inside the infographic (the seller sign-up button lives elsewhere)");
   assert.ok(snap.sellerButtonsOutside >= 1, "the seller sign-up button must still exist elsewhere on the page");
   assert.equal(snap.svgs, 10, "8 step icons + 2 summary icons");
@@ -200,7 +204,7 @@ async function main() {
           preview: document.querySelector('[data-testid="cms-field-how-buyer_icon_2-icon"]').getAttribute('data-icon'),
           textInputs: b.querySelectorAll('input[type="text"]').length, iconSelects: b.querySelectorAll('select').length };
       })()`);
-      assert.equal(editor.type, "how_it_works"); assert.equal(editor.position, "1");
+      assert.equal(editor.type, "how_it_works"); assert.equal(editor.position, "2");
       assert.equal(editor.fixed, true, "the block is marked fixed"); assert.equal(editor.remove, false, "a fixed block has no remove button"); assert.equal(editor.hide, false, "a fixed block cannot be hidden");
       assert.equal(editor.word, "בוחרים כמות ומשלוח"); assert.equal(editor.icon, "cart"); assert.equal(editor.preview, "cart");
       assert.ok(editor.options.includes(NEW_ICON) && !editor.options.includes("evil"), "the icon list is the whitelist");
@@ -282,7 +286,8 @@ async function main() {
       // the stored page keeps its hidden blocks too; it must equal the page before the old draft, without `audiences`
       assert.deepEqual(stored.value_jsonb.blocks.map((b: any) => b.id), current.blocks.map((b: any) => b.id));
       assert.ok(!stored.value_jsonb.blocks.some((b: any) => b.id === "audiences"), "the retired block was published");
-      assert.equal(stored.value_jsonb.blocks[1].type, "how_it_works");
+      assert.equal(stored.value_jsonb.blocks[1].id, "value");
+      assert.equal(stored.value_jsonb.blocks[2].type, "how_it_works");
       assert.deepEqual(appErrors(page!), []);
     });
     console.log("HOW_IT_WORKS_BROWSER_PASS");
