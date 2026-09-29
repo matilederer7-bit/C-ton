@@ -6,7 +6,7 @@ Status: binding operating model for agent-led engineering work.
 
 GitHub is the shared control plane. Issues define work, Pull Requests carry code and evidence, checks supply machine verdicts, and `PROJECT_STATUS.md` remains the executive snapshot. Chat threads are not canonical handoff storage.
 
-The owner's computer is not required for cloud-managed runs. `.github/workflows/cloud-agent-manager.yml` executes on a GitHub-hosted runner and owns the task branch, canonical verification, status slot, commit, push and Pull Request. It never auto-merges.
+The owner's computer is not required for cloud-managed runs. Each review pass runs in its own job on a fresh runner (`cloud-agent-review.yml`): it applies the builder's patch onto a clean master checkout only after copying the control scripts and the read-only guard aside, and invokes only those copies, so nothing the builder executed can reach the reviewer. `.github/workflows/cloud-agent-manager.yml` executes on a GitHub-hosted runner and owns the task branch, canonical verification, status slot, commit, push and Pull Request. It never auto-merges.
 
 ## Team topology
 
