@@ -392,20 +392,26 @@ test('Apex cannot be silently skipped by explicit provider role overrides', () =
   assert.equal(chooseRoles({ requestedBuilder: 'claude', requestedReviewer: 'codex', hasClaude: true, hasCodex: true, tier: 'apex' }).reviewer, 'codex');
 });
 
-test('model access preflight confirms metadata without claiming inference and never downgrades', async () => {
+test('model access preflight proves a tiny real inference and never downgrades', async () => {
   const model = 'gpt-6-astra';
   const result = await verifyModelAccess({ apiKey: 'test-only', model, fetchImpl: async (url, options) => {
-    assert.equal(url, 'https://api.openai.com/v1/models/gpt-6-astra');
+    assert.equal(url, 'https://api.openai.com/v1/responses');
+    assert.equal(options.method, 'POST');
     assert.equal(options.headers.Authorization, 'Bearer test-only');
-    return { ok: true, json: async () => ({ id: model }) };
+    assert.equal(options.headers['Content-Type'], 'application/json');
+    const body = JSON.parse(options.body);
+    assert.equal(body.model, model);
+    assert.equal(body.reasoning.effort, 'none');
+    assert.equal(body.max_output_tokens, 4);
+    assert.equal(body.store, false);
+    return { ok: true, status: 200 };
   } });
-  assert.equal(result.inferenceVerified, false);
+  assert.equal(result.inferenceVerified, true);
   for (const status of [401, 403, 404, 429]) {
     await assert.rejects(verifyModelAccess({ apiKey: 'test-only', model, fetchImpl: async () => ({ ok: false, status }) }), /No downgrade/);
   }
   await assert.rejects(verifyModelAccess({ model }), /OPENAI_API_KEY/);
   await assert.rejects(verifyModelAccess({ apiKey: 'test-only', model: 'invented' }), /Unknown/);
-  await assert.rejects(verifyModelAccess({ apiKey: 'test-only', model, fetchImpl: async () => ({ ok: true, json: async () => ({ id: 'gpt-5.6-sol' }) }) }), /did not confirm/);
 });
 
 // Workflow wiring guards cover the inputs that previously never reached the router.
@@ -420,7 +426,7 @@ test('manager and swarm wire Apex end to end without raising all analyst tiers',
   assert.match(intake, /\[source-issue:/);
   assert.match(workflow, /SITON_ISSUE_BODY: \$\{\{ inputs\.task \}\}/);
   assert.match(workflow, /export SITON_MODEL_TIER="\$tier"/);
-  assert.match(workflow, /SITON_CODEX_MODEL: \$\{\{ steps\.roles\.outputs\.codex_model \}\}/);
+  assert.match(workflow, /SITON_CODEX_MODEL="\$codex_model" node scripts\/agent_model_access\.cjs/);
   assert.match(workflow, /SITON_CODEX_MODEL: \$\{\{ needs\.route\.outputs\.codex_model \}\}/);
   assert.match(workflow, /apex_reason: \$\{\{ steps\.roles\.outputs\.apex_reason \}\}/);
   assert.match(workflow, /SITON_APEX_REASON: \$\{\{ needs\.route\.outputs\.apex_reason \}\}/);
@@ -431,6 +437,21 @@ test('manager and swarm wire Apex end to end without raising all analyst tiers',
   assert.match(swarm, /'apex' \|\| 'senior'/);
   assert.match(swarm, /lane: tests\s+model: gpt-5\.6-luna/);
   assert.match(swarm, /lane: security\s+model: gpt-5\.6-sol/);
+});
+
+test("route probes real Codex inference and fails over only for auto-selected roles", () => {
+  const workflow = read(".github/workflows/cloud-agent-manager.yml");
+  const route = jobsOf(workflow).route;
+  const roles = stepNamed(route, "Resolve runtime-capable providers and roles");
+  assert.match(roles, /SITON_CODEX_MODEL="\$codex_model" node scripts\/agent_model_access\.cjs/);
+  assert.match(roles, /HAS_CODEX=false/);
+  assert.match(roles, /Auto failover: rerouting this run to Claude/);
+  assert.match(roles, /REQUESTED_BUILDER.*codex/);
+  assert.match(roles, /REQUESTED_REVIEWER.*codex/);
+  assert.match(roles, /will not silently change provider/);
+  assert.match(roles, /No Claude credential is available for failover/);
+  assert.match(route, /credential_state: \$\{\{ steps\.roles\.outputs\.credential_state \|\| steps\.credentials\.outputs\.state_b64 \}\}/);
+  assert.equal((route.match(/node scripts\/agent_model_access\.cjs/g) || []).length, 1);
 });
 
 test("a credential-blocked run still reaches the owner on the source issue", () => {
