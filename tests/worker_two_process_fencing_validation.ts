@@ -118,18 +118,28 @@ async function waitReady(handle: WorkerHandle) {
 }
 
 async function insertEventsForDeals(dealIds: string[], tag: string) {
-  const ids: string[] = [];
-  for (const [index, dealId] of dealIds.entries()) {
-    const inserted = await admin.query(
-      `INSERT INTO siton.outbox_events
-         (event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at, correlation_id)
-       VALUES ('deadline_check','deal',$1,$2,'pending',0,now(),$3)
-       RETURNING event_uuid`,
-      [dealId, JSON.stringify({ deal_id: dealId, synthetic: tag }), `r4proof:${tag}:${index}`]
-    );
-    ids.push(String(inserted.rows[0].event_uuid));
-  }
-  return ids;
+  // Publish the whole synthetic batch in ONE statement. If rows are inserted
+  // one-by-one, a fast worker can claim only the first one or two and then
+  // block inside the handler before the rest exist, making the required 3+3
+  // phase arrangement impossible for reasons unrelated to fencing.
+  const inserted = await admin.query(
+    `INSERT INTO siton.outbox_events
+       (event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at, correlation_id)
+     SELECT
+       'deadline_check',
+       'deal',
+       input.deal_id,
+       jsonb_build_object('deal_id', input.deal_id::text, 'synthetic', $2::text),
+       'pending',
+       0,
+       now(),
+       'r4proof:' || $2::text || ':' || (input.ord - 1)::text
+     FROM unnest($1::uuid[]) WITH ORDINALITY AS input(deal_id, ord)
+     ORDER BY input.ord
+     RETURNING event_uuid`,
+    [dealIds, tag]
+  );
+  return inserted.rows.map((row) => String(row.event_uuid));
 }
 
 async function insertEvents(count: number, tag: string) {
