@@ -47,6 +47,31 @@ function normalize(value) {
 // the Senior floor even when written as their own sentence.
 const PROTECTED_SCOPE_PREFIX = /^(?:(?:do not|don't|must not|never)\s+(?:change|touch|modify|edit|alter|update|migrate|deploy|affect)\b|without\s+(?:changing|touching|modifying|editing|altering|updating|migrating|deploying|affecting)\b|no\s+(?:changes?|edits?|modifications?|migrations?|deployments?)\s+(?:to|in)\b|leave\b.*?\b(?:untouched|unchanged)\b)/i;
 
+const MIXED_SCOPE_ACTION = /\b(?:fix|resolve|patch|repair|implement|update|change|modify|add|remove|correct|refactor|rewrite|adjust|secure|harden|prevent|enforce|create|investigate|audit|address|handle|remediate)\b/i;
+
+function whollyProtectedFragment(fragment, index, total) {
+  if (!PROTECTED_SCOPE_PREFIX.test(fragment)) return false;
+  // A protected-looking fragment followed by another sentence is ambiguous:
+  // keep it. This prevents "Do not modify docs, fix payment bug. Add tests."
+  // from hiding the sensitive action.
+  if (index < total - 1) return false;
+
+  const commas = (fragment.match(/,/g) || []).length;
+  if (!commas) return true;
+
+  // Oxford-list terminator followed by another clause is mixed work.
+  if (/,\s*or\s+[^,]+,\s*.+/i.test(fragment)) return false;
+
+  const last = fragment.slice(fragment.lastIndexOf(",") + 1).trim();
+  // A one-comma protected list such as "database, payments or auth" is scope.
+  // Otherwise keep the ambiguity rather than suppress a real action.
+  if (commas === 1) return /\bor\b/i.test(last);
+
+  // For longer lists, a final action marker means the sentence is mixed.
+  if (MIXED_SCOPE_ACTION.test(last)) return false;
+  return true;
+}
+
 function actionableTaskText(task) {
   const fragments = normalize(task)
     .split(/[.;\n]+/)
@@ -55,7 +80,7 @@ function actionableTaskText(task) {
 
   if (fragments.length <= 1) return fragments[0] || "";
 
-  const actionable = fragments.filter((fragment) => !PROTECTED_SCOPE_PREFIX.test(fragment));
+  const actionable = fragments.filter((fragment, index) => !whollyProtectedFragment(fragment, index, fragments.length));
   // Fail safe: if every fragment looks protected, retain the original text
   // rather than hiding potentially sensitive work.
   return (actionable.length ? actionable : fragments)
