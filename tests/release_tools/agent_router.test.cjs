@@ -86,6 +86,14 @@ test("auto classification ignores protected scope but keeps real sensitive work"
     /resolve the payment bug/,
   );
   assert.match(
+    actionableTaskText("Do not modify docs, tests, tooling, resolve the payment bug."),
+    /resolve the payment bug/,
+  );
+  assert.doesNotMatch(
+    actionableTaskText("Add a note. Do not change workflow, test infrastructure, database, payments, auth, or product behavior."),
+    /database|payments|auth|product behavior/,
+  );
+  assert.match(
     actionableTaskText("Do not modify unrelated docs and please resolve a payment bug."),
     /please resolve a payment bug/,
   );
