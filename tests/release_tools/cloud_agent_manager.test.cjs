@@ -435,8 +435,12 @@ test('manager and swarm wire Apex end to end without raising all analyst tiers',
   assert.match(form, /label: Apex evidence/);
   assert.match(swarm, /model: \$\{\{ steps\.head_route\.outputs\.codex_model \}\}/);
   assert.match(swarm, /'apex' \|\| 'senior'/);
-  assert.match(swarm, /lane: tests\s+model: gpt-5\.6-luna/);
-  assert.match(swarm, /lane: security\s+model: gpt-5\.6-sol/);
+  assert.match(swarm, /lane: tests\s+tier: economy/);
+  assert.match(swarm, /lane: security\s+tier: senior/);
+  assert.match(swarm, /Resolve analyst model from tier policy/);
+  assert.match(swarm, /codexModelForTier\(process\.env\.ANALYST_TIER\)/);
+  assert.match(swarm, /model: \$\{\{ steps\.analyst_model\.outputs\.model \}\}/);
+  assert.doesNotMatch(swarm, /model: gpt-5\.6-/);
 });
 
 test("route probes real Codex inference and fails over only for auto-selected roles", () => {
@@ -444,7 +448,7 @@ test("route probes real Codex inference and fails over only for auto-selected ro
   const route = jobsOf(workflow).route;
   const roles = stepNamed(route, "Resolve runtime-capable providers and roles");
   assert.match(roles, /probe_models="\$codex_model"/);
-  assert.match(roles, /gpt-5\.6-terra gpt-5\.6-sol gpt-5\.6-luna/);
+  assert.match(roles, /\["economy", "standard", "senior"\]\.map\(\(tier\) => codexModelForTier\(tier\)\)/);
   assert.match(roles, /SITON_CODEX_MODEL="\$model" node scripts\/agent_model_access\.cjs/);
   assert.match(roles, /HAS_CODEX=false/);
   assert.match(roles, /Auto failover: rerouting this run to Claude/);
