@@ -451,7 +451,8 @@ test("route probes real Codex inference and fails over only for auto-selected ro
   assert.match(roles, /will not silently change provider/);
   assert.match(roles, /No Claude credential is available for failover/);
   assert.match(roles, /requires the Codex-backed analysis swarm/);
-  assert.match(roles, /\[ "\$sensitive" = true \] \|\| \[ "\$tier" = apex \]/);
+  assert.match(roles, /\[ "\$selected_builder" = codex \].*\[ "\$selected_reviewer" = codex \].*\[ "\$sensitive" = true \].*\[ "\$tier" = apex \]/s);
+  assert.match(roles, /requires the Codex-backed analysis swarm/);
   assert.match(route, /credential_state: \$\{\{ steps\.roles\.outputs\.credential_state \|\| steps\.credentials\.outputs\.state_b64 \}\}/);
   assert.equal((route.match(/node scripts\/agent_model_access\.cjs/g) || []).length, 1);
 });
@@ -471,7 +472,7 @@ test("a credential-blocked run still reaches the owner on the source issue", () 
   const names = stepsOf(route).map((step) => step.split("\n")[0]);
   assert.ok(names.indexOf("- name: Record cloud credential state") < names.indexOf("- name: Resolve runtime-capable providers and roles"));
   assert.doesNotMatch(stepNamed(route, "Record cloud credential state"), /exit 1/);
-  assert.match(route, /credential_state: \$\{\{ steps\.credentials\.outputs\.state_b64 \}\}/);
+  assert.match(route, /credential_state: \$\{\{ steps\.roles\.outputs\.credential_state \|\| steps\.credentials\.outputs\.state_b64 \}\}/);
   assert.match(stepNamed(jobsOf(workflow).finalize, "Report result to source issue"), /CREDENTIAL_STATE: \$\{\{ needs\.route\.outputs\.credential_state \}\}/);
   assert.match(intake, /permissions:\n  contents: read\n  issues: write\n  actions: write/);
   assert.match(intake, /Acknowledge on the source issue/);
