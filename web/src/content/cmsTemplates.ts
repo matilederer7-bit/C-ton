@@ -94,6 +94,8 @@ export interface PageContract {
    * product replaced can never come back beside its replacement.
    */
   retired?: string[];
+  /** fields that must stay non-empty on specific structural block ids */
+  requiredFields?: Record<string, readonly string[]>;
   maxBlocks: number;
   /** legacy flat field → (block id, field) mapping, for content stored before the block model */
   legacy: Record<string, [string, string]>;
@@ -338,6 +340,7 @@ export const PAGE_CONTRACTS: Record<string, PageContract> = {
     // Retired home blocks are dropped from stored older pages and refused on
     // write, so removed public sections cannot be accidentally re-enabled.
     retired: ["audiences", "trust"],
+    requiredFields: { value: ["title", "body"] },
     maxBlocks: 20,
     legacy: { title: ["hero", "title"], sub: ["hero", "subtitle"], intro: ["hero", "body"], image: ["hero", "image"], login_cta: ["hero", "primary_cta_label"], signup_cta: ["hero", "secondary_cta_label"] },
     defaults: () => [
@@ -616,8 +619,13 @@ export function normalizePage(raw: unknown, contract: PageContract): PageContent
   }
   const defaults = contract.defaults();
   const lockedBlocks = contract.locked.map(l => {
-    const found = blocks.find(b => b.id === l.id) || defaults.find(b => b.id === l.id) || emptyBlock(l.type, l.id);
-    return { ...found, enabled: true };
+    const fallback = defaults.find(b => b.id === l.id) || emptyBlock(l.type, l.id);
+    const found = blocks.find(b => b.id === l.id) || fallback;
+    const fields = { ...found.fields };
+    for (const key of contract.requiredFields?.[l.id] ?? []) {
+      if (!fields[key]?.trim()) fields[key] = fallback.fields[key] ?? "";
+    }
+    return { ...found, enabled: true, fields };
   });
   const rest = blocks.filter(b => !contract.locked.some(l => l.id === b.id));
   return withShippedEnglish({ blocks: [...lockedBlocks, ...rest] }, contract);
@@ -662,6 +670,9 @@ export function validatePage(raw: unknown, contract: PageContract): PageContent 
     if (Object.keys(rawFields).some(k => !has(t.fields, k))) fail("invalid_content_field", path);
     const fields: Record<string, string> = {};
     for (const [k, def] of Object.entries(t.fields)) fields[k] = validateField(rawFields[k], def, `${path}.${k}`, item.enabled);
+    for (const key of contract.requiredFields?.[id] ?? []) {
+      if (!fields[key]?.trim()) fail("required_field_missing", `${path}.${key}`);
+    }
     const block: Block = { id, type: type as TemplateId, enabled: item.enabled, fields };
     // English carries the same safety rules (no HTML, same length ceiling,
     // same asset/link shapes) but is never REQUIRED: a blank English value is
