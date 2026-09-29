@@ -443,7 +443,9 @@ test("route probes real Codex inference and fails over only for auto-selected ro
   const workflow = read(".github/workflows/cloud-agent-manager.yml");
   const route = jobsOf(workflow).route;
   const roles = stepNamed(route, "Resolve runtime-capable providers and roles");
-  assert.match(roles, /SITON_CODEX_MODEL="\$codex_model" node scripts\/agent_model_access\.cjs/);
+  assert.match(roles, /probe_models="\$codex_model"/);
+  assert.match(roles, /gpt-5\.6-terra gpt-5\.6-sol gpt-5\.6-luna/);
+  assert.match(roles, /SITON_CODEX_MODEL="\$model" node scripts\/agent_model_access\.cjs/);
   assert.match(roles, /HAS_CODEX=false/);
   assert.match(roles, /Auto failover: rerouting this run to Claude/);
   assert.match(roles, /REQUESTED_BUILDER.*codex/);
@@ -455,6 +457,7 @@ test("route probes real Codex inference and fails over only for auto-selected ro
   assert.match(roles, /requires the Codex-backed analysis swarm/);
   assert.match(route, /credential_state: \$\{\{ steps\.roles\.outputs\.credential_state \|\| steps\.credentials\.outputs\.state_b64 \}\}/);
   assert.equal((route.match(/node scripts\/agent_model_access\.cjs/g) || []).length, 1);
+  assert.match(roles, /failed_model="\$model"/);
 });
 
 test("a credential-blocked run still reaches the owner on the source issue", () => {
