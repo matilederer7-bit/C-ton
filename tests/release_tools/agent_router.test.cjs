@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { buildMetric, inferType, routeTask } = require("../../scripts/agent_router.cjs");
+const { actionableTaskText, buildMetric, inferType, routeTask } = require("../../scripts/agent_router.cjs");
 
 test("router reserves senior execution for money, database and security", () => {
   for (const taskType of ["payments", "database", "security"]) {
@@ -26,6 +26,27 @@ test("standard work uses the balanced model instead of the senior model", () => 
   const route = routeTask({ taskType: "backend", risk: "normal", tier: "auto" });
   assert.equal(route.tier, "standard");
   assert.equal(route.codexModel, "gpt-5.6-terra");
+});
+
+test("protected do-not-touch scope never escalates a cheap task", () => {
+  const task = "Add a short operational note to the docs. Do not change any runtime code, workflow, test, database, payments, auth, product behavior or configuration.";
+  const route = routeTask({ task, taskType: "docs", risk: "low", tier: "economy" });
+  assert.equal(route.tier, "economy");
+  assert.equal(route.sensitive, false);
+  assert.equal(route.codexModel, "gpt-5.6-luna");
+  assert.doesNotMatch(actionableTaskText(task), /database|payments|auth/);
+});
+
+test("auto classification ignores protected scope but keeps real sensitive work", () => {
+  assert.equal(inferType("Update documentation. Do not change database, payments or auth."), "docs");
+  const sensitive = routeTask({
+    task: "Fix the deal state machine transition race. Do not change documentation.",
+    taskType: "backend",
+    risk: "normal",
+    tier: "economy",
+  });
+  assert.equal(sensitive.tier, "senior");
+  assert.equal(sensitive.sensitive, true);
 });
 
 test("router prefers separate ecosystems and degrades honestly", () => {
