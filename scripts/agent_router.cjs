@@ -38,51 +38,27 @@ function normalize(value) {
   return String(value || "").trim().toLowerCase();
 }
 
-// Routing must classify the work being requested, not protected scope. Do not
-// try to infer English imperative verbs here: that approach is brittle. Instead
-// split on sentence boundaries and treat clearly protected fragments
-// structurally. Ambiguous mixed fragments are preserved conservatively.
+// Routing must classify requested work, not a separate do-not-touch sentence.
+// Natural-language clause parsing proved too brittle: a mixed single sentence
+// is therefore NEVER trimmed. It stays intact and routes conservatively. Only
+// clearly separate protected fragments are removed when another fragment
+// contains the actual task. Intrinsic-sensitive checks still inspect the
+// original text, so invariants such as "must not update the ledger twice" keep
+// the Senior floor even when written as their own sentence.
 const PROTECTED_SCOPE_PREFIX = /^(?:(?:do not|don't|must not|never)\s+(?:change|touch|modify|edit|alter|update|migrate|deploy|affect)\b|without\s+(?:changing|touching|modifying|editing|altering|updating|migrating|deploying|affecting)\b|no\s+(?:changes?|edits?|modifications?|migrations?|deployments?)\s+(?:to|in)\b|leave\b.*?\b(?:untouched|unchanged)\b)/i;
-
-function protectedFragmentRemainder(fragment) {
-  if (!PROTECTED_SCOPE_PREFIX.test(fragment)) return fragment;
-
-  const commas = (fragment.match(/,/g) || []).length;
-
-  // Explicit contrast always starts a new clause, even after a protected list.
-  const contrast = /\b(?:but|however|then|instead)\b\s+(.+)$/i.exec(fragment);
-  if (contrast) return contrast[1].trim();
-
-  // For comma-separated protected text, preserve only the final ambiguous
-  // suffix. That keeps "..., resolve the payment bug" visible without leaking
-  // earlier protected nouns such as database/payments/auth into routing. A
-  // final "or ..." is structurally still a list item and can be dropped.
-  if (commas >= 1) {
-    const suffix = fragment.slice(fragment.lastIndexOf(",") + 1).trim();
-    if (/^or\b/i.test(suffix)) return "";
-    return suffix
-      .replace(/^\s*(?:and|but|however|then|instead)\s+/i, "")
-      .trim();
-  }
-
-  // Likewise preserve a conjunction suffix when no comma-list exists. This
-  // covers "do not modify docs and please/also fix ..." without maintaining a
-  // finite verb allowlist. Two-item protected lists may conservatively
-  // over-escalate, but cannot hide sensitive work.
-  const conjunction = /\band\s+(.+)$/i.exec(fragment);
-  if (conjunction) return conjunction[1].trim();
-
-  return "";
-}
 
 function actionableTaskText(task) {
   const fragments = normalize(task)
     .split(/[.;\n]+/)
     .map((fragment) => fragment.trim())
     .filter(Boolean);
-  return fragments
-    .map(protectedFragmentRemainder)
-    .filter(Boolean)
+
+  if (fragments.length <= 1) return fragments[0] || "";
+
+  const actionable = fragments.filter((fragment) => !PROTECTED_SCOPE_PREFIX.test(fragment));
+  // Fail safe: if every fragment looks protected, retain the original text
+  // rather than hiding potentially sensitive work.
+  return (actionable.length ? actionable : fragments)
     .join(" ")
     .replace(/\s+/g, " ")
     .trim();
