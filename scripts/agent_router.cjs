@@ -50,7 +50,8 @@ const PROTECTED_SCOPE_CLAUSES = [
 ];
 
 function actionableTaskText(task) {
-  let value = normalize(task);
+  let value = normalize(task)
+    .replace(/,\s*(but|however|instead)\b/gi, ". $1 ");
   for (const pattern of PROTECTED_SCOPE_CLAUSES) value = value.replace(pattern, " ");
   return value.replace(/\s+/g, " ").trim();
 }
@@ -72,10 +73,15 @@ function inferType(task) {
 // declared type chooses the builder, but a mislabelled or keyword-only task
 // never lowers the compute tier of sensitive work.
 const SENSITIVE_TEXT = /architect|state[ -]?machine|transition|concurren|idempoten|race condition|deadlock|outbox|webhook|\bauth|login|session|token|otp|permission|rbac|secret|password|migration|schema|postgres|supabase|\bsql\b|payment|payout|refund|charge|invoice|\bvat\b|\bfee\b|money|grow\b/;
+// Specific mechanics are safety-significant even when they appear inside a
+// negative sentence ("must not update the payment ledger twice"). Broad scope
+// nouns such as "database/payments/auth" are intentionally absent here.
+const INTRINSIC_SENSITIVE_TEXT = /architect|state[ -]?machine|transition|concurren|idempoten|race condition|deadlock|outbox|webhook|login|session|token|otp|permission|rbac|secret|password|migration|schema|postgres|supabase|\bsql\b|ledger|payout|refund|charge|invoice|\bvat\b|\bfee\b/;
 
 function sensitiveText(task) {
+  const original = normalize(task);
   const value = actionableTaskText(task);
-  return SENSITIVE_TEXT.test(value) || ["database", "security", "payments"].includes(inferType(value));
+  return INTRINSIC_SENSITIVE_TEXT.test(original) || SENSITIVE_TEXT.test(value) || ["database", "security", "payments"].includes(inferType(value));
 }
 
 function routeTask({ task = "", taskType = "auto", risk = "normal", tier = "auto", apexReason = "none", apexEvidence = "", hasClaude = true, hasCodex = true, env = process.env } = {}) {
