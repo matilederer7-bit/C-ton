@@ -191,7 +191,7 @@ await run("camera policy: app.ts allows camera for our own page only (self), mic
 await run("web dependencies: exactly two additions, both zero-dependency, pinned exact (qrcode-generator, jsqr)", () => {
   const pkg = JSON.parse(read("web/package.json"));
   assert.deepEqual(Object.keys(pkg.dependencies).sort(), ["jsqr", "qrcode-generator", "react", "react-dom"]);
-  assert.equal(pkg.dependencies["qrcode-generator"], "1.4.4");
+  assert.equal(pkg.dependencies["qrcode-generator"], "2.0.4");
   assert.equal(pkg.dependencies.jsqr, "1.4.0");
 });
 
