@@ -151,7 +151,7 @@ jobs:
         run: echo "started_epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
 
       - name: Checkout canonical master
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: master
           fetch-depth: 1
@@ -297,7 +297,7 @@ jobs:
       patch_sha256: ${{ steps.export.outputs.patch_sha256 }}
     steps:
       - name: Checkout canonical master at the task base
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.route.outputs.base_sha }}
           fetch-depth: 0
@@ -422,7 +422,7 @@ jobs:
           echo "patch_sha256=$(sha256sum "$out/siton-managed.patch" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Upload task patch
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: siton-patch-1
           path: ${{ runner.temp }}/siton-patch
@@ -441,7 +441,7 @@ jobs:
       - name: Upload builder execution record
         if: always() && needs.route.outputs.builder == 'claude'
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: siton-exec-build
           path: ${{ runner.temp }}/siton-exec
@@ -502,7 +502,7 @@ jobs:
       patch_sha256: ${{ steps.export.outputs.patch_sha256 }}
     steps:
       - name: Checkout canonical master at the task base
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.route.outputs.base_sha }}
           fetch-depth: 0
@@ -647,7 +647,7 @@ jobs:
           echo "patch_sha256=$(sha256sum "$out/siton-managed.patch" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Upload fixed patch
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: siton-patch-2
           path: ${{ runner.temp }}/siton-patch-2
@@ -666,7 +666,7 @@ jobs:
       - name: Upload fix execution record
         if: always() && needs.route.outputs.builder == 'claude'
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: siton-exec-fix
           path: ${{ runner.temp }}/siton-exec
@@ -714,7 +714,7 @@ jobs:
       issues: write
     steps:
       - name: Checkout canonical master at the task base
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.route.outputs.base_sha || github.sha }}
           fetch-depth: 1
@@ -1036,7 +1036,7 @@ jobs:
       - name: Upload agent-run telemetry
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: agent-run-${{ github.run_id }}
           path: agent-run-metric.json

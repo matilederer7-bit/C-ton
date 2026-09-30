@@ -62,7 +62,7 @@ jobs:
       docker_release_lab: ${{ steps.classify.outputs.docker_release_lab }}
       preflight_database: ${{ steps.classify.outputs.preflight_database }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: actions/setup-node@v4
@@ -88,7 +88,7 @@ jobs:
             --json .ci-artifacts/classification.json
           node -e 'const c=require("./.ci-artifacts/classification.json");if(!c.claim.accepted)console.log("::error title=CI profile proposal rejected::"+c.claim.error)'
           rm -f .ci-artifacts/pr-body.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ci-classification-${{ github.run_id }}
           path: .ci-artifacts/classification.json
@@ -111,7 +111,7 @@ jobs:
       run:
         shell: bash --noprofile --norc -eo pipefail {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: ./.github/actions/siton-setup
@@ -195,7 +195,7 @@ jobs:
 
       - name: Upload static reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: static-gates-reports-${{ github.run_id }}
           path: |
@@ -243,7 +243,7 @@ jobs:
       PAYMENT_PROVIDER_MODE: mock-backed
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/siton_ci
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 2
       - uses: ./.github/actions/siton-setup
@@ -287,7 +287,7 @@ jobs:
       # screens in Hebrew and in English, desktop and phone.
       - name: Upload bilingual screenshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: i18n-screens-${{ matrix.lane }}-${{ github.run_id }}
           path: .ci-artifacts/i18n-screens
@@ -295,7 +295,7 @@ jobs:
           retention-days: 14
       - name: Upload lane reports and test manifests
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ci-lane-${{ matrix.lane }}-${{ github.run_id }}
           path: .ci-artifacts/
@@ -338,7 +338,7 @@ jobs:
       PAYMENT_PROVIDER_MODE: mock-backed
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/siton_ci
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 2
       - uses: ./.github/actions/siton-setup
@@ -358,7 +358,7 @@ jobs:
           node scripts/run_test_group.cjs focused 2>&1 | tee .ci-artifacts/test-focused.log
       - name: Upload focused reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ci-lane-focused-${{ github.run_id }}
           path: .ci-artifacts/
@@ -381,7 +381,7 @@ jobs:
       run:
         shell: bash --noprofile --norc -eo pipefail {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/siton-setup
         with:
           web: "false"
@@ -393,7 +393,7 @@ jobs:
         run: npm run ci:web-runtime 2>&1 | tee .ci-artifacts/web-runtime-core.log
       - name: Upload focused Web runtime reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: web-runtime-core-${{ github.run_id }}
           path: .ci-artifacts/
@@ -413,7 +413,7 @@ jobs:
       run:
         shell: bash --noprofile --norc -eo pipefail {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/siton-setup
         with:
           web: "false"
@@ -423,7 +423,7 @@ jobs:
         run: npm run ci:web-runtime:extended 2>&1 | tee .ci-artifacts/web-runtime-resilience.log
       - name: Upload Web resilience reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: web-runtime-resilience-${{ github.run_id }}
           path: .ci-artifacts/
@@ -443,7 +443,7 @@ jobs:
       run:
         shell: bash --noprofile --norc -eo pipefail {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/siton-setup
         with:
           web: "false"
@@ -453,7 +453,7 @@ jobs:
         run: npm run ci:docker-smoke 2>&1 | tee .ci-artifacts/docker-smoke.log
       - name: Upload Docker smoke reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: docker-smoke-${{ github.run_id }}
           path: .ci-artifacts/
@@ -472,7 +472,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/siton-setup
         with:
           web: "false"
@@ -482,7 +482,7 @@ jobs:
         run: npm run release:local-lab
       - name: Upload lab reports and compose logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: docker-release-lab-${{ github.run_id }}
           path: .release-artifacts/
@@ -525,7 +525,7 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/siton_release
       SITON_AGENT: ci
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: PostgreSQL client tools (pg_dump / pg_restore for the rehearsal)
@@ -540,7 +540,7 @@ jobs:
         run: npm run release:preflight -- --profile standard --only migration-preflight,backup-restore-rehearsal,health-contract,http-security-smoke,reproducible-build,release-tools-tests
       - name: Upload release reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-preflight-database-${{ github.run_id }}
           path: .release-artifacts/
@@ -558,7 +558,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
