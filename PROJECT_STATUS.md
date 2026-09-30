@@ -19,11 +19,11 @@ Supabase staging (`siton-staging`, hnptacfzuqebfgeshadq): **080** (admin team) +
 
 | # | Item | Status | Class |
 |---|---|---|---|
-| PR-1 | Staging DB: 077–079 + `supabase/staging/027` | DONE (ledger 72/72) | — |
+| PR-1 | Staging DB: 077–081 + `supabase/staging/027`–`028` | DONE (ledger 74/74; 080 = admin provisioning, 081 = RLS on `outbox_enqueue_evidence`, applied 2026-09-30) | — |
 | PR-2 | `SUPABASE_MANAGEMENT_API_TOKEN` absent on Render | DONE (boot guard passed) | — |
 | PR-3 | Render deploys gated on CI (`checksPass`) | DONE | — |
 | PR-4 | Production env: `OTP_TOKEN_SECRET` (≥32 random chars), `OTP_HASH_SALT` (random, not the public default; also still missing on both staging services) and `SITON_OWNER_AUTH_USER_ID` on the production web/worker — production refuses to boot without them (`src/production_guards.ts`) | OPEN | **REAL MONEY LAUNCH BLOCKER** |
-| PR-5 | Production DB: apply 077–080 + grant files 027–028 (owner-authorized schema change); deploy `admin-provisioner` and set `SITON_ADMIN_PROVISIONER_KEY` on the production web | OPEN | **REAL MONEY LAUNCH BLOCKER** |
+| PR-5 | Production DB: apply 077–081 + grant files 027–028 (owner-authorized schema change); deploy `admin-provisioner` and set `SITON_ADMIN_PROVISIONER_KEY` on the production web | OPEN | **REAL MONEY LAUNCH BLOCKER** |
 | PR-6 | Off-site backups: provision `OFFSITE_BACKUP_*` secrets, keep the age identity offline, run once → `OFFSITE_BACKUP_PASS`, then one verified restore | OPEN | **REAL MONEY LAUNCH BLOCKER** |
 | PR-7 | Hosted backups checklist: plan/PITR, retention, last backup, restore ever done, who can restore (with MFA) | OPEN | **REAL MONEY LAUNCH BLOCKER** |
 | PR-8 | Backup path for `auth.users` and Storage objects | OPEN | **REAL MONEY LAUNCH BLOCKER** |
@@ -358,6 +358,15 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
+### Claude Code latest milestone — Product alignment + infra cleanup + Lean Refactor start (2026-09-30), track RLS: `siton.outbox_enqueue_evidence`
+
+- COMPLETED: the hosted "RLS disabled" finding on `siton.outbox_enqueue_evidence` is closed by forward migration **081** (`ALTER TABLE … ENABLE ROW LEVEL SECURITY`, no policy, `FORCE` not set) — PR #149. Mapping before the fix: the table has 1 row on staging, is written only by the 076 definer trigger/helper owned by `postgres` (owner, `rolbypassrls`), no runtime role (`siton_web_runtime`, `siton_worker_runtime`) and no Data API role (`anon`, `authenticated`, `service_role`) holds any privilege or schema USAGE on it, so enabling RLS changes no working path; `REQUIRED_MIGRATION_IDS` and the manifest carry 081 and readiness fails closed without it.
+- TESTED: `tests/db_per_row_audit_enforcement_validation.ts` asserts `relrowsecurity = true` / `relforcerowsecurity = false` (14/14 locally; db group 13/13 via the CI runner); `migrations:preflight` at high-water 081; release-tools manifest parity; CI green on the PR head; independent senior review APPROVE; Codex reviewed 4bc84d4 (one P1: record 081 here — this entry).
+- STAGING (verified fact, applied before merge in one transaction with its ledger row): `siton.migration_ledger` position 74 / 74 rows, `high_water = 081`, checksum `1622a924c1a91e7e5ff4455362b65b60de3c107dde8e4a5d54837168ac970d4c`; `pg_class` shows `relrowsecurity = true`, `relforcerowsecurity = false`; `/readiness` unaffected.
+- OPEN: production applies 077–081 + grant files 027–028 under PR-5 (owner-authorized); Supabase advisor re-scan after the next deploy to confirm the finding is gone.
+- PERCENT: track RLS 100% (merge pending on this PR); overall Production Readiness unchanged.
+- NEXT: merge #149, then Lean Refactor D1 and PR E per the map.
+
 ### Claude Code latest milestone — Product alignment + infra cleanup + Lean Refactor start (2026-09-30), track A: Product Constitution + source-of-truth reconciliation
 
 - UPDATED: 2026-09-30

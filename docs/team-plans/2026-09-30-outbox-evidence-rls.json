@@ -2,18 +2,39 @@
   "task": "Enable row level security (no policy) on siton.outbox_enqueue_evidence through forward migration 081, the smallest safe fix for the hosted 'RLS disabled' finding, without changing any working path",
   "lead": "claude-lead",
   "base": "origin/master",
-  "open_branches": ["origin/claude/product-constitution-sot", "origin/claude/lean-refactor-map"],
+  "open_branches": [
+    "origin/claude/product-constitution-sot",
+    "origin/claude/lean-refactor-map"
+  ],
   "assignments": [
     {
       "id": "B1",
       "agent": "claude-lead",
       "role": "builder",
       "tier": "senior",
-      "scope": "migration 081, manifest entry, REQUIRED_MIGRATION_IDS, test assertion",
-      "allowed": ["src/migrations/081_outbox_enqueue_evidence_rls.sql", "scripts/migration_manifest.cjs", "src/schema_contract.ts", "tests/db_per_row_audit_enforcement_validation.ts", "docs/team-plans/2026-09-30-outbox-evidence-rls.json"],
-      "forbidden": ["src/app.ts", "src/frontend_runtime.ts", "web/", "supabase/", ".github/", "PROJECT_STATUS.md"],
+      "scope": "migration 081, manifest entry, REQUIRED_MIGRATION_IDS, test assertion; PROJECT_STATUS.md slot entry (added after PR #148 merged, which had held the file)",
+      "allowed": [
+        "src/migrations/081_outbox_enqueue_evidence_rls.sql",
+        "scripts/migration_manifest.cjs",
+        "src/schema_contract.ts",
+        "tests/db_per_row_audit_enforcement_validation.ts",
+        "docs/team-plans/2026-09-30-outbox-evidence-rls.json",
+        "PROJECT_STATUS.md"
+      ],
+      "forbidden": [
+        "src/app.ts",
+        "src/frontend_runtime.ts",
+        "web/",
+        "supabase/",
+        ".github/"
+      ],
       "depends_on": [],
-      "dod": ["migrations:preflight PASS at high-water 081", "db group PASS incl. the RLS assertion", "release-tools manifest parity PASS", "081 applied to staging with a ledger row before merge"]
+      "dod": [
+        "migrations:preflight PASS at high-water 081",
+        "db group PASS incl. the RLS assertion",
+        "release-tools manifest parity PASS",
+        "081 applied to staging with a ledger row before merge"
+      ]
     },
     {
       "id": "R1",
@@ -22,18 +43,31 @@
       "senior": true,
       "tier": "senior",
       "scope": "independent senior review: RLS semantics for the 076 definer trigger/helper, owner bypass, FORCE not set, ledger/readiness coupling, test strength",
-      "reviews": ["B1"],
-      "depends_on": ["B1"],
-      "dod": ["verdict with concrete failure scenarios"]
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "verdict with concrete failure scenarios"
+      ]
     },
     {
       "id": "R2",
       "agent": "codex",
       "role": "reviewer",
       "scope": "cross-provider review on the Pull Request",
-      "reviews": ["B1"],
-      "depends_on": ["B1"],
-      "dod": ["every finding fixed or answered"]
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "every finding fixed or answered"
+      ]
     }
-  ]
+  ],
+  "sequencing_note": "Written 2026-09-30 before claude/remove-product-library (PR B) existed. PR B also edits src/schema_contract.ts (REQUIRED_TABLES, a different region from this plan's REQUIRED_MIGRATION_IDS change) and is serialised after this PR: it merges master once #149 is on master (git merge-tree of the two branches is clean) and re-runs its own plan check before its status/PRODUCT_CATALOG writes. PR #148 and #150 (the two open branches above) merged on 2026-09-30."
 }
