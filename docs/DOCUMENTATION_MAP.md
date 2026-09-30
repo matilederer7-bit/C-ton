@@ -141,7 +141,7 @@ Reading order for a new agent is exactly the "Start every meaningful task" list 
 
 ## ARCHIVE
 
-Every ARCHIVE document whose headings still sound like authority ("canonical", "decision", "source of truth", "policy", "contract", "must") carries an in-file `SUPERSEDED — HISTORICAL (2026-09-30)` banner (51 files bannered in the 2026-09-30 sweep, in addition to the 14 Base44-era banners); the rest are logs, reports and notes whose dated form already reads as history. A reader who opens an ARCHIVE file directly is therefore told in the file itself that it is not authority.
+Every ARCHIVE document carries an in-file `SUPERSEDED — HISTORICAL (2026-09-30)` banner under its title (the 14 Base44-era banners plus the 2026-09-30 sweep of all remaining ARCHIVE files; the two non-UTF-8 files carry an ASCII-only banner). A reader who opens an ARCHIVE file directly is therefore told in the file itself that it is not authority, whatever its headings sound like.
 
 Historical. Any claim inside these files about the current runtime, the Mall, a seven-day cap, a distributor role or a product library is not authority.
 

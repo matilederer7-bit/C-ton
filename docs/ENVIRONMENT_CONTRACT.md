@@ -169,7 +169,7 @@ No env value is logged, surfaced, or returned by any admin endpoint.
 - [`src/runtime_config.ts`](../src/runtime_config.ts) — single source of truth for env reads.
 - [DOCKER_READINESS.md](DOCKER_READINESS.md) — what envs the container needs.
 - [AWS_ACCORDION_DEPLOYMENT_BLUEPRINT.md](AWS_ACCORDION_DEPLOYMENT_BLUEPRINT.md) — env per tier.
-- [PROVIDER_LIVE_MONEY_READINESS.md](PROVIDER_LIVE_MONEY_READINESS.md) — required envs before live money.
+- [PAYMENT_ACTIVATION_SOURCE_OF_TRUTH.md](PAYMENT_ACTIVATION_SOURCE_OF_TRUTH.md) (Grow sandbox proof: [R9B_GROW_SANDBOX_PROOF_RUNBOOK.md](R9B_GROW_SANDBOX_PROOF_RUNBOOK.md)) — required envs before live money.
 - [PRODUCTION_LAUNCH_READINESS.md](PRODUCTION_LAUNCH_READINESS.md) — full launch checklist.
 
 ## External object storage (Stage 5a)

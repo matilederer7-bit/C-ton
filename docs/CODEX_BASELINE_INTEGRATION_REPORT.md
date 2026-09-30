@@ -1,5 +1,7 @@
 # Independently repaired baseline integration
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 The two repaired inputs passed independent review and were integrated only after admission. The combined baseline passed all 197 test files in the required ten-group order and all recorded static/build/mobile gates. No merge to master was performed.
 
 ## References

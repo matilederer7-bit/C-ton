@@ -1,5 +1,7 @@
 # RC Staging Deploy Smoke (LEGACY RENDER EVIDENCE)
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 > **V1.1 product-scope notice (2026-08-23):** product statements in this
 > legacy Render evidence predate the canonical Mall decision. Render remains
 > legacy and this file is not an activation runbook.

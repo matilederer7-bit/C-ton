@@ -1,5 +1,7 @@
 # POST E2E REFACTOR DELIVERY REPORT
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 ## 1. Verdict
 
 `POST_E2E_REFACTOR_PASS` — surgical cleanup only. The Full E2E Gate from `c3f416c` continues to pass after the change. No state machine, money logic, contract, identity/MFA/RBAC, tracking-token cryptographic surface, outbox/worker semantics, DB schema, dependency set or live-money behaviour was modified. The system remains ready for Provider Sandbox / Live Money Validation.

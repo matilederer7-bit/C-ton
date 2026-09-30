@@ -151,5 +151,5 @@ Both services share the same image. Splitting is a deployment concern, not a cod
 - [docs/HORIZONTAL_SCALE_READINESS.md](HORIZONTAL_SCALE_READINESS.md) — what blocks multi-instance.
 - [docs/STORAGE_PRODUCTION_FOUNDATION.md](STORAGE_PRODUCTION_FOUNDATION.md) — local vs object storage.
 - [docs/CACHE_POLICY.md](CACHE_POLICY.md) — cache headers, CDN-readiness contract.
-- [docs/PROVIDER_LIVE_MONEY_READINESS.md](PROVIDER_LIVE_MONEY_READINESS.md) — what blocks live money.
+- [PAYMENT_ACTIVATION_SOURCE_OF_TRUTH.md](PAYMENT_ACTIVATION_SOURCE_OF_TRUTH.md) (Grow sandbox proof: [R9B_GROW_SANDBOX_PROOF_RUNBOOK.md](R9B_GROW_SANDBOX_PROOF_RUNBOOK.md)) — what blocks live money.
 - [docs/PRODUCTION_LAUNCH_READINESS.md](PRODUCTION_LAUNCH_READINESS.md) — full launch checklist.

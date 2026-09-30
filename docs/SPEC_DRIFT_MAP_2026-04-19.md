@@ -1,5 +1,7 @@
 # [CLOSED — HISTORICAL] דוח Drift בין האפיון העדכני לבין הקוד
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 > **STATUS: CLOSED 2026-04-22.** This document is historical only. Every drift item below has since been resolved by Waves 2, 2.5, and 3. Do NOT read this as an open punch-list. See [PROJECT_STATUS.md](../PROJECT_STATUS.md) (Wave 4 Final Audit section) for the canonical current state. Summary of closure:
 > - **D1** (completion window 15m→24h) — resolved.
 > - **D2** (fee default 0 → const 8%) — resolved Wave 2; `SITON_PLATFORM_FEE_RATE = 0.08` hardcoded in `src/platform_fee_money.ts`.

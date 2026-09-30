@@ -1,5 +1,7 @@
 # Staging acceptance closure — 2026-09-14
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 **Verdict: hosted redemption acceptance CLOSED on the live SHA; seller acceptance closed at the API layer; authenticated React seller/admin/CMS UI remains BLOCKED on Supabase staging credentials; one LOW client defect found on staging, fixed on this branch (not yet deployed). Real money = 0. Grow, payment provider and financial state logic untouched.**
 
 ## Baseline

@@ -1,5 +1,7 @@
 # Siton — Senior Skeptical Engineer Adversarial Review
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 **Reviewer posture:** hostile. The brief was to break the claim that Siton is production-grade, not to confirm it.
 **Base SHA:** `f2121f60cc37d742e2bf32d0ca48fe2ec83a807d` (origin/master at task start; master had advanced from the quoted `903175c4` — the later SHA was used).
 **Branch:** `claude/senior-adversarial-production-review-cwupc5`

@@ -1,5 +1,7 @@
 # Siton — Launch Polish Sprint 1: seller self-service, operator control, conversion clarity
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 Date: 2026-09-08 · Branch: `claude/launch-polish-seller-ops` (from exact master `434d591`) · Hosted target: https://siton-staging-web.onrender.com/preview/ · Real money: **0**
 
 Goal of the sprint (not a hardening pass): remove friction before the first real sellers arrive. Boundaries respected: no payment provider / Grow / reconciliation / capture-refund-recovery code, no financial candidate branch, no migrations (063/064 untouched, **no new migration** — every change uses the existing schema), no Android/iOS, no Codex mobile branch, no merge to master.

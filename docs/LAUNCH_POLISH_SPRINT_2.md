@@ -1,5 +1,7 @@
 # Siton — Launch Polish Sprint 2: buyer conversion, trust, feedback, share loop
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 Date: 2026-09-08 · Branch: `claude/launch-polish-buyer-conversion` (from exact master `eb89fae`) · Hosted target: https://siton-staging-web.onrender.com/preview/ · Real money: **0**
 
 Goal of the sprint (not a hardening pass, not a backend project): a brand-new buyer arriving from a WhatsApp link must understand within ten seconds what Siton is, why the price is lower, what they are buying, what they save, how many units are still needed, when it ends, what happens if the target is missed, and what to press — then join with the least friction that keeps legal acceptance intact, know exactly what happened afterwards, share naturally, and tell us what was unclear. Boundaries respected: no payment provider / Grow / capture-refund-recovery / reconciliation code, no financial candidate branch, **no migration** (063/064 untouched; the feedback rail reuses the existing operational-cases table), no external e-mail/SMS provider, no Android/iOS, no Codex mobile branch, no merge to master.

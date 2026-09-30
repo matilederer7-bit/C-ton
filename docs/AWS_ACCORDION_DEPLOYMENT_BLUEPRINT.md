@@ -22,7 +22,7 @@ This document describes the **accordion model** for taking Siton from a local de
 2. **Stay portable.** The application has zero AWS-specific imports. Switching to Render, Railway, Fly, or a managed VPS does not require code changes — only environment changes.
 3. **Expand fast.** When the market pulls, add capacity by tier — not by rewrite. Each tier transition is operational, not architectural.
 4. **Cap everything.** Every scaling axis (instances, DB class, request rate, bucket egress, provider spend) must have an explicit ceiling. An open ceiling on a public surface is a bill bomb.
-5. **Live money is a separate gate.** This blueprint covers packaging and deployment posture. Connecting real payment / payout / invoice providers is gated by [PROVIDER_LIVE_MONEY_READINESS.md](PROVIDER_LIVE_MONEY_READINESS.md).
+5. **Live money is a separate gate.** This blueprint covers packaging and deployment posture. Connecting real payment / payout / invoice providers is gated by [PAYMENT_ACTIVATION_SOURCE_OF_TRUTH.md](PAYMENT_ACTIVATION_SOURCE_OF_TRUTH.md) (Grow sandbox proof: [R9B_GROW_SANDBOX_PROOF_RUNBOOK.md](R9B_GROW_SANDBOX_PROOF_RUNBOOK.md)).
 
 ---
 
@@ -116,7 +116,7 @@ Set these explicitly before opening the URL:
 
 ### Tier 1 blockers (per separate gate)
 
-- `payment_provider_not_live_validated` — see [PROVIDER_LIVE_MONEY_READINESS.md](PROVIDER_LIVE_MONEY_READINESS.md).
+- `payment_provider_not_live_validated` — see [PAYMENT_ACTIVATION_SOURCE_OF_TRUTH.md](PAYMENT_ACTIVATION_SOURCE_OF_TRUTH.md).
 - `payment_webhook_secret_missing_for_live`.
 - `object_storage_required_before_multi_instance` — Tier 1 is single-instance, so local storage is acceptable, but switching to S3 is required before Tier 2.
 - `live_security_blocked` until named admins are provisioned and shared-key fallback is retired or strictly contained.
@@ -271,6 +271,6 @@ The migration policy is `additive_idempotent_only`. A rollback never requires de
 - [HORIZONTAL_SCALE_READINESS.md](HORIZONTAL_SCALE_READINESS.md)
 - [STORAGE_PRODUCTION_FOUNDATION.md](STORAGE_PRODUCTION_FOUNDATION.md)
 - [CACHE_POLICY.md](CACHE_POLICY.md)
-- [PROVIDER_LIVE_MONEY_READINESS.md](PROVIDER_LIVE_MONEY_READINESS.md)
+- [PAYMENT_ACTIVATION_SOURCE_OF_TRUTH.md](PAYMENT_ACTIVATION_SOURCE_OF_TRUTH.md)
 - [PRODUCTION_LAUNCH_READINESS.md](PRODUCTION_LAUNCH_READINESS.md)
 - [ADMIN_MISSION_CONTROL.md](ADMIN_MISSION_CONTROL.md)
