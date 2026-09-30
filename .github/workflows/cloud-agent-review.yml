@@ -161,7 +161,7 @@ jobs:
           echo "manifest_sha256=$(sha256sum "$CONTROL/SHA256SUMS" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Download task patch
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ${{ inputs.patch_artifact }}
           path: ${{ runner.temp }}/siton-patch
