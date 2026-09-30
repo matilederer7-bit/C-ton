@@ -176,7 +176,7 @@ Until then the three legacy services keep building every `master` commit and fai
   - indexed only by `scripts/README.md` or historical docs: `r6_staging_showcase_seed.cjs`,
     `review_baseline_candidates.cjs`,
     `review_r9c_migration_independent_proof.cjs`, `run_outbox_select.cjs`, `i18n/extract.cjs`,
-    `extract_base44_inventory_sql.ps1` (Base44; also read by one test, see §3.1).
+    `extract_base44_inventory_sql.ps1` (Base44; read unconditionally by `tests/supabase_staging_security_foundation_validation.ts:19`, see §3.1 — **excluded from D2**: it stays in place until D3 retires it together with that test edit, so no deletion PR goes red).
 - **SUPPORT without an automated caller but prescribed by live runbooks (keep, never in a D2
   batch):** `run_pg_query.cjs` (the incident and operational runbooks' query tool:
   DATABASE_INCIDENT, PAYMENT_INCIDENT, OPERATIONAL, DISASTER_RECOVERY, CREDENTIAL_COMPROMISE,
@@ -238,7 +238,7 @@ with their consumers updated (`scripts/architecture_truth_gate.cjs`, `scripts/le
 | Step | Scope | Profile | Blockers to clear first |
 |---|---|---|---|
 | D1 | delete `.i18n-regen/` + classifier rule (`ci_change_classifier.cjs:97`) | FULL (the classifier file is a critical path; a deleted `.i18n-regen/*` path with the rule gone is "unclassified", also critical) | none |
-| D2 | delete the 2 zero-reference scripts; move the ARCHIVE scripts under `scripts/archive/` (the unreferenced browser proofs are never deleted, see §3.5) or delete the ones whose docs are themselves ARCHIVE; rewrite the runbook steps that name them and `scripts/README.md` | FULL (scripts are gate-or-tooling) | re-run the reference grep per file; runbooks updated in the same PR |
+| D2 | delete the 2 zero-reference scripts; move the ARCHIVE scripts under `scripts/archive/` (the unreferenced browser proofs are never deleted, see §3.5; `extract_base44_inventory_sql.ps1` is left in place for D3 because a test still reads it) or delete the ones whose docs are themselves ARCHIVE; rewrite the runbook steps that name them and `scripts/README.md` | FULL (scripts are gate-or-tooling) | re-run the reference grep per file; runbooks updated in the same PR |
 | D3 | retire the Base44 gate cluster + `legacy/` (`architecture_truth_gate.cjs` rewritten to the Render/Supabase truth) | FULL, senior review (`ci-gates` family) | update `.github/workflows/ci.yml` (the `test:base44-canonical-integrity` step), `release_checklist.cjs`, `release_owner_check.cjs`, the classifier rule, `config/release-preflight-gates.json`, the two runbook lines, the `supabase_staging_security_foundation` test (drop only its `.ps1` case); the runtime never depended on it |
 | D4 | Product Library schema drop (`products`, `product_images`, `deals.product_id`, `deals.product_snapshot_jsonb`, trigger, constraints; new migration, never an edit of 072; `supabase/staging/025` retired from the grant lists) | FULL, senior review | PR B merged; staging census re-run (2026-09-30: 40 deals, 2 with product columns, both `PendingTarget` smoke deals from 2026-09-17, 1 product, 0 product images) and owner confirmation that those two smoke deals may lose their snapshot |
 | D5 | docs: move ARCHIVE files into `docs/archive/` in small batches with consumer updates; trim `PROJECT_STATUS.md` to the open tracks | FAST/STANDARD | none |
