@@ -28,11 +28,11 @@ NODE_ENV === "production"
 || RENDER_EXTERNAL_URL is set
 ```
 
-`RENDER` and `RENDER_EXTERNAL_URL` are set by Render itself on the canonical
-web and worker services (`docs/CURRENT_ARCHITECTURE_2026-09-30.md`), and
-`src/runtime_config.ts` `isProductionLikeEnv()` reads them as a live
-production-like detection input: every hosted Siton process therefore runs
-in fail-closed mode without any manual flag. They are a safety boundary, not
+`RENDER=true` is set by Render itself on both canonical services and
+`RENDER_EXTERNAL_URL` on the web service (`docs/CURRENT_ARCHITECTURE_2026-09-30.md`);
+`src/runtime_config.ts` `isProductionLikeEnv()` reads either of them as a live
+production-like detection input, so every hosted Siton process (web and
+worker) runs in fail-closed mode without any manual flag. They are a safety boundary, not
 a compatibility leftover (the 2026-04 wording about a "quarantined portable
 runtime" is historical). In production-like mode, missing critical envs must
 fail closed rather than fall back to demo defaults silently.
