@@ -1,5 +1,7 @@
 # R9A — Payment Foundation Hardening (pre-Grow-sandbox closure)
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 Stage scope: close every provider-neutral architectural gap found in the Codex
 R9 preflight (`docs/R9_INTEGRATION_PREFLIGHT.md`, audited from branch
 `codex/r9-integration-preflight`, commit `e2e922a`) BEFORE any Grow sandbox

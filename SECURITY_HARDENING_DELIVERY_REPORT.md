@@ -1,5 +1,7 @@
 # SECURITY_HARDENING_DELIVERY_REPORT
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 ## 1. Overall Verdict
 
 `SECURITY_HARDENING_GATE_WARNING`.

@@ -1,5 +1,7 @@
 # Backend security hardening audit
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 Branch `claude/system-hardening-sweep`. Defensive Secure-SDLC work against local
 disposable databases with synthetic principals. No real money, no provider calls,
 no e-mail, no SMS, no invoices, no change to canonical staging or production

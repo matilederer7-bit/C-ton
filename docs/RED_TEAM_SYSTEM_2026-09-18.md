@@ -1,5 +1,7 @@
 # System Red Team — 2026-09-18
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 Baseline reviewed: `d4855504455adb06970de3f881db053519558e12` (master, after the bilingual milestone).
 Posture: attack first, fix only what was proven against a running system.
 Real money executed: **0**. Provider credentials used: **0**. Production data destroyed: **0**.

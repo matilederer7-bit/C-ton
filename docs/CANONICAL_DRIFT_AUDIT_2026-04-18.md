@@ -1,5 +1,7 @@
 # [CLOSED — HISTORICAL] Canonical Drift Audit
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 > **STATUS: CLOSED 2026-04-22.** This audit is a historical snapshot from `2026-04-18` and must NOT be read as current state. Every drift cluster below has since been resolved by Waves 2, 2.5, and 3. See [PROJECT_STATUS.md](/c:/Users/Lenovo/Documents/C-ton/PROJECT_STATUS.md) (Wave 4 Final Audit section) for the canonical current truth.
 >
 > Closure summary:

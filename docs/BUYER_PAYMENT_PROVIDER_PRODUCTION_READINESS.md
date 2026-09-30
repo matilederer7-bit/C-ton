@@ -1,5 +1,7 @@
 # Buyer Payment Provider Production Readiness
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 > **Historical Stripe-era readiness document.** The current provider-selection and activation source of truth is `docs/PAYMENT_ACTIVATION_SOURCE_OF_TRUTH.md`. Stripe remains an isolated adapter/proof surface; Grow / Meshulam is the intended next provider candidate. Real money remains blocked.
 
 ## Current Decision

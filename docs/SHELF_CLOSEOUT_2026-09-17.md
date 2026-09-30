@@ -1,5 +1,7 @@
 # Shelf closeout — Claude lane (2026-09-17)
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 Branch `claude/shelf-heavy-closeout-20260917` from `origin/master` `1d38656` (PR #35 merged).
 Method: every shelf branch was compared against current master (tree diff for the three
 unrelated-history Codex branches, commit-range diff for the rest), the unique part was

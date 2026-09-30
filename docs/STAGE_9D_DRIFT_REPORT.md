@@ -1,5 +1,7 @@
 # [HISTORICAL SNAPSHOT — DO NOT USE AS CURRENT STATE] STAGE 9D DRIFT REPORT
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 > **STATUS: HISTORICAL 2026-04-22.** This file contains raw DB introspection output from Stage 9D (March 2026). Column names (including `commission_rate`) and per-row dumps reflect the schema AS OF that date, not the current canonical schema. Do NOT treat any row or column in this document as authoritative; see [PROJECT_STATUS.md](/c:/Users/Lenovo/Documents/C-ton/PROJECT_STATUS.md) (Wave 4 Final Audit) and the `src/migrations/` chain for the current schema. Preserved only for historical forensic reference.
 
 ## מצב כללי (היסטורי)

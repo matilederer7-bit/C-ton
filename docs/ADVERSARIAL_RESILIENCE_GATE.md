@@ -1,5 +1,7 @@
 # Adversarial Resilience Gate
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 > **V1.1 product-scope notice (2026-08-23):** any direct-link-only or
 > no-marketplace conclusion below is historical and is superseded by
 > `SITON_V1_1_MALL_PRODUCT_DIRECTION.md`. Security, state, money, and failure

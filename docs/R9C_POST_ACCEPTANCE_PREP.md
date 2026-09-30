@@ -1,5 +1,7 @@
 # R9C post-acceptance preparation
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 This is code preparation for PR/CI, not merge, deployment, or real-money approval.
 R9C is NOT MERGED, NOT DEPLOYED; REAL MONEY 0; F13 OPEN and REAL_MONEY_BLOCKER YES.
 
