@@ -159,9 +159,10 @@ Until then the three legacy services keep building every `master` commit and fai
 - **ARCHIVE (no automated caller; docs-only references, some of them live runbooks):**
   - cited by operational runbooks, so D2 must rewrite those steps before deleting or moving:
     `dr_backup_restore_drill.cjs` (BACKUP_RESTORE, SECURITY_INCIDENT, DB_BACKUP_RESTORE_REHEARSAL;
-    superseded by `db_backup_restore_rehearsal.cjs`), `launch_polish_browser_proof.cjs`,
-    `pickup_fulfillment_browser_proof.cjs`, `r6_hosted_browser_proof.cjs`, `p0_browser_proof.cjs`,
-    `r7r8_browser_proof.cjs` (all in `DEPLOYMENT_RUNBOOK.md`);
+    superseded by `db_backup_restore_rehearsal.cjs`), `r6_hosted_browser_proof.cjs` (the
+    deployment runbook itself says its failures are not regressions: Mall-ON assumptions, old
+    selectors, 1/5 on 2026-09-10) and `r7r8_browser_proof.cjs` (hosted image/RTL/admin-screen
+    check, `DEPLOYMENT_RUNBOOK.md:183`);
   - indexed only by `scripts/README.md` or historical docs: `r6_staging_showcase_seed.cjs`,
     `review_baseline_candidates.cjs`,
     `review_r9c_migration_independent_proof.cjs`, `run_outbox_select.cjs`, `i18n/extract.cjs`,
@@ -171,8 +172,13 @@ Until then the three legacy services keep building every `master` commit and fai
   DATABASE_INCIDENT, PAYMENT_INCIDENT, OPERATIONAL, DISASTER_RECOVERY, CREDENTIAL_COMPROMISE,
   PAYMENT_RECONCILIATION), `r3_hosted_proof.cjs` (deployment, credential-compromise,
   disaster-recovery and security-incident runbooks; also an existence assertion in the architecture
-  gate), `pilot_readiness_proof.cjs` and `buyer_polish_browser_proof.cjs` (`DEPLOYMENT_RUNBOOK.md`,
-  `PILOT_LAUNCH_RUNBOOK.md`), `restart_server_tsnode_clean.ps1` with `register-ts-node.mjs` and
+  gate), `pilot_readiness_proof.cjs` (`PILOT_LAUNCH_RUNBOOK.md`), the merge-time browser proofs
+  `launch_polish_browser_proof.cjs`, `buyer_polish_browser_proof.cjs`,
+  `pickup_fulfillment_browser_proof.cjs` and `p0_browser_proof.cjs` (`DEPLOYMENT_RUNBOOK.md:185`
+  prescribes them on every merge SHA; the pickup proof is the only end-to-end exercise of the
+  React/runtime pickup handoff — camera success/failure, QR and typed code, paid/unpaid,
+  pending→fulfilled — so a runbook rewrite alone never retires it: equivalent coverage must land
+  first), `restart_server_tsnode_clean.ps1` with `register-ts-node.mjs` and
   `restart_server_clean.ps1` (`OPERATIONAL_RUNBOOK.md` restart procedure; `scripts/README.md` calls
   them operational), `receipt_content_browser_proof.cjs` (`docs/SITE_CMS.md` operations section,
   `docs/RECEIPT_TRUST_CONTENT.md`). Any of these leaves SUPPORT only when the runbook procedure that
