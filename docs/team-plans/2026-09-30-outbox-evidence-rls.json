@@ -1,0 +1,39 @@
+{
+  "task": "Enable row level security (no policy) on siton.outbox_enqueue_evidence through forward migration 081, the smallest safe fix for the hosted 'RLS disabled' finding, without changing any working path",
+  "lead": "claude-lead",
+  "base": "origin/master",
+  "open_branches": ["origin/claude/product-constitution-sot", "origin/claude/lean-refactor-map"],
+  "assignments": [
+    {
+      "id": "B1",
+      "agent": "claude-lead",
+      "role": "builder",
+      "tier": "senior",
+      "scope": "migration 081, manifest entry, REQUIRED_MIGRATION_IDS, test assertion",
+      "allowed": ["src/migrations/081_outbox_enqueue_evidence_rls.sql", "scripts/migration_manifest.cjs", "src/schema_contract.ts", "tests/db_per_row_audit_enforcement_validation.ts", "docs/team-plans/2026-09-30-outbox-evidence-rls.json"],
+      "forbidden": ["src/app.ts", "src/frontend_runtime.ts", "web/", "supabase/", ".github/", "PROJECT_STATUS.md"],
+      "depends_on": [],
+      "dod": ["migrations:preflight PASS at high-water 081", "db group PASS incl. the RLS assertion", "release-tools manifest parity PASS", "081 applied to staging with a ledger row before merge"]
+    },
+    {
+      "id": "R1",
+      "agent": "claude-subagent",
+      "role": "reviewer",
+      "senior": true,
+      "tier": "senior",
+      "scope": "independent senior review: RLS semantics for the 076 definer trigger/helper, owner bypass, FORCE not set, ledger/readiness coupling, test strength",
+      "reviews": ["B1"],
+      "depends_on": ["B1"],
+      "dod": ["verdict with concrete failure scenarios"]
+    },
+    {
+      "id": "R2",
+      "agent": "codex",
+      "role": "reviewer",
+      "scope": "cross-provider review on the Pull Request",
+      "reviews": ["B1"],
+      "depends_on": ["B1"],
+      "dod": ["every finding fixed or answered"]
+    }
+  ]
+}
