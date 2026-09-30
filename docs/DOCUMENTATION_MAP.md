@@ -12,7 +12,7 @@ Three tiers. A document's tier is decided by its role today, not by its title. H
 
 Physical relocation of ARCHIVE files into `docs/archive/` is a later, mechanical step: several gates and tests read documents by path (`scripts/architecture_truth_gate.cjs`, `scripts/legal_compliance_gate.cjs`, `src/admin_mission_control.ts`, `tests/*`), so moves happen per file with their consumers updated, never in bulk.
 
-Counts: CANONICAL 12 · REFERENCE 100 · ARCHIVE 175 (287 documents: everything under `docs/` plus the root reports and `legacy/render/README.md`). Out of scope: `.claude/agents/*.md` (agent definitions, CI-checked), `legacy/render/docs/*` (quarantined, ARCHIVE by location), `scripts/README.md`, `ios/App/CapApp-SPM/README.md`.
+Counts: CANONICAL 12 · REFERENCE 100 · ARCHIVE 176 (288 documents: everything under `docs/` plus the root reports and `legacy/render/README.md`). Out of scope: `.claude/agents/*.md` (agent definitions, CI-checked), `legacy/render/docs/*` (quarantined, ARCHIVE by location), `scripts/README.md`, `ios/App/CapApp-SPM/README.md`.
 
 ## CANONICAL (read these)
 
@@ -320,6 +320,7 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/foundation-canonical-2026-04-18/README.md` | Foundation pack, HISTORICAL SOURCE | marked historical/obsolete |
 | `docs/runtime-contract-resolution.md` | runtime-contract-resolution | old note, unreadable |
 | `docs/USER_TEST_CONDITIONAL_DEAL_PLAN.md` | Conditional Deal User Test Plan | research plan from 2026-08-23, not an operating document |
+| `legacy/render/README.md` | Legacy Render snapshot | quarantined pre-R3 Render snapshot README; evidence only |
 
 ## Known drift markers added 2026-09-30
 
