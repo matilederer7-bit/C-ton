@@ -5376,12 +5376,15 @@ export async function processStorageCleanupBatch(limit = 10, leaseMs = 60_000) {
         }
         throw Object.assign(new Error("storage_cleanup_provider_mismatch"), { code: "storage_cleanup_provider_mismatch" });
       }
-      // A storage object may be shared between Deal images. Delete the blob
-      // only when no metadata row references it any more; the task still
-      // completes.
+      // A storage object may be shared between Deal images, and (until the
+      // Product Library schema is dropped by its own migration) with a
+      // retained siton.product_images row. Delete the blob only when no
+      // metadata row references it any more; the task still completes.
       const references = await pool.query(
         `SELECT EXISTS (
            SELECT 1 FROM siton.deal_images WHERE storage_provider=$1 AND storage_key=$2
+           UNION ALL
+           SELECT 1 FROM siton.product_images WHERE storage_provider=$1 AND storage_key=$2
          ) AS still_referenced`,
         [task.storage_provider, task.storage_key]
       );
@@ -6427,9 +6430,11 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
       threshold_units: draftThreshold,
       deadline: body.deadline === undefined || body.deadline === null || body.deadline === "" ? null : deadlineIso,
       deal_type: requestedDealType,
-      // Kept as a constant so request hashes stored in siton.idempotency_log
-      // before the Product Library was removed still match on replay.
-      product_id: null,
+      // The Product Library is gone, but the request hash still carries the
+      // client's product_id value exactly as before so that idempotency rows
+      // stored in siton.idempotency_log before the removal (with or without a
+      // product) still match on replay. The value is otherwise ignored.
+      product_id: typeof body.product_id === "string" && body.product_id.trim() ? body.product_id.trim() : null,
       delivery_options: requestedDealType === "physical_product" ? deliveryOptions : [],
       voucher_terms: requestedDealType === "voucher" ? requestedVoucherTerms : null,
       ticket_terms: requestedDealType === "ticket" ? requestedTicketTerms : null
@@ -7183,11 +7188,15 @@ app.delete("/api/seller/deals/:dealId/images/:imageId", async (req: any, reply: 
         [dealId]
       );
     }
-    // The same storage object may back another Deal's image; the blob is
-    // deleted only when nothing else references it any more.
+    // The same storage object may back another Deal's image or, until the
+    // Product Library schema is dropped by its own migration, a retained
+    // siton.product_images row; the blob is deleted only when nothing else
+    // references it any more.
     const shared = await c.query(
       `SELECT EXISTS (
          SELECT 1 FROM siton.deal_images WHERE storage_provider=$1 AND storage_key=$2
+         UNION ALL
+         SELECT 1 FROM siton.product_images WHERE storage_provider=$1 AND storage_key=$2
        ) AS still_referenced`,
       [image.storage_provider, image.storage_key]
     );
@@ -7258,10 +7267,13 @@ app.delete("/api/seller/deals/:dealId", async (req: any, reply: any) => {
       });
     }
     // Storage objects: schedule canonical cleanup for every image blob.
-    // Blobs still referenced by another Deal are never scheduled for cleanup.
+    // Blobs still referenced by another Deal, or (until the Product Library
+    // schema is dropped by its own migration) by a retained
+    // siton.product_images row, are never scheduled for cleanup.
     const images = await c.query(
       `SELECT i.storage_provider, i.storage_key FROM siton.deal_images i
         WHERE i.deal_id=$1
+          AND NOT EXISTS (SELECT 1 FROM siton.product_images pi WHERE pi.storage_provider=i.storage_provider AND pi.storage_key=i.storage_key)
           AND NOT EXISTS (SELECT 1 FROM siton.deal_images di WHERE di.deal_id<>$1 AND di.storage_provider=i.storage_provider AND di.storage_key=i.storage_key)`,
       [dealId]
     );
