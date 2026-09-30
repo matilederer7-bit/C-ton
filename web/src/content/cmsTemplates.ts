@@ -94,6 +94,8 @@ export interface PageContract {
    * product replaced can never come back beside its replacement.
    */
   retired?: string[];
+  /** fields that must stay non-empty on specific structural block ids */
+  requiredFields?: Record<string, readonly string[]>;
   maxBlocks: number;
   /** legacy flat field → (block id, field) mapping, for content stored before the block model */
   legacy: Record<string, [string, string]>;
@@ -330,27 +332,26 @@ export const PAGE_CONTRACTS: Record<string, PageContract> = {
   home: {
     label: "cms.page_contracts.home.label",
     description: "cms.page_contracts.home.description",
-    // The infographic is LOCKED right after the hero: it is always on the page
-    // (with the canonical content when nothing was ever saved) and its id is
-    // the one the former "how it works" steps block used, so a stored page
-    // from before the infographic shows it in the same place — and never both.
-    locked: [{ id: "hero", type: "hero" }, { id: HOW_IT_WORKS_BLOCK_ID, type: "how_it_works" }],
+    // The owner value proposition is locked immediately after the hero, and
+    // the infographic is locked immediately after it. Stored older pages gain
+    // both canonical blocks deterministically during normalization.
+    locked: [{ id: "hero", type: "hero" }, { id: "value", type: "text" }, { id: HOW_IT_WORKS_BLOCK_ID, type: "how_it_works" }],
     addable: ["text", "image_text", "cta", "steps", "faq", "columns"],
-    // The infographic REPLACES the former "לקונים / למוכרים" columns block
-    // (owner decision 2026-09-28): the same explanation never appears twice
-    // in two formats, so a page stored with that block drops it.
-    retired: ["audiences"],
+    // Retired home blocks are dropped from stored older pages and refused on
+    // write, so removed public sections cannot be accidentally re-enabled.
+    retired: ["audiences", "trust"],
+    requiredFields: { value: ["title", "body"] },
     maxBlocks: 20,
     legacy: { title: ["hero", "title"], sub: ["hero", "subtitle"], intro: ["hero", "body"], image: ["hero", "image"], login_cta: ["hero", "primary_cta_label"], signup_cta: ["hero", "secondary_cta_label"] },
     defaults: () => [
       HERO_DEFAULT(),
+      { id: "value", type: "text", enabled: true,
+        fields: { title: LANDING_HE.valueProposition.title, body: LANDING_HE.valueProposition.body },
+        fields_en: { title: LANDING_EN.valueProposition.title, body: LANDING_EN.valueProposition.body } },
       HOW_IT_WORKS_DEFAULT(),
       { id: "why", type: "text", enabled: false,
         fields: { title: LANDING_HE.whyGroupBuying.title, body: LANDING_HE.whyGroupBuying.body },
         fields_en: { title: LANDING_EN.whyGroupBuying.title, body: LANDING_EN.whyGroupBuying.body } },
-      { id: "trust", type: "text", enabled: true,
-        fields: { title: LANDING_HE.trust.title, body: LANDING_HE.trust.body },
-        fields_en: { title: LANDING_EN.trust.title, body: LANDING_EN.trust.body } },
       { id: "about", type: "text", enabled: false,
         fields: { title: LANDING_HE.about.title, body: LANDING_HE.about.body },
         fields_en: { title: LANDING_EN.about.title, body: LANDING_EN.about.body } },
@@ -618,10 +619,17 @@ export function normalizePage(raw: unknown, contract: PageContract): PageContent
   }
   const defaults = contract.defaults();
   const lockedBlocks = contract.locked.map(l => {
-    const found = blocks.find(b => b.id === l.id) || defaults.find(b => b.id === l.id) || emptyBlock(l.type, l.id);
-    return { ...found, enabled: true };
+    const fallback = defaults.find(b => b.id === l.id) || emptyBlock(l.type, l.id);
+    const found = blocks.find(b => b.id === l.id) || fallback;
+    const fields = { ...found.fields };
+    for (const key of contract.requiredFields?.[l.id] ?? []) {
+      if (!fields[key]?.trim()) fields[key] = fallback.fields[key] ?? "";
+    }
+    return { ...found, enabled: true, fields };
   });
-  const rest = blocks.filter(b => !contract.locked.some(l => l.id === b.id));
+  const limit = Math.min(contract.maxBlocks, CMS_LIMITS.maxBlocksAbsolute);
+  const restLimit = Math.max(0, limit - lockedBlocks.length);
+  const rest = blocks.filter(b => !contract.locked.some(l => l.id === b.id)).slice(0, restLimit);
   return withShippedEnglish({ blocks: [...lockedBlocks, ...rest] }, contract);
 }
 
@@ -664,6 +672,9 @@ export function validatePage(raw: unknown, contract: PageContract): PageContent 
     if (Object.keys(rawFields).some(k => !has(t.fields, k))) fail("invalid_content_field", path);
     const fields: Record<string, string> = {};
     for (const [k, def] of Object.entries(t.fields)) fields[k] = validateField(rawFields[k], def, `${path}.${k}`, item.enabled);
+    for (const key of contract.requiredFields?.[id] ?? []) {
+      if (!fields[key]?.trim()) fail("required_field_missing", `${path}.${key}`);
+    }
     const block: Block = { id, type: type as TemplateId, enabled: item.enabled, fields };
     // English carries the same safety rules (no HTML, same length ceiling,
     // same asset/link shapes) but is never REQUIRED: a blank English value is

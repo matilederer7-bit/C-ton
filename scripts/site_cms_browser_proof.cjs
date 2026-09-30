@@ -28,7 +28,6 @@ const clone = v => JSON.parse(JSON.stringify(v));
 const published = { blocks: PAGE_CONTRACTS.home.defaults() };
 published.blocks[0].fields.title = 'כותרת מפורסמת';
 published.blocks[0].fields.image = IMG;
-published.blocks.find(b => b.id === 'trust').enabled = false;
 const faq = published.blocks.find(b => b.id === 'faq');
 faq.items = [{ q: 'שאלה ראשונה?', a: 'תשובה ראשונה.' }, { q: 'שאלה שנייה?', a: 'תשובה שנייה.' }, { q: 'שאלה שלישית?', a: 'תשובה שלישית.' }];
 const draft = clone(published); draft.blocks[0].fields.title = 'כותרת טיוטה';
@@ -109,8 +108,8 @@ async function main() {
       await send('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: width < 500 });
       await ev('window.show("site")'); await waitFor('!!document.querySelector(".landing") && document.querySelector(".landing-title").innerText.includes("כותרת מפורסמת")');
       const order = await ev(`[...document.querySelectorAll('[data-testid^="landing-block-"]')].map(e => e.dataset.testid.replace('landing-block-',''))`);
-      check(`landing @${width}: published blocks render in stored order`, JSON.stringify(order) === JSON.stringify(['hero', 'how', 'faq', 'contact']), JSON.stringify(order));
-      check(`landing @${width}: the disabled block (trust) and the empty-body blocks are absent`, !order.includes('trust') && !order.includes('why') && !order.includes('about'));
+      check(`landing @${width}: published blocks render in stored order`, JSON.stringify(order) === JSON.stringify(['hero', 'value', 'how', 'faq', 'contact']), JSON.stringify(order));
+      check(`landing @${width}: retired trust and empty-body blocks are absent`, !order.includes('trust') && !order.includes('why') && !order.includes('about'));
       check(`landing @${width}: persisted FAQ (3 questions) and CMS hero image`, await ev(`document.querySelector('[data-testid="landing-faq"]').dataset.faqCount === '3' && document.querySelector('[data-testid="hero-medium"]').dataset.heroFromCms === '1' && document.querySelectorAll('[data-testid="hero-medium"]').length === 1`));
       check(`landing @${width}: footer links from the CMS`, (await ev(`document.querySelectorAll('[data-testid="site-footer"] a').length`)) === 5);
       check(`landing @${width}: no horizontal overflow`, !(await overflow()));
@@ -134,7 +133,7 @@ async function main() {
       await ev('location.hash = "#/"'); await wait(50);
       // admin editor
       await ev('window.show("admin")'); await waitFor('!!document.querySelector(\'[data-testid="cms-block-hero"]\')');
-      check(`admin @${width}: pages listed, home blocks shown as cards in order`, JSON.stringify(await ev(`[...document.querySelectorAll('[data-testid^="cms-block-"]')].filter(e=>/^cms-block-[a-z_0-9]+$/.test(e.dataset.testid)).map(e=>e.dataset.testid.replace('cms-block-',''))`)) === JSON.stringify(['hero', 'how', 'why', 'trust', 'about', 'faq', 'contact']) && (await ev(`document.querySelectorAll('[data-testid^="cms-page-"]').length`)) === 7);
+      check(`admin @${width}: pages listed, home blocks shown as cards in order`, JSON.stringify(await ev(`[...document.querySelectorAll('[data-testid^="cms-block-"]')].filter(e=>/^cms-block-[a-z_0-9]+$/.test(e.dataset.testid)).map(e=>e.dataset.testid.replace('cms-block-',''))`)) === JSON.stringify(['hero', 'value', 'how', 'why', 'about', 'faq', 'contact']) && (await ev(`document.querySelectorAll('[data-testid^="cms-page-"]').length`)) === 7);
       check(`admin @${width}: no horizontal overflow`, !(await overflow()));
       if (width === 390 || width === 1440) { const shot = await send('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(`.tmp_cms_admin_${width}.png`, Buffer.from(shot.data, 'base64')); }
     }
@@ -165,7 +164,7 @@ async function main() {
     const saved = await ev(`window.cms.saved.filter(s=>s.url.endsWith('/draft')).at(-1).body`);
     check('editor: draft saved with the full block page (title, FAQ, order, hidden block, removed block, image)',
       saved.revision === 3 && saved.value.blocks[0].fields.title === 'כותרת חדשה מהעורך' && saved.value.blocks[0].fields.image.endsWith('44444444') &&
-      saved.value.blocks.map(b => b.id).join(',') === 'hero,how,trust,faq,about,contact' &&
+      saved.value.blocks.map(b => b.id).join(',') === 'hero,value,how,faq,about,contact' &&
       saved.value.blocks.find(b => b.id === 'contact').enabled === false && saved.value.blocks.find(b => b.id === 'how').type === 'how_it_works' && !saved.value.blocks.some(b => b.id === 'why') &&
       saved.value.blocks.find(b => b.id === 'faq').items.map(i => i.q).join('|') === 'שאלה שנייה?|שאלה רביעית?|שאלה שלישית?', JSON.stringify(saved.value.blocks.map(b => b.id)));
     check('editor: public content untouched by the draft', await ev(`window.cms.state.home.published.blocks[0].fields.title === 'כותרת מפורסמת'`));
@@ -182,7 +181,7 @@ async function main() {
     await click('[data-testid="cms-publish"]'); await waitFor(`document.querySelector('[data-testid="cms-message"]').innerText.includes('פורסם')`);
     check('editor: publish moved the draft to the public page', await ev(`window.cms.state.home.published.blocks[0].fields.title === 'עריכה נוספת' && window.cms.state.home.draft === null && document.querySelector('[data-testid="cms-publish"]').disabled`));
     await ev('window.show("site")'); await waitFor('document.querySelector(".landing-title") && document.querySelector(".landing-title").innerText.includes("עריכה נוספת")');
-    check('landing: shows the newly published content with the hidden and removed blocks gone', JSON.stringify(await ev(`[...document.querySelectorAll('[data-testid^="landing-block-"]')].map(e => e.dataset.testid.replace('landing-block-',''))`)) === JSON.stringify(['hero', 'how', 'faq']));
+    check('landing: shows the newly published content with the hidden and removed blocks gone', JSON.stringify(await ev(`[...document.querySelectorAll('[data-testid^="landing-block-"]')].map(e => e.dataset.testid.replace('landing-block-',''))`)) === JSON.stringify(['hero', 'value', 'how', 'faq']));
     // discard
     await ev('window.show("admin")'); await waitFor('!!document.querySelector(\'[data-testid="cms-block-hero"]\')');
     await type('[data-testid="cms-field-hero-title"]', 'טיוטה לביטול'); await click('[data-testid="cms-save-draft"]'); await waitFor(`document.querySelector('[data-testid="cms-status"]').dataset.hasDraft === '1'`);
