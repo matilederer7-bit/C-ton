@@ -1,5 +1,6 @@
 import { registerReceiptContentRoutes } from "./receipt_content_routes.js";
 import { registerDistributionHubRoutes } from "./distribution_hub.js";
+import { ADMIN_TEAM_ROLES, adminLoginEmailForUsername, adminPasswordProblem, adminProvisionerConfig, isAdminTeamRole, normalizeAdminUsername, provisionAdminAuthUser, rollbackAdminAuthUser } from "./admin_team.js";
 import { readContent } from "./site_content.js";
 import { assertRequiredTables } from "./schema_contract.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -3815,7 +3816,9 @@ export function registerFrontendExperience(
     }
 
     await ensureProductSurfaces();  // Black-Sky C2: schema check BEFORE taking the transaction's connection
-    return deps.withTx(async (c) => {
+    // Black-Sky BSC-3: the 201 is sent only AFTER the insert commits, so a
+    // caller that reads the chat right after the acknowledgement sees it.
+    const outcome = await deps.withTx(async (c): Promise<{ code: number; body: unknown }> => {
       const dealResult = await c.query(`SELECT deal_id, state FROM siton.deals WHERE deal_id=$1`, [dealId]);
       if (!dealResult.rowCount) {
         const err: any = new Error("deal not found");
@@ -3824,7 +3827,7 @@ export function registerFrontendExperience(
       }
       const state = String(dealResult.rows[0].state || "") as DealState;
       if (!DEAL_CHAT_WRITE_ALLOWED_STATES.has(state)) {
-        return reply.code(403).send({ ok: false, error: "chat closed", code: "chat_closed" });
+        return { code: 403, body: { ok: false, error: "chat closed", code: "chat_closed" } };
       }
 
       // optional reply target — must be a visible message of the SAME deal
@@ -3837,7 +3840,7 @@ export function registerFrontendExperience(
           [rawReply, dealId]
         );
         if (!target.rowCount) {
-          return reply.code(404).send({ ok: false, error: "reply target not found", code: "chat_reply_target_not_found" });
+          return { code: 404, body: { ok: false, error: "reply target not found", code: "chat_reply_target_not_found" } };
         }
         replyTo = rawReply;
       }
@@ -3849,14 +3852,18 @@ export function registerFrontendExperience(
         [dealId, displayName, bodyText, replyTo, title.trim()]
       );
 
-      return reply.code(201).send({
-        ok: true,
-        message: {
-          ...dealChatMessageFromRow(inserted.rows[0]),
-          reply_to_message_id: inserted.rows[0].reply_to_message_id || null
+      return {
+        code: 201,
+        body: {
+          ok: true,
+          message: {
+            ...dealChatMessageFromRow(inserted.rows[0]),
+            reply_to_message_id: inserted.rows[0].reply_to_message_id || null
+          }
         }
-      });
+      };
     });
+    return reply.code(outcome.code).send(outcome.body);
   });
 
   // P0.3 — like/dislike reactions. Toggle-safe and idempotent: sending the
@@ -6217,7 +6224,7 @@ export function registerFrontendExperience(
         if (applied && applied.held) finalClassification = { status: "ignored", reason: applied.reason };
       }
 
-      await webhookIngestion.markEvent(provider, eventId, finalClassification.status, finalClassification.reason);
+      await webhookIngestion.markEvent(provider, eventId, finalClassification.status, finalClassification.reason, ingested.claim_token);
 
       return reply.code(200).send({
         ok: true,
@@ -6228,7 +6235,7 @@ export function registerFrontendExperience(
       });
     } catch (error) {
       const failureReason = String((error as Error)?.message || error || "webhook_processing_failed").slice(0, 240);
-      await webhookIngestion.markEvent(provider, eventId, "failed", failureReason);
+      await webhookIngestion.markEvent(provider, eventId, "failed", failureReason, ingested.claim_token);
       throw error;
     }
   }
@@ -6323,7 +6330,7 @@ export function registerFrontendExperience(
         failure_reason: "grow_callback_unmatched_binding",
         remote_hint: String(req.ip || "")
       }).catch(() => undefined);
-      await webhookIngestion.markEvent("grow", event.event_id, "ignored", "no_matching_server_binding");
+      await webhookIngestion.markEvent("grow", event.event_id, "ignored", "no_matching_server_binding", ingested.claim_token);
       return reply.code(200).send({ ok: true, status: "ignored", reason: "no_matching_server_binding", money_from_callback: false });
     }
 
@@ -6367,7 +6374,7 @@ export function registerFrontendExperience(
     }
 
     const callbackStatus = lookupRetryable ? "failed" as const : "processed" as const;
-    await webhookIngestion.markEvent("grow", event.event_id, callbackStatus, `callback_hint:${lookupOutcome}`.slice(0, 240));
+    await webhookIngestion.markEvent("grow", event.event_id, callbackStatus, `callback_hint:${lookupOutcome}`.slice(0, 240), ingested.claim_token);
     return reply.code(200).send({
       ok: true,
       status: callbackStatus,
@@ -6401,7 +6408,11 @@ export function registerFrontendExperience(
 
     await ensureInvoiceWebhookTables();
     const parsed = invoiceProvider.parseInvoiceWebhookEvent(body);
-    return deps.withTx(async (c) => {
+    // Black-Sky BSC-3: the provider is acknowledged only AFTER the event row,
+    // its status and the reconcile job have COMMITTED. An ack sent inside the
+    // transaction told the provider "delivered" even when the COMMIT then
+    // failed, so it never retried and the reconciliation was lost.
+    const outcome = await deps.withTx(async (c): Promise<{ code: number; body: unknown }> => {
       const inserted = await c.query(
         `INSERT INTO siton.invoice_webhook_events
            (provider, event_id, provider_document_id, document_id, document_key, status, correlation_id, payload)
@@ -6419,7 +6430,7 @@ export function registerFrontendExperience(
         ]
       );
       if ((inserted.rowCount ?? 0) === 0) {
-        return reply.code(200).send({ ok: true, duplicate: true, provider: parsed.provider, event_id: parsed.event_id });
+        return { code: 200, body: { ok: true, duplicate: true, provider: parsed.provider, event_id: parsed.event_id } };
       }
 
       const doc = await c.query(
@@ -6444,7 +6455,7 @@ export function registerFrontendExperience(
            WHERE provider=$1 AND event_id=$2`,
           [parsed.provider, parsed.event_id]
         );
-        return reply.code(202).send({ ok: true, status: "ignored", reason: "invoice_document_not_found" });
+        return { code: 202, body: { ok: true, status: "ignored", reason: "invoice_document_not_found" } };
       }
       if (["reconciled", "voided", "skipped"].includes(String(row.status))) {
         await c.query(
@@ -6453,7 +6464,7 @@ export function registerFrontendExperience(
            WHERE provider=$1 AND event_id=$2`,
           [parsed.provider, parsed.event_id, row.document_id, row.document_key]
         );
-        return reply.code(200).send({ ok: true, status: "ignored", reason: "late_invoice_webhook_terminal_document" });
+        return { code: 200, body: { ok: true, status: "ignored", reason: "late_invoice_webhook_terminal_document" } };
       }
       await c.query(
         `INSERT INTO siton.outbox_events
@@ -6486,8 +6497,9 @@ export function registerFrontendExperience(
          WHERE provider=$1 AND event_id=$2`,
         [parsed.provider, parsed.event_id, row.document_id, row.document_key]
       );
-      return reply.code(200).send({ ok: true, status: "queued", provider: parsed.provider, event_id: parsed.event_id });
+      return { code: 200, body: { ok: true, status: "queued", provider: parsed.provider, event_id: parsed.event_id } };
     });
+    return reply.code(outcome.code).send(outcome.body);
   }
 
   app.post("/webhooks/invoices", handleWebhookInvoices);
@@ -7579,27 +7591,31 @@ export function registerFrontendExperience(
     await ensureAdminInterventionTables(deps.withTx);
     const adminActionId = String(req.params.adminActionId || "").trim();
     const context = adminRequestContext(req);
-    return deps.withTx(async (c) => {
+    // Black-Sky BSC-3: the execution verdict is sent only AFTER it commits; an
+    // operator must never see "executed" for an action the COMMIT rolled back.
+    const outcome = await deps.withTx(async (c): Promise<{ code: number; body: unknown } | null> => {
       // The action-type-specific permission can only be known after the lookup,
       // but the lookup itself must not be reachable without an admin session:
       // otherwise "404 admin_action_not_found" versus a guard rejection tells an
       // anonymous caller which action ids exist. Authenticate first, then load,
       // then enforce the specific permission (and MFA) for that action type.
       const authenticated = await requireAdminAuthContext(req, reply, c, { sessionRequired: true });
-      if (!authenticated) return reply;
+      if (!authenticated) return null;
       requireUuid(adminActionId, "admin_action_id");
       const actionResult = await c.query(`SELECT action_type FROM siton.admin_actions WHERE admin_action_id=$1`, [adminActionId]);
-      if (!actionResult.rowCount) return reply.code(404).send({ ok: false, error: "admin_action_not_found" });
+      if (!actionResult.rowCount) return { code: 404, body: { ok: false, error: "admin_action_not_found" } };
       const actionTypeForPermission = String(actionResult.rows[0].action_type || "");
       const identity = await requireAdminAuthContext(req, reply, c, {
         permission: ADMIN_ACTION_PERMISSION[actionTypeForPermission] || "admin_actions.execute",
         sessionRequired: true,
         recentMfa: HIGH_TRUST_ADMIN_ACTIONS.has(actionTypeForPermission)
       });
-      if (!identity) return reply;
+      if (!identity) return null;
       const result = await executeAdminAction(c, adminActionId, { ...context, admin_id: safeAdminId(identity) });
-      return reply.code(result.statusCode).send(result.body);
+      return { code: result.statusCode, body: result.body };
     });
+    if (!outcome) return reply;  // the auth guard already answered 401/403
+    return reply.code(outcome.code).send(outcome.body);
   });
 
   app.get("/api/admin/control-flags", async (req: any, reply: any) => {
@@ -7774,6 +7790,135 @@ export function registerFrontendExperience(
         }))
       };
     });
+  });
+
+  // ADMIN TEAM (owner round 2026-09-28) — a SuperAdmin adds an admin with a
+  // username + password. See src/admin_team.ts for the identity model. The
+  // guard runs BEFORE any body validation: a caller without a named SuperAdmin
+  // identity (admin_users.manage) learns nothing and nothing is created. The
+  // role and every other authority field come from this code, never from a
+  // client-supplied admin_users shape; the request body is never logged.
+  app.get("/api/admin/team/admins", async (req: any, reply: any) => {
+    reply.header("Cache-Control", "no-store");
+    if (!(await requireAdminMutation(req, reply, "admin_users.manage"))) return;
+    return deps.withTx(async (c) => {
+      const r = await c.query(
+        `SELECT admin_user_id, username, email, display_name, role, status, provisioned_via, created_at
+         FROM siton.admin_users ORDER BY created_at ASC LIMIT 200`
+      );
+      return {
+        ok: true,
+        admins: r.rows.map((row: any) => ({
+          admin_user_id: String(row.admin_user_id),
+          username: row.username ? String(row.username) : null,
+          email: row.username ? null : String(row.email || ""),
+          display_name: row.display_name ? String(row.display_name) : null,
+          role: String(row.role),
+          status: String(row.status),
+          provisioned_via: row.provisioned_via ? String(row.provisioned_via) : null,
+          created_at: row.created_at ? String(row.created_at) : null
+        }))
+      };
+    });
+  });
+
+  app.post("/api/admin/team/admins", async (req: any, reply: any) => {
+    reply.header("Cache-Control", "no-store");
+    // Creating an admin grants persistent authority, so a password-only (AAL1)
+    // SuperAdmin token is not enough: a recent second factor is required (a
+    // Supabase AAL2 token), exactly like disabling MFA (Codex P1 on #120).
+    const actor = await requireAdminMutation(req, reply, "admin_users.manage", { recentMfa: true });
+    if (!actor) return;
+    const username = normalizeAdminUsername(req.body?.username);
+    if (!username) return reply.code(400).send({ ok: false, error: "admin_username_invalid" });
+    const role = req.body?.role;
+    if (!isAdminTeamRole(role)) return reply.code(400).send({ ok: false, error: "admin_role_required", allowed_roles: ADMIN_TEAM_ROLES });
+    const passwordProblem = adminPasswordProblem(req.body?.password, username);
+    if (passwordProblem) return reply.code(400).send({ ok: false, error: "admin_password_weak", reason: passwordProblem });
+    const password = String(req.body.password);
+    const displayName = String(req.body?.display_name || "").trim().slice(0, 80) || username;
+    const email = adminLoginEmailForUsername(username);
+    const taken = await deps.withTx(async (c) => (await c.query(
+      `SELECT 1 FROM siton.admin_users WHERE lower(username)=$1 OR lower(email)=$2 LIMIT 1`, [username, email]
+    )).rowCount);
+    if (taken) return reply.code(409).send({ ok: false, error: "admin_username_taken" });
+    const provisioner = adminProvisionerConfig();
+    if (!provisioner) return reply.code(503).send({ ok: false, error: "admin_provisioning_unavailable" });
+    const created = await provisionAdminAuthUser(provisioner, username, password);
+    if (!created.ok) {
+      if (created.code === "username_taken") return reply.code(409).send({ ok: false, error: "admin_username_taken" });
+      if (created.code === "weak_password") return reply.code(400).send({ ok: false, error: "admin_password_weak", reason: "rejected_by_auth" });
+      req.log?.warn?.({ security_event: "admin.team.create_failed", code: created.code, status: created.status, request_id: String(req.id || "") }, "admin_team_create_failed");
+      return reply.code(503).send({ ok: false, error: "admin_provisioning_failed" });
+    }
+    try {
+      const admin = await deps.withTx(async (c) => {
+        const inserted = await c.query(
+          `INSERT INTO siton.admin_users (email, username, display_name, role, status, auth_user_id, password_hash, mfa_required, mfa_enabled, provisioned_via, provisioned_at)
+           VALUES ($1, $2, $3, $4, 'Active', $5, NULL, false, false, 'admin_team_create', now())
+           RETURNING admin_user_id, username, display_name, role, status, created_at`,
+          [email, username, displayName, role, created.auth_user_id]
+        );
+        const row = inserted.rows[0];
+        await c.query(
+          `INSERT INTO siton.admin_user_audit (event_type, actor_admin_user_id, target_admin_user_id, target_username, target_role, target_auth_user_id, request_id)
+           VALUES ('admin.created', $1, $2, $3, $4, $5, $6)`,
+          [actor.admin_user_id, row.admin_user_id, username, role, created.auth_user_id, String(req.id || "")]
+        );
+        return row;
+      });
+      req.log?.info?.({ security_event: "admin.team.created", actor_admin_user_id: actor.admin_user_id, target_admin_user_id: admin.admin_user_id, role, request_id: String(req.id || "") }, "admin_team_created");
+      return {
+        ok: true,
+        admin: {
+          admin_user_id: String(admin.admin_user_id), username: String(admin.username), display_name: String(admin.display_name || ""),
+          role: String(admin.role), status: String(admin.status), created_at: String(admin.created_at)
+        }
+      };
+    } catch (error: any) {
+      // The error may be ambiguous — a COMMIT whose acknowledgement was lost
+      // still leaves the binding in place (Codex P2 on #120). Compensate ONLY
+      // when the binding is confirmed absent; deleting the Auth user of a
+      // committed admin would reserve the username for an admin who can never
+      // sign in.
+      // "confirmed absent" (the read succeeded with no row) and "unknown" (the
+      // read itself failed) must stay distinct: only the former may compensate.
+      const check = await deps.withTx(async (c) => (await c.query(
+        `SELECT admin_user_id, username, display_name, role, status, created_at FROM siton.admin_users WHERE auth_user_id=$1 LIMIT 1`,
+        [created.auth_user_id]
+      )).rows[0]).then((row) => ({ known: true as const, row }), () => ({ known: false as const, row: undefined }));
+      const bound = check.row;
+      if (bound && String(bound.username || "") === username) {
+        req.log?.warn?.({ security_event: "admin.team.commit_ambiguous_bound", target_admin_user_id: bound.admin_user_id, request_id: String(req.id || "") }, "admin_team_commit_ambiguous_bound");
+        return {
+          ok: true,
+          admin: {
+            admin_user_id: String(bound.admin_user_id), username: String(bound.username), display_name: String(bound.display_name || ""),
+            role: String(bound.role), status: String(bound.status), created_at: String(bound.created_at)
+          }
+        };
+      }
+      if (!check.known) {
+        // the binding could not even be checked — never delete an Auth user
+        // that may be bound; leave it for an operator (it holds no authority
+        // unless a binding row exists)
+        req.log?.warn?.({ security_event: "admin.team.bind_unverified", pg_code: String(error?.code || ""), request_id: String(req.id || "") }, "admin_team_bind_unverified");
+        return reply.code(503).send({ ok: false, error: "admin_provisioning_failed" });
+      }
+      if (bound) {
+        // bound to a DIFFERENT admin row (never expected: the id was just
+        // minted) — never delete an Auth user that a committed row points at
+        req.log?.warn?.({ security_event: "admin.team.bound_elsewhere", target_admin_user_id: bound.admin_user_id, request_id: String(req.id || "") }, "admin_team_bound_elsewhere");
+        if (error?.code === "23505") return reply.code(409).send({ ok: false, error: "admin_username_taken" });
+        return reply.code(503).send({ ok: false, error: "admin_provisioning_failed" });
+      }
+      // The Auth user exists and its binding is confirmed absent — undo it so
+      // a half-created admin can never linger (it would hold no authority anyway).
+      const rolledBack = await rollbackAdminAuthUser(provisioner, username, created.auth_user_id);
+      req.log?.warn?.({ security_event: "admin.team.bind_failed", pg_code: String(error?.code || ""), auth_rolled_back: rolledBack, request_id: String(req.id || "") }, "admin_team_bind_failed");
+      if (error?.code === "23505") return reply.code(409).send({ ok: false, error: "admin_username_taken" });
+      return reply.code(503).send({ ok: false, error: "admin_provisioning_failed" });
+    }
   });
 
   app.post("/api/admin/sellers/:sellerId/status", async (req: any, reply: any) => {

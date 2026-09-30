@@ -1,2 +1,4 @@
 # Migrations are hashed by the ledger runner; keep the canonical body LF on every platform.
 src/migrations/*.sql text eol=lf
+# Agent definitions compare identically on every platform.
+.claude/agents/*.md text eol=lf

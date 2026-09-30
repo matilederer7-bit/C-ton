@@ -26,7 +26,3 @@ export function markAdminUnlocked(): void {
     sessionStorage.setItem(UNLOCK_KEY, JSON.stringify({ until: Date.now() + UNLOCK_MINUTES * 60_000 }));
   } catch { /* noop */ }
 }
-
-export function lockAdmin(): void {
-  try { sessionStorage.removeItem(UNLOCK_KEY); } catch { /* noop */ }
-}

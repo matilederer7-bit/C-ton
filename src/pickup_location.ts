@@ -33,6 +33,23 @@ const GENERIC_LABELS = new Set([
   "delivery"
 ]);
 
+/**
+ * A delivery method is CHOSEN by its type; the label is an optional address or
+ * description. A method without typed text keeps the generic name of its type
+ * (one of GENERIC_LABELS, so it never counts as a pickup address).
+ */
+export const DEFAULT_DELIVERY_LABELS: Record<string, string> = {
+  delivery: "משלוח",
+  pickup: "איסוף עצמי",
+  distribution_point: "נקודת חלוקה"
+};
+
+export function deliveryOptionLabel(optionType: unknown, label: unknown, fallbacks: Record<string, string> = DEFAULT_DELIVERY_LABELS): string {
+  const typed = String(label ?? "").trim().slice(0, 160);
+  if (typed) return typed;
+  return fallbacks[String(optionType || "")] || DEFAULT_DELIVERY_LABELS[String(optionType || "")] || DEFAULT_DELIVERY_LABELS.pickup!;
+}
+
 export function isPickupOptionType(optionType: unknown): boolean {
   return (PICKUP_OPTION_TYPES as readonly string[]).includes(String(optionType || ""));
 }

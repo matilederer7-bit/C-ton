@@ -54,7 +54,7 @@ test("E9: the image base is digest-pinned and the runtime image carries producti
 });
 
 test("E9: CI blocks on production high/critical advisories but not on registry outages; Dependabot covers npm, docker and actions", () => {
-  const gates = read(".github/workflows/backend-quality-gates.yml");
+  const gates = read(".github/workflows/ci.yml");
   assert.match(gates, /npm audit --omit=dev --audit-level=high --json/);
   assert.match(gates, /::error::npm audit found HIGH\/CRITICAL/);
   assert.match(gates, /::warning::npm audit unavailable/);

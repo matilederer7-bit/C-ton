@@ -7,18 +7,21 @@
 
 const fs = require("node:fs");
 
-const CODEX_MODELS = ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra"];
+const { TIER_ORDER, codexModelForTier } = require("./agent_model_tiers.cjs");
+
+// Derived from the tier policy so a Codex rename (or a per-tier
+// SITON_CODEX_MODEL_<TIER> override) is checked without editing this file.
+const CODEX_NAMES = { "gpt-5.6-luna": "Luna", "gpt-5.6-terra": "Terra", "gpt-5.6-sol": "Sol", "gpt-6-astra": "Astra" };
+const CODEX_MODELS = TIER_ORDER.map((tier) => codexModelForTier(tier));
 // Astra is reachable only through an explicit Apex escalation, so its absence
 // degrades one exceptional path. Luna, Terra and Sol carry every ordinary
 // routed task, so their absence stops normal work at the manager's own
 // `Verify selected Codex model access` gate.
-const ROUTINE_CODEX_MODELS = new Set(["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"]);
-const TIER_BY_MODEL = {
-  "gpt-5.6-luna": "economy (Luna)",
-  "gpt-5.6-terra": "standard (Terra)",
-  "gpt-5.6-sol": "senior (Sol)",
-  "gpt-6-astra": "apex (Astra)",
-};
+const ROUTINE_CODEX_MODELS = new Set(TIER_ORDER.filter((tier) => tier !== "apex").map((tier) => codexModelForTier(tier)));
+const TIER_BY_MODEL = Object.fromEntries(TIER_ORDER.map((tier) => {
+  const model = codexModelForTier(tier);
+  return [model, `${tier} (${CODEX_NAMES[model] || model})`];
+}));
 
 const SECRET_ENV_KEYS = ["SITON_AGENT_GITHUB_TOKEN", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"];
 

@@ -32,6 +32,10 @@ export interface VerifiedToken {
   email?: string;
   phone?: string;
   aal?: string;
+  // Unix time (seconds) of the most recent second-factor verification, from
+  // the `amr` claim. `iat` is NOT a second-factor time: a refreshed AAL2
+  // session gets a fresh iat without any new verification.
+  mfa_at?: number;
   // Supabase anonymous sign-ins carry role=authenticated with is_anonymous=true.
   // Surfaced so provisioning paths can refuse them explicitly (never authority).
   is_anonymous?: boolean;
@@ -172,9 +176,27 @@ export async function verifySupabaseAccessToken(token: unknown, opts: VerifyOpti
   if (payload?.email) out.email = String(payload.email);
   if (payload?.phone) out.phone = String(payload.phone);
   if (payload?.aal) out.aal = String(payload.aal);
+  const mfaAt = secondFactorTime(payload?.amr);
+  if (mfaAt !== null) out.mfa_at = mfaAt;
   if (payload?.is_anonymous === true) out.is_anonymous = true;
   if (typeof payload?.email_verified === "boolean") out.email_verified = payload.email_verified;
   return out;
+}
+
+// GoTrue records each authentication method with its time in `amr`
+// ([{ method, timestamp }]). Second factors are "totp" and the "mfa/*" methods.
+const SECOND_FACTOR_METHODS = new Set(["totp", "mfa/totp", "mfa/phone", "mfa/webauthn"]);
+// A timestamp beyond now + 5 min is ignored: it would read as "recent"
+// forever, and an absurd value would make Date#toISOString throw.
+export function secondFactorTime(amr: unknown, nowSeconds = Math.floor(Date.now() / 1000)): number | null {
+  if (!Array.isArray(amr)) return null;
+  let latest: number | null = null;
+  for (const entry of amr) {
+    const method = String((entry as any)?.method || "");
+    const ts = Number((entry as any)?.timestamp);
+    if (SECOND_FACTOR_METHODS.has(method) && Number.isFinite(ts) && ts > 0 && ts <= nowSeconds + 300 && (latest === null || ts > latest)) latest = ts;
+  }
+  return latest;
 }
 
 // ---- JWKS sources -------------------------------------------------------

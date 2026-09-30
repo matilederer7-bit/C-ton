@@ -143,7 +143,7 @@ test("no-real-money proof passes on the repository and fails when a target confi
 
   const workflowLive = createFixtureRepo(NO_MONEY_FIXTURE);
   try {
-    workflowLive.mutate(".github/workflows/backend-quality-gates.yml", "PAYMENT_PROVIDER_MODE: mock-backed", "PAYMENT_PROVIDER_MODE: mock-backed\n      PAYMENT_ENVIRONMENT: live");
+    workflowLive.mutate(".github/workflows/ci.yml", "PAYMENT_PROVIDER_MODE: mock-backed", "PAYMENT_PROVIDER_MODE: mock-backed\n      PAYMENT_ENVIRONMENT: live");
     const result = workflowLive.run("scripts/proof_no_real_money.cjs");
     assert.equal(result.status, 1);
     assert.match(result.stdout, /sets PAYMENT_ENVIRONMENT=live/);

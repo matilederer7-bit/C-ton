@@ -311,7 +311,9 @@ export async function resolveAdminIdentity(req: any, c: Queryable): Promise<Admi
           role: admin.role as AdminRole,
           identity_strength: "session_identity",
           permissions: [...ROLE_PERMISSIONS[admin.role as AdminRole]],
-          mfa_verified_at: caps.token.aal === "aal2" ? new Date(caps.token.iat * 1000).toISOString() : null
+          // the second factor's own time (amr), never iat: a refreshed AAL2
+          // token has a fresh iat without a new verification (review of #122)
+          mfa_verified_at: caps.token.aal === "aal2" && caps.token.mfa_at ? new Date(caps.token.mfa_at * 1000).toISOString() : null
         };
       }
       // A token without an active admin binding is not an admin identity here.
