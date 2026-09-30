@@ -35,7 +35,7 @@ export const REQUIRED_TABLES = [
   "storage_cleanup_tasks", "operational_recovery_audit", "buyer_sessions", "buyer_resume_contexts",
   "discovery_events", "viral_attributions", "viral_events", "viral_metrics_cache", "content_assets", "site_content",
   "distribution_link_viewers", "distribution_link_viewer_grants", "distribution_link_viewer_sessions",
-  "distribution_link_viewer_login_attempts", "products", "product_images",
+  "distribution_link_viewer_login_attempts",
   "outbox_enqueue_evidence", "fixture_purge_audit", "admin_user_audit"
 ] as const;
 

@@ -104,18 +104,9 @@ import {
   upsertTicketTerms,
   issueFulfillmentUnitsForParticipant,
   decideFulfillmentIssuance,
-  type DealType,
-  readVoucherTerms,
-  readTicketTerms
+  type DealType
 } from "./deal_types.js";
-import {
-  buildProductSnapshot,
-  ensureProductCatalogTables,
-  normalizeDeliveryEstimate,
-  normalizeFulfillmentDefaults,
-  normalizeProductType,
-  validateProductAttributes
-} from "./product_catalog.js";
+import { normalizeDeliveryEstimate } from "./delivery_estimate.js";
 import {
   deleteDealImageFile,
   getDealImagePublicUrl,
@@ -5385,14 +5376,12 @@ export async function processStorageCleanupBatch(limit = 10, leaseMs = 60_000) {
         }
         throw Object.assign(new Error("storage_cleanup_provider_mismatch"), { code: "storage_cleanup_provider_mismatch" });
       }
-      // Product catalog (072): a storage object may be shared between a
-      // Product and the Deals created from it. Delete the blob only when no
-      // metadata row references it any more; the task still completes.
+      // A storage object may be shared between Deal images. Delete the blob
+      // only when no metadata row references it any more; the task still
+      // completes.
       const references = await pool.query(
         `SELECT EXISTS (
            SELECT 1 FROM siton.deal_images WHERE storage_provider=$1 AND storage_key=$2
-           UNION ALL
-           SELECT 1 FROM siton.product_images WHERE storage_provider=$1 AND storage_key=$2
          ) AS still_referenced`,
         [task.storage_provider, task.storage_key]
       );
@@ -6308,217 +6297,9 @@ app.get("/api/deal-images/:imageId", async (req: any, reply: any) => {
     .send(file);
 });
 
-// ── Product catalog (migration 072) ─────────────────────────────────────────
-// A seller-owned reusable Product: the presentation truth (name, copy,
-// category, typed attributes, imagery, fulfillment defaults) maintained once
-// and frozen into every Deal created from it. Read routes live in
-// frontend_runtime.ts (seller surface); the writers are here with the same
-// seller authority + enforcement checks the Deal writers use.
-function normalizedProductInput(body: Record<string, any>, current?: Record<string, any>) {
-  const name = String(body.name ?? current?.name ?? "").trim().slice(0, 200);
-  if (!name) throw Object.assign(new Error("product name is required"), { statusCode: 400, code: "product_name_required" });
-  const shortDescription = String(body.short_description ?? current?.short_description ?? "").trim().slice(0, 200);
-  const longDescription = String(body.long_description ?? current?.long_description ?? "").trim().slice(0, 4000);
-  const productType = normalizeProductType(body.product_type ?? current?.product_type);
-  return {
-    name,
-    short_description: shortDescription,
-    long_description: longDescription,
-    product_type: productType,
-    category: String(body.category ?? current?.category ?? "").trim().slice(0, 160),
-    type_attributes: validateProductAttributes(productType, body.type_attributes ?? current?.type_attributes),
-    fulfillment_defaults: normalizeFulfillmentDefaults(body.fulfillment_defaults ?? current?.fulfillment_defaults)
-  };
-}
-
-async function ownedProductSnapshot(c: any, sellerId: string, productId: string, allowArchived = false) {
-  const productResult = await c.query(
-    `SELECT product_id, seller_id, name, short_description, long_description, product_type,
-            category, type_attributes, fulfillment_defaults, status, revision, created_at, updated_at
-       FROM siton.products
-      WHERE product_id=$1 AND seller_id=$2${allowArchived ? "" : " AND status='active'"}
-      LIMIT 1`,
-    [productId, sellerId]
-  );
-  if (!productResult.rowCount) {
-    throw Object.assign(new Error("product not found"), { statusCode: 404, code: "product_not_found" });
-  }
-  const images = await c.query(
-    `SELECT product_image_id, storage_provider, storage_key, public_url, original_filename,
-            mime_type, size_bytes, checksum_sha256, sort_order, is_primary
-       FROM siton.product_images WHERE product_id=$1
-      ORDER BY is_primary DESC, sort_order ASC, created_at ASC`,
-    [productId]
-  );
-  return { product: productResult.rows[0], images: images.rows, snapshot: buildProductSnapshot(productResult.rows[0], images.rows) };
-}
-
-app.post("/api/seller/products", SELLER_AUTHORITY_ROUTE, async (req: any, reply: any) => {
-  await ensureProductCatalogTables(withTx);
-  const created = await withTx(async (c) => {
-    const seller = await requireSellerAuthority(req, c);
-    await ensureSellerActionAllowed(c, seller.seller_id, "create_draft");
-    // Authorization precedes every observation: validation answers only a seller.
-    const input = normalizedProductInput((req.body && typeof req.body === "object" ? req.body : {}) as Record<string, any>);
-    const result = await c.query(
-      `INSERT INTO siton.products
-         (seller_id, name, short_description, long_description, product_type, category,
-          type_attributes, fulfillment_defaults)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-       RETURNING product_id, seller_id, name, short_description, long_description, product_type,
-                 category, type_attributes, fulfillment_defaults, status, revision, created_at, updated_at`,
-      [seller.seller_id, input.name, input.short_description, input.long_description, input.product_type,
-        input.category, JSON.stringify(input.type_attributes), JSON.stringify(input.fulfillment_defaults)]
-    );
-    return result.rows[0];
-  });
-  return reply.code(201).send({ ok: true, product: created });
-});
-
-// Editing a Product creates revision N+1. Published Deals keep their frozen
-// snapshot (DB trigger); a Draft created from the Product also keeps the
-// snapshot it was created with — re-creating the Draft is the explicit way
-// to pick up a newer revision.
-app.patch("/api/seller/products/:productId", SELLER_AUTHORITY_ROUTE, async (req: any) => {
-  await ensureProductCatalogTables(withTx);
-  const productId = String(req.params.productId || "");
-  return withTx(async (c) => {
-    const seller = await requireSellerAuthority(req, c);
-    await ensureSellerActionAllowed(c, seller.seller_id, "operate");
-    requireUuid(productId, "product_id"); // after the guard: authorization precedes observation
-    const currentResult = await c.query(
-      `SELECT product_id, seller_id, name, short_description, long_description, product_type,
-              category, type_attributes, fulfillment_defaults, status, revision
-         FROM siton.products WHERE product_id=$1 FOR UPDATE`,
-      [productId]
-    );
-    if (!currentResult.rowCount || normalizeSellerId(currentResult.rows[0].seller_id) !== seller.seller_id) {
-      throw Object.assign(new Error("product not found"), { statusCode: 404, code: "product_not_found" });
-    }
-    const current = currentResult.rows[0];
-    const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, any>;
-    if (body.product_type !== undefined && normalizeProductType(body.product_type) !== String(current.product_type)) {
-      throw Object.assign(new Error("product_type cannot change after creation"), { statusCode: 409, code: "product_type_locked" });
-    }
-    const input = normalizedProductInput(body, current);
-    const status = body.status === undefined ? String(current.status) : String(body.status);
-    if (!["active", "archived"].includes(status)) {
-      throw Object.assign(new Error("product status is invalid"), { statusCode: 400, code: "product_status_invalid" });
-    }
-    const updated = await c.query(
-      `UPDATE siton.products SET name=$3, short_description=$4, long_description=$5,
-              product_type=$6, category=$7, type_attributes=$8, fulfillment_defaults=$9,
-              status=$10, revision=revision+1, updated_at=now()
-        WHERE product_id=$1 AND seller_id=$2
-        RETURNING product_id, seller_id, name, short_description, long_description, product_type,
-                  category, type_attributes, fulfillment_defaults, status, revision, created_at, updated_at`,
-      [productId, seller.seller_id, input.name, input.short_description, input.long_description,
-        input.product_type, input.category, JSON.stringify(input.type_attributes),
-        JSON.stringify(input.fulfillment_defaults), status]
-    );
-    return { ok: true, product: updated.rows[0] };
-  });
-});
-
-// Promote a seller-owned Draft's buyer-visible product fields and images into
-// a reusable Product, then attach a frozen snapshot to that same Draft.
-app.post("/api/seller/deals/:dealId/product", SELLER_AUTHORITY_ROUTE, async (req: any, reply: any) => {
-  await ensureProductCatalogTables(withTx);
-  const dealId = String(req.params.dealId || "");
-  const response = await withTx(async (c) => {
-    const seller = await requireSellerAuthority(req, c);
-    await ensureSellerActionAllowed(c, seller.seller_id, "operate");
-    requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
-    const dealResult = await c.query(
-      `SELECT deal_id, seller_id, state, title, description, description_short, deal_type, product_id
-         FROM siton.deals WHERE deal_id=$1 FOR UPDATE`,
-      [dealId]
-    );
-    if (!dealResult.rowCount || normalizeSellerId(dealResult.rows[0].seller_id) !== seller.seller_id) {
-      throw Object.assign(new Error("deal not found"), { statusCode: 404, code: "deal_not_found" });
-    }
-    const deal = dealResult.rows[0];
-    if (String(deal.state) !== "Draft") {
-      throw Object.assign(new Error("only a Draft can create a Product"), { statusCode: 409, code: "DEAL_NOT_EDITABLE" });
-    }
-    if (deal.product_id) {
-      throw Object.assign(new Error("Draft already has a Product"), { statusCode: 409, code: "deal_product_already_attached" });
-    }
-    const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, any>;
-    const dealType = String(deal.deal_type || "physical_product");
-    // Typed attributes default to the Draft's own terms so the Product is
-    // complete without the seller re-typing what the Draft already knows.
-    let typeAttributes = body.type_attributes;
-    if (typeAttributes === undefined) {
-      if (dealType === "voucher") typeAttributes = await readVoucherTerms(c, dealId);
-      else if (dealType === "ticket") typeAttributes = await readTicketTerms(c, dealId);
-    }
-    const input = normalizedProductInput({
-      ...body,
-      name: body.name ?? deal.title,
-      short_description: body.short_description ?? deal.description_short,
-      long_description: body.long_description ?? deal.description,
-      product_type: dealType,
-      type_attributes: typeAttributes
-    });
-    const productResult = await c.query(
-      `INSERT INTO siton.products
-         (seller_id, name, short_description, long_description, product_type, category,
-          type_attributes, fulfillment_defaults)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-       RETURNING product_id, seller_id, name, short_description, long_description, product_type,
-                 category, type_attributes, fulfillment_defaults, status, revision, created_at, updated_at`,
-      [seller.seller_id, input.name, input.short_description, input.long_description, input.product_type,
-        input.category, JSON.stringify(input.type_attributes), JSON.stringify(input.fulfillment_defaults)]
-    );
-    const product = productResult.rows[0];
-    await c.query(
-      `INSERT INTO siton.product_images
-         (product_id, storage_provider, storage_key, public_url, original_filename, mime_type,
-          size_bytes, checksum_sha256, sort_order, is_primary)
-       SELECT $2, storage_provider, storage_key, public_url, original_filename, mime_type,
-              size_bytes, checksum_sha256, sort_order, is_primary
-         FROM siton.deal_images WHERE deal_id=$1
-        ORDER BY sort_order ASC, created_at ASC`,
-      [dealId, product.product_id]
-    );
-    const loaded = await ownedProductSnapshot(c, seller.seller_id, String(product.product_id));
-    await c.query(
-      `UPDATE siton.deals SET product_id=$2, product_snapshot_jsonb=$3, updated_at=now()
-        WHERE deal_id=$1`,
-      [dealId, product.product_id, JSON.stringify(loaded.snapshot)]
-    );
-    return { ok: true, product: loaded.product, snapshot: loaded.snapshot, deal_id: dealId };
-  });
-  return reply.code(201).send(response);
-});
-
-app.get("/api/seller/product-images/:productImageId", async (req: any, reply: any) => {
-  await ensureProductCatalogTables(withTx);
-  const productImageId = String(req.params.productImageId || "");
-  const image = await withTx(async (c) => {
-    const seller = await requireSellerAuthorityWithoutBody(req, c);
-    requireUuid(productImageId, "product_image_id"); // after the guard
-    const result = await c.query(
-      `SELECT i.storage_key, i.mime_type, i.public_url
-         FROM siton.product_images i
-         JOIN siton.products p ON p.product_id=i.product_id
-        WHERE i.product_image_id=$1 AND p.seller_id=$2`,
-      [productImageId, seller.seller_id]
-    );
-    if (!result.rowCount) throw Object.assign(new Error("product image not found"), { statusCode: 404, code: "product_image_not_found" });
-    return result.rows[0];
-  });
-  const externalUrl = String(image.public_url || "").trim();
-  if (/^https:\/\//.test(externalUrl)) return reply.header("cache-control", "private, max-age=300").redirect(externalUrl, 302);
-  const file = await readDealImage(String(image.storage_key));
-  return reply.header("content-type", String(image.mime_type)).header("cache-control", "private, no-store").send(file);
-});
-
 app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
   await ensureRemainingProductSurfaceTables(withTx);
   await ensureDealTypeTables(withTx);
-  await ensureProductCatalogTables(withTx);
   // Authorization precedes every observation (independent review LOW-4): an
   // anonymous caller must not learn which body shapes this route accepts. The
   // creating transaction below authenticates again for its own consistency;
@@ -6526,10 +6307,6 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
   // validation answer becomes visible.
   await withTx(async (c) => { await requireSellerAuthority(req, c); });
   const body = req.body || {};
-  // Product catalog (072): a Deal created FROM a Product takes every
-  // Product-owned presentation field from the server-loaded snapshot.
-  const productId = String(body.product_id || "").trim();
-  if (productId) requireUuid(productId, "product_id");
   const requestedDealType: DealType = normalizeDealType(body.deal_type, "physical_product");
   if (body.deal_type !== undefined && body.deal_type !== null && !["physical_product","voucher","ticket"].includes(String(body.deal_type))) {
     const err: any = new Error("deal_type must be one of physical_product, voucher, ticket");
@@ -6539,21 +6316,20 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
   }
   const requestedVoucherTerms = body.voucher_terms && typeof body.voucher_terms === "object" ? body.voucher_terms : null;
   const requestedTicketTerms = body.ticket_terms && typeof body.ticket_terms === "object" ? body.ticket_terms : null;
-  if (requestedDealType === "voucher" && !requestedVoucherTerms && !productId) {
+  if (requestedDealType === "voucher" && !requestedVoucherTerms) {
     const err: any = new Error("voucher_terms is required for voucher deals");
     err.statusCode = 400;
     err.code = "voucher_terms_required";
     throw err;
   }
-  if (requestedDealType === "ticket" && !requestedTicketTerms && !productId) {
+  if (requestedDealType === "ticket" && !requestedTicketTerms) {
     const err: any = new Error("ticket_terms is required for ticket deals");
     err.statusCode = 400;
     err.code = "ticket_terms_required";
     throw err;
   }
   const title = readCreateDealTitle(body);
-  // A Product-backed Deal never trusts browser-owned Product copy.
-  if (!productId && !title) {
+  if (!title) {
     const err: any = new Error("title is required");
     err.statusCode = 400;
     err.code = "title_required";
@@ -6651,7 +6427,9 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
       threshold_units: draftThreshold,
       deadline: body.deadline === undefined || body.deadline === null || body.deadline === "" ? null : deadlineIso,
       deal_type: requestedDealType,
-      product_id: productId || null,
+      // Kept as a constant so request hashes stored in siton.idempotency_log
+      // before the Product Library was removed still match on replay.
+      product_id: null,
       delivery_options: requestedDealType === "physical_product" ? deliveryOptions : [],
       voucher_terms: requestedDealType === "voucher" ? requestedVoucherTerms : null,
       ticket_terms: requestedDealType === "ticket" ? requestedTicketTerms : null
@@ -6661,45 +6439,6 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
   const r = await withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
     await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "create_draft");
-    let productSnapshot: ReturnType<typeof buildProductSnapshot> | null = null;
-    let effectiveTitle = title;
-    let effectiveDescription = description;
-    let effectiveDescriptionShort = descriptionShort;
-    // the Product snapshot may override the requested type (must match when both are given)
-    let dealType: DealType = requestedDealType;
-    let voucherTermsInput = requestedVoucherTerms;
-    let ticketTermsInput = requestedTicketTerms;
-    let effectiveDeliveryOptions = deliveryOptions;
-    if (productId) {
-      // Ownership + active status are enforced by the query (archived → 404):
-      // an archived Product cannot silently start a Deal.
-      const loaded = await ownedProductSnapshot(c, sellerAuthority.seller_id, productId);
-      productSnapshot = loaded.snapshot;
-      effectiveTitle = loaded.snapshot.name;
-      effectiveDescription = loaded.snapshot.long_description;
-      effectiveDescriptionShort = loaded.snapshot.short_description;
-      dealType = loaded.snapshot.product_type;
-      if (body.deal_type !== undefined && body.deal_type !== null && String(body.deal_type) !== dealType) {
-        throw Object.assign(new Error("deal_type must match the selected Product"), { statusCode: 409, code: "product_type_mismatch" });
-      }
-      const attrs = loaded.snapshot.type_attributes as any;
-      if (dealType === "voucher") {
-        voucherTermsInput = requestedVoucherTerms ?? {
-          face_value_amount: priceRaw, currency: "ILS", valid_from: attrs.valid_from,
-          valid_until: attrs.valid_until, redemption_location: attrs.redemption_location,
-          redemption_instructions: attrs.redemption_instructions, terms: attrs.usage_restrictions
-        };
-      }
-      if (dealType === "ticket") ticketTermsInput = requestedTicketTerms ?? attrs;
-      if (dealType === "physical_product") {
-        const defaults = loaded.snapshot.fulfillment_defaults as any;
-        effectiveDeliveryOptions = deliveryOptions.map((option: any) => ({
-          ...option,
-          estimated_min_business_days: option.estimated_min_business_days ?? defaults.estimated_min_business_days ?? null,
-          estimated_max_business_days: option.estimated_max_business_days ?? defaults.estimated_max_business_days ?? null
-        }));
-      }
-    }
     const stableDealId = createIdempotencyKey
       ? deterministicUuid(`seller_deal_create:${sellerAuthority.seller_id}:${createIdempotencyKey}`)
       : randomUUID();
@@ -6728,30 +6467,27 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
     }
     const ins = await c.query(
       `INSERT INTO siton.deals
-       (deal_id, title, description, description_short, price_per_unit, min_units, max_units, threshold_units, deadline, seller_id, deal_type, list_price_per_unit,
-        product_id, product_snapshot_jsonb)
-       VALUES ($1,$2,$3,$11,$4,$5,$6,$7,$8,$9,$10,$12,$13,$14)
-       RETURNING deal_id, state, deal_type, product_id`,
+       (deal_id, title, description, description_short, price_per_unit, min_units, max_units, threshold_units, deadline, seller_id, deal_type, list_price_per_unit)
+       VALUES ($1,$2,$3,$11,$4,$5,$6,$7,$8,$9,$10,$12)
+       RETURNING deal_id, state, deal_type`,
       [
         stableDealId,
-        effectiveTitle,
-        effectiveDescription || null,
+        title,
+        description || null,
         priceRaw,
         minUnits,
         maxUnits,
         draftThreshold,
         deadlineIso,
         sellerAuthority.seller_id,
-        dealType,
-        effectiveDescriptionShort || null,
-        listPrice,
-        productId || null,
-        productSnapshot ? JSON.stringify(productSnapshot) : null
+        requestedDealType,
+        descriptionShort || null,
+        listPrice
       ]
     );
     const deal = ins.rows[0];
-    if (dealType === "physical_product") {
-      for (const option of effectiveDeliveryOptions) {
+    if (requestedDealType === "physical_product") {
+      for (const option of deliveryOptions) {
         await c.query(
           `INSERT INTO siton.deal_delivery_options
              (deal_id, option_type, label, cost, sort_order, latitude, longitude,
@@ -6762,25 +6498,11 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
         );
       }
     }
-    if (dealType === "voucher" && voucherTermsInput) {
-      await upsertVoucherTerms(c, String(deal.deal_id), voucherTermsInput);
+    if (requestedDealType === "voucher" && requestedVoucherTerms) {
+      await upsertVoucherTerms(c, String(deal.deal_id), requestedVoucherTerms);
     }
-    if (dealType === "ticket" && ticketTermsInput) {
-      await upsertTicketTerms(c, String(deal.deal_id), ticketTermsInput);
-    }
-    if (productId) {
-      // Product imagery becomes the Deal's imagery (metadata copy; the storage
-      // object is shared and reference-counted by the cleanup rail).
-      await c.query(
-        `INSERT INTO siton.deal_images
-           (deal_id, storage_provider, storage_key, public_url, original_filename, mime_type,
-            size_bytes, checksum_sha256, sort_order, is_primary)
-         SELECT $2, storage_provider, storage_key, public_url, original_filename, mime_type,
-                size_bytes, checksum_sha256, sort_order, is_primary
-           FROM siton.product_images WHERE product_id=$1
-          ORDER BY sort_order ASC, created_at ASC`,
-        [productId, deal.deal_id]
-      );
+    if (requestedDealType === "ticket" && requestedTicketTerms) {
+      await upsertTicketTerms(c, String(deal.deal_id), requestedTicketTerms);
     }
     if (createIdempotencyKey) {
       await c.query(
@@ -6816,7 +6538,7 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
     }
     const currentResult = await c.query(
       `SELECT deal_id, seller_id, state, title, description, description_short, price_per_unit, list_price_per_unit,
-              min_units, max_units, threshold_units, deadline, deal_type, product_id, updated_at
+              min_units, max_units, threshold_units, deadline, deal_type, updated_at
        FROM siton.deals
        WHERE deal_id=$1
        FOR UPDATE`,
@@ -6828,12 +6550,6 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
     const current = currentResult.rows[0];
     if (String(current.state) !== "Draft") {
       throw Object.assign(new Error("only a Draft can be edited"), { statusCode: 409, code: "DEAL_NOT_EDITABLE" });
-    }
-    // Product catalog (072): presentation fields of a Product-backed Draft are
-    // owned by the frozen snapshot — edit the Product (new revision) and
-    // re-create the Draft instead of diverging the two.
-    if (current.product_id && (hasTitle || hasOwn("description") || hasOwn("description_short") || hasOwn("deal_type"))) {
-      throw Object.assign(new Error("Product-backed fields are owned by the Product snapshot"), { statusCode: 409, code: "product_snapshot_fields_locked" });
     }
     const expectedUpdatedAt = String(body.expected_updated_at || "").trim();
     if (expectedUpdatedAt && new Date(expectedUpdatedAt).getTime() !== new Date(String(current.updated_at)).getTime()) {
@@ -7464,14 +7180,11 @@ app.delete("/api/seller/deals/:dealId/images/:imageId", async (req: any, reply: 
         [dealId]
       );
     }
-    // Product catalog (072): the same storage object may back a Product image
-    // or another Deal's image; the blob is deleted only when nothing else
-    // references it any more.
+    // The same storage object may back another Deal's image; the blob is
+    // deleted only when nothing else references it any more.
     const shared = await c.query(
       `SELECT EXISTS (
          SELECT 1 FROM siton.deal_images WHERE storage_provider=$1 AND storage_key=$2
-         UNION ALL
-         SELECT 1 FROM siton.product_images WHERE storage_provider=$1 AND storage_key=$2
        ) AS still_referenced`,
       [image.storage_provider, image.storage_key]
     );
@@ -7542,12 +7255,10 @@ app.delete("/api/seller/deals/:dealId", async (req: any, reply: any) => {
       });
     }
     // Storage objects: schedule canonical cleanup for every image blob.
-    // Product catalog (072): blobs still referenced by a Product image or by
-    // another Deal are never scheduled for cleanup.
+    // Blobs still referenced by another Deal are never scheduled for cleanup.
     const images = await c.query(
       `SELECT i.storage_provider, i.storage_key FROM siton.deal_images i
         WHERE i.deal_id=$1
-          AND NOT EXISTS (SELECT 1 FROM siton.product_images pi WHERE pi.storage_provider=i.storage_provider AND pi.storage_key=i.storage_key)
           AND NOT EXISTS (SELECT 1 FROM siton.deal_images di WHERE di.deal_id<>$1 AND di.storage_provider=i.storage_provider AND di.storage_key=i.storage_key)`,
       [dealId]
     );
@@ -7620,12 +7331,7 @@ app.post("/deals/:id/publish", SELLER_AUTHORITY_ROUTE, async (req: any) => {
       throw err;
     }
     const r = await c.query(
-      `SELECT d.seller_id, d.deal_type, d.product_id, d.product_snapshot_jsonb,
-              (SELECT COUNT(*)::int FROM siton.deal_images i WHERE i.deal_id=d.deal_id) AS image_count,
-              (SELECT COUNT(*)::int FROM siton.deal_delivery_options o WHERE o.deal_id=d.deal_id) AS delivery_count,
-              (SELECT COUNT(*)::int FROM siton.deal_delivery_options o WHERE o.deal_id=d.deal_id
-                AND (o.estimated_min_business_days IS NULL OR o.estimated_max_business_days IS NULL)) AS delivery_estimate_missing_count
-         FROM siton.deals d WHERE d.deal_id=$1`,
+      `SELECT d.seller_id FROM siton.deals d WHERE d.deal_id=$1`,
       [dealId]
     );
     if (!r.rowCount) {
@@ -7638,31 +7344,6 @@ app.post("/deals/:id/publish", SELLER_AUTHORITY_ROUTE, async (req: any) => {
       err.statusCode = 404;
       throw err;
     }
-    // Product catalog (072): a Product-backed Deal publishes only with a
-    // complete frozen snapshot, at least one image, and (physical) delivery
-    // options that each carry a fulfillment estimate. Legacy Deals (no
-    // product_id) keep their existing publish rules unchanged.
-    const readiness = r.rows[0] as any;
-    if (readiness.product_id) {
-      const blockers: string[] = [];
-      if (!readiness.product_snapshot_jsonb?.content_hash) blockers.push("product_snapshot_missing");
-      if (Number(readiness.image_count || 0) < 1) blockers.push("deal_image_missing");
-      if (String(readiness.deal_type) === "physical_product") {
-        if (Number(readiness.delivery_count || 0) < 1) blockers.push("delivery_option_missing");
-        if (Number(readiness.delivery_estimate_missing_count || 0) > 0) blockers.push("delivery_estimate_missing");
-      }
-      if (blockers.length) {
-        // The error handler exposes `reason_code` (never free-form details), so
-        // the blocker list travels there for the seller UI and the tests.
-        throw Object.assign(new Error("deal product readiness failed"), {
-          statusCode: 409,
-          code: "deal_product_readiness_failed",
-          reasonCode: blockers.join(","),
-          details: { blockers }
-        });
-      }
-    }
-
     // Seller profile readiness: business_name + at least one contact method required before publish
     const profileResult = await c.query(
       `SELECT business_name, support_phone, support_email,
