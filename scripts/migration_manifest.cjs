@@ -74,7 +74,8 @@ const MIGRATIONS = [
   ["077", "077_black_sky_money_integrity.sql"],
   ["078", "078_black_sky_db_integrity.sql"],
   ["079", "079_admin_action_payout_attestation.sql"],
-  ["080", "080_admin_team_provisioning.sql"]
+  ["080", "080_admin_team_provisioning.sql"],
+  ["081", "081_outbox_enqueue_evidence_rls.sql"]
 ].map(([id, filename], position) => ({ id, filename, position: position + 1 }));
 
 module.exports = { MIGRATIONS_DIR, MIGRATIONS };
