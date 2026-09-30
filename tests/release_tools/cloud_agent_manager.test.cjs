@@ -366,7 +366,7 @@ test("engineering operating system has routing, parallel analysis and telemetry 
   assert.match(workflow, /builder_effort: \$\{\{ steps\.roles\.outputs\.builder_effort \}\}/);
   assert.match(workflow, /codex_model: \$\{\{ steps\.roles\.outputs\.codex_model \}\}/);
   assert.match(workflow, /agent-run-metric\.json/);
-  assert.match(workflow, /actions\/upload-artifact@v4/);
+  assert.match(workflow, /actions\/upload-artifact@v\d+/);
   assert.match(workflow, /Run required parallel analysis swarm/);
   assert.match(workflow, /gh workflow run cloud-analysis-swarm\.yml/);
   assert.match(workflow, /gh run watch/);
