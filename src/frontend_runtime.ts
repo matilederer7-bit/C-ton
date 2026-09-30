@@ -2384,12 +2384,18 @@ export function registerFrontendExperience(
       .send(html);
   });
 
+  // PUBLIC_MALL_ENABLED — runtime env switch (repo convention). Default OFF:
+  // the Mall stays hidden for the current launch (constitution §6): the React
+  // root stays seller-first, the legacy /app home does not render the Mall and
+  // /api/mall/deals answers 404 until the owner explicitly enables it. Direct
+  // deal links (/app/deal/:id, /preview/#/deal/:id) are never affected. Read
+  // per request so tests and the owner can flip it without a restart.
+  const isPublicMallEnabled = () =>
+    ["1", "true"].includes(String(process.env.PUBLIC_MALL_ENABLED || "").trim().toLowerCase());
+
   app.get("/api/preview/meta", async () => ({
     ok: true,
-    // PUBLIC_MALL_ENABLED — runtime env switch (repo convention). Default OFF:
-    // the React root stays seller-first and the Mall remains hidden until the
-    // owner explicitly enables it.
-    public_mall_enabled: ["1", "true"].includes(String(process.env.PUBLIC_MALL_ENABLED || "").trim().toLowerCase()),
+    public_mall_enabled: isPublicMallEnabled(),
     // P0.2 — homepage hero background-video capability (default OFF until an
     // approved asset exists) + the public support email (never a fake address:
     // absent until the owner configures SUPPORT_EMAIL).
@@ -2944,6 +2950,11 @@ export function registerFrontendExperience(
   });
 
   app.get("/api/mall/deals", async (req: any, reply: any) => {
+    if (!isPublicMallEnabled()) {
+      // PR E (2026-09-30): the Mall read model, its tests and this route stay,
+      // but the discovery surface is not served while the launch hides it.
+      return reply.code(404).send({ ok: false, code: "mall_disabled", message: "the public Mall is not enabled" });
+    }
     const query = parseMallQuery(req.query || {});
     const discoveryQuery = buildMallDiscoveryQuery(query);
     const rows = await deps.withTx(async (c) => {
@@ -3053,6 +3064,9 @@ export function registerFrontendExperience(
         ok: true,
         site: {
           brand: "Siton",
+          // The legacy /app shell reads this before deciding whether to render
+          // the Mall home; false sends it to /preview/ (PR E, 2026-09-30).
+          public_mall_enabled: isPublicMallEnabled(),
           product_direction: "mall-and-direct-group-deals",
           positioning:
             "Public Mall discovery and direct deal links lead into the same canonical Siton group-deal flow.",
@@ -12382,9 +12396,19 @@ export function registerFrontendExperience(
     let ogImage = "";
 
     if (pathOnly === "/app" || pathOnly === "/app/") {
-      title = "C-ton | קניון עסקאות קבוצתיות";
-      description = "מגלים עסקאות קבוצתיות פעילות, רואים את ההתקדמות ומצטרפים רק למסלול הקנוני של העסקה.";
-      robots = "index,follow";
+      if (isPublicMallEnabled()) {
+        title = "C-ton | קניון עסקאות קבוצתיות";
+        description = "מגלים עסקאות קבוצתיות פעילות, רואים את ההתקדמות ומצטרפים רק למסלול הקנוני של העסקה.";
+        robots = "index,follow";
+      } else {
+        // The Mall is hidden for the launch: the legacy home stays reachable
+        // (direct links and the pending-payment recovery path rely on it) but
+        // advertises no discovery surface and is not indexed; the shell script
+        // forwards visitors to /preview/.
+        title = "C-ton | עסקאות קבוצתיות";
+        description = "C-ton מאפשרת להצטרף לעסקאות קבוצתיות דרך קישור ישיר מהמוכר.";
+        robots = "noindex,nofollow";
+      }
     } else {
       const match = pathOnly.match(/^\/app\/deal\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i);
       if (match) {

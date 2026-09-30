@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { app } from "../src/app.js";
+process.env.PUBLIC_MALL_ENABLED = "1"; // PR E: this suite exercises the Mall API, hidden by default (constitution §6); the flag is read per request
 import { DEADLINE_MIN_MS, DEADLINE_TECHNICAL_MAX_MS } from "../src/deadline_policy.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;

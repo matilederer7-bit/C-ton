@@ -1,0 +1,80 @@
+{
+  "task": "PR E: hide the legacy /app Mall behind PUBLIC_MALL_ENABLED (constitution §6: the Mall stays hidden for the current launch; direct deal links keep working). Server: /api/mall/deals answers 404 mall_disabled when the flag is off; /api/site/home and /api/preview/meta expose public_mall_enabled; the /app home shell drops the Mall title and is noindex when off (status stays 200: the legacy app must remain reachable for direct links). Legacy shell: loadHome redirects to /preview/ when the flag is off instead of rendering the Mall. Tests: a new mall-hidden-by-default suite; the six suites that exercise the Mall API set PUBLIC_MALL_ENABLED=1 explicitly; no test is weakened.",
+  "lead": "claude-lead",
+  "base": "origin/master",
+  "open_branches": [],
+  "sequencing_note": "Started after PR #151 (claude/remove-product-library, which also edited src/frontend_runtime.ts) merged; squash-merged branches are not listed because they keep diffing against master.",
+  "assignments": [
+    {
+      "id": "B1",
+      "agent": "claude-lead",
+      "role": "builder",
+      "tier": "senior",
+      "scope": "server gate (src/frontend_runtime.ts), legacy shell redirect (frontend/app.js), tests, PROJECT_STATUS.md slot entry",
+      "allowed": [
+        "src/frontend_runtime.ts",
+        "frontend/app.js",
+        "tests/mall_hidden_by_default_validation.ts",
+        "tests/mall_runtime_validation.ts",
+        "tests/long_horizon_staging_smoke_validation.ts",
+        "tests/pilot_readiness_validation.ts",
+        "tests/stored_xss_privacy_canary_security_validation.ts",
+        "tests/synthetic_soak_authority_validation.ts",
+        "tests/frontend_browser_v11_validation.ts",
+        "tests/frontend_flow_validation.ts",
+        "PROJECT_STATUS.md",
+        "docs/team-plans/2026-09-30-legacy-app-mall-gate.json"
+      ],
+      "forbidden": [
+        "src/app.ts",
+        "src/mall_read_model.ts",
+        "src/migrations/",
+        "supabase/",
+        "web/",
+        "scripts/",
+        ".github/",
+        "docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md"
+      ],
+      "depends_on": [],
+      "dod": [
+        "GET /api/mall/deals → 404 mall_disabled with the flag off, 200 with it on",
+        "GET /app and /app/ stay 200 (reachable), no Mall title and noindex when off; /app/deal/:id unchanged",
+        "legacy loadHome redirects to /preview/ when the site payload says the Mall is off and never calls /api/mall/deals",
+        "new suite + the six Mall-API suites pass with the flag set explicitly; web:routes, gate:i18n, release-tools pass",
+        "status slot updated"
+      ]
+    },
+    {
+      "id": "R1",
+      "agent": "claude-subagent",
+      "role": "reviewer",
+      "senior": true,
+      "tier": "senior",
+      "scope": "independent senior review: flag semantics, no regression for direct deal links, share route, CSP, tests not weakened",
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "verdict with concrete failure scenarios"
+      ]
+    },
+    {
+      "id": "R2",
+      "agent": "codex",
+      "role": "reviewer",
+      "scope": "cross-provider review on the Pull Request (Codex review quota exhausted on 2026-09-30; if it stays exhausted, R1 stands alone and the PR says so)",
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "every finding fixed or answered, or quota exhaustion recorded"
+      ]
+    }
+  ]
+}

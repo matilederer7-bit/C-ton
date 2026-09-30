@@ -15,6 +15,7 @@ import pg from "pg";
 const { Pool } = pg;
 
 process.env.APP_DEPLOYMENT_MODE = process.env.APP_DEPLOYMENT_MODE || "demo-preview";
+process.env.PUBLIC_MALL_ENABLED = "1"; // PR E: this suite exercises the Mall API, hidden by default (constitution §6)
 process.env.DISABLE_OUTBOX_WORKER = "1";
 process.env.ADMIN_API_KEY = process.env.ADMIN_API_KEY || `pilot-test-admin-${randomUUID().slice(0, 8)}`;
 

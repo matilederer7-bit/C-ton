@@ -6,6 +6,7 @@ import { PUBLIC_MALL_DEAL_FIELDS } from "../src/mall_read_model.js";
 const { Pool } = pg;
 
 process.env.PORT = String(process.env.PORT || "3437");
+process.env.PUBLIC_MALL_ENABLED = "1"; // PR E: this suite exercises the Mall API, hidden by default (constitution §6)
 process.env.APP_DEPLOYMENT_MODE = "demo-preview";
 process.env.DISABLE_OUTBOX_WORKER = "1";
 process.env.OTP_TEST_BYPASS_CODE = "424242";
