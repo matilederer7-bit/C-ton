@@ -336,4 +336,3 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 - `docs/OPERATIONAL_RUNBOOK.md` overlaps `docs/OPERATIONAL_RUNBOOKS.md` (PowerShell era).
 - `docs/HOUSEKEEPING_SUMMARY.md` points at a file that no longer exists.
 - `PROJECT_STATUS.md` carries ~900 lines of milestone history; the standing rule already says history lives in Git.
-
