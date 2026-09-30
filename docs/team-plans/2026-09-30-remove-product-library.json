@@ -2,9 +2,7 @@
   "task": "PR B: remove the Product Library / Product Catalog surface (seller products page, /api/seller/products*, save-as-product, create-from-product, product snapshot locks) while keeping delivery estimates, ordinary deals, all three deal types, the Mall read model and every buyer surface working; no migration edit, no schema drop",
   "lead": "claude-lead",
   "base": "origin/master",
-  "open_branches": [
-    "origin/claude/outbox-evidence-rls"
-  ],
+  "open_branches": [],
   "interface_contract": {
     "src/delivery_estimate.ts": "exports normalizeDeliveryEstimate and describeDeliveryEstimate, moved verbatim from src/product_catalog.ts",
     "web/src/deliveryEstimate.ts": "exports deliveryEstimateText and validateEstimateRange, moved verbatim from web/src/productLibrary.ts"
@@ -117,5 +115,6 @@
         "every finding fixed or answered"
       ]
     }
-  ]
+  ],
+  "sequencing_note": "Written 2026-09-30 with open branch claude/product-constitution-sot (PR #148, squash-merged f517ad8); claude/outbox-evidence-rls (PR #149, squash-merged abc0a12) shared src/schema_contract.ts with B1 (REQUIRED_MIGRATION_IDS vs REQUIRED_TABLES) and merged ahead of this PR; master is merged into this branch after each. Squash-merged branches are not listed because they keep diffing against master and would be false overlaps; the plan was re-checked (TEAM_PLAN_PASS) after both merges."
 }

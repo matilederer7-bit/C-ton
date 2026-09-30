@@ -309,6 +309,16 @@ await runTest("outbox: UPDATING an old, already-sent job of the required type is
     assert.equal(row.can_update, false, `${row.rolname} must not update evidence`);
     assert.equal(row.can_delete, false, `${row.rolname} must not delete evidence`);
   }
+  // 081: row level security is enabled (no policy, not forced) so a future
+  // accidental GRANT stays harmless, while the definer-rights trigger and
+  // helper of 076 keep working for the owner (asserted by the insert below).
+  const rls = await pool.query(
+    `SELECT c.relrowsecurity, c.relforcerowsecurity
+     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'siton' AND c.relname = 'outbox_enqueue_evidence'`
+  );
+  assert.equal(rls.rows[0]?.relrowsecurity, true, "outbox_enqueue_evidence must have row level security enabled (081)");
+  assert.equal(rls.rows[0]?.relforcerowsecurity, false, "outbox_enqueue_evidence must not FORCE row level security (definer trigger/helper)");
   // A job inserted already 'sent' is not a runnable job.
   const insertedSent = await inTx(async (c) => {
     await arm(c, "charging.start");

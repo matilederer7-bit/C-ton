@@ -39,8 +39,6 @@ disposition and owner confirmation.
 
 ## Data model created by migration 072 (historical reference)
 
-## Data model (migration 072)
-
 | Object | Notes |
 |---|---|
 | `siton.products` | seller-owned; `status` active/archived (never deleted by the web runtime); `revision ≥ 1`; `type_attributes` + `fulfillment_defaults` JSONB objects |
