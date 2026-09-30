@@ -36,7 +36,7 @@ export const REQUIRED_TABLES = [
   "discovery_events", "viral_attributions", "viral_events", "viral_metrics_cache", "content_assets", "site_content",
   "distribution_link_viewers", "distribution_link_viewer_grants", "distribution_link_viewer_sessions",
   "distribution_link_viewer_login_attempts", "products", "product_images",
-  "outbox_enqueue_evidence", "fixture_purge_audit"
+  "outbox_enqueue_evidence", "fixture_purge_audit", "admin_user_audit"
 ] as const;
 
 // EVERY migration in scripts/migration_manifest.cjs. Readiness fails closed
@@ -54,7 +54,7 @@ export const REQUIRED_MIGRATION_IDS = [
   "041", "042", "043", "044", "045", "046", "047", "048", "049", "050", "051", "052",
   "053", "054", "055", "056", "057", "058", "059", "060", "061", "065", "066", "067",
   "068", "069", "070", "071", "072", "073", "074", "075", "076", "077",
-  "078", "079"
+  "078", "079", "080"
 ] as const;
 
 // Money / audit history the runtime roles must never DELETE or TRUNCATE, as
@@ -67,7 +67,8 @@ const RUNTIME_PROTECTED_TABLES: ReadonlyArray<readonly [string, boolean]> = [
   ["seller_payout_attempts", true], ["seller_payout_reconciliation_cases", true],
   ["invoice_documents", true], ["invoice_document_attempts", true], ["audit_log", true],
   ["webhook_events", true], ["payment_authorization_bindings", true], ["fulfillment_units", true],
-  ["deal_field_change_audit", true], ["operational_recovery_audit", true], ["fixture_purge_audit", true]
+  ["deal_field_change_audit", true], ["operational_recovery_audit", true], ["fixture_purge_audit", true],
+  ["admin_user_audit", true]
 ];
 
 export async function assertDatabaseSchema(db: Db): Promise<void> {
@@ -141,7 +142,9 @@ export async function assertDatabaseSchema(db: Db): Promise<void> {
     "trg_invoice_documents_issued_no_delete",
     "trg_payment_attempts_identity_immutable",
     "trg_webhook_events_identity_immutable",
-    "trg_fixture_purge_audit_append_only"
+    "trg_fixture_purge_audit_append_only",
+    // migration 080: admin-team audit rail
+    "trg_admin_user_audit_append_only"
   ];
   const triggers = await db.query(
     `SELECT t.tgname, t.tgenabled::text AS tgenabled FROM pg_trigger t

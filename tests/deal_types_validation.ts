@@ -76,7 +76,13 @@ await runTest("react_seller_wizard_three_type_payload_validation", async () => {
   // matching fulfillment shape. The same publish-lock API remains in force.
   assert.match(reactSeller, /type WizardDealType = "physical_product" \| "voucher" \| "ticket"/);
   assert.match(reactSeller, /deal_type: dealType/);
-  assert.match(reactSeller, /delivery_options: delivery[\s\S]{0,400}\.filter/);
+  // Owner bug 2026-09-28: a delivery method is chosen by its TYPE. The payload
+  // used to `.filter` rows by typed label, silently dropping methods chosen
+  // without a description — every chosen row is now sent, an empty label
+  // becoming the generic name of its type.
+  assert.match(reactSeller, /delivery_options: delivery\s*\.map\(/);
+  assert.doesNotMatch(reactSeller, /delivery_options: delivery\s*\.filter/, "chosen delivery methods must never be dropped by label");
+  assert.match(reactSeller, /label: deliveryOptionLabel\(d\.option_type, d\.label/);
   assert.match(reactSeller, /dealType === "voucher"[\s\S]{0,1200}voucher_terms:/);
   assert.match(reactSeller, /voucher_code_mode: "system_generated"/);
   assert.match(reactSeller, /dealType === "ticket"[\s\S]{0,1200}ticket_terms:/);

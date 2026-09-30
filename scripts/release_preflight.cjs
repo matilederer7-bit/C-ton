@@ -138,6 +138,10 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
   const catalogue = JSON.parse(fs.readFileSync(path.join(root, "config", "release-preflight-gates.json"), "utf8"));
   if (!catalogue.profiles[args.profile]) { console.error("unknown profile " + args.profile + "; known: " + Object.keys(catalogue.profiles).join(", ")); process.exit(2); }
+  // A renamed or mistyped gate id must not silently drop a gate from CI.
+  const knownIds = new Set(catalogue.gates.map((gate) => gate.id));
+  const unknownIds = [...(args.only || []), ...args.skip].filter((id) => id && !knownIds.has(id));
+  if (unknownIds.length) { console.error("unknown gate id(s) in --only/--skip: " + unknownIds.join(", ")); process.exit(2); }
   const caps = environmentCapabilities();
   const git = describeGit(root);
   const realMoney = policyLib.loadRealMoneyPolicy(root);

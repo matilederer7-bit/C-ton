@@ -1,9 +1,14 @@
 #!/usr/bin/env node
 // Metadata access is a credential preflight, not proof of successful inference.
-const MODELS = new Set(["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra"]);
+const { TIER_ORDER, codexModelForTier } = require("./agent_model_tiers.cjs");
 
-async function verifyModelAccess({ apiKey, model, fetchImpl = fetch }) {
-  if (!MODELS.has(model)) throw new Error("Unknown routed Codex model");
+// Only models the tier policy can route to (including per-tier overrides).
+function routedModels(env = process.env) {
+  return new Set(TIER_ORDER.map((tier) => codexModelForTier(tier, env)));
+}
+
+async function verifyModelAccess({ apiKey, model, fetchImpl = fetch, env = process.env }) {
+  if (!routedModels(env).has(model)) throw new Error("Unknown routed Codex model");
   if (!apiKey) throw new Error("OPENAI_API_KEY is required to verify model access");
   const response = await fetchImpl(`https://api.openai.com/v1/models/${encodeURIComponent(model)}`, {
     headers: { Authorization: `Bearer ${apiKey}` },
@@ -24,4 +29,4 @@ if (require.main === module) {
       process.exitCode = 1;
     });
 }
-module.exports = { verifyModelAccess };
+module.exports = { routedModels, verifyModelAccess };

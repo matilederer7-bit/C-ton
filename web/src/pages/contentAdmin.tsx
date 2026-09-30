@@ -13,15 +13,18 @@ import { BRAND_LOGO_URL } from "../config";
 import { IMAGE_ACCEPT, VIDEO_ACCEPT, uploadImageAsset, uploadVideoAsset } from "../contentAssets";
 import { SITE_CONTENT_UPDATED_EVENT } from "../siteContent";
 import {
-  TEMPLATES, contractFor, validationErrorKey, emptyBlock, emptyItem, missingEnglishContent, newBlockId, normalizePage, validatePage,
+  ENGLISH_FIELD_KINDS, TEMPLATES, contractFor, validationErrorKey, emptyBlock, emptyItem, missingEnglishContent, newBlockId, normalizePage, validatePage,
   type Block, type ContentLocale, type FieldDef, type PageContent, type PageContract, type TemplateId
 } from "../content/cmsTemplates";
 import { t } from "../i18n/index.js";
+import { HowItWorksIcon } from "../howItWorksIcons";
 
 type Section = {
   label: string; description: string; contract: PageContract;
   published: PageContent; draft: PageContent | null; revision: number;
   updated_at: string | null; updated_by: string | null; draft_updated_at: string | null; draft_updated_by: string | null; published_at: string | null;
+  /** false when the STORED draft would be refused at publish as stored (e.g. saved under an older template contract) */
+  draftPublishable: boolean;
 };
 type Message = { tone: "ok" | "err" | "info"; text: string } | null;
 
@@ -46,7 +49,9 @@ function toSection(key: string, raw: Json): Section {
   return {
     label: raw?.label || contract.label, description: raw?.description || contract.description, contract,
     published, draft: raw?.draft ? normalizePage(raw.draft, contract) : null, revision: Number(raw?.revision || 0),
-    updated_at: raw?.updated_at || null, updated_by: raw?.updated_by || null, draft_updated_at: raw?.draft_updated_at || null, draft_updated_by: raw?.draft_updated_by || null, published_at: raw?.published_at || null
+    updated_at: raw?.updated_at || null, updated_by: raw?.updated_by || null, draft_updated_at: raw?.draft_updated_at || null, draft_updated_by: raw?.draft_updated_by || null, published_at: raw?.published_at || null,
+    // an older server does not send the flag: keep the previous behaviour (publish the stored draft)
+    draftPublishable: raw?.draft_publishable !== false
   };
 }
 function toSections(raw: Json): Record<string, Section> {
@@ -121,7 +126,10 @@ export function ContentAdmin() {
   };
   const publish = async () => {
     if (!section) return;
-    if (dirty || !section.draft) { const page = validateLocally(); if (!page) return; const r = await mutate(`/api/admin/site-content/${key}/draft`, "PUT", { value: page }, ""); if (!r) return; }
+    // The editor shows the NORMALIZED draft. When the stored one would be
+    // refused as stored (saved under an older template contract), save what is
+    // on screen first, so what the admin sees is exactly what gets published.
+    if (dirty || !section.draft || !section.draftPublishable) { const page = validateLocally(); if (!page) return; const r = await mutate(`/api/admin/site-content/${key}/draft`, "PUT", { value: page }, ""); if (!r) return; }
     await mutate(`/api/admin/site-content/${key}/publish`, "POST", {}, t("content_admin.the_content_published_live_site"));
   };
   const discard = async () => { if (!window.confirm(t("content_admin.discard_draft_go_back_content"))) return; await mutate(`/api/admin/site-content/${key}/discard`, "POST", {}, t("content_admin.the_draft_discarded_published_content")); };
@@ -257,12 +265,26 @@ function BlockCard({ block, index, locked, busy, contentLocale, canUp, canDown, 
   const english = contentLocale === "en";
   const fields = english ? (block.fields_en ?? {}) : block.fields;
   const items = (english ? block.items_en ?? [] : block.items) || [];
-  const setField = (name: string, value: string) => onChange(english
+  // A STRUCTURAL field (a select such as an icon key or the hero medium, a
+  // link target) has no English sibling: it is read from and written to the
+  // canonical `fields` whichever content language is being edited, so the
+  // English view never shows a blank choice and never stores one where the
+  // validator refuses it.
+  const structural = (def: FieldDef) => !ENGLISH_FIELD_KINDS.has(def.kind);
+  const setField = (name: string, value: string, def: FieldDef) => onChange(english && !structural(def)
     ? { ...block, fields_en: { ...(block.fields_en ?? {}), [name]: value } }
     : { ...block, fields: { ...block.fields, [name]: value } });
   const setItems = (next: Record<string, string>[]) => onChange(english
     ? { ...block, items_en: next }
     : { ...block, items: next });
+  const setItemField = (index: number, name: string, value: string, def: FieldDef) => {
+    if (english && structural(def)) {
+      const canonical = (block.items ?? []).map((it, j) => j === index ? { ...it, [name]: value } : it);
+      onChange({ ...block, items: canonical });
+      return;
+    }
+    setItems(items.map((it, j) => j === index ? { ...it, [name]: value } : it));
+  };
   return <section className={`panel cms-block${block.enabled ? "" : " cms-block-off"}`} data-testid={`cms-block-${block.id}`} data-block-type={block.type} data-enabled={block.enabled ? "1" : "0"} data-position={index}>
     <div className="cms-block-head">
       <button type="button" className="cms-block-toggle" aria-expanded={open} onClick={() => setOpen(o => !o)}>{open ? "▾" : "▸"}</button>
@@ -279,9 +301,10 @@ function BlockCard({ block, index, locked, busy, contentLocale, canUp, canDown, 
         // `showWhen` is a STRUCTURAL choice (which medium, which side) and is
         // held only on the canonical Hebrew side; the English view follows it.
         if (def.showWhen && block.fields[def.showWhen.field] !== def.showWhen.value) return null;
-        const fallback = english ? block.fields[name] ?? "" : "";
-        return <Field key={name} id={`cms-field-${block.id}-${name}`} def={def} value={fields[name] ?? ""}
-          fallback={fallback} busy={busy} onChange={v => setField(name, v)} onMessage={onMessage} />;
+        const fallback = english && !structural(def) ? block.fields[name] ?? "" : "";
+        const value = structural(def) ? block.fields[name] ?? "" : fields[name] ?? "";
+        return <Field key={name} id={`cms-field-${block.id}-${name}`} def={def} value={value}
+          fallback={fallback} busy={busy} onChange={v => setField(name, v, def)} onMessage={onMessage} />;
       })}
       {tpl.items ? <div className="cms-items" data-testid={`cms-items-${block.id}`}>
         <div className="cms-items-head"><b>{t(tpl.items.label)}</b> <span className="muted small">({items.length}/{tpl.items.max})</span></div>
@@ -292,8 +315,9 @@ function BlockCard({ block, index, locked, busy, contentLocale, canUp, canDown, 
             <button type="button" className="btn btn-ghost btn-sm" aria-label={t("content_admin.move_down")} data-testid={`cms-item-down-${block.id}-${i}`} disabled={busy || i === items.length - 1} onClick={() => setItems(move(items, i, i + 1))}>▼</button>
             <button type="button" className="btn btn-danger-ghost btn-sm" data-testid={`cms-item-remove-${block.id}-${i}`} disabled={busy || items.length <= tpl.items!.min} onClick={() => setItems(items.filter((_, j) => j !== i))}>{t("content_admin.delete")}</button>
           </div>
-          {Object.entries(tpl.items!.fields).map(([name, def]) => <Field key={name} id={`cms-item-${block.id}-${i}-${name}`} def={def} value={item[name] ?? ""}
-            fallback={english ? block.items?.[i]?.[name] ?? "" : ""} busy={busy} onChange={v => setItems(items.map((it, j) => j === i ? { ...it, [name]: v } : it))} onMessage={onMessage} />)}
+          {Object.entries(tpl.items!.fields).map(([name, def]) => <Field key={name} id={`cms-item-${block.id}-${i}-${name}`} def={def}
+            value={structural(def) ? block.items?.[i]?.[name] ?? "" : item[name] ?? ""}
+            fallback={english && !structural(def) ? block.items?.[i]?.[name] ?? "" : ""} busy={busy} onChange={v => setItemField(i, name, v, def)} onMessage={onMessage} />)}
         </div>)}
         <button type="button" className="btn btn-ghost btn-sm" data-testid={`cms-item-add-${block.id}`} disabled={busy || items.length >= tpl.items.max} onClick={() => setItems([...items, emptyItem(block.type)])}>+ {t(tpl.items.addLabel)}</button>
       </div> : null}
@@ -331,8 +355,17 @@ function Field({ id, def, value, fallback = "", busy, onChange, onMessage }: { i
     </div>;
   }
   if (def.kind === "select") {
-    return <div className="field"><label htmlFor={id}>{label}</label>
-      <select id={id} data-testid={id} value={value} disabled={busy} onChange={e => onChange(e.target.value)}>{(def.options || []).map(o => <option key={o.value} value={o.value}>{t(o.label)}</option>)}</select></div>;
+    const select = <select id={id} data-testid={id} value={value} disabled={busy} onChange={e => onChange(e.target.value)}>{(def.options || []).map(o => <option key={o.value} value={o.value}>{t(o.label)}</option>)}</select>;
+    // An icon picker is the same whitelisted <select> with the chosen glyph
+    // shown beside it — the admin picks a KEY, never types markup.
+    if (def.iconPicker) {
+      return <div className="field"><label htmlFor={id}>{label}</label>
+        <div className="cms-icon-select">
+          <span className="cms-icon-preview" data-testid={`${id}-icon`} data-icon={value} aria-hidden="true"><HowItWorksIcon icon={value} size={22} /></span>
+          {select}
+        </div></div>;
+    }
+    return <div className="field"><label htmlFor={id}>{label}</label>{select}</div>;
   }
   if (def.kind === "multiline") {
     return <div className="field"><label htmlFor={id}>{label}</label>

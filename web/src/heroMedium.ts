@@ -81,3 +81,27 @@ export function readViewerMotionConditions(): { prefersReducedMotion: boolean; s
   } catch { /* default to allowing motion */ }
   return { prefersReducedMotion, saveData };
 }
+
+// ── The landing intro video (owner decision 2026-09-28) ──────────────────────
+// The logo stays; a video area sits UNDER it, before the title. The sources are
+// the same ones the hero already supported — an admin-uploaded CMS video (hero
+// block, media_kind "video") or the LANDING_HERO_VIDEO_* runtime fallback — so
+// dropping a video in later needs no code change. Two decisions are separated
+// so the layout never jumps:
+//   * `configured`: a source exists → the 16:9 slot (with its poster) is
+//     reserved at once;
+//   * `play`: the <video> element is attached only after first paint and only
+//     when the viewer has not asked for reduced motion / save-data.
+// No source → no slot at all (nothing invented, no empty box on the page).
+export interface IntroVideo { url: string; poster: string; play: boolean }
+
+export function resolveIntroVideo(input: HeroMediumInput): IntroVideo | null {
+  const cmsUrl = String(input.cmsVideoUrl || "").trim();
+  const envUrl = String(input.videoUrl || "").trim();
+  let url = "", poster = "";
+  if (input.mediaKind === "video" && cmsUrl) { url = cmsUrl; poster = String(input.cmsVideoPoster || "").trim(); }
+  else if (input.mediaKind !== "image" && Boolean(input.videoEnabled) && envUrl) { url = envUrl; poster = String(input.videoPoster || "").trim(); }
+  if (!url) return null;
+  const play = Boolean(input.deferred) && !input.prefersReducedMotion && !input.saveData;
+  return { url, poster, play };
+}

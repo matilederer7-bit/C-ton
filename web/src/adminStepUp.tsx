@@ -66,9 +66,9 @@ export function AdminStepUp({ onUnlocked, onCancel }: { onUnlocked: () => void; 
                 WHICH account is being authenticated; prefilled from the
                 canonical session and editable (editing = switching account). */}
             <div className="field">
-              <label htmlFor="stepup-email">{t("admin_step_up.e_mail")}</label>
-              <input id="stepup-email" dir="ltr" type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email" data-testid="stepup-email" />
+              <label htmlFor="stepup-email">{t("auth.email_or_username")}</label>
+              <input id="stepup-email" dir="ltr" type="text" required value={email} onChange={(e) => setEmail(e.target.value)}
+                autoComplete="username" autoCapitalize="none" spellCheck={false} data-testid="stepup-email" />
               {knownEmail ? <span className="hint">{t("admin_step_up.this_signed_account_edit_sign")}</span> : null}
             </div>
             <div className="field">

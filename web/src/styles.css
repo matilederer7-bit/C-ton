@@ -151,9 +151,9 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 }
 .topbar-inner {
   max-width: var(--max); margin: 0 auto; padding: 9px 16px;
-  /* P0.6-3 (RTL): inline-end = the VISUAL LEFT — extra room keeps the nav
-     controls clear of the hidden corner hotspot's 30px column */
-  padding-inline-end: 38px;
+  /* Extra room on the PHYSICAL left keeps the brand and nav controls clear
+     of the admin corner hotspot's 30px column, in both text directions. */
+  padding-left: calc(38px + env(safe-area-inset-left, 0px));
   display: flex; align-items: center; gap: 14px;
 }
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); min-width: 0; }
@@ -218,22 +218,23 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 }
 
 /* deliberately subtle admin entry: visual obscurity only — never security.
-   Physically LEFT corner (owner-specified), regardless of RTL flow.
-   P0.6-3: the TAP TARGET is a generous 30px pinned to the very corner while
-   the VISIBLE dot stays tiny (9px) tucked into it — moved further left/up so
-   it never crowds the nav controls, yet stays easy to hit. */
+   Physically TOP-LEFT corner (owner-specified) in BOTH text directions: the
+   topbar reserves that 38px column, so it never sits over the brand or nav.
+   The TAP TARGET stays a generous 30px for the admin while the VISIBLE dot is
+   a faint 7px speck that a buyer's eye does not catch. */
 .admin-dot {
-  position: fixed; left: 0; z-index: 60;
+  /* offset by the device safe area so a notch / rounded corner never swallows it */
+  position: fixed; left: env(safe-area-inset-left, 0px); right: auto; z-index: 60;
   width: 30px; height: 30px; border: none; background: transparent;
   cursor: pointer; padding: 0;
   display: flex; align-items: center; justify-content: center;
 }
 .admin-dot::after {
-  content: ""; width: 9px; height: 9px; border-radius: 50%;
-  background: var(--ink-faint); opacity: .15;
+  content: ""; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--ink-faint); opacity: .1;
 }
-.admin-dot:hover::after, .admin-dot:focus-visible::after { opacity: .5; }
-.admin-dot.top { top: 0; }
+.admin-dot:hover::after, .admin-dot:focus-visible::after { opacity: .45; }
+.admin-dot.top { top: env(safe-area-inset-top, 0px); }
 .admin-dot.bottom { bottom: 0; }
 
 /* ── branded loading (the C-ton mark breathing on the paper ground) ────── */
@@ -280,7 +281,31 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 .landing-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .landing-col { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 18px; box-shadow: var(--shadow-soft); display: grid; gap: 8px; align-content: start; justify-items: start; }
 .landing-col p { color: var(--ink-soft); font-size: .95rem; }
+/* the intro video under the logo: space reserved at a fixed 16:9 ratio (no CLS),
+   poster as the background until the muted loop can play */
+.landing-pending { min-height: 100vh; }
+.landing-intro-video {
+  width: min(100%, 560px); aspect-ratio: 16 / 9; margin: 6px auto 18px;
+  border-radius: var(--radius-lg); overflow: hidden; background: var(--bg-deep) center / cover no-repeat;
+  box-shadow: var(--shadow-soft);
+}
+.landing-intro-video video { width: 100%; height: 100%; object-fit: cover; display: block; }
+@media (max-width: 640px) { .landing-intro-video { margin: 4px auto 14px; border-radius: var(--radius); } }
 .landing-faq { display: grid; gap: 8px; }
+/* the whole FAQ is one collapsed brick; `hidden` must win over display:grid */
+.landing-faq[hidden] { display: none; }
+.landing-faq-heading { margin: 0; font-size: inherit; }
+.landing-faq-toggle {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 16px 18px; font: inherit; font-size: 1.15rem; font-weight: 800; color: var(--ink);
+  cursor: pointer; text-align: start; min-height: 48px;
+}
+.landing-faq-toggle:hover { border-color: var(--line-strong); }
+.landing-faq-toggle:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.landing-faq-toggle[aria-expanded="true"] { border-bottom-left-radius: var(--radius-sm); border-bottom-right-radius: var(--radius-sm); }
+.landing-faq-chevron { font-size: 1.3rem; line-height: 1; color: var(--ink-faint); flex: none; }
+.landing-faq-block .landing-faq { margin-top: 10px; }
 .landing-faq-item { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 0 16px; }
 .landing-faq-item summary { cursor: pointer; font-weight: 700; padding: 13px 0; list-style-position: inside; }
 .landing-faq-item[open] summary { border-bottom: 1px solid var(--line); margin-bottom: 10px; }
@@ -321,6 +346,51 @@ input.invalid, textarea.invalid, select.invalid { border-color: var(--pomegranat
 @media (max-width: 720px) {
   .landing-steps { grid-template-columns: 1fr; }
   .landing-actions .btn { width: 100%; }
+}
+
+/* ── "How it works" infographic (home; CMS block `how_it_works`) ───────────
+   Two white bricks on the paper ground: graphite title with the mint marker,
+   four numbered steps on one mint connector line, and a mint-tinted summary
+   line. Logical properties only, so RTL and LTR read the same. */
+.hiw-tracks { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.hiw-track {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg);
+  padding: 20px 18px 18px; box-shadow: var(--shadow-soft); display: grid; gap: 18px; align-content: start; min-width: 0;
+}
+.hiw-track-title { margin: 0; font-size: 1.12rem; font-weight: 800; color: var(--ink); display: flex; align-items: center; gap: 8px; }
+.hiw-track-title::before { content: ""; width: 14px; height: 6px; border-radius: 3px; background: var(--live); flex: none; }
+.hiw-steps { list-style: none; margin: 0; padding: 4px 0 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; position: relative; }
+/* the connector: from the centre of the first circle to the centre of the last */
+.hiw-steps::before {
+  content: ""; position: absolute; top: 30px; inset-inline: 12.5%; height: 3px; border-radius: 2px; z-index: 0;
+  background: linear-gradient(90deg, rgb(var(--brand-mint-rgb) / .45), var(--live), rgb(var(--brand-mint-rgb) / .45));
+}
+.hiw-step { position: relative; z-index: 1; display: grid; justify-items: center; align-content: start; gap: 9px; text-align: center; min-width: 0; }
+.hiw-icon {
+  position: relative; width: 52px; height: 52px; border-radius: 50%; background: var(--brand); color: var(--on-brand);
+  display: grid; place-items: center; border: 3px solid var(--surface); box-shadow: 0 0 0 2px var(--live), var(--shadow-soft);
+}
+.hiw-icon svg { width: 24px; height: 24px; }
+.hiw-num {
+  position: absolute; top: -12px; inset-inline-end: -12px; width: 18px; height: 18px; padding: 0; border-radius: 50%;
+  background: var(--live); color: var(--brand); font-family: var(--font-display); font-weight: 800; font-size: .65rem; line-height: 16px;
+  text-align: center; border: 1px solid var(--surface); font-variant-numeric: tabular-nums; box-sizing: border-box;
+}
+.hiw-text { font-weight: 700; font-size: .92rem; line-height: 1.3; color: var(--ink); overflow-wrap: break-word; hyphens: auto; padding: 0 2px; }
+.hiw-summary {
+  margin: 0; display: flex; align-items: center; gap: 10px; background: var(--live-tint); color: var(--live-ink);
+  border: 1px solid rgb(var(--brand-mint-rgb) / .35); border-radius: var(--radius); padding: 10px 12px; font-weight: 700; font-size: .92rem;
+}
+.hiw-summary-icon { flex: none; width: 32px; height: 32px; border-radius: 50%; background: var(--surface); color: var(--live-ink); display: grid; place-items: center; }
+.hiw-summary-icon svg { width: 18px; height: 18px; }
+@media (max-width: 720px) { .hiw-tracks { grid-template-columns: 1fr; } }
+@media (max-width: 480px) {
+  .hiw-track { padding: 16px 12px 14px; gap: 14px; }
+  .hiw-icon { width: 46px; height: 46px; }
+  .hiw-icon svg { width: 21px; height: 21px; }
+  .hiw-steps::before { top: 27px; }
+  .hiw-text { font-size: .82rem; }
+  .hiw-summary { font-size: .88rem; padding: 9px 10px; }
 }
 
 /* ── buttons & chips ───────────────────────────────────────────────────── */
@@ -933,7 +1003,7 @@ input.invalid, textarea.invalid, select.invalid { border-color: var(--pomegranat
 /* ── admin ─────────────────────────────────────────────────────────────── */
 .admin-shell { display: grid; grid-template-columns: 216px 1fr; gap: 0; min-height: calc(100dvh - 60px); }
 .admin-nav {
-  background: var(--surface); color: var(--ink-soft); padding: 18px 0;
+  background: var(--surface); color: var(--ink-soft); padding: 24px 0 18px;
   display: flex; flex-direction: column; gap: 2px;
   border-inline-end: 1px solid var(--line);
 }
@@ -946,7 +1016,7 @@ input.invalid, textarea.invalid, select.invalid { border-color: var(--pomegranat
 }
 .admin-nav button:hover { background: var(--surface-warm); color: var(--ink); }
 .admin-nav button.active { background: var(--brand-tint); color: var(--brand-hi); border-color: var(--brand); }
-.admin-main { padding: 22px 24px calc(30px + env(safe-area-inset-bottom, 0)); overflow-x: hidden; min-width: 0; }
+.admin-main { padding: 30px 24px calc(30px + env(safe-area-inset-bottom, 0)); overflow-x: hidden; min-width: 0; }
 .admin-main h1 { font-size: 1.35rem; }
 
 .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
@@ -1155,7 +1225,7 @@ td.num, th.num { text-align: end; font-variant-numeric: tabular-nums; }
   .admin-nav-title, .admin-nav-group { display: none; }
   .admin-nav button { white-space: nowrap; border-inline-start: none; border-bottom: 3px solid transparent; }
   .admin-nav button.active { border-color: var(--brand); }
-  .admin-main { padding: 16px 12px 40px; }
+  .admin-main { padding: 22px 12px 40px; }
 }
 @media (max-width: 640px) {
   body { font-size: 15px; }
@@ -1740,12 +1810,11 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
    per-language fork. What needs saying explicitly is only the handful of
    places where a value is physically anchored or semantically directional. */
 
-/* The hidden admin hotspot was pinned to the PHYSICAL left, which is the inline
-   END of an RTL document — the same side the topbar reserves 38px for. In LTR
-   that reserve moves to the right while the hotspot stayed left, so it would
-   have sat under the wordmark. Anchoring it logically keeps the hotspot and the
-   reserved column on the same side in both directions. */
-.admin-dot { inset-inline-end: 0; left: auto; right: auto; }
+/* The admin hotspot and the topbar's reserved 38px column are BOTH anchored
+   to the physical left (see .admin-dot / .topbar-inner), so they stay on the
+   same side in RTL and LTR. (A logical `inset-inline-end` followed by
+   `left/right: auto` in one rule cancelled itself and dropped the hotspot to
+   its static position — the top RIGHT, over the brand side.) */
 
 /* A chevron/arrow that means "forward" points the way the text runs. Glyphs
    that are typed as characters (←, →) cannot flip themselves, so the ones that
