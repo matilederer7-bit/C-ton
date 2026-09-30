@@ -12345,7 +12345,7 @@ export function registerFrontendExperience(
       },
       product_contract: {
         direct_links_first_class:       true,
-        public_mall_discovery:          true,
+        public_mall_discovery:          isPublicMallEnabled(), // PR E: reports the launch flag, not a constant
         mall_owns_state_or_money:       false,
         distributor_attribution_only:  true,
         platform_fee_8_percent:        feeRateOk,

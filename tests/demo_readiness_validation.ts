@@ -189,7 +189,8 @@ try {
     const res = await app.inject({ method: "GET", url: "/api/admin/demo-readiness", headers: ADMIN_H });
     const body = res.json() as any;
     assert.equal(body.product_contract.direct_links_first_class, true);
-    assert.equal(body.product_contract.public_mall_discovery, true);
+    // PR E: the readiness contract reports the launch flag (off by default)
+    assert.equal(body.product_contract.public_mall_discovery, false);
     assert.equal(body.product_contract.mall_owns_state_or_money, false);
   });
 

@@ -10,7 +10,7 @@
       "agent": "claude-lead",
       "role": "builder",
       "tier": "senior",
-      "scope": "server gate (src/frontend_runtime.ts), legacy shell redirect (frontend/app.js), tests, PROJECT_STATUS.md slot entry",
+      "scope": "server gate (src/frontend_runtime.ts), legacy shell redirect (frontend/app.js), tests, PROJECT_STATUS.md slot entry; independent review R1 added: the browser smoke spawn env and the demo-readiness contract field",
       "allowed": [
         "src/frontend_runtime.ts",
         "frontend/app.js",
@@ -23,7 +23,9 @@
         "tests/frontend_browser_v11_validation.ts",
         "tests/frontend_flow_validation.ts",
         "PROJECT_STATUS.md",
-        "docs/team-plans/2026-09-30-legacy-app-mall-gate.json"
+        "docs/team-plans/2026-09-30-legacy-app-mall-gate.json",
+        "tests/frontend_browser_smoke_validation.ts",
+        "tests/demo_readiness_validation.ts"
       ],
       "forbidden": [
         "src/app.ts",
