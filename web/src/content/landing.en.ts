@@ -32,6 +32,11 @@ export const LANDING_EN = {
     ]
   },
 
+  valueProposition: {
+    title: "Buy together. Get wholesale buying power.",
+    body: "Wholesale prices are built on volume. Until now, that power has mainly belonged to chains, importers and large businesses. Siton brings people into one deal and lets businesses, suppliers and manufacturers sell a large quantity at once at a better price for everyone. When buyers join together, their purchasing power grows, and where it fits the deal the product can move from the manufacturer or supplier straight to the door, with fewer layers in between."
+  } as LandingSectionContent,
+
   // OWNER copy pending in Hebrew as well — hidden while empty in both languages.
   whyGroupBuying: { title: "Why group buying pays off", body: "" } as LandingSectionContent,
 

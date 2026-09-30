@@ -126,6 +126,15 @@ assert.throws(() => assertProductionRuntimeGuards("web", production({ CANONICAL_
 assert.throws(() => assertProductionRuntimeGuards("web", { APP_DEPLOYMENT_MODE: "staging", RENDER: "true" }), /CANONICAL_POSTGRES_RUNTIME=1 is required/);
 assert.doesNotThrow(() => assertProductionRuntimeGuards("web", { APP_DEPLOYMENT_MODE: "staging", RENDER: "true", CANONICAL_POSTGRES_RUNTIME: "1" }));
 assert.doesNotThrow(() => assertProductionRuntimeGuards("web", { APP_DEPLOYMENT_MODE: "demo-preview" }), "the local harness may still run the legacy path");
-console.log("PASS the non-canonical join path is fenced to the local/test harness (C-3)");
+assert.throws(
+  () => assertProductionRuntimeGuards("worker", { NODE_ENV: "test", APP_DEPLOYMENT_MODE: "staging", RENDER: "true", CANONICAL_POSTGRES_RUNTIME: "1", SITON_TEST_DISABLE_WORKER_MAINTENANCE: "1" }),
+  /SITON_TEST_DISABLE_WORKER_MAINTENANCE=1 is forbidden/,
+  "a hosted worker must fail closed even if NODE_ENV=test and the fencing-test bypass leaked into its environment"
+);
+assert.doesNotThrow(
+  () => assertProductionRuntimeGuards("worker", { NODE_ENV: "test", APP_DEPLOYMENT_MODE: "test", SITON_TEST_DISABLE_WORKER_MAINTENANCE: "1" }),
+  "the maintenance bypass remains available only to the local test harness"
+);
+console.log("PASS the non-canonical join path and worker-maintenance bypass are fenced to the local/test harness (C-3)");
 
 console.log("PASS production guards reject unsafe live topology and providers without blocking demo/test");
