@@ -62,7 +62,7 @@ jobs:
       docker_release_lab: ${{ steps.classify.outputs.docker_release_lab }}
       preflight_database: ${{ steps.classify.outputs.preflight_database }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: actions/setup-node@v7
@@ -111,7 +111,7 @@ jobs:
       run:
         shell: bash --noprofile --norc -eo pipefail {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: ./.github/actions/siton-setup
@@ -243,7 +243,7 @@ jobs:
       PAYMENT_PROVIDER_MODE: mock-backed
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/siton_ci
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 2
       - uses: ./.github/actions/siton-setup
@@ -338,7 +338,7 @@ jobs:
       PAYMENT_PROVIDER_MODE: mock-backed
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/siton_ci
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 2
       - uses: ./.github/actions/siton-setup
@@ -381,7 +381,7 @@ jobs:
       run:
         shell: bash --noprofile --norc -eo pipefail {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/siton-setup
         with:
           web: "false"
@@ -413,7 +413,7 @@ jobs:
       run:
         shell: bash --noprofile --norc -eo pipefail {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/siton-setup
         with:
           web: "false"
@@ -443,7 +443,7 @@ jobs:
       run:
         shell: bash --noprofile --norc -eo pipefail {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/siton-setup
         with:
           web: "false"
@@ -472,7 +472,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/siton-setup
         with:
           web: "false"
@@ -525,7 +525,7 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/siton_release
       SITON_AGENT: ci
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: PostgreSQL client tools (pg_dump / pg_restore for the rehearsal)
@@ -558,7 +558,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 22
