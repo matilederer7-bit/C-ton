@@ -1,5 +1,7 @@
 # Siton V1.1 — Product Depth Audit
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document describes Base44 as the canonical or production runtime. That is no longer true. The runtime is Render web + Render worker + Supabase PostgreSQL; see `docs/CURRENT_ARCHITECTURE_2026-09-30.md`. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`. Keep this file for history only; it is not authority.
+
 Status: evidence-first implementation matrix, 2026-08-23.
 
 The current repository frontend was exercised in real Microsoft Edge before

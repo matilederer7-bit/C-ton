@@ -1,5 +1,7 @@
 # Siton V1.1 Base44 pre-activation snapshot
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document describes Base44 as the canonical or production runtime. That is no longer true. The runtime is Render web + Render worker + Supabase PostgreSQL; see `docs/CURRENT_ARCHITECTURE_2026-09-30.md`. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`. Keep this file for history only; it is not authority.
+
 Date: 2026-08-24 (Asia/Jerusalem)
 
 Status: **BLOCKED before any hosted write**

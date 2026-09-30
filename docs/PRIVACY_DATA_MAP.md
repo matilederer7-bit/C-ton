@@ -28,11 +28,11 @@ Written as an initial MVP response; legal validation is recommended later.
 | Deals/documents | operation/accounting | contract/legal | seller/admin | DB/invoice docs | invoice provider | 7 years | scope by seller |
 | settlement/payout data | seller payment | contract/accounting | seller/admin | payout rail | payout provider | 7 years | aggregate where possible |
 
-## Distributor
+## Distribution links and external link viewers
 
-Distributor data includes name, contact, share links, clicks, visits, aggregate joins, attributed units and attributed gross. Distributor surfaces must not expose buyer personal information.
+There is no distributor role. Distribution-link data includes the seller-created link, its optional external viewer credential, clicks, visits, aggregate joins, attributed units and attributed gross. Link surfaces must not expose buyer personal information.
 
-Purpose: attribution and measurement. Basis: service/legitimate operational need. Visible to: distributor/seller/admin in aggregate. Stored in affiliate tables and analytics. Vendors: none unless analytics provider is added. Retention: 24 months for attribution, longer only for disputes. Minimize by keeping aggregate-only surfaces.
+Purpose: attribution and measurement. Basis: service/legitimate operational need. Visible to: seller/admin, and to the scoped external viewer of one link, in aggregate only. Stored in affiliate tables and analytics. Vendors: none unless analytics provider is added. Retention: 24 months for attribution, longer only for disputes. Minimize by keeping aggregate-only surfaces.
 
 ## Admin
 

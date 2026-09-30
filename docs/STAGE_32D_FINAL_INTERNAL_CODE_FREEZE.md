@@ -1,5 +1,7 @@
 # Stage 32D — Final Internal Development Closure and Code Freeze
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document describes Base44 as the canonical or production runtime. That is no longer true. The runtime is Render web + Render worker + Supabase PostgreSQL; see `docs/CURRENT_ARCHITECTURE_2026-09-30.md`. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`. Keep this file for history only; it is not authority.
+
 > **SUPERSEDED PRODUCT SCOPE (2026-08-23):** this freeze remains valid evidence
 > for the previous product definition. It was intentionally reopened for V1.1
 > Mall, seller-auth, image, and product-depth work; it is not current completion

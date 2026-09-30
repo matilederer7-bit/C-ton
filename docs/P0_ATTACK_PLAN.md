@@ -1,5 +1,7 @@
 # P0 Attack Plan
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 ## Executive Summary
 
 This document converts the `P0` items from [GAP_REGISTER_MASTER.md](/c:/Users/Lenovo/Documents/C-ton/docs/GAP_REGISTER_MASTER.md) into an execution plan.

@@ -1,5 +1,7 @@
 # Base44 Data Migration Census — R1
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document describes Base44 as the canonical or production runtime. That is no longer true. The runtime is Render web + Render worker + Supabase PostgreSQL; see `docs/CURRENT_ARCHITECTURE_2026-09-30.md`. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`. Keep this file for history only; it is not authority.
+
 **Captured:** 2026-08-27
 
 **Mode:** read-only count/category census; no Base44 writes/deletes and no row export

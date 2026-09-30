@@ -22,7 +22,7 @@ This document describes the **accordion model** for taking Siton from a local de
 2. **Stay portable.** The application has zero AWS-specific imports. Switching to Render, Railway, Fly, or a managed VPS does not require code changes — only environment changes.
 3. **Expand fast.** When the market pulls, add capacity by tier — not by rewrite. Each tier transition is operational, not architectural.
 4. **Cap everything.** Every scaling axis (instances, DB class, request rate, bucket egress, provider spend) must have an explicit ceiling. An open ceiling on a public surface is a bill bomb.
-5. **Live money is a separate gate.** This blueprint covers packaging and deployment posture. Connecting real payment / payout / invoice providers is gated by [PROVIDER_LIVE_MONEY_READINESS.md](PROVIDER_LIVE_MONEY_READINESS.md).
+5. **Live money is a separate gate.** This blueprint covers packaging and deployment posture. Connecting real payment / payout / invoice providers is gated by [PAYMENT_ACTIVATION_SOURCE_OF_TRUTH.md](PAYMENT_ACTIVATION_SOURCE_OF_TRUTH.md) (Grow sandbox proof: [R9B_GROW_SANDBOX_PROOF_RUNBOOK.md](R9B_GROW_SANDBOX_PROOF_RUNBOOK.md)).
 
 ---
 
@@ -73,7 +73,7 @@ See [DOCKER_READINESS.md](DOCKER_READINESS.md). The shortest path is `docker com
 
 ### Alternative non-AWS shapes (functionally equivalent)
 
-- **Legacy Render evidence** is quarantined under `legacy/render/` and is not a production option. This AWS document is a supporting portability/scale reference only; Base44 + Supabase is canonical for Siton V1.
+- **Legacy Render evidence** is quarantined under `legacy/render/` and is not a production option. This AWS document is a supporting portability/scale reference only; the canonical runtime is Render web + worker + Supabase (`docs/CURRENT_ARCHITECTURE_2026-09-30.md`).
 - **Railway** — Docker service + managed Postgres.
 - **Fly.io** — Docker app + Fly Postgres.
 - **Managed VPS** (Hetzner, OVH, DO) — single Docker host + managed Postgres add-on.
@@ -89,7 +89,7 @@ DATABASE_URL=<managed postgres connection string>
 ADMIN_API_KEY=<rotated, stored in Secrets Manager>
 EXPECTED_COMMIT_SHA=<the deployed git sha>
 DEBUG_SURFACES_ENABLED=0                  # always 0 in production-like
-PAYMENT_PROVIDER=stripe                   # or whichever live adapter is approved
+PAYMENT_PROVIDER=grow                     # the selected provider (PAYMENT_ACTIVATION_SOURCE_OF_TRUTH.md); stripe is a historical adapter
 PAYMENT_PROVIDER_API_KEY=<sandbox first, then live>
 PAYMENT_WEBHOOK_SECRET=<provider-issued>
 INVOICE_PROVIDER=morning                  # only after sandbox gate
@@ -116,7 +116,7 @@ Set these explicitly before opening the URL:
 
 ### Tier 1 blockers (per separate gate)
 
-- `payment_provider_not_live_validated` — see [PROVIDER_LIVE_MONEY_READINESS.md](PROVIDER_LIVE_MONEY_READINESS.md).
+- `payment_provider_not_live_validated` — see [PAYMENT_ACTIVATION_SOURCE_OF_TRUTH.md](PAYMENT_ACTIVATION_SOURCE_OF_TRUTH.md).
 - `payment_webhook_secret_missing_for_live`.
 - `object_storage_required_before_multi_instance` — Tier 1 is single-instance, so local storage is acceptable, but switching to S3 is required before Tier 2.
 - `live_security_blocked` until named admins are provisioned and shared-key fallback is retired or strictly contained.
@@ -271,6 +271,6 @@ The migration policy is `additive_idempotent_only`. A rollback never requires de
 - [HORIZONTAL_SCALE_READINESS.md](HORIZONTAL_SCALE_READINESS.md)
 - [STORAGE_PRODUCTION_FOUNDATION.md](STORAGE_PRODUCTION_FOUNDATION.md)
 - [CACHE_POLICY.md](CACHE_POLICY.md)
-- [PROVIDER_LIVE_MONEY_READINESS.md](PROVIDER_LIVE_MONEY_READINESS.md)
+- [PAYMENT_ACTIVATION_SOURCE_OF_TRUTH.md](PAYMENT_ACTIVATION_SOURCE_OF_TRUTH.md)
 - [PRODUCTION_LAUNCH_READINESS.md](PRODUCTION_LAUNCH_READINESS.md)
 - [ADMIN_MISSION_CONTROL.md](ADMIN_MISSION_CONTROL.md)

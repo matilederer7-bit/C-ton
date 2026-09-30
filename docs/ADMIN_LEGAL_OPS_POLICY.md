@@ -6,7 +6,7 @@ Written as an initial MVP response; legal validation is recommended later.
 - No free manual refund, capture or void button.
 - Sensitive money actions run only through support case, recovery, reconcile or controlled system paths.
 - Every sensitive action is audited.
-- Allowed controlled actions include freeze payout, content takedown, suspend seller, suspend distributor link and emergency stop.
+- Allowed controlled actions include freeze payout, content takedown, suspend seller, suspend distribution link and emergency stop.
 - Buyer PII access is need-based.
 - Bulk exports require role permission and must be limited by purpose.
 - Seller exports and delivery handoff must avoid payment provider references.

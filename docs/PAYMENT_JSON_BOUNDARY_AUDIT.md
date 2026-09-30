@@ -1,5 +1,7 @@
 # Payment JSON Boundary Audit
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 Status: `PAYMENT_JSON_BOUNDARY_PASS` for the demo / pre-provider-sandbox build.
 No live money was performed. No state machine was changed. No money logic was changed.
 No raw card data is stored. No secret was added or exposed.

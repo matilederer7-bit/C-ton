@@ -16,7 +16,7 @@ and encrypted pending-payment recovery.
 > The `/app` legacy frontend described below remains a separate web/PWA surface and is no
 > longer what `npm run mobile:build` packages.
 
-`/app` is the canonical public Siton Mall on web, PWA, Android, and iOS. It uses
+`/app` is the legacy public shell on web and PWA. **Known drift (2026-09-30):** its home (`frontend/app.js` `loadHome`) still fetches `/api/mall/deals` and renders the Mall unconditionally, and that API route does not check `PUBLIC_MALL_ENABLED`; only the React app at `/preview/` (where the bare domain lands) honours the flag. Until the legacy home is gated or redirected, the Mall is reachable at `/app` even though the launch policy hides it. Direct deal links are the entry path. It uses
 the same bounded public read API and the same canonical deal route as direct
 links. Mall filters and cards must remain touch-safe without horizontal
 overflow at 390px, common iPhone widths, and common Android widths. Seller

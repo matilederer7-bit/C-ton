@@ -1,5 +1,7 @@
 # SITON Architecture Rebase — Stage R1 Supabase Staging
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document describes Base44 as the canonical or production runtime. That is no longer true. The runtime is Render web + Render worker + Supabase PostgreSQL; see `docs/CURRENT_ARCHITECTURE_2026-09-30.md`. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`. Keep this file for history only; it is not authority.
+
 **Work date:** 2026-08-27
 
 **Starting Git baseline:** `master == origin/master == 7797ee95c5ff10d3b303f80d6c1ff32c8a347a2c`, divergence `0/0`, clean, no stash, one worktree

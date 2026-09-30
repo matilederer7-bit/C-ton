@@ -1,5 +1,7 @@
 # Stripe Test Mode external verification
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 ## Authorization-only scope (Stage 6b-1b-b-1)
 
 The manual workflow now accepts only the required `proof_scope=authorization-only` choice together with `confirm_test_mode_only=yes`. Missing or unknown scope fails before provider code; missing credentials retain the explicit `Stripe Sandbox external verification not executed` result.
