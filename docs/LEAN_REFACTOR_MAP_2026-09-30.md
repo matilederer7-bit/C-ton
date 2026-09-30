@@ -17,7 +17,7 @@ consumer) · **DELETE CANDIDATE** (no consumer and no history value).
 | Group | Files | Verdict |
 |---|---|---|
 | repository | 1,388 | — |
-| `docs/` markdown | 270 (+14 root reports) | tiered in `docs/DOCUMENTATION_MAP.md` |
+| `docs/` markdown | 273 (+14 root reports) | tiered in `docs/DOCUMENTATION_MAP.md` |
 | `tests/` | 364 | CORE evidence; auto-discovered by `scripts/run_test_group.cjs`; not a deletion target |
 | `scripts/` | 139 | 6 DELETE CANDIDATES, ~14 ARCHIVE, rest SUPPORT/CORE (§3.5) |
 | `src/` | 161 | CORE |
@@ -44,10 +44,12 @@ Verified on 2026-09-30 through the Render connector (workspace `tea-d762ijsr85hc
 Checks done before recommending deletion:
 
 - Custom domains: none on any of the five services (`renderSubdomainPolicy: enabled` only, no `customDomains`).
-- Consumers: no repository file, workflow, test or runbook points at the three legacy URLs as a
-  dependency; the only mentions are historical reports (`RC_STAGING_SMOKE`, `RED_TEAM_SYSTEM`,
-  `ARCHITECTURE_REBASE_R3`, `BLACK_SKY_FINAL_REPORT` item 12, `PROJECT_STATUS` PR-18) which already
-  call them orphans.
+- Consumers: no runtime, workflow, test or script depends on the three legacy services. They are
+  mentioned in `legacy/render/render.legacy.yaml`, in historical reports (`RC_STAGING_SMOKE`,
+  `RED_TEAM_SYSTEM`, `ARCHITECTURE_REBASE_R3`, `OVERNIGHT_ENGINEERING_HANDOFF_2026-08-31`,
+  `BLACK_SKY_FINAL_REPORT` item 12) and in `PROJECT_STATUS.md` (PR-18, and an open NEXT line
+  "repair or retire `siton-demo-preview`", which the owner's 2026-09-30 decision now answers:
+  retire). After the deletion, PR-18 and that NEXT line are closed in the status file.
 - Secrets: the legacy services' environment variables were not read (the connector exposes no read).
   The canonical services carry every value `render.yaml` needs; the legacy demo blueprint used a
   different, retired variable set (`EXPECTED_COMMIT_SHA`, `OBJECT_STORAGE_*`, MinIO-era). Nothing to
@@ -74,28 +76,42 @@ Until then the three legacy services keep building every `master` commit and fai
 
 ### 3.1 `base44/` (19 files) — ARCHIVE, held by gates
 
-- Runtime consumer: none. `tests/legacy_runtime_isolation_validation.ts` asserts `src/` never
-  references it.
+- Runtime consumer: none. No code under `src/` references it (the only hit is a SQL comment in
+  migration 072); `tests/legacy_runtime_isolation_validation.ts` walks `src/` with negative
+  assertions.
 - Gate consumers: `scripts/architecture_truth_gate.cjs` (asserts the manifest still says
   `production_runtime = base44`, lines 8–10, 49–53), `scripts/base44_canonical_integrity_gate.cjs`
   + `config/base44-canonical-registry.json` + `config/base44-canonical-callers.json` +
   `tests/fixtures/base44_integrity_clean_snapshot.json`, `npm run test:base44-canonical-integrity`
-  (`ci.yml`), preflight gates `architecture-gate` and `base44-canonical-integrity`,
-  `tests/base44_mall_contract_validation.ts`, `tests/supabase_inventory_activation_hardening_validation.ts`,
-  `tests/base44_canonical_integrity_validation.ts`, `tests/hosted_v11_activation_gate_validation.ts`,
-  `scripts/extract_base44_inventory_sql.ps1`.
+  (`ci.yml`) and `gate:base44-canonical-integrity` (`package.json`), preflight gates
+  `architecture-gate` and `base44-canonical-integrity`, the rollups in
+  `scripts/release_checklist.cjs` (owner item at line 33, `GATE_TO_CATEGORY` at line 46) and
+  `scripts/release_owner_check.cjs:56`, the classifier rule `legacy-excluded-surfaces`
+  (`scripts/ci_change_classifier.cjs:78`), the tests `tests/base44_mall_contract_validation.ts`,
+  `tests/base44_canonical_integrity_validation.ts`,
+  `tests/supabase_inventory_activation_hardening_validation.ts` (reads `base44/supabase/*.sql`) and
+  `tests/supabase_staging_security_foundation_validation.ts:19` (reads
+  `scripts/extract_base44_inventory_sql.ps1`), plus the runbook lines that invoke the gate
+  (`docs/OUTBOX_WORKER_OPERATIONS.md:150`, `docs/STAGE32B_OPERATIONAL_RECOVERY.md:291`).
+  `tests/hosted_v11_activation_gate_validation.ts` only carries a Base44 URL string behind
+  `SITON_HOSTED_GATE=1`; decide it separately.
 - Contradiction: the gate prints `production=base44` while the runtime is Render + Supabase.
   `docs/SENIOR_ADVERSARIAL_REVIEW.md` F-07 already flagged it.
 - Retirement plan (one FULL-profile PR, senior review, `ci-gates` family): rewrite
-  `architecture_truth_gate.cjs` to assert the Render/Supabase truth (keep every R2/R3/R4 assertion,
-  drop the Base44 manifest assertions and the `legacy/render/render.legacy.yaml` existence check),
-  delete the integrity gate, its config, fixture, npm scripts, the five Base44 tests and the `.ps1`,
-  then delete `base44/`. Keep the Mall read model in `src/` untouched (it does not depend on Base44).
+  `architecture_truth_gate.cjs` to assert the Render/Supabase truth (keep every R2/R3/R4 assertion;
+  drop the Base44 manifest assertions at lines 8–10 and 49–53, the `render.yaml`/inventory
+  "no base44" string checks at 23 and 94 become moot, the `production=base44` banner at 107 goes,
+  and the `legacy/render/render.legacy.yaml` existence check at 12 goes); delete the integrity gate,
+  its two config files, the fixture, both npm scripts, the preflight gate entry, the two rollup
+  entries, the classifier rule, the three Base44 tests and the `.ps1`; edit
+  `supabase_staging_security_foundation_validation.ts` to drop only its `.ps1` case (never delete a
+  test for an unrelated reason); update the two runbook lines; then delete `base44/`. Keep the Mall
+  read model in `src/` untouched (it does not depend on Base44).
 
 ### 3.2 `frontend/` (15 files) — CORE today
 
 - Served by `src/frontend_runtime.ts` at `/app/*` (`sendShell`, static routes, CSP inline-script
-  registration); copied into the image by `scripts/build_demo_bundle.cjs` (Dockerfile line 25);
+  registration); copied into the image by `scripts/build_demo_bundle.cjs` (Dockerfile line 27);
   probed by `src/admin_mission_control.ts` (`frontend_static_surface_issue`); read by
   `scripts/legal_compliance_gate.cjs` and `scripts/money_tax_invoice_gate.cjs`; icons regenerated by
   `scripts/render_brand_assets.cjs`; about 30 tests read its files.
@@ -130,19 +146,27 @@ Until then the three legacy services keep building every `master` commit and fai
   `bounded_load_test.cjs`, `migrate_showcase_images_to_supabase.cjs` (R7 one-off, storage retired),
   `site_cms_rehearsal.cjs`, `p06a_geolocation_browser_proof.cjs`, `p07_owner_acceptance_proof.cjs`,
   `p07c_polling_browser_proof.cjs`.
-- **ARCHIVE (docs-only references, no automated caller):** `buyer_polish_browser_proof.cjs`,
-  `dr_backup_restore_drill.cjs` (superseded by `db_backup_restore_rehearsal.cjs`),
-  `launch_polish_browser_proof.cjs`, `p0_browser_proof.cjs`, `pickup_fulfillment_browser_proof.cjs`,
-  `r6_hosted_browser_proof.cjs`, `r6_staging_showcase_seed.cjs`, `r7r8_browser_proof.cjs`,
-  `receipt_content_browser_proof.cjs`, `register-ts-node.mjs`, `restart_server_clean.ps1`,
-  `restart_server_tsnode_clean.ps1`, `review_baseline_candidates.cjs`,
-  `review_r9c_migration_independent_proof.cjs`, `run_outbox_select.cjs`, `run_pg_query.cjs`,
-  `i18n/extract.cjs`, `extract_base44_inventory_sql.ps1` (Base44), `r3_hosted_proof.cjs` (kept
-  alive only by an existence assertion in the architecture gate).
+- **ARCHIVE (no automated caller; docs-only references, some of them live runbooks):**
+  - cited by operational runbooks, so D2 must rewrite those steps before deleting or moving:
+    `run_pg_query.cjs` (DATABASE_INCIDENT, DISASTER_RECOVERY, CREDENTIAL_COMPROMISE,
+    PAYMENT_INCIDENT, PAYMENT_RECONCILIATION, OPERATIONAL runbooks and more),
+    `dr_backup_restore_drill.cjs` (BACKUP_RESTORE, SECURITY_INCIDENT, DB_BACKUP_RESTORE_REHEARSAL;
+    superseded by `db_backup_restore_rehearsal.cjs`), `launch_polish_browser_proof.cjs`,
+    `pickup_fulfillment_browser_proof.cjs`, `r6_hosted_browser_proof.cjs`, `p0_browser_proof.cjs`,
+    `r7r8_browser_proof.cjs` (all in `DEPLOYMENT_RUNBOOK.md`);
+  - indexed only by `scripts/README.md` or historical docs: `buyer_polish_browser_proof.cjs`,
+    `r6_staging_showcase_seed.cjs`, `receipt_content_browser_proof.cjs`, `register-ts-node.mjs`
+    (used by `restart_server_tsnode_clean.ps1`), `restart_server_clean.ps1`,
+    `restart_server_tsnode_clean.ps1`, `review_baseline_candidates.cjs`,
+    `review_r9c_migration_independent_proof.cjs`, `run_outbox_select.cjs`, `i18n/extract.cjs`,
+    `extract_base44_inventory_sql.ps1` (Base44; also read by one test, see §3.1),
+    `r3_hosted_proof.cjs` (kept alive only by an existence assertion in the architecture gate).
+- **SUPPORT without an automated caller but named by live runbooks (keep):**
+  `pilot_readiness_proof.cjs` (`DEPLOYMENT_RUNBOOK.md`, `PILOT_LAUNCH_RUNBOOK.md`).
 - Everything else is SUPPORT or CORE with a live caller (`package.json`, a workflow, a preflight
-  gate, a compose file or another script). Full table with evidence: the 2026-09-30 census in this
-  session's working notes; re-derive with
-  `rg -n -F "<basename>" --glob '!scripts/<name>*' .` before touching any file.
+  gate, a compose file or another script). Re-derive with
+  `rg -n -F "<basename>" --glob '!scripts/<name>*' .` before touching any file; `scripts/README.md`
+  indexes several of the ARCHIVE entries and is updated in the same PR.
 
 ### 3.6 `.github/workflows/` (10)
 
@@ -180,9 +204,9 @@ with their consumers updated (`scripts/architecture_truth_gate.cjs`, `scripts/le
 
 | Step | Scope | Profile | Blockers to clear first |
 |---|---|---|---|
-| D1 | delete `.i18n-regen/` + classifier rule | STANDARD | none |
-| D2 | delete the 6 zero-reference scripts; move the ARCHIVE scripts under `scripts/archive/` or delete the ones whose docs are themselves ARCHIVE | FULL (scripts are gate-or-tooling) | re-run the reference grep per file |
-| D3 | retire the Base44 gate cluster + `legacy/` (`architecture_truth_gate.cjs` rewritten to the Render/Supabase truth) | FULL, senior review | none; the runtime never depended on it |
+| D1 | delete `.i18n-regen/` + classifier rule (`ci_change_classifier.cjs:97`) | FULL (the classifier file is a critical path; a deleted `.i18n-regen/*` path with the rule gone is "unclassified", also critical) | none |
+| D2 | delete the 6 zero-reference scripts; move the ARCHIVE scripts under `scripts/archive/` or delete the ones whose docs are themselves ARCHIVE; rewrite the runbook steps that name them and `scripts/README.md` | FULL (scripts are gate-or-tooling) | re-run the reference grep per file; runbooks updated in the same PR |
+| D3 | retire the Base44 gate cluster + `legacy/` (`architecture_truth_gate.cjs` rewritten to the Render/Supabase truth) | FULL, senior review | update `release_checklist.cjs`, `release_owner_check.cjs`, the classifier rule, `config/release-preflight-gates.json`, the two runbook lines, the `supabase_staging_security_foundation` test (drop only its `.ps1` case); the runtime never depended on it |
 | D4 | Product Library schema drop (`products`, `product_images`, `deals.product_id`, `deals.product_snapshot_jsonb`, trigger, constraints; new migration, never an edit of 072; `supabase/staging/025` retired from the grant lists) | FULL, senior review | PR B merged; staging census re-run (2026-09-30: 40 deals, 2 with product columns, both `PendingTarget` smoke deals from 2026-09-17, 1 product, 0 product images) and owner confirmation that those two smoke deals may lose their snapshot |
 | D5 | docs: move ARCHIVE files into `docs/archive/` in small batches with consumer updates; trim `PROJECT_STATUS.md` to the open tracks | FAST/STANDARD | none |
 | D6 | decision: dormant cloud-agent workflows + `stripe-sandbox-proof.yml` (keep dormant or retire with their tests) | FULL | owner decision |
