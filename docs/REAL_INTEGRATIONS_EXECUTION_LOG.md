@@ -1,5 +1,7 @@
 # Real Integrations Execution Log
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 ## Phase A - Integration Reality Audit
 
 - Payment authorization UI/API was already live, but it was still mock-backed and split between [src/frontend_runtime.ts](C:/Users/Lenovo/Documents/C-ton/src/frontend_runtime.ts) and inline worker mocks in [src/app.ts](C:/Users/Lenovo/Documents/C-ton/src/app.ts).

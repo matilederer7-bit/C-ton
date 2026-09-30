@@ -1,5 +1,7 @@
 # Payment Rail Red-Team — 2026-09-18
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 Baseline reviewed: `34b5dc39e9cbceb413984b6639a32cffe3e5febe`
 Scope: Grow / Meshulam activation path, authorization creation, capture/refund ambiguity, long-horizon authorization renewal, runtime endpoint safety, Siton fee invariants.
 Real money executed: **0**. Provider credentials used: **0**.

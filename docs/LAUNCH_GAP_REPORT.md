@@ -1,5 +1,7 @@
 # Siton — Launch Gap Report (closed web pilot)
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 Date: 2026-09-08 · Branch: `claude/launch-gap-pilot-readiness` (from canonical master `8ead7c8`) · Hosted preview: https://siton-staging-web.onrender.com/preview/ · Real money: **0**
 
 Question answered here: *what prevents Siton WEB from running a closed-market pilot with 5–10 real sellers, real buyers and real deals, and learning from it?* Everything is classified as **BLOCKER**, **AFTER LAUNCH** or **BACKLOG**. Nothing in the financial candidate, the payment provider, Grow, migrations 063/064, `android/`, `ios/` or the Codex mobile branch was touched.
