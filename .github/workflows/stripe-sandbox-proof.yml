@@ -87,7 +87,7 @@ jobs:
       - name: Scan filtered proof artifact
         run: node scripts/scan_stripe_sandbox_report.cjs .ci-artifacts/stripe-sandbox-proof.json
       - name: Upload protected authorization-only artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: stripe-sandbox-authorization-only-proof
           path: .ci-artifacts/stripe-sandbox-proof.json
