@@ -24,7 +24,7 @@ consumer) · **DELETE CANDIDATE** (no consumer and no history value).
 | `scripts/` | 139 | 1 DELETE CANDIDATE, ~18 ARCHIVE, rest SUPPORT/CORE (§3.5) |
 | `src/` | 161 | CORE |
 | `web/` | 100 | CORE |
-| `.i18n-regen/` | 66 | DELETE CANDIDATE (§3.4) |
+| `.i18n-regen/` | 66 → 0 | DELETED by D1 (§3.4) |
 | `base44/` | 19 | ARCHIVE held alive by gates (§3.1) |
 | `frontend/` | 15 | CORE today: the legacy `/app` shell is still served and built (§3.2) |
 | `legacy/` | 12 | ARCHIVE; one gate line and one npm script hold it (§3.3) |
@@ -138,7 +138,7 @@ Until then the three legacy services keep building every `master` commit and fai
 - `Procfile.legacy`, `README.md`, `docs/*` (7): zero code consumers.
 - Retirement: drop the gate line and the npm script in the same PR as §3.1, then delete the tree.
 
-### 3.4 `.i18n-regen/` (66 files) — DELETE CANDIDATE
+### 3.4 `.i18n-regen/` (66 files) — DELETE CANDIDATE → DELETED (D1, 2026-09-30)
 
 - A stale, Hebrew-only snapshot of `web/src` from before the i18n extraction (58 files differ from
   the live tree; it lacks `i18n/`, `errorReporting.ts`, the admin MFA files, the infographic).
@@ -241,7 +241,7 @@ with their consumers updated (`scripts/architecture_truth_gate.cjs`, `scripts/le
 
 | Step | Scope | Profile | Blockers to clear first |
 |---|---|---|---|
-| D1 | delete `.i18n-regen/` + classifier rule (`ci_change_classifier.cjs:97`) | FULL (the classifier file is a critical path; a deleted `.i18n-regen/*` path with the rule gone is "unclassified", also critical) | none |
+| D1 | **DONE 2026-09-30** — deleted `.i18n-regen/` + the classifier rule (was `ci_change_classifier.cjs:97`); the branch classified as FULL exactly as predicted (66 × unclassified/critical + the classifier file) | FULL | none |
 | D2 | delete the 1 zero-reference script; move the ARCHIVE scripts under `scripts/archive/` (the unreferenced browser proofs are never deleted, see §3.5; `extract_base44_inventory_sql.ps1` is left in place for D3 because a test still reads it) or delete the ones whose docs are themselves ARCHIVE; a relocated script must keep working: rewrite its relative requires and root derivations (`dr_backup_restore_drill.cjs` loads `./lib/destructive_target_guard.cjs`; `review_r9c_migration_independent_proof.cjs` loads sibling migration modules; `i18n/extract.cjs` derives the repository root from its own directory; `migrate_showcase_images_to_supabase.cjs` dynamically imports `../src/product_image_storage.ts`) and run each moved script once after the move (none has an automated caller to expose a `MODULE_NOT_FOUND` or a wrong scan root) — a script whose dependency layout cannot be kept cheaply stays in place; rewrite the runbook steps that name them and `scripts/README.md` | FULL (scripts are gate-or-tooling) | re-run the reference grep per file; runbooks updated in the same PR |
 | D3 | retire the Base44 gate cluster + `legacy/` (`architecture_truth_gate.cjs` rewritten to the Render/Supabase truth) | FULL, senior review (`ci-gates` family) | update `.github/workflows/ci.yml` (the `test:base44-canonical-integrity` step), `release_checklist.cjs`, `release_owner_check.cjs`, the classifier rule, `config/release-preflight-gates.json`, the two runbook lines, the `supabase_staging_security_foundation` test (drop only its `.ps1` case); the runtime never depended on it |
 | D4 | Product Library schema drop (`products`, `product_images`, `deals.product_id`, `deals.product_snapshot_jsonb`, trigger, constraints; new migration, never an edit of 072; `supabase/staging/025` retired from the grant lists) | FULL, senior review | PR B merged; staging census re-run (2026-09-30: 40 deals, 2 with product columns, both `PendingTarget` smoke deals from 2026-09-17, 1 product, 0 product images) and owner confirmation that those two smoke deals may lose their snapshot; **production is a separate owner-managed database** (PROJECT_STATUS.md PR-5), so before the migration is applied there: either proof from its ledger that 072 was never applied, or a production census (`products`, `product_images`, deals with `product_id` / `product_snapshot_jsonb`) plus an explicit data disposition (export or accepted loss) and owner confirmation for that database — a staging census never authorises the production drop |
