@@ -6310,6 +6310,30 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
   // validation answer becomes visible.
   await withTx(async (c) => { await requireSellerAuthority(req, c); });
   const body = req.body || {};
+  const createIdempotencyKey = String(req.headers?.["idempotency-key"] || "").trim();
+  if (createIdempotencyKey && !/^[A-Za-z0-9:_-]{8,160}$/.test(createIdempotencyKey)) {
+    throw Object.assign(new Error("idempotency key is invalid"), { statusCode: 400, code: "IDEMPOTENCY_KEY_INVALID" });
+  }
+  // Legacy Product-backed replay (Codex on PR #151): before the Product
+  // Library removal a create request could carry product_id instead of a
+  // title / voucher_terms / ticket_terms, and the server filled those from
+  // the Product snapshot. Such a request may be replayed with the same
+  // Idempotency-Key after the removal; it must still reach the stored
+  // response instead of a 400 it never received before. The three checks
+  // that became mandatory only after the removal are therefore deferred to
+  // after the stored-replay lookup when the body carries a product_id
+  // together with an idempotency key. Without a key there is nothing to
+  // replay and the request is validated immediately.
+  const legacyProductId = typeof body.product_id === "string" ? body.product_id.trim() : "";
+  const deferLegacyValidation = Boolean(createIdempotencyKey && legacyProductId);
+  let deferredValidationError: any = null;
+  const rejectOrDefer = (err: any) => {
+    if (deferLegacyValidation) {
+      if (!deferredValidationError) deferredValidationError = err;
+      return;
+    }
+    throw err;
+  };
   const requestedDealType: DealType = normalizeDealType(body.deal_type, "physical_product");
   if (body.deal_type !== undefined && body.deal_type !== null && !["physical_product","voucher","ticket"].includes(String(body.deal_type))) {
     const err: any = new Error("deal_type must be one of physical_product, voucher, ticket");
@@ -6323,20 +6347,20 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
     const err: any = new Error("voucher_terms is required for voucher deals");
     err.statusCode = 400;
     err.code = "voucher_terms_required";
-    throw err;
+    rejectOrDefer(err);
   }
   if (requestedDealType === "ticket" && !requestedTicketTerms) {
     const err: any = new Error("ticket_terms is required for ticket deals");
     err.statusCode = 400;
     err.code = "ticket_terms_required";
-    throw err;
+    rejectOrDefer(err);
   }
   const title = readCreateDealTitle(body);
   if (!title) {
     const err: any = new Error("title is required");
     err.statusCode = 400;
     err.code = "title_required";
-    throw err;
+    rejectOrDefer(err);
   }
   if (title.length > 200) {
     const err: any = new Error("title must be 200 characters or fewer");
@@ -6415,10 +6439,6 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
   }
   const deadlineIso = new Date(deadlineMs).toISOString();
 
-  const createIdempotencyKey = String(req.headers?.["idempotency-key"] || "").trim();
-  if (createIdempotencyKey && !/^[A-Za-z0-9:_-]{8,160}$/.test(createIdempotencyKey)) {
-    throw Object.assign(new Error("idempotency key is invalid"), { statusCode: 400, code: "IDEMPOTENCY_KEY_INVALID" });
-  }
   const createRequestHash = createHash("sha256")
     .update(canonicalJson({
       title,
@@ -6434,7 +6454,7 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
       // client's product_id value exactly as before so that idempotency rows
       // stored in siton.idempotency_log before the removal (with or without a
       // product) still match on replay. The value is otherwise ignored.
-      product_id: typeof body.product_id === "string" && body.product_id.trim() ? body.product_id.trim() : null,
+      product_id: legacyProductId || null,
       delivery_options: requestedDealType === "physical_product" ? deliveryOptions : [],
       voucher_terms: requestedDealType === "voucher" ? requestedVoucherTerms : null,
       ticket_terms: requestedDealType === "ticket" ? requestedTicketTerms : null
@@ -6473,6 +6493,10 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
         return prior.rows[0].response_jsonb;
       }
     }
+    // No stored response for this key: a legacy Product-backed body without
+    // its own title / terms cannot be created any more (the Product Library
+    // is gone), so the deferred validation answer applies now.
+    if (deferredValidationError) throw deferredValidationError;
     const ins = await c.query(
       `INSERT INTO siton.deals
        (deal_id, title, description, description_short, price_per_unit, min_units, max_units, threshold_units, deadline, seller_id, deal_type, list_price_per_unit)
