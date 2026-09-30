@@ -1,6 +1,8 @@
 # Siton Lean Refactor Map — 2026-09-30
 
-Status: REFERENCE. Audit first, deletions later. Every row below is backed by a consumer search
+Status: REFERENCE. Audit first, deletions later. Prerequisite: PR #148 (the Product Constitution,
+`docs/CURRENT_ARCHITECTURE_2026-09-30.md` and `docs/DOCUMENTATION_MAP.md`) merges before this map;
+the owner rule and the §9 capability boundary cited below live there. Every row below is backed by a consumer search
 (imports, `package.json` scripts, workflow invocations, CI gate configs, Dockerfile, tests, docs
 that operations depend on). Nothing is deleted because of its name or its file count.
 
@@ -148,8 +150,6 @@ Until then the three legacy services keep building every `master` commit and fai
   `p07c_polling_browser_proof.cjs`.
 - **ARCHIVE (no automated caller; docs-only references, some of them live runbooks):**
   - cited by operational runbooks, so D2 must rewrite those steps before deleting or moving:
-    `run_pg_query.cjs` (DATABASE_INCIDENT, DISASTER_RECOVERY, CREDENTIAL_COMPROMISE,
-    PAYMENT_INCIDENT, PAYMENT_RECONCILIATION, OPERATIONAL runbooks and more),
     `dr_backup_restore_drill.cjs` (BACKUP_RESTORE, SECURITY_INCIDENT, DB_BACKUP_RESTORE_REHEARSAL;
     superseded by `db_backup_restore_rehearsal.cjs`), `launch_polish_browser_proof.cjs`,
     `pickup_fulfillment_browser_proof.cjs`, `r6_hosted_browser_proof.cjs`, `p0_browser_proof.cjs`,
@@ -159,10 +159,13 @@ Until then the three legacy services keep building every `master` commit and fai
     (used by `restart_server_tsnode_clean.ps1`), `restart_server_clean.ps1`,
     `restart_server_tsnode_clean.ps1`, `review_baseline_candidates.cjs`,
     `review_r9c_migration_independent_proof.cjs`, `run_outbox_select.cjs`, `i18n/extract.cjs`,
-    `extract_base44_inventory_sql.ps1` (Base44; also read by one test, see §3.1),
-    `r3_hosted_proof.cjs` (kept alive only by an existence assertion in the architecture gate).
-- **SUPPORT without an automated caller but named by live runbooks (keep):**
-  `pilot_readiness_proof.cjs` (`DEPLOYMENT_RUNBOOK.md`, `PILOT_LAUNCH_RUNBOOK.md`).
+    `extract_base44_inventory_sql.ps1` (Base44; also read by one test, see §3.1).
+- **SUPPORT without an automated caller but prescribed by live runbooks (keep, never in a D2
+  batch):** `run_pg_query.cjs` (the incident and operational runbooks' query tool:
+  DATABASE_INCIDENT, PAYMENT_INCIDENT, OPERATIONAL, DISASTER_RECOVERY, CREDENTIAL_COMPROMISE,
+  PAYMENT_RECONCILIATION), `r3_hosted_proof.cjs` (deployment, credential-compromise,
+  disaster-recovery and security-incident runbooks; also an existence assertion in the architecture
+  gate), `pilot_readiness_proof.cjs` (`DEPLOYMENT_RUNBOOK.md`, `PILOT_LAUNCH_RUNBOOK.md`).
 - Everything else is SUPPORT or CORE with a live caller (`package.json`, a workflow, a preflight
   gate, a compose file or another script). Re-derive with
   `rg -n -F "<basename>" --glob '!scripts/<name>*' .` before touching any file; `scripts/README.md`
