@@ -31,7 +31,7 @@ Counts: CANONICAL 12 · REFERENCE 100 · ARCHIVE 176 (288 documents: everything 
 | `docs/CI_TEST_STRATEGY.md` | CI rules |
 | `docs/DOCUMENTATION_MAP.md` | this map |
 
-Reading order for a new agent: constitution → current architecture → AGENTS.md → PROJECT_STATUS.md (head and the open track only) → the task-relevant REFERENCE docs.
+Reading order for a new agent (the complete mandatory sequence from `AGENTS.md` and `CLAUDE.md`; this map does not shorten it): constitution → current architecture → AGENTS.md → AI_WORKFLOW.md → PROJECT_STATUS.md (head and the open track only) → `docs/CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md` and `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md` (plus any newer canonical amendment relevant to the task) → `docs/CLAUDE_TEAM_LEAD.md` when acting as lead → the task-relevant REFERENCE docs.
 
 ## REFERENCE
 
