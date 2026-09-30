@@ -1140,6 +1140,7 @@ async function main() {
       PORT: String(serverPort),
       HOST: "127.0.0.1",
       APP_DEPLOYMENT_MODE: "internal-runtime",
+      PUBLIC_MALL_ENABLED: "1", // PR E: this proof drives the Mall, hidden by default (constitution §6)
       SELLER_SESSION_SECRET: "v11-browser-session-secret-not-production",
       ADMIN_API_KEY: adminKey,
       DEAL_IMAGE_UPLOAD_DIR: uploadDir,

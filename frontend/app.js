@@ -887,8 +887,18 @@ async function submitRecoveryRequest(participantId) {
 async function loadHome() {
   state.mallFilters = readMallFilters();
   await busy("טוען את הקניון של C-ton...", async () => {
+    // PR E (2026-09-30): the Mall is hidden for the launch (constitution §6).
+    // Ask the site payload first; when the Mall is off, this legacy home never
+    // calls /api/mall/deals (which answers 404 mall_disabled) and forwards the
+    // visitor to the React landing, which honours the same flag. Deal, join,
+    // tracking and seller routes of this shell are untouched.
+    const siteFirst = await api("/api/site/home").catch(() => null);
+    if (siteFirst && siteFirst.site && siteFirst.site.public_mall_enabled === false) {
+      location.replace("/preview/");
+      return;
+    }
     const [siteResult, mallResult] = await Promise.allSettled([
-      api("/api/site/home"),
+      Promise.resolve(siteFirst),
       api(buildMallDealsUrl(state.mallFilters))
     ]);
     state.homePayload = siteResult.status === "fulfilled" ? siteResult.value : null;

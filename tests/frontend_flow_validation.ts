@@ -94,7 +94,10 @@ async function main() {
 
     assert.equal(response.statusCode, 200);
     assert.match(response.body, /<html lang="he" dir="rtl">/);
-    assert.match(response.body, /<title>C-ton \| קניון עסקאות קבוצתיות<\/title>/);
+    // PR E: with PUBLIC_MALL_ENABLED off (the launch default) the legacy home
+    // advertises no Mall; tests/mall_hidden_by_default_validation.ts covers both states
+    assert.match(response.body, /<title>C-ton \| עסקאות קבוצתיות<\/title>/);
+    assert.match(response.body, /<meta name="robots" content="noindex,nofollow"/);
     assert.match(response.body, /<meta name="apple-mobile-web-app-title" content="C-ton" \/>/);
     assert.match(response.body, /<meta property="og:site_name" content="C-ton" \/>/);
   });

@@ -19,6 +19,7 @@ import {
 // unique canaries so a leak is unambiguous rather than a guess.
 
 process.env.NODE_ENV = "test";
+process.env.PUBLIC_MALL_ENABLED = "1"; // PR E: this suite exercises the Mall API, hidden by default (constitution §6)
 process.env.APP_DEPLOYMENT_MODE = "demo-preview";
 process.env.DISABLE_OUTBOX_WORKER = "1";
 process.env.RATE_LIMIT_MAX = "10000";

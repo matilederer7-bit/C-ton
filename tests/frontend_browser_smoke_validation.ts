@@ -1117,6 +1117,7 @@ async function main() {
       HOST: "127.0.0.1",
       DISABLE_OUTBOX_WORKER: "1",
       APP_DEPLOYMENT_MODE: "demo-preview",
+      PUBLIC_MALL_ENABLED: "1", // PR E: this smoke drives the Mall home, hidden by default (constitution §6)
       RATE_LIMIT_MAX: "2000",
       RATE_LIMIT_SENSITIVE_MAX: "200"
     },
