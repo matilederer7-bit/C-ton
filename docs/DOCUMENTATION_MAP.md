@@ -31,7 +31,7 @@ Counts: CANONICAL 12 · REFERENCE 100 · ARCHIVE 176 (288 documents: everything 
 | `docs/CI_TEST_STRATEGY.md` | CI rules |
 | `docs/DOCUMENTATION_MAP.md` | this map |
 
-Reading order for a new agent (the complete mandatory sequence from `AGENTS.md` and `CLAUDE.md`; this map does not shorten it): constitution → current architecture → AGENTS.md → AI_WORKFLOW.md → PROJECT_STATUS.md (head and the open track only) → `docs/CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md` and `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md` (plus any newer canonical amendment relevant to the task) → `docs/CLAUDE_TEAM_LEAD.md` when acting as lead → the task-relevant REFERENCE docs.
+Reading order for a new agent is exactly the "Start every meaningful task" list in `AGENTS.md` (this map neither shortens nor reorders it): 1. constitution → 2. current architecture → 3. `PROJECT_STATUS.md` → 4. `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md` (and any newer canonical amendment) → 5. `docs/CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md` → 6. `AI_WORKFLOW.md` → 7. the task-relevant REFERENCE docs plus the relevant migration, runbook and test files. `CLAUDE.md` is the Claude Code entry point that leads into `AGENTS.md`, and `docs/CLAUDE_TEAM_LEAD.md` is read additionally when acting as lead; neither changes that order.
 
 ## REFERENCE
 
@@ -257,7 +257,7 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/PREPROD_TORTURE_QA_ISSUES.md` | Preprod Torture QA Issues | old QA |
 | `docs/PREPROD_TORTURE_QA_LOG.md` | Preprod Torture QA Log | old QA |
 | `docs/PRODUCT_CATALOG.md` | Product catalog, Products and frozen Deal snapshots | feature removed by the 2026-09-30 constitution |
-| `docs/PRODUCT_DIRECTION_ALIGNMENT_2026-04-09.md` | Product Direction Alignment | old direction |
+| `docs/PRODUCT_DIRECTION_ALIGNMENT_2026-04-09.md` | Product Direction Alignment | old direction (Mall as primary surface); superseded banner in the file |
 | `docs/PRODUCT_SURFACES_REFINEMENT.md` | Product Surfaces Refinement | dated stage |
 | `docs/PROVIDER_LIVE_MONEY_READINESS.md` | Provider Live Money Readiness | old audit |
 | `docs/R2_RUNTIME_PERMISSION_AUDIT.md` | R2 runtime permission audit | audit |

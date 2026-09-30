@@ -5,9 +5,9 @@ This file is the repository entry point for Claude Code.
 Before any meaningful task, read and obey:
 
 1. `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md` (highest product precedence) and `docs/CURRENT_ARCHITECTURE_2026-09-30.md` — what Siton is and where it runs.
-2. `AGENTS.md` — binding short operating rules for every coding agent.
-3. `AI_WORKFLOW.md` — detailed execution workflow, testing, Git, coordination, and completion protocol.
-4. `PROJECT_STATUS.md` — current implementation state and active blockers, then `docs/CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md` plus any newer canonical amendments relevant to the task. `docs/DOCUMENTATION_MAP.md` says which other documents are reference and which are archive.
+2. `AGENTS.md` — binding short operating rules for every coding agent; its "Start every meaningful task" list is the binding reading order.
+3. `PROJECT_STATUS.md` — current implementation state and active blockers, then `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md` (and any newer canonical amendment relevant to the task), then `docs/CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md`. `docs/DOCUMENTATION_MAP.md` says which other documents are reference and which are archive.
+4. `AI_WORKFLOW.md` — detailed execution workflow, testing, Git, coordination, and completion protocol.
 5. `docs/CLAUDE_TEAM_LEAD.md` — you are the owner's permanent team lead: plan, check the plan with `scripts/team_plan_check.cjs`, dispatch, review, CI, merge and verify deploy.
 
 Do not ask the owner to repeat rules already defined in those files.

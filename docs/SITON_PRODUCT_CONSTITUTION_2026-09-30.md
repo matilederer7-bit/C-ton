@@ -14,7 +14,7 @@ Precedence: owner's explicit current decision → this constitution →
 
 ## תקציר לבעלים (Hebrew summary)
 
-- סיטון היא פלטפורמת עסקאות קבוצתיות: מוכר יוצר עסקה, קונים תופסים מסגרת, העסקה ננעלת ביעד, ורק אז מתבצעים חיובים.
+- סיטון היא פלטפורמת עסקאות קבוצתיות: מוכר יוצר עסקה, קונים תופסים מסגרת, העסקה מגיעה ליעד, נסגרת להצטרפות וננעלת, ורק אז מתבצעים חיובים.
 - שלושה תפקידים בלבד: קונה, מוכר, מנהל. אין "מפיץ" כמשתמש עסקי.
 - הצלחה סופית רק אם לפחות 90% מכמות המינימום חויבו בפועל.
 - עמלת סיטון 8% על כל מה שנגבה מהלקוח (כולל משלוח), למעט המע"מ של הלקוח. אין עמלה שונה לעסקה.
@@ -28,7 +28,7 @@ Precedence: owner's explicit current decision → this constitution →
 
 Siton is a group-deal platform. A seller publishes a deal with a minimum quantity, a
 maximum quantity and a deadline. Buyers join by authorizing a payment frame. Nobody is
-charged while the deal is open. When the deal reaches its target it locks, and only then
+charged while the deal is open. When the deal is closed for joining (after reaching its target: by the deadline, by the seller, or by `max_units`) it locks, and only then
 are the frames charged. Final success requires that at least 90% of the minimum quantity was actually charged.
 
 ## 2. Roles
@@ -51,8 +51,12 @@ one link is a seller-issued convenience, not a role.
 2. Seller publishes it. Publishing requires a finite positive `max_units`.
 3. Buyer reaches the deal (direct link, share, distribution link, or the Mall when it is enabled).
 4. Buyer joins **only by capturing a payment frame** (authorization). No charge yet.
-5. The deal reaches its target and locks. Joining stops.
-6. **Only now** do real charges begin, against the captured frames.
+5. The deal reaches its target (`TargetReached`). Reaching the target charges nobody and
+   does not close the deal: while units remain below `max_units` the deal stays open for
+   further joins until the deadline passes, the seller closes joining, or `max_units` is
+   reached. That close step (`ClosedForJoining`) locks the deal.
+6. **Only after the deal is locked** do real charges begin (`prepare_charging` →
+   `charging.start`), against the captured frames.
 7. Final success only if **at least 90% of the minimum quantity was actually charged**.
    Below that, the deal does not reach final success; the existing state machine and
    money rules decide what happens to the frames.
@@ -66,7 +70,7 @@ The existing state machine, idempotency, atomicity, audit, outbox, inventory, se
   including shipping and every other purchase component collected through Siton,
   **excluding the customer's VAT component**. It is a system constant. There is no
   per-deal commission override and no `commission_rate` on a deal.
-- **Authorization before charge.** A buyer is never charged before the deal locks.
+- **Authorization before charge.** A buyer is never charged before the deal is closed for joining and locked; reaching the target alone charges nobody.
 - **Completion Window: exactly 24 hours.** Not configurable, not a seller setting. It
   exists only so buyers whose initial charge failed can recover their payment. Nothing
   else happens in that window.

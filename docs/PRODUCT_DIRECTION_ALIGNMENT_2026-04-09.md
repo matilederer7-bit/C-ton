@@ -1,5 +1,7 @@
 # Siton Product Direction Alignment
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** The "Canonical Decision" below (the public Mall and `/app` as a first-class, primary landing surface) is no longer the product policy. The Mall stays **hidden for the current launch** (`PUBLIC_MALL_ENABLED` off by default; direct deal links are the entry path) per `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md` §6, and the runtime is described in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`. Keep this file for history only; it is not authority.
+
 Last updated: 2026-08-23
 
 The 2026-04 direct-link-only decision was valid for the prior V1 definition
