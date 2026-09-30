@@ -2,10 +2,7 @@
   "task": "Enable row level security (no policy) on siton.outbox_enqueue_evidence through forward migration 081, the smallest safe fix for the hosted 'RLS disabled' finding, without changing any working path",
   "lead": "claude-lead",
   "base": "origin/master",
-  "open_branches": [
-    "origin/claude/product-constitution-sot",
-    "origin/claude/lean-refactor-map"
-  ],
+  "open_branches": [],
   "assignments": [
     {
       "id": "B1",
@@ -69,5 +66,5 @@
       ]
     }
   ],
-  "sequencing_note": "Written 2026-09-30 before claude/remove-product-library (PR B) existed. PR B also edits src/schema_contract.ts (REQUIRED_TABLES, a different region from this plan's REQUIRED_MIGRATION_IDS change) and is serialised after this PR: it merges master once #149 is on master (git merge-tree of the two branches is clean) and re-runs its own plan check before its status/PRODUCT_CATALOG writes. PR #148 and #150 (the two open branches above) merged on 2026-09-30."
+  "sequencing_note": "Written 2026-09-30 with open branches claude/product-constitution-sot (PR #148) and claude/lean-refactor-map (PR #150); both squash-merged on 2026-09-30 (f517ad8, 13c4232) before this plan's status write, so they are no longer listed (a squash-merged branch still diffs against master and would be a false overlap). claude/remove-product-library (PR B) was created after this plan, also edits src/schema_contract.ts (REQUIRED_TABLES, a different region from this plan's REQUIRED_MIGRATION_IDS change) and is serialised after this PR: it merges master once #149 is on master (git merge-tree of the two branches is clean) and re-runs its own plan check before its status/PRODUCT_CATALOG writes."
 }
