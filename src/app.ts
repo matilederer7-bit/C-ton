@@ -6439,6 +6439,9 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
   const r = await withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
     await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "create_draft");
+    const dealType: DealType = requestedDealType;
+    const voucherTermsInput = requestedVoucherTerms;
+    const ticketTermsInput = requestedTicketTerms;
     const stableDealId = createIdempotencyKey
       ? deterministicUuid(`seller_deal_create:${sellerAuthority.seller_id}:${createIdempotencyKey}`)
       : randomUUID();
@@ -6480,13 +6483,13 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
         draftThreshold,
         deadlineIso,
         sellerAuthority.seller_id,
-        requestedDealType,
+        dealType,
         descriptionShort || null,
         listPrice
       ]
     );
     const deal = ins.rows[0];
-    if (requestedDealType === "physical_product") {
+    if (dealType === "physical_product") {
       for (const option of deliveryOptions) {
         await c.query(
           `INSERT INTO siton.deal_delivery_options
@@ -6498,11 +6501,11 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
         );
       }
     }
-    if (requestedDealType === "voucher" && requestedVoucherTerms) {
-      await upsertVoucherTerms(c, String(deal.deal_id), requestedVoucherTerms);
+    if (dealType === "voucher" && voucherTermsInput) {
+      await upsertVoucherTerms(c, String(deal.deal_id), voucherTermsInput);
     }
-    if (requestedDealType === "ticket" && requestedTicketTerms) {
-      await upsertTicketTerms(c, String(deal.deal_id), requestedTicketTerms);
+    if (dealType === "ticket" && ticketTermsInput) {
+      await upsertTicketTerms(c, String(deal.deal_id), ticketTermsInput);
     }
     if (createIdempotencyKey) {
       await c.query(
