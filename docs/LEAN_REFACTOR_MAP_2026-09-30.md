@@ -1,0 +1,222 @@
+# Siton Lean Refactor Map — 2026-09-30
+
+Status: REFERENCE. Audit first, deletions later. Every row below is backed by a consumer search
+(imports, `package.json` scripts, workflow invocations, CI gate configs, Dockerfile, tests, docs
+that operations depend on). Nothing is deleted because of its name or its file count.
+
+Owner rule: the refactor removes fat, duplication and legacy. It never removes the product's
+capabilities listed in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md` §9, and it never lowers
+test coverage to make the repository smaller.
+
+Categories: **CORE** (runtime, safety, current product) · **SUPPORT** (tooling that CI, gates,
+build or operations invoke) · **ARCHIVE** (history with recovery or evidence value, no active
+consumer) · **DELETE CANDIDATE** (no consumer and no history value).
+
+## 1. Baseline (master `d40c23f`)
+
+| Group | Files | Verdict |
+|---|---|---|
+| repository | 1,388 | — |
+| `docs/` markdown | 270 (+14 root reports) | tiered in `docs/DOCUMENTATION_MAP.md` |
+| `tests/` | 364 | CORE evidence; auto-discovered by `scripts/run_test_group.cjs`; not a deletion target |
+| `scripts/` | 139 | 6 DELETE CANDIDATES, ~14 ARCHIVE, rest SUPPORT/CORE (§3.5) |
+| `src/` | 161 | CORE |
+| `web/` | 100 | CORE |
+| `.i18n-regen/` | 66 | DELETE CANDIDATE (§3.4) |
+| `base44/` | 19 | ARCHIVE held alive by gates (§3.1) |
+| `frontend/` | 15 | CORE today: the legacy `/app` shell is still served and built (§3.2) |
+| `legacy/` | 12 | ARCHIVE; one gate line and one npm script hold it (§3.3) |
+| `.github/workflows/` | 10 | 3 operational, 5 blocked on absent secrets, 1 nominal, 1 dormant (§3.6) |
+| `.claude/agents/` | 10 | SUPPORT, CI-load-bearing (§3.7) |
+
+## 2. Render (infrastructure, no code)
+
+Verified on 2026-09-30 through the Render connector (workspace `tea-d762ijsr85hc739birrg`):
+
+| Service | ID | Branch / trigger | State | Verdict |
+|---|---|---|---|---|
+| `siton-staging-web` | `srv-daa5o9u7bikc73fgjskg` | `master` / `checksPass` | live on `d40c23f` (`dep-daud0b3bc2fs73cgdctg`) | **KEEP** (canonical, matches `render.yaml`) |
+| `siton-staging-worker` | `srv-daakn0tg1s2s73dfk3pg` | `master` / `checksPass` | live on `d40c23f` (`dep-daud0b3bc2fs73cgddbg`) | **KEEP** (canonical) |
+| `siton-staging-web-atp1` | `srv-daa5o9u7bikc73fgjsjg` | `master` / `commit` | every deploy today failed (non-zero exit) | **DELETE** (duplicate of the canonical web, created 2026-08-30 by a Blueprint collision) |
+| `siton-demo-preview-atp1` | `srv-d870grl7vvec73apc0q0` | `master` / `commit`, region oregon, health `/health` | deploy failed, `server_failed` loop | **DELETE** (legacy demo) |
+| `siton-demo-preview` | `srv-d77p6tgule4c73denj7g` | `master` / `commit`, region oregon, health `/health` | deploy failed, `server_failed` loop | **DELETE** (legacy demo, `legacy/render/render.legacy.yaml`) |
+
+Checks done before recommending deletion:
+
+- Custom domains: none on any of the five services (`renderSubdomainPolicy: enabled` only, no `customDomains`).
+- Consumers: no repository file, workflow, test or runbook points at the three legacy URLs as a
+  dependency; the only mentions are historical reports (`RC_STAGING_SMOKE`, `RED_TEAM_SYSTEM`,
+  `ARCHITECTURE_REBASE_R3`, `BLACK_SKY_FINAL_REPORT` item 12, `PROJECT_STATUS` PR-18) which already
+  call them orphans.
+- Secrets: the legacy services' environment variables were not read (the connector exposes no read).
+  The canonical services carry every value `render.yaml` needs; the legacy demo blueprint used a
+  different, retired variable set (`EXPECTED_COMMIT_SHA`, `OBJECT_STORAGE_*`, MinIO-era). Nothing to
+  preserve is known; if the owner wants to be sure, open each service's Environment tab once before
+  deleting.
+- Blueprint ownership: the Render connector has no Blueprint, suspend or delete operation, so the
+  Blueprint that keeps recreating the `-atp1` duplicates could not be inspected or removed from here.
+
+**Manual owner action (dashboard, in this order):**
+
+1. Blueprints → delete or disconnect every Blueprint whose repo is `matilederer7-bit/C-ton` **except**
+   the one that owns `siton-staging-web` + `siton-staging-worker` (its sync must keep pointing at the
+   root `render.yaml`). A stale Blueprint that still lists `siton-demo-preview` or a second web
+   service is what recreated the duplicates.
+2. Delete service `siton-staging-web-atp1` (`srv-daa5o9u7bikc73fgjsjg`).
+3. Delete service `siton-demo-preview-atp1` (`srv-d870grl7vvec73apc0q0`).
+4. Delete service `siton-demo-preview` (`srv-d77p6tgule4c73denj7g`).
+5. Confirm the workspace lists exactly two services and that the next `master` commit deploys only
+   those two.
+
+Until then the three legacy services keep building every `master` commit and failing.
+
+## 3. Group census
+
+### 3.1 `base44/` (19 files) — ARCHIVE, held by gates
+
+- Runtime consumer: none. `tests/legacy_runtime_isolation_validation.ts` asserts `src/` never
+  references it.
+- Gate consumers: `scripts/architecture_truth_gate.cjs` (asserts the manifest still says
+  `production_runtime = base44`, lines 8–10, 49–53), `scripts/base44_canonical_integrity_gate.cjs`
+  + `config/base44-canonical-registry.json` + `config/base44-canonical-callers.json` +
+  `tests/fixtures/base44_integrity_clean_snapshot.json`, `npm run test:base44-canonical-integrity`
+  (`ci.yml`), preflight gates `architecture-gate` and `base44-canonical-integrity`,
+  `tests/base44_mall_contract_validation.ts`, `tests/supabase_inventory_activation_hardening_validation.ts`,
+  `tests/base44_canonical_integrity_validation.ts`, `tests/hosted_v11_activation_gate_validation.ts`,
+  `scripts/extract_base44_inventory_sql.ps1`.
+- Contradiction: the gate prints `production=base44` while the runtime is Render + Supabase.
+  `docs/SENIOR_ADVERSARIAL_REVIEW.md` F-07 already flagged it.
+- Retirement plan (one FULL-profile PR, senior review, `ci-gates` family): rewrite
+  `architecture_truth_gate.cjs` to assert the Render/Supabase truth (keep every R2/R3/R4 assertion,
+  drop the Base44 manifest assertions and the `legacy/render/render.legacy.yaml` existence check),
+  delete the integrity gate, its config, fixture, npm scripts, the five Base44 tests and the `.ps1`,
+  then delete `base44/`. Keep the Mall read model in `src/` untouched (it does not depend on Base44).
+
+### 3.2 `frontend/` (15 files) — CORE today
+
+- Served by `src/frontend_runtime.ts` at `/app/*` (`sendShell`, static routes, CSP inline-script
+  registration); copied into the image by `scripts/build_demo_bundle.cjs` (Dockerfile line 25);
+  probed by `src/admin_mission_control.ts` (`frontend_static_surface_issue`); read by
+  `scripts/legal_compliance_gate.cjs` and `scripts/money_tax_invoice_gate.cjs`; icons regenerated by
+  `scripts/render_brand_assets.cjs`; about 30 tests read its files.
+- The bare domain redirects to `/preview/` (React), so `/app` is a second shell for direct links
+  and the PWA. Retiring it is a product-level change (route `/app` must keep answering for shared
+  links), touching runtime, build, admin panel, two gates and ~30 tests. Not a refactor target
+  until the owner decides the `/app` shell is gone.
+
+### 3.3 `legacy/` (12 files) — ARCHIVE
+
+- `render.legacy.yaml`: held only by `scripts/architecture_truth_gate.cjs:12`.
+- `render_config_gate.legacy.cjs`: held only by `package.json` `legacy:validate-render`; no workflow,
+  gate or test runs it.
+- `Procfile.legacy`, `README.md`, `docs/*` (7): zero code consumers.
+- Retirement: drop the gate line and the npm script in the same PR as §3.1, then delete the tree.
+
+### 3.4 `.i18n-regen/` (66 files) — DELETE CANDIDATE
+
+- A stale, Hebrew-only snapshot of `web/src` from before the i18n extraction (58 files differ from
+  the live tree; it lacks `i18n/`, `errorReporting.ts`, the admin MFA files, the infographic).
+- Consumers: none. Not in any `tsconfig`, not read by `scripts/i18n/*.cjs`, not by any workflow,
+  test, Dockerfile or npm script. The only mention is `scripts/ci_change_classifier.cjs:97`, a
+  path-classification rule.
+- Cost of keeping it: copied into the Docker image (`.dockerignore` does not exclude it) and walked
+  by every repo-wide scanner.
+- Removal: delete the tree and the classifier rule. `scripts/i18n/extract.cjs` (one-shot extractor)
+  keeps working with `--src`.
+
+### 3.5 `scripts/` (139 files)
+
+- **DELETE CANDIDATES (zero references anywhere, including `PROJECT_STATUS.md`):**
+  `bounded_load_test.cjs`, `migrate_showcase_images_to_supabase.cjs` (R7 one-off, storage retired),
+  `site_cms_rehearsal.cjs`, `p06a_geolocation_browser_proof.cjs`, `p07_owner_acceptance_proof.cjs`,
+  `p07c_polling_browser_proof.cjs`.
+- **ARCHIVE (docs-only references, no automated caller):** `buyer_polish_browser_proof.cjs`,
+  `dr_backup_restore_drill.cjs` (superseded by `db_backup_restore_rehearsal.cjs`),
+  `launch_polish_browser_proof.cjs`, `p0_browser_proof.cjs`, `pickup_fulfillment_browser_proof.cjs`,
+  `r6_hosted_browser_proof.cjs`, `r6_staging_showcase_seed.cjs`, `r7r8_browser_proof.cjs`,
+  `receipt_content_browser_proof.cjs`, `register-ts-node.mjs`, `restart_server_clean.ps1`,
+  `restart_server_tsnode_clean.ps1`, `review_baseline_candidates.cjs`,
+  `review_r9c_migration_independent_proof.cjs`, `run_outbox_select.cjs`, `run_pg_query.cjs`,
+  `i18n/extract.cjs`, `extract_base44_inventory_sql.ps1` (Base44), `r3_hosted_proof.cjs` (kept
+  alive only by an existence assertion in the architecture gate).
+- Everything else is SUPPORT or CORE with a live caller (`package.json`, a workflow, a preflight
+  gate, a compose file or another script). Full table with evidence: the 2026-09-30 census in this
+  session's working notes; re-derive with
+  `rg -n -F "<basename>" --glob '!scripts/<name>*' .` before touching any file.
+
+### 3.6 `.github/workflows/` (10)
+
+| Workflow | State |
+|---|---|
+| `ci.yml` | operational; the single required check `ci-verdict` |
+| `mobile-readiness.yml` | operational |
+| `codex-rereview.yml` | operational (posts `@codex review`) |
+| `offsite-db-backup.yml` | nominal: exits 0 with `OFFSITE_BACKUP_SKIPPED` because the `OFFSITE_BACKUP_*` secrets are absent (Production Readiness PR-6) |
+| `stripe-sandbox-proof.yml` | dormant: zero runs ever; needs Stripe sandbox secrets; Stripe is not the provider direction |
+| `cloud-agent-manager.yml`, `cloud-agent-review.yml`, `cloud-analysis-swarm.yml`, `cloud-credential-preflight.yml`, `agent-manager-intake.yml` | blocked: all four agent secrets absent; every run fails at routing. `PROJECT_STATUS.md` already freezes agent-platform expansion |
+
+- Also registered on GitHub but with no file on `master`: 12 orphan workflow names
+  (`base44-bridge-gate`, `chatgpt-*`, `diag-*`, `fix-long-horizon-logging`, `long-horizon-import`,
+  `pr38-reconcile-probe`, `reservation-service`). They disappear from the Actions list only when
+  their last runs age out; no repository change.
+- `tests/release_tools/cloud_agent_manager.test.cjs` and `agent_model_tiers.test.cjs` read the agent
+  workflow YAML, so removing those workflows means removing their tests, `scripts/agent_*.cjs`,
+  `scripts/cloud_agent_manager.cjs` and `docs/CLOUD_AGENT_MANAGER.md` together. Decision for the
+  owner: keep the cloud-agent path dormant (current state) or retire it as one PR.
+
+### 3.7 `.claude/agents/` (10) — SUPPORT
+
+Hard-listed in `scripts/agent_model_tiers.cjs` (`AGENT_TIERS`), asserted by
+`tests/release_tools/agent_model_tiers.test.cjs` and `agent_readonly_bash_guard.test.cjs`, run in
+CI through `test:release-tools`. Keep.
+
+### 3.8 `docs/` — see `docs/DOCUMENTATION_MAP.md`
+
+CANONICAL 12 / REFERENCE 100 / ARCHIVE 175. Physical moves into `docs/archive/` happen per file
+with their consumers updated (`scripts/architecture_truth_gate.cjs`, `scripts/legal_compliance_gate.cjs`,
+`scripts/release_checklist.cjs`, `src/admin_mission_control.ts`, ~40 tests read docs by path).
+
+## 4. Safe removal order (each its own PR, single scope, tests, review, green CI)
+
+| Step | Scope | Profile | Blockers to clear first |
+|---|---|---|---|
+| D1 | delete `.i18n-regen/` + classifier rule | STANDARD | none |
+| D2 | delete the 6 zero-reference scripts; move the ARCHIVE scripts under `scripts/archive/` or delete the ones whose docs are themselves ARCHIVE | FULL (scripts are gate-or-tooling) | re-run the reference grep per file |
+| D3 | retire the Base44 gate cluster + `legacy/` (`architecture_truth_gate.cjs` rewritten to the Render/Supabase truth) | FULL, senior review | none; the runtime never depended on it |
+| D4 | Product Library schema drop (`products`, `product_images`, `deals.product_id`, `deals.product_snapshot_jsonb`, trigger, constraints; new migration, never an edit of 072; `supabase/staging/025` retired from the grant lists) | FULL, senior review | PR B merged; staging census re-run (2026-09-30: 40 deals, 2 with product columns, both `PendingTarget` smoke deals from 2026-09-17, 1 product, 0 product images) and owner confirmation that those two smoke deals may lose their snapshot |
+| D5 | docs: move ARCHIVE files into `docs/archive/` in small batches with consumer updates; trim `PROJECT_STATUS.md` to the open tracks | FAST/STANDARD | none |
+| D6 | decision: dormant cloud-agent workflows + `stripe-sandbox-proof.yml` (keep dormant or retire with their tests) | FULL | owner decision |
+| later | `/app` legacy shell (`frontend/`) | product decision | owner decision; shared links must keep resolving |
+
+## 5. Supabase finding: `siton.outbox_enqueue_evidence` without RLS
+
+- What it is: the insert-only evidence table of migration 076. An `AFTER INSERT` trigger on
+  `outbox_events` (SECURITY DEFINER, owner `postgres`) records every enqueue; the
+  `outbox_row_written_in_tx` helper (SECURITY DEFINER) reads it so a state transition can prove its
+  outbox job was inserted in the same transaction. A `BEFORE UPDATE` trigger refuses updates. Rows
+  older than 30 days are pruned by the same trigger. It is runtime safety, not test or legacy.
+- Who can reach it (staging, 2026-09-30): only `postgres` holds privileges. `anon`, `authenticated`
+  and `service_role` have no USAGE on schema `siton` and no table privilege; `siton_web_runtime`
+  and `siton_worker_runtime` have schema USAGE but no table privilege. 1 row. Not listed by the
+  Supabase security advisor (the "RLS disabled" lint covers the `public` schema; the dashboard
+  badge is what the owner saw).
+- Every other table in schema `siton` has RLS enabled; this one was created with REVOKE-only
+  protection.
+- Smallest safe fix: forward migration `081_outbox_enqueue_evidence_rls.sql` that enables RLS with
+  no policy. Functionally nothing changes: the table owner (also the definer of both 076 functions)
+  bypasses RLS, every other role already has no privilege. It only closes the door a future
+  accidental GRANT would open, and removes the dashboard badge. Requires the manifest entry,
+  `REQUIRED_MIGRATION_IDS`, a test assertion, and application to staging before merge (readiness
+  fails closed on a missing manifest migration). Implemented as its own PR.
+
+## 6. Rules for every deletion PR
+
+1. Prove zero consumers with a full-tree search (imports, `package.json`, workflows, preflight gate
+   config, compose files, Dockerfile, tests, migration/recovery scripts, runbooks) and paste the
+   search in the PR.
+2. Never edit an applied migration; schema removal is a new forward migration.
+3. Never delete a test to make a suite smaller; delete a test only together with the feature it
+   proves, and carry any still-valid assertion into a replacement test.
+4. One group per PR. CI green on the head. Independent review + Codex.
+5. After merge with runtime impact: confirm both Render services live on the merge SHA and
+   `/readiness` 200.
