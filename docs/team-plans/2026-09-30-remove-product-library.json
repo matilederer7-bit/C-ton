@@ -1,0 +1,119 @@
+{
+  "task": "PR B: remove the Product Library / Product Catalog surface (seller products page, /api/seller/products*, save-as-product, create-from-product, product snapshot locks) while keeping delivery estimates, ordinary deals, all three deal types, the Mall read model and every buyer surface working; no migration edit, no schema drop",
+  "lead": "claude-lead",
+  "base": "origin/master",
+  "open_branches": [
+    "origin/claude/product-constitution-sot"
+  ],
+  "interface_contract": {
+    "src/delivery_estimate.ts": "exports normalizeDeliveryEstimate and describeDeliveryEstimate, moved verbatim from src/product_catalog.ts",
+    "web/src/deliveryEstimate.ts": "exports deliveryEstimateText and validateEstimateRange, moved verbatim from web/src/productLibrary.ts"
+  },
+  "assignments": [
+    {
+      "id": "B1",
+      "agent": "claude-subagent",
+      "role": "builder",
+      "tier": "senior",
+      "scope": "backend, web, i18n sources and generated dictionaries, tests, package.json script; keep migration 072, manifest, REQUIRED_MIGRATION_IDS and supabase/staging/025 untouched",
+      "allowed": [
+        "src/app.ts",
+        "src/frontend_runtime.ts",
+        "src/product_catalog.ts",
+        "src/product_enrichment.ts",
+        "src/delivery_estimate.ts",
+        "src/schema_contract.ts",
+        "web/src/",
+        "scripts/i18n/en.json",
+        "scripts/i18n/extracted.he.json",
+        "scripts/i18n/seed.he.json",
+        "tests/product_catalog_validation.ts",
+        "tests/product_catalog_api_validation.ts",
+        "tests/delivery_estimate_validation.ts",
+        "package.json"
+      ],
+      "forbidden": [
+        "src/migrations/",
+        "supabase/",
+        "scripts/migration_manifest.cjs",
+        "scripts/db_backup_restore_rehearsal.cjs",
+        ".github/",
+        "base44/",
+        "frontend/",
+        ".i18n-regen/",
+        "PROJECT_STATUS.md",
+        "AGENTS.md",
+        "docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md",
+        "docs/PRODUCT_CATALOG.md"
+      ],
+      "depends_on": [],
+      "dod": [
+        "no route under /api/seller/products or /api/seller/product-images remains; POST /api/seller/deals/:id/product removed",
+        "web has no seller products page, no product-library button, no save-as-product or product-link panel; #/seller/products routes gone",
+        "delivery estimates keep working end to end (server normalize/describe, seller inputs, buyer estimate line) with a replacement test",
+        "npx tsc (app + test), web typecheck + build, gate:i18n, web:routes, release-tools tests, protected route gate pass; deal create/publish/draft/delivery/public/deal-types tests pass on a disposable PostgreSQL",
+        "migration 072, manifest, REQUIRED_MIGRATION_IDS and 025 grants untouched"
+      ]
+    },
+    {
+      "id": "B2",
+      "agent": "claude-lead",
+      "role": "builder",
+      "tier": "standard",
+      "scope": "integration by the lead. docs/PRODUCT_CATALOG.md (rewritten as a retirement note naming the removed routes, modules and the deleted test:product-catalog script) and the PROJECT_STATUS.md slot update land only after PR A (claude/product-constitution-sot, which already edits both files) is merged and this branch has merged master; at that point both paths are added to B2's allowed list and the plan is re-checked (TEAM_PLAN_PASS) before either file is written. Until then the checker's open_work_overlap rule keeps them out of every builder's allowed list.",
+      "allowed": [
+        "docs/team-plans/2026-09-30-remove-product-library.json"
+      ],
+      "forbidden": [
+        "src/",
+        "web/",
+        "tests/",
+        "scripts/"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "docs/PRODUCT_CATALOG.md rewritten as a retirement note (after PR A merged)",
+        "status slot updated (after PR A merged)",
+        "plan checked"
+      ]
+    },
+    {
+      "id": "R1",
+      "agent": "claude-subagent",
+      "role": "reviewer",
+      "senior": true,
+      "tier": "senior",
+      "scope": "independent senior review: deal create/publish/draft paths, idempotency hash, storage cleanup arms, readiness contract, no buyer surface broken, no test weakened",
+      "reviews": [
+        "B1",
+        "B2"
+      ],
+      "depends_on": [
+        "B1",
+        "B2"
+      ],
+      "dod": [
+        "verdict with concrete failure scenarios"
+      ]
+    },
+    {
+      "id": "R2",
+      "agent": "codex",
+      "role": "reviewer",
+      "scope": "cross-provider review on the Pull Request",
+      "reviews": [
+        "B1",
+        "B2"
+      ],
+      "depends_on": [
+        "B1",
+        "B2"
+      ],
+      "dod": [
+        "every finding fixed or answered"
+      ]
+    }
+  ]
+}
