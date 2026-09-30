@@ -12,7 +12,7 @@ Three tiers. A document's tier is decided by its role today, not by its title. H
 
 Physical relocation of ARCHIVE files into `docs/archive/` is a later, mechanical step: several gates and tests read documents by path (`scripts/architecture_truth_gate.cjs`, `scripts/legal_compliance_gate.cjs`, `src/admin_mission_control.ts`, `tests/*`), so moves happen per file with their consumers updated, never in bulk.
 
-Counts: CANONICAL 12 · REFERENCE 97 · ARCHIVE 178.
+Counts: CANONICAL 12 · REFERENCE 100 · ARCHIVE 175 (287 documents: everything under `docs/` plus the root reports and `legacy/render/README.md`). Out of scope: `.claude/agents/*.md` (agent definitions, CI-checked), `legacy/render/docs/*` (quarantined, ARCHIVE by location), `scripts/README.md`, `ios/App/CapApp-SPM/README.md`.
 
 ## CANONICAL (read these)
 
@@ -133,7 +133,11 @@ Reading order for a new agent: constitution → current architecture → AGENTS.
 | `docs/STORAGE_PRODUCTION_FOUNDATION.md` | Storage Production Foundation | storage design |
 | `docs/SUPPLY_CHAIN_STATUS.md` | Supply chain status | supply chain |
 | `docs/SUPPORT_OPERATIONS.md` | Support Operations | support ops |
-| `docs/USER_TEST_CONDITIONAL_DEAL_PLAN.md` | Conditional Deal User Test Plan | research plan |
+
+| `docs/SITON_V1_1_MALL_PRODUCT_DIRECTION.md` | V1.1 Mall Product Direction | future Mall spec; the Mall is hidden for the current launch (constitution §6) |
+| `docs/ARCHITECTURE_REBASE_R2_CANONICAL_POSTGRES.md` | Rebase R2 Canonical Postgres | current runtime record (Postgres roles), read by the architecture gate |
+| `docs/ARCHITECTURE_REBASE_R3_RENDER_WEB.md` | Rebase R3 Render Web | current runtime record (Render web), read by the architecture gate |
+| `docs/ARCHITECTURE_REBASE_R4_WORKER.md` | Rebase R4 Continuous Worker | current runtime record (Render worker) |
 
 ## ARCHIVE
 
@@ -157,9 +161,6 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/ADVERSARIAL_RESILIENCE_GATE.md` | Adversarial Resilience Gate | gate report |
 | `docs/ARCHITECTURE_REBASE_R0.md` | Architecture Rebase R0 | R0 rebase log |
 | `docs/ARCHITECTURE_REBASE_R1_SUPABASE_STAGING.md` | Rebase R1 Supabase Staging | R1 log |
-| `docs/ARCHITECTURE_REBASE_R2_CANONICAL_POSTGRES.md` | Rebase R2 Canonical Postgres | R2 log |
-| `docs/ARCHITECTURE_REBASE_R3_RENDER_WEB.md` | Rebase R3 Render Web | R3 log |
-| `docs/ARCHITECTURE_REBASE_R4_WORKER.md` | Rebase R4 Continuous Worker | R4 log |
 | `docs/BACKEND_CLOSURE_DECISION.md` | Backend Closure Decision | historical decision |
 | `docs/BACKEND_PROFESSIONALIZATION_AUDIT.md` | Backend Professionalization Audit | audit |
 | `docs/BACKEND_PROFESSIONALIZATION_DECISION.md` | Backend Professionalization Decision | decision |
@@ -286,7 +287,6 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/SELLER_AUTH_ATTACK_PLAN.md` | Seller Auth Attack Plan | old plan |
 | `docs/SENIOR_ADVERSARIAL_REVIEW.md` | Senior Skeptical Engineer Adversarial Review | review; §LONG_HORIZON marked OBSOLETE/HISTORICAL |
 | `docs/SHELF_CLOSEOUT_2026-09-17.md` | Shelf closeout, Claude lane | closeout |
-| `docs/SITON_V1_1_MALL_PRODUCT_DIRECTION.md` | V1.1 Mall Product Direction | Mall decision; kept as history, Mall hidden per constitution |
 | `docs/SITON_V1_1_PRODUCT_DEPTH_AUDIT.md` | V1.1 Product Depth Audit | audit |
 | `docs/SOURCE_DOCX_OBSOLETE_RULES.md` | Source .docx, HISTORICAL SOURCE | obsolete rules |
 | `docs/SPEC_DRIFT_MAP_2026-04-19.md` | Spec drift map | closed |
@@ -319,6 +319,7 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/db-drift-resolution.md` | db-drift-resolution | old note, unreadable |
 | `docs/foundation-canonical-2026-04-18/README.md` | Foundation pack, HISTORICAL SOURCE | marked historical/obsolete |
 | `docs/runtime-contract-resolution.md` | runtime-contract-resolution | old note, unreadable |
+| `docs/USER_TEST_CONDITIONAL_DEAL_PLAN.md` | Conditional Deal User Test Plan | research plan from 2026-08-23, not an operating document |
 
 ## Known drift markers added 2026-09-30
 

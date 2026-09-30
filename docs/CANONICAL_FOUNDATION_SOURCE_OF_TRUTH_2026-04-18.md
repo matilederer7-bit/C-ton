@@ -4,7 +4,7 @@ Date: `2026-04-18`
 
 V1.1 product-scope amendment: `2026-08-23`.
 
-Latest binding product-policy amendment: `2026-09-16`.
+Latest binding product decisions: `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`; latest product-policy amendment: `2026-09-16`.
 
 **2026-09-30: `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md` now sits above this file and above the 2026-09-16 amendment.** It adds: no Product Library, Mall kept but hidden for the current launch, distribution links are analytics/attribution only with no distributor economics, and the runtime is Render web + worker + Supabase (`docs/CURRENT_ARCHITECTURE_2026-09-30.md`). Where this file or the foundation pack disagrees with the constitution, the constitution wins.
 
@@ -25,7 +25,7 @@ Current precedence for product-policy conflicts is:
 
 ## 2026-08-23 Mall Amendment
 
-Siton is no longer direct-link-only. It supports direct deal links plus the public Siton Mall described in `SITON_V1_1_MALL_PRODUCT_DIRECTION.md`.
+Siton is no longer direct-link-only. It supports direct deal links plus the public Siton Mall described in `SITON_V1_1_MALL_PRODUCT_DIRECTION.md` (the Mall is implemented but hidden for the current launch; see the constitution §6).
 
 The binary foundation documents remain historical source artifacts; their no-catalog/no-browse wording is not current product canon. Their state, money, idempotency, atomicity, security, and 90% rules remain binding unless a later explicit amendment changes a specific rule.
 
@@ -57,7 +57,7 @@ Use the pack for domains not superseded by later amendments.
 
 ## How To Read Conflicts
 
-- Product scope and public discovery: the V1.1 Mall decision is authoritative where it conflicts with the April pack.
+- Product scope and public discovery: the V1.1 Mall decision is authoritative where it conflicts with the April pack, subject to the constitution's rule that the Mall stays hidden for the current launch.
 - Product rules listed in the 2026-09-16 amendment: the September amendment is authoritative.
 - System invariants, state discipline, idempotency, atomicity, audit, backend safety, and the 90% rule remain authoritative unless a later explicit decision changes them.
 - Historical migrations are immutable records of prior schema evolution. Never edit an already-applied migration merely to make its old wording match current product policy. Use forward migrations.

@@ -29,7 +29,7 @@ Precedence: owner's explicit current decision → this constitution →
 Siton is a group-deal platform. A seller publishes a deal with a minimum quantity, a
 maximum quantity and a deadline. Buyers join by authorizing a payment frame. Nobody is
 charged while the deal is open. When the deal reaches its target it locks, and only then
-are the frames charged. If too few charges succeed, the deal fails and nobody pays.
+are the frames charged. Final success requires that at least 90% of the minimum quantity was actually charged.
 
 ## 2. Roles
 
@@ -54,7 +54,8 @@ one link is a seller-issued convenience, not a role.
 5. The deal reaches its target and locks. Joining stops.
 6. **Only now** do real charges begin, against the captured frames.
 7. Final success only if **at least 90% of the minimum quantity was actually charged**.
-   Otherwise the deal fails and authorizations are released.
+   Below that, the deal does not reach final success; the existing state machine and
+   money rules decide what happens to the frames.
 
 The existing state machine, idempotency, atomicity, audit, outbox, inventory, security and
 90% rules are safety boundaries. They may be hardened, never weakened.
@@ -86,17 +87,18 @@ The existing state machine, idempotency, atomicity, audit, outbox, inventory, se
 
 - **Direct deal links always work.** They are the primary entry path today.
 - **The Mall exists but is hidden for the current launch.** The code, read model, tests
-  and feature flag stay. The flag (`PUBLIC_MALL_ENABLED`) is OFF by default and the Mall
-  must not become the main entry experience now. The Mall is part of the future product;
+  and feature flag stay. The flag (`PUBLIC_MALL_ENABLED` on the server, `VITE_PUBLIC_MALL_ENABLED`
+  at web build time) is OFF by default and the Mall must not become the main entry experience now. The Mall is part of the future product;
   it must not be deleted in a refactor.
 
 ## 7. No Product Library
 
 Siton has **no Product Library / Product Catalog**. There is no "save deal as product",
-no "create deal from product", no seller products page, no product revisions, no
-`/api/seller/products`. The module is being removed from UI, API and product workflow
-first; schema objects are removed later only after a data-safety proof. Existing deals
-must keep working and historical deal data must not be lost.
+no "create deal from product", no seller products page, no product revisions or history,
+no `/api/seller/products`, and no `sellerProducts`, `productLibrary` or `product_catalog`
+module. The module is removed from UI, API and product workflow first; schema objects are
+removed later only after a data census proves it is safe. Existing deals must keep working
+and historical deal data must not be lost.
 
 ## 8. Distribution links: analytics and attribution only
 
