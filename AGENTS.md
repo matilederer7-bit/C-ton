@@ -6,11 +6,15 @@ This file is binding for Codex, Claude Code, the Cloud Agent Manager, and any ot
 
 Read:
 
-1. `PROJECT_STATUS.md`
-2. `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md`
-3. `docs/CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md`
-4. `AI_WORKFLOW.md`
-5. the task-relevant architecture, product, UX, migration, runbook, and test files
+1. `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md` — the product, highest precedence
+2. `docs/CURRENT_ARCHITECTURE_2026-09-30.md` — the runtime
+3. `PROJECT_STATUS.md`
+4. `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md`
+5. `docs/CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md`
+6. `AI_WORKFLOW.md`
+7. the task-relevant REFERENCE documents listed in `docs/DOCUMENTATION_MAP.md`, plus the relevant migration, runbook and test files
+
+Documents tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md` are history, never authority.
 
 For managed or multi-agent work, also read `docs/ENGINEERING_OPERATING_SYSTEM.md`.
 
@@ -21,10 +25,11 @@ Do not rely on memory of an older Siton phase when newer repository decisions ex
 When sources disagree, use this order:
 
 1. the owner's explicit current task or decision
-2. current canonical repository decisions and amendments
-3. current architecture/runtime contracts and `PROJECT_STATUS.md`
-4. current implementation plus passing tests as evidence of what is implemented
-5. older foundation, delivery, and historical documents
+2. `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`
+3. current canonical repository decisions and amendments (`docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md`)
+4. `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current runtime contracts and `PROJECT_STATUS.md`
+5. current implementation plus passing tests as evidence of what is implemented
+6. older foundation, delivery, and historical documents
 
 Never revive deprecated behavior only because an old file still exists.
 
@@ -40,6 +45,9 @@ Do not change these unless the owner explicitly changes them:
 - There is no distributor/affiliate user role or distributor product module. Canonical user roles are buyer, seller, and administrator.
 - Ordinary deal sharing and role-neutral viral/acquisition analytics may exist only if they do not create distributor identity, permissions, economics, or a separate distributor product path.
 - There is no fixed seven-day maximum deal duration. Older seven-day product-deadline references are historical.
+- There is no Product Library / Product Catalog: no seller products page, no `/api/seller/products`, no "save deal as product", no "create deal from product". Existing deals and their historical data are preserved.
+- The public Mall exists in code but stays hidden (`PUBLIC_MALL_ENABLED` off by default) for the current launch; direct deal links are the entry path. The Mall is not deleted in a refactor.
+- Runtime is Render web + Render worker + Supabase Postgres. Base44 is historical and never a runtime authority.
 - Existing state-machine, idempotency, atomicity, audit, outbox, inventory, security, and 90% success rules are safety boundaries.
 
 ## How to work

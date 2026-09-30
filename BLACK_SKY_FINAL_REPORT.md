@@ -1,5 +1,7 @@
 # Black-Sky Final Report
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 Date: 2026-09-27 · Branch `claude/festive-wright-kx4e5a` · PR [#99](https://github.com/matilederer7-bit/C-ton/pull/99) · Base `d186153` (master after PR #98)
 
 Mission: prepare Siton for the day several things fail at once, with no systemic collapse, no money or data loss, recovery possible, and fail-closed behaviour whenever money is uncertain. Method per finding: FIND → PROVE → BREAK SAFELY → FIX → TEST → ATTACK AGAIN → RESTORE → VERIFY. No real money was moved. No production system was attacked. Every destructive or chaos exercise ran on disposable local databases only.

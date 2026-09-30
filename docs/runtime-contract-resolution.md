@@ -1,5 +1,7 @@
 # runtime-contract-resolution
 
+> SUPERSEDED - HISTORICAL (2026-09-30). This document is tiered ARCHIVE in docs/DOCUMENTATION_MAP.md: history, never authority (kept in its original non-UTF-8 encoding). Product rules: docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md; runtime: docs/CURRENT_ARCHITECTURE_2026-09-30.md; current state: PROJECT_STATUS.md.
+
 מקור אמת לביצוע כעת
 
 מקור האמת הביצועי הנוכחי הוא הקוד החי בsrc/app.ts יחד עם הhelpers הפעילים:

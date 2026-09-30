@@ -1,5 +1,7 @@
 # Provider Live Money Readiness
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 Status: historical Stripe-era readiness audit. Internal identity, reconciliation,
 and control-plane code gaps listed below were closed by Stage 32D and the final
 zero-development closure. Live money remains blocked only on external

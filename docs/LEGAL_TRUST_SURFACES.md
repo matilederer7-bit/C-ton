@@ -21,7 +21,7 @@ Status: surfaces and copy contracts validated against the spec. Final legal text
 - The seller is identified as the responsible party for fulfillment; Siton does not own delivery.
 - Siton commission is fixed at 8% and is shown without per-deal configuration.
 
-## Distributor / Affiliate Surface
+## Distribution links (no distributor role)
 
 - No commission to distributors. The product surface deliberately omits any commission, balance, or payout metric for affiliates.
 - The product spec is enforced by `tests/admin_affiliate_no_commission_regression_validation.ts`.

@@ -27,7 +27,7 @@ C-ton targets Israeli accessibility requirements under SI 5568 and WCAG 2.0 AA f
 - Join confirmation page
 - Buyer tracking page
 - Seller create and publish screens
-- Distributor attribution screen
+- Scoped external link dashboard (attribution, aggregate only)
 - Public policy pages
 
 ## Manual Tests Required

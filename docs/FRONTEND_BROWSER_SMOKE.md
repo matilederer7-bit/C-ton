@@ -47,8 +47,11 @@
 
 ## External proof that remains
 
-- Repository browser proof is synthetic and local. Final Base44 domain metadata,
-  social previews, native camera/share behavior, and real-device rendering must
-  be verified only after separately approved publication/domain activation.
+- Repository browser proof is synthetic and local. Final domain metadata,
+  social previews, native camera/share behavior, and real-device rendering are
+  verified on the Render web service (`siton-staging-web`; see
+  `docs/CURRENT_ARCHITECTURE_2026-09-30.md`) only after separately approved
+  publication/domain activation. The Base44 wording that stood here is
+  historical: Base44 is not a runtime target.
 - Screenshot evidence is written only to ignored `.ci-artifacts/`; it is test
   evidence, not a production-data capture channel.

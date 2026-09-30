@@ -1,5 +1,7 @@
 # Siton / C-ton — Red Team Final Report
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 - **Date:** 2026-09-25 (engagement), 2026-09-27 (closure round — §11)
 - **Engagement:** Full adversarial red team (authorized, owner-requested), repo `matilederer7-bit/C-ton`, dev + staging only.
 - **Base reviewed:** `origin/master` at the start of the engagement (`0a16515…`, post Graphite-Mint).

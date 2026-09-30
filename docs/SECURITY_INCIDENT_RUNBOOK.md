@@ -208,7 +208,7 @@ that the incident touched.
 
 | Item | Where | Marker |
 |---|---|---|
-| Bulk admin/seller/distributor session revocation route (today: SQL or per-principal provisioning routes `src/frontend_runtime.ts:7543`, `:7578-7584`, `:7627-7628`) | app | OPEN |
+| Bulk admin/seller/link-viewer session revocation route (today: SQL or per-principal provisioning routes `src/frontend_runtime.ts:7543`, `:7578-7584`, `:7627-7628`) | app | OPEN |
 | Admin surface to revoke/reissue participant tracking tokens (helper exists, no caller) | app | OPEN |
 | `OTP_HASH_SALT`, `BUYER_SESSION_SECRET`, `OTP_TOKEN_SECRET` not declared in `render.yaml` (staging relies on fallbacks; production gate FAILs without them) | render.yaml / runtime | OPEN |
 | Runtime does not fail closed on `OTP_HASH_SALT` default, `TRACKING_LEGACY_COMPAT=1`, or `DEBUG_SURFACES_ENABLED=1` in production (only the release gate does) | `config/runtime-environment-policy.json` "runtime_gaps" | OPEN |

@@ -1,5 +1,7 @@
 # R9C PRODUCTION CANDIDATE — EXTRACTION AUDIT
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
 Branch `claude/r9c-production-candidate`, created from canonical master
 `82c91d62fd092350748405c8aec15a23d0e2af5e` (a separate worktree; the review
 branch `claude/review-r9c-financial` @ `ca6c0c41571c1317ea7fe009c9055ba745949b33`

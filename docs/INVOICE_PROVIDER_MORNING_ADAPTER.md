@@ -20,10 +20,15 @@ Use:
 - `INVOICE_PROVIDER_API_KEY` or `INVOICE_PROVIDER_BEARER_TOKEN`
 - `INVOICE_WEBHOOK_SECRET`
 
-These values must be entered in the canonical Base44/approved server-side
-secret boundary at activation time. The repository keeps them unset. Legacy
-Render configuration is quarantined and must not be used as an activation
-source.
+These values must be created manually as environment variables in the Render
+dashboard of BOTH canonical services (`siton-staging-web` and
+`siton-staging-worker`): `render.yaml` declares no `INVOICE_PROVIDER_*` or
+`INVOICE_WEBHOOK_SECRET` placeholder, so the Blueprint cannot be used as the
+configuration path for them. The worker runs invoice dispatch and the web
+process verifies the webhook, and `src/invoice_dispatch.ts` reads them only from
+`process.env`. Supabase Vault or an Edge Function is not a source for them. The
+repository keeps them unset. Legacy Render configuration is quarantined and must
+not be used as an activation source.
 
 Optional path overrides:
 

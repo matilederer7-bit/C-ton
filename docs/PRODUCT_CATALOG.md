@@ -1,5 +1,9 @@
 # Product catalog — reusable Products, frozen Deal snapshots
 
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document is tiered ARCHIVE in `docs/DOCUMENTATION_MAP.md`: history, never authority. Its decisions, "canonical" lists and contracts describe an earlier state of the project. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, the runtime in `docs/CURRENT_ARCHITECTURE_2026-09-30.md`, current state in `PROJECT_STATUS.md`.
+
+> **REMOVED FROM THE PRODUCT (owner decision 2026-09-30).** Siton has no Product Library. This document is kept as the record of what migration 072 created (the delivery-estimate columns in the same migration are outside the removal, a track B implementation decision). The seller products UI, `/api/seller/products*`, save-as-product and create-from-product are being removed; schema objects follow only after a data-safety proof. See `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md` §7.
+
 Updated: 2026-09-17. Source: shelf branch `codex/amazon-benchmark-upgrade`, ported onto current
 `master` by the Claude shelf closeout (`claude/shelf-heavy-closeout-20260917`). Migration `072`.
 
