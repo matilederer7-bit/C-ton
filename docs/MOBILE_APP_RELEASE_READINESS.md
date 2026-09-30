@@ -16,7 +16,7 @@ and encrypted pending-payment recovery.
 > The `/app` legacy frontend described below remains a separate web/PWA surface and is no
 > longer what `npm run mobile:build` packages.
 
-`/app` is the canonical public Siton Mall on web, PWA, Android, and iOS. It uses
+`/app` is the legacy public shell on web and PWA; the Mall it can show is hidden for the current launch (`PUBLIC_MALL_ENABLED` off), and direct deal links are the entry path. It uses
 the same bounded public read API and the same canonical deal route as direct
 links. Mall filters and cards must remain touch-safe without horizontal
 overflow at 390px, common iPhone widths, and common Android widths. Seller

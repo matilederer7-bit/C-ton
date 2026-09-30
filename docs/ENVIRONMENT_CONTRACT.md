@@ -152,8 +152,8 @@ No env value is logged, surfaced, or returned by any admin endpoint.
 | Tier | Source |
 |---|---|
 | Tier 0 — local | `.env` (gitignored) for local dev. Compose hardcodes demo defaults inline. |
-| Tier 1 — small market launch | Base44 secret/environment configuration plus the approved Supabase secret boundary. |
-| Tier 2 — accordion scale | Same canonical Base44 + Supabase boundary plus rotation policy and least-privilege access. |
+| Tier 1 — small market launch | Render service environment (web + worker, `sync: false` secrets set in the dashboard) plus the Supabase secret boundary. See `docs/CONFIG_INVENTORY.md`. |
+| Tier 2 — accordion scale | Same Render + Supabase boundary plus rotation policy and least-privilege access. |
 | Tier 3 — mature production | Plus annual rotation, audit log, optional SIEM forwarding. |
 
 ## Anti-patterns explicitly forbidden

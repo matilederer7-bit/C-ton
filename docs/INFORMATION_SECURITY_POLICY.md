@@ -4,13 +4,13 @@ Written as an initial MVP response; legal validation is recommended later.
 
 - Production uses HTTPS only.
 - Secrets, passwords and provider keys are never hard-coded; environment variables only.
-- RBAC, Role Based Access Control, separates buyer, seller, distributor and admin access.
+- RBAC, Role Based Access Control, separates buyer, seller and admin access. A seller-issued external link viewer is a scoped read-only credential, not a role.
 - Admin access requires MFA, Multi Factor Authentication, for sensitive operations.
-- Sensitive actions are audited: publish, state transitions, capture, refund, recovery, payout, content takedown, seller/distributor suspension and emergency stop.
+- Sensitive actions are audited: publish, state transitions, capture, refund, recovery, payout, content takedown, seller suspension, distribution-link suspension and emergency stop.
 - Rate limits protect OTP, login, payment and support endpoints.
 - Sessions have expiry and revocation paths.
 - Buyer PII is limited by role and purpose.
-- Distributor permissions expose aggregate attribution only and no buyer PII.
+- The scoped external link dashboard exposes aggregate attribution only and no buyer PII.
 - Seller exports exclude payment provider references and expose only fulfillment/accounting fields needed by the seller.
 - Logs must not contain secrets, raw payment details or unnecessary PII.
 - Backups must be access-controlled and restorable.
@@ -20,10 +20,10 @@ Written as an initial MVP response; legal validation is recommended later.
 
 ## Sensitive Endpoint Review
 
-Admin, seller, distributor, buyer tracking, exports, payment and OTP endpoints are treated as sensitive. The MVP guardrails require:
+Admin, seller, external link viewer, buyer tracking, exports, payment and OTP endpoints are treated as sensitive. The MVP guardrails require:
 
 - no unnecessary PII in API responses;
-- no buyer PII in distributor APIs;
+- no buyer PII in link-viewer or attribution APIs;
 - no payment token or auth id in frontend unless required for the current operation;
 - no provider references in seller exports;
 - no unprotected debug surfaces.

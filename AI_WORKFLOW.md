@@ -34,19 +34,20 @@ Use the repository's newest architecture/status documents for exact details, but
 - Render: hosted web/backend runtime for staging
 - Supabase: PostgreSQL and supporting infrastructure for the current staging architecture
 - repository tests and gates: executable evidence of implementation correctness
-- Base44: historical/legacy or explicitly bounded material unless a newer current task names a live Base44 responsibility
+- Base44: historical only; never a runtime (`docs/CURRENT_ARCHITECTURE_2026-09-30.md`)
 
 Do not move business authority back into a deprecated runtime path because old code still exists.
 
 ## 3. Product truth and business rules
 
-Before implementing product behavior, inspect the current canonical foundation decision and relevant amendments.
+Before implementing product behavior, read `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`, then the relevant amendments.
 
 Permanent current rules include:
 
 - Siton fee is 8% of the full amount actually collected from the customer, including shipping/delivery and excluding VAT.
 - The 8% is the Siton platform fee model. Do not recreate an older `commission_rate` model.
-- Distributors do not receive an in-system commission or payout. Their role is attribution, measurement, and sharing unless the owner explicitly changes this.
+- There is no distributor role. Seller distribution links are attribution and measurement only; Siton never computes, accrues, holds or pays a commission.
+- There is no Product Library. The Mall exists but is hidden for the current launch.
 - Product and UX decisions that have been superseded by newer dated canonical amendments must not be revived from old documents.
 
 ## 4. Task intake

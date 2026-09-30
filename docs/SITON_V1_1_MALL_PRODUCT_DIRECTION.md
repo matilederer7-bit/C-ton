@@ -1,5 +1,7 @@
 # Siton V1.1 — Mall Product Direction
 
+> **2026-09-30 note.** The Mall decision stands as future product direction, but the Mall is **hidden for the current launch** (`PUBLIC_MALL_ENABLED` off by default; direct deal links are the entry path). The runtime sentence below about Base44 is historical: see `docs/CURRENT_ARCHITECTURE_2026-09-30.md`.
+
 Status: binding product decision, 2026-08-23.
 
 ## Decision
@@ -42,10 +44,9 @@ and pagination never accepts arbitrary SQL or field names.
 
 ## Architecture and privacy
 
-Base44 remains the production application/entity/function runtime. Supabase
-remains the inventory authority and proof boundary. The portable
-Fastify/PostgreSQL implementation is a supporting contract and test harness.
-Render remains legacy only.
+Runtime (updated 2026-09-30): the Fastify web service and the worker run on
+Render and the database is Supabase PostgreSQL; the Mall read model lives in
+`src/mall_read_model.ts`. The Base44 wording that stood here is historical.
 
 The Base44 Mall projection is disposable and repairable. Its public field
 allowlist contains only card-safe deal, progress, seller display-name, image,

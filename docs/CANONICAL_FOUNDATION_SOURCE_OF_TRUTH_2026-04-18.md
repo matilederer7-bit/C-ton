@@ -6,6 +6,8 @@ V1.1 product-scope amendment: `2026-08-23`.
 
 Latest binding product-policy amendment: `2026-09-16`.
 
+**2026-09-30: `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md` now sits above this file and above the 2026-09-16 amendment.** It adds: no Product Library, Mall kept but hidden for the current launch, distribution links are analytics/attribution only with no distributor economics, and the runtime is Render web + worker + Supabase (`docs/CURRENT_ARCHITECTURE_2026-09-30.md`). Where this file or the foundation pack disagrees with the constitution, the constitution wins.
+
 ## Binding Decision
 
 The foundation documents under `docs/foundation-canonical-2026-04-18` remain the historical foundation pack for Siton.
@@ -15,10 +17,11 @@ The owner later made binding product amendments. Agents must read newer amendmen
 Current precedence for product-policy conflicts is:
 
 1. owner's explicit current decision
-2. `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md`
-3. current later canonical repository decisions
-4. the 2026-04-18 foundation pack and the 2026-08-23 Mall amendment
-5. older repository documents and historical implementation
+2. `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`
+3. `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md`
+4. current later canonical repository decisions
+5. the 2026-04-18 foundation pack and the 2026-08-23 Mall amendment (the Mall is implemented but hidden for the current launch)
+6. older repository documents and historical implementation
 
 ## 2026-08-23 Mall Amendment
 

@@ -1,5 +1,7 @@
 # Product catalog — reusable Products, frozen Deal snapshots
 
+> **REMOVED FROM THE PRODUCT (owner decision 2026-09-30).** Siton has no Product Library. This document is kept as the record of what migration 072 created and of the delivery-estimate columns that stay. The seller products UI, `/api/seller/products*`, save-as-product and create-from-product are being removed; schema objects follow only after a data-safety proof. See `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md` §7.
+
 Updated: 2026-09-17. Source: shelf branch `codex/amazon-benchmark-upgrade`, ported onto current
 `master` by the Claude shelf closeout (`claude/shelf-heavy-closeout-20260917`). Migration `072`.
 

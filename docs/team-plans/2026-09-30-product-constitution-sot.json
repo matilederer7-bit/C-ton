@@ -1,0 +1,44 @@
+{
+  "task": "PR A: write the Siton Product Constitution and current-architecture source of truth, tier the documentation, and mark every older document that still reads as canonical but contradicts the owner's 2026-09-30 decisions",
+  "lead": "claude-lead",
+  "base": "origin/master",
+  "open_branches": [],
+  "assignments": [
+    {
+      "id": "B1",
+      "agent": "claude-lead",
+      "role": "builder",
+      "tier": "standard",
+      "scope": "new canonical docs, documentation map, hierarchy edits, superseded banners, drift sentence fixes, status slot",
+      "allowed": ["docs/", "AGENTS.md", "AI_WORKFLOW.md", "CLAUDE.md", "PROJECT_STATUS.md", "legacy/render/README.md"],
+      "forbidden": ["src/", "web/", "scripts/", "tests/", ".github/", "supabase/", "base44/", "frontend/", "config/", "package.json"],
+      "depends_on": [],
+      "dod": [
+        "docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md exists and covers every owner decision",
+        "docs/CURRENT_ARCHITECTURE_2026-09-30.md exists and names Render web + worker + Supabase as the only runtime",
+        "docs/DOCUMENTATION_MAP.md tiers every markdown document",
+        "no document without a superseded marker still names Base44 as production or the Mall as the current main entry",
+        "gate:architecture and gate:legal still pass (docs they read still exist and keep required content)"
+      ]
+    },
+    {
+      "id": "R1",
+      "agent": "claude-subagent",
+      "role": "reviewer",
+      "tier": "standard",
+      "scope": "independent review: constitution matches the owner decisions word for word; no invariant weakened; no doc read by a gate lost required content",
+      "reviews": ["B1"],
+      "depends_on": ["B1"],
+      "dod": ["verdict with concrete failure scenarios"]
+    },
+    {
+      "id": "R2",
+      "agent": "codex",
+      "role": "reviewer",
+      "scope": "cross-provider review on the Pull Request",
+      "reviews": ["B1"],
+      "depends_on": ["B1"],
+      "dod": ["every finding fixed or answered"]
+    }
+  ]
+}

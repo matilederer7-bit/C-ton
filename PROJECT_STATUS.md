@@ -341,7 +341,9 @@ repository is clean.
 
 ## PRODUCT POLICY ALIGNMENT
 
-The binding policy source is `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md`.
+The binding policy source is `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md` (owner decisions of 2026-09-30), then `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md`. Runtime: `docs/CURRENT_ARCHITECTURE_2026-09-30.md`. Document tiers: `docs/DOCUMENTATION_MAP.md`.
+
+Added 2026-09-30: no Product Library (removal in progress); the Mall exists but is hidden for the current launch; distribution links are analytics/attribution only; Base44 is historical.
 
 Current invariants:
 
@@ -356,6 +358,17 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
+### Claude Code latest milestone — Product alignment + infra cleanup + Lean Refactor start (2026-09-30), track A: Product Constitution + source-of-truth reconciliation
+
+- UPDATED: 2026-09-30
+- BRANCH: `claude/product-constitution-sot` from master `d40c23f`. Docs-only (FAST profile). No code, no test, no gate changed.
+- COMPLETED (track A): `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md` (short, owner-readable, Hebrew summary on top; roles, core flow, 90% rule, authorization-before-charge, 8% fee, mandatory `max_units`, no 7-day cap, fixed 24h Completion Window, Mall hidden, no Product Library, distribution links analytics-only, no distributor economics, three deal types, real-money boundary) now sits above every older product document. `docs/CURRENT_ARCHITECTURE_2026-09-30.md` replaces `docs/CANONICAL_ARCHITECTURE_V1.md` as the runtime source of truth (Render web + worker + Supabase; Base44 historical). `docs/DOCUMENTATION_MAP.md` tiers all 284 markdown documents: CANONICAL 12 / REFERENCE 97 / ARCHIVE 178. Hierarchy updated in `AGENTS.md`, `CLAUDE.md`, `AI_WORKFLOW.md`, the 2026-04-18 foundation SoT. 14 Base44-era documents that still read as canonical got a SUPERSEDED banner (incl. `CANONICAL_ARCHITECTURE_V1`, `ARCHITECTURE_REBASE_R0/R1`, `BASE44_*`, `V1_1_*`, `STAGE32B_*`, `EXTERNAL_ACTIVATION_CHECKLIST`, `FINAL_ZERO`, `STAGE_32C/32D`); seven documents had their runtime sentence corrected in place; seven REFERENCE docs no longer describe a "distributor" as a role; `docs/PRODUCT_CATALOG.md` carries a removal banner.
+- CHECKED: `gate:architecture` PASS (its `production=base44` banner is a known stale string, recorded as open code drift), `gate:legal` PASS, `tests/release_tools/legal_gate.test.cjs` 8/8, `aws_accordion_readiness_validation`, `docker_readiness_validation`, `legal_trust_validation`, `refund_policy_validation` PASS, `gate:seven-day-cap` PASS, distributor attribution-only gate PASS, secret/PII scan PASS, repository hygiene PASS, `gate:i18n` PASS. Seven-day drift search: no document asserts a current cap (all remaining 7-day strings are provider windows, SLA values, template choices or marked-historical quotes); `src/deadline_policy.ts` has only the 20-year technical bound.
+- VERIFIED FACTS for the other tracks (evidence gathered, work not yet merged): Supabase staging census — 40 deals, 2 with `product_id`/`product_snapshot_jsonb` (both `PendingTarget`, created by the 2026-09-17 product-catalog smoke), 1 product, 0 product images; nothing in buyer, Mall, receipts, pickup, support or inquiry code reads the product columns. `siton.outbox_enqueue_evidence`: 1 row, RLS off, only `postgres` holds privileges; `anon`/`authenticated`/`service_role` have no schema USAGE and no table privilege; the runtime roles have USAGE but no table privilege (insert happens through the definer-rights trigger of migration 076). Render: 5 services confirmed; the three legacy ones (`siton-staging-web-atp1`, `siton-demo-preview-atp1`, `siton-demo-preview`) still track `master` with `autoDeployTrigger: commit`, and every deploy since at least 08:25Z today failed (non-zero exit, `server_failed` loops); no custom domain on any of them; the Render MCP connector has no delete, suspend or Blueprint operation, so the deletion is an owner dashboard action (exact steps in this slot's Render section once written).
+- OPEN: track B (Product Library surface removal), track C (schema decision), Lean Refactor map PR, RLS finding fix, Render deletion by the owner.
+- PERCENTAGE (track A only): 90% — PR open; merge after independent review + Codex + green `ci-verdict`.
+- NEXT: open PR B on a separate branch from master (backend routes, web page, api, i18n, tests, keep delivery estimates).
+
 ### Claude Code latest milestone — Live readiness proven, then 12 Dependabot updates merged one at a time, each deployed and verified (2026-09-30)
 
 - UPDATED: 2026-09-30

@@ -1,6 +1,8 @@
 # Siton V1 Canonical Architecture
 
-Status: binding architecture decision for V1.
+> **SUPERSEDED — HISTORICAL (2026-09-30).** This document describes Base44 as the canonical or production runtime. That is no longer true. The runtime is Render web + Render worker + Supabase PostgreSQL; see `docs/CURRENT_ARCHITECTURE_2026-09-30.md`. Product rules are in `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md`. Keep this file for history only; it is not authority.
+
+Status: HISTORICAL. Was the binding V1 architecture decision; superseded 2026-09-30.
 
 ## One answer
 

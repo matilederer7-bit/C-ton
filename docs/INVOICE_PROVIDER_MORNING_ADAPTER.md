@@ -20,8 +20,8 @@ Use:
 - `INVOICE_PROVIDER_API_KEY` or `INVOICE_PROVIDER_BEARER_TOKEN`
 - `INVOICE_WEBHOOK_SECRET`
 
-These values must be entered in the canonical Base44/approved server-side
-secret boundary at activation time. The repository keeps them unset. Legacy
+These values must be entered in the Render service environment (`sync: false`)
+or the Supabase secret boundary at activation time. The repository keeps them unset. Legacy
 Render configuration is quarantined and must not be used as an activation
 source.
 
