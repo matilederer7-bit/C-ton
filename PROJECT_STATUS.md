@@ -358,6 +358,14 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
+### Claude Code latest milestone — Lean Refactor D1 (2026-09-30): `.i18n-regen/` deleted
+
+- COMPLETED: `.i18n-regen/` (66 files, a pre-i18n Hebrew-only snapshot of `web/src`, 58 of them diverged from the live tree) is deleted together with its only mention, the `i18n-regen` path rule in `scripts/ci_change_classifier.cjs` (map §3.4, step D1). No tsconfig, Dockerfile, workflow, test, npm script or `scripts/i18n/*.cjs` read it; `scripts/i18n/extract.cjs` still takes `--src=`. Team plan `docs/team-plans/2026-09-30-lean-refactor-d1.json` (`TEAM_PLAN_PASS`, no open branches). The map records D1 as done.
+- TESTED: locally on the D1 head — classifier run on the branch diff (FULL, 66 × unclassified/critical + the classifier file, as the map predicted), `tests/release_tools/ci_change_classifier.test.cjs` 52/0, `test:release-tools` all pass (10 environment skips), `web` `tsc -b && vite build` PASS (proves nothing under `web/src` imported the snapshot), lint, secret/PII scan (0 fail), repository hygiene 6/0, `gate:i18n` (2414 keys, 0 unreferenced). Codex cross-provider review is unavailable (quota exhausted 2026-09-30 17:37Z); per the owner's instruction the PR merges on an independent senior review plus green CI.
+- OPEN: none on this step once merged.
+- PERCENT: Lean Refactor removal order D1 100% on merge; D2–D6 open (D2 scripts next, D3 Base44 cluster, D4 waits for the owner's schema decision, D5 docs batches, D6 owner decision).
+- NEXT: D2 (delete `bounded_load_test.cjs`, move the ARCHIVE scripts under `scripts/archive/` with their relative requires rewritten and each moved script run once, runbook steps updated) as its own FULL-profile PR; then D3.
+
 ### Claude Code latest milestone — Product alignment + infra cleanup + Lean Refactor start (2026-09-30), track E: legacy `/app` Mall hidden behind `PUBLIC_MALL_ENABLED`
 
 - COMPLETED: the drift found on PR A is closed. `src/frontend_runtime.ts` reads `PUBLIC_MALL_ENABLED` per request through one helper: `/api/mall/deals` answers `404 mall_disabled` while the flag is off (the read model, its tests and the route stay); `/api/site/home` and `/api/preview/meta` expose `public_mall_enabled`; the legacy `/app` home shell stays reachable (200) but carries no Mall title and `noindex,nofollow` when off. `frontend/app.js` `loadHome` reads the site payload first and forwards a hidden-Mall visitor to `/preview/` (the React landing honours the same flag) without ever calling the Mall API. Direct deal links (`/app/deal/:id`, `/preview/#/deal/:id`), join, tracking, seller and admin routes are untouched. Team plan `docs/team-plans/2026-09-30-legacy-app-mall-gate.json` (`TEAM_PLAN_PASS`).

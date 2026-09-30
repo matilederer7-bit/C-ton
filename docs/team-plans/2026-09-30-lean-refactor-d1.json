@@ -1,0 +1,56 @@
+{
+  "task": "Lean Refactor D1: delete the stale .i18n-regen/ snapshot (66 files, zero consumers per docs/LEAN_REFACTOR_MAP_2026-09-30.md §3.4) and its only mention, the path-classification rule in scripts/ci_change_classifier.cjs; no product, test, gate or runtime behaviour changes",
+  "lead": "claude-lead",
+  "base": "origin/master",
+  "open_branches": [],
+  "assignments": [
+    {
+      "id": "B1",
+      "agent": "claude-lead",
+      "role": "builder",
+      "tier": "senior",
+      "scope": "git rm .i18n-regen/, drop the i18n-regen classifier rule, record D1 as done in the map and PROJECT_STATUS.md",
+      "allowed": [
+        ".i18n-regen/",
+        "scripts/ci_change_classifier.cjs",
+        "docs/LEAN_REFACTOR_MAP_2026-09-30.md",
+        "docs/team-plans/2026-09-30-lean-refactor-d1.json",
+        "PROJECT_STATUS.md"
+      ],
+      "forbidden": [
+        "src/",
+        "web/src/",
+        "scripts/i18n/",
+        "tests/",
+        ".github/",
+        "supabase/"
+      ],
+      "depends_on": [],
+      "dod": [
+        "no reference to .i18n-regen remains outside the map and status history",
+        "release-tools classifier tests PASS",
+        "web typecheck + build PASS (proves web/src never imported the snapshot)",
+        "repository hygiene + secret/PII scan PASS",
+        "CI FULL profile green on the final head"
+      ]
+    },
+    {
+      "id": "R1",
+      "agent": "claude-subagent",
+      "role": "reviewer",
+      "senior": true,
+      "tier": "senior",
+      "scope": "independent senior review: prove zero consumers of .i18n-regen/ (tsconfig, Dockerfile, workflows, scripts/i18n, tests), classifier behaviour with the rule gone, nothing else changed",
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "verdict with concrete failure scenarios"
+      ]
+    }
+  ],
+  "sequencing_note": "Written 2026-09-30 after PRs #148-#153 were squash-merged (master 7b140db); no open task branches remain, so open_branches is empty. Codex cross-provider review is unavailable (quota exhausted 2026-09-30 17:37Z); per the owner's instruction the PR merges on the independent senior review plus green CI."
+}

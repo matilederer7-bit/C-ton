@@ -94,7 +94,6 @@ const PATH_RULES = [
   { level: "normal", id: "web-app", test: (p) => /^web\/(src\/.+\.(tsx?|css)|index\.html|vite\.config\.ts|public\/.+)$/.test(p) },
   { level: "normal", id: "legacy-frontend", test: (p) => /^frontend\//.test(p) },
   { level: "normal", id: "mobile", test: (p) => /^(mobile|mobile-plugins|android|ios)\//.test(p) },
-  { level: "normal", id: "i18n-regen", test: (p) => /^\.i18n-regen\//.test(p) },
   { level: "normal", id: "assets", test: (p) => /^assets\//.test(p) },
 
   // --- trivial: prose that no runtime reads ---
