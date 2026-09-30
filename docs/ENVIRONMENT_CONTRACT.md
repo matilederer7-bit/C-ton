@@ -28,10 +28,14 @@ NODE_ENV === "production"
 || RENDER_EXTERNAL_URL is set
 ```
 
-`RENDER` and `RENDER_EXTERNAL_URL` remain compatibility-only detection inputs
-for the quarantined portable runtime. They do not select or describe the
-canonical production architecture. In production-like mode, missing critical
-envs must fail closed rather than fall back to demo defaults silently.
+`RENDER` and `RENDER_EXTERNAL_URL` are set by Render itself on the canonical
+web and worker services (`docs/CURRENT_ARCHITECTURE_2026-09-30.md`), and
+`src/runtime_config.ts` `isProductionLikeEnv()` reads them as a live
+production-like detection input: every hosted Siton process therefore runs
+in fail-closed mode without any manual flag. They are a safety boundary, not
+a compatibility leftover (the 2026-04 wording about a "quarantined portable
+runtime" is historical). In production-like mode, missing critical envs must
+fail closed rather than fall back to demo defaults silently.
 
 ## Variables
 
@@ -52,19 +56,19 @@ Legend:
 | `ADMIN_API_KEY` | ⬜ | ⚠ | ⚠ | 🔒 | — | Admin route gate. Demo accepts empty; production-like blocks. |
 | `DEBUG_SURFACES_ENABLED` | ⬜ | ⬜ (off recommended) | ⬜ (off required) | 📄 | `0` | Toggles `/debug/*` surfaces. |
 | `DEBUG_SURFACES_ACCESS_KEY` | ⬜ | ⚠ if enabled | ⚠ if enabled | 🔒 | — | Required when `DEBUG_SURFACES_ENABLED=1`. |
-| `PAYMENT_PROVIDER` | ✅ | ✅ | ✅ | 📄 | `mockpay` | Selects payment adapter. `stripe` is the first live adapter. |
+| `PAYMENT_PROVIDER` | ✅ | ✅ | ✅ | 📄 | `mockpay` | Selects payment adapter. The provider selected for activation is `grow` (`docs/PAYMENT_ACTIVATION_SOURCE_OF_TRUTH.md`); `stripe` is an isolated adapter kept as historical proof, not the activation target. |
 | `PAYMENT_PROVIDER_MODE` | ✅ | ✅ | ✅ | 📄 | `mock-backed` | Mode for the chosen provider. |
-| `PAYMENT_ENVIRONMENT` | ⬜ | ⚠ | ✅ | 📄 | `demo` | `sandbox` requires Stripe test credentials; production requires `live`. |
+| `PAYMENT_ENVIRONMENT` | ⬜ | ⚠ | ✅ | 📄 | `demo` | `sandbox` requires the selected provider's sandbox credentials (Grow: `docs/R9B_GROW_SANDBOX_PROOF_RUNBOOK.md`); production requires `live`. |
 | `PAYMENT_PROVIDER_BASE_URL` | ⬜ | ⚠ for live | ⚠ for live | 📄 | — | |
 | `PAYMENT_PROVIDER_API_KEY` | ⬜ | ⚠ | ⚠ | 🔒 | — | Provider API key. |
-| `PAYMENT_PROVIDER_PUBLIC_KEY` | ⬜ | ⚠ | ⚠ | 🔒 | — | Provider public key (e.g. Stripe `pk_*`). |
+| `PAYMENT_PROVIDER_PUBLIC_KEY` | ⬜ | ⚠ | ⚠ | 🔒 | — | Provider public key, when the selected provider issues one (the Stripe `pk_*` example is adapter-only history). |
 | `PAYMENT_PROVIDER_TIMEOUT_MS` | ⬜ | ⬜ | ⬜ | 📄 | `8000` | Provider HTTP timeout. |
-| `PAYMENT_PROVIDER_RELEASE_PATH` | ⬜ | ⬜ | ⬜ | 📄 | `/release` | Generic provider-ready compatibility path; Stripe uses PaymentIntent cancel. |
-| `PAYMENT_PROVIDER_STATUS_PATH` | ⬜ | ⬜ | ⬜ | 📄 | `/status` | Generic provider-ready compatibility path; Stripe retrieves PaymentIntent/Refund. |
+| `PAYMENT_PROVIDER_RELEASE_PATH` | ⬜ | ⬜ | ⬜ | 📄 | `/release` | Generic provider-ready compatibility path (the Stripe adapter, historical, uses PaymentIntent cancel instead). |
+| `PAYMENT_PROVIDER_STATUS_PATH` | ⬜ | ⬜ | ⬜ | 📄 | `/status` | Generic provider-ready compatibility path (the Stripe adapter, historical, retrieves PaymentIntent/Refund instead). |
 | `PAYMENT_PROVIDER_CURRENCY` | ⬜ | ⬜ | ⬜ | 📄 | `ILS` | |
 | `PAYMENT_WEBHOOK_PROVIDER` | ✅ | ✅ | ✅ | 📄 | matches `PAYMENT_PROVIDER` | |
 | `PAYMENT_WEBHOOK_SECRET` | ⬜ (`mock-webhook-secret`) | ⚠ | ⚠ | 🔒 | demo default in demo-preview | Live requires a real provider webhook secret. |
-| `STRIPE_ALLOW_SERVER_SIDE_CARD_TOKENIZATION` | ⬜ | ⬜ | ⬜ (`0` recommended) | 📄 | `0` | Compliance posture flag. |
+| `STRIPE_ALLOW_SERVER_SIDE_CARD_TOKENIZATION` | ⬜ | ⬜ | ⬜ (`0` recommended) | 📄 | `0` | Compliance posture flag of the historical Stripe adapter; irrelevant unless `stripe` is selected. |
 | `PAYOUT_PROVIDER` | ✅ | ✅ | ✅ | 📄 | `internal-ledger` | |
 | `PAYOUT_PROVIDER_MODE` | ✅ | ✅ | ✅ | 📄 | `internal-truth-only` | |
 | `PAYOUT_PROVIDER_API_KEY` | ⬜ | ⚠ if external | ⚠ if external | 🔒 | — | |
@@ -131,7 +135,7 @@ When a required env is missing in production-like mode the relevant readiness se
 | `DATABASE_URL` | mission-control / `accordion_scaling_readiness` | `database_url_missing` |
 | `ADMIN_API_KEY` (in production-like) | mission-control / `security` | `admin_key_missing_in_production_like_env` |
 | `PAYMENT_WEBHOOK_SECRET` (in live) | mission-control / `live_money_readiness` | `payment_webhook_secret_missing_for_live` |
-| `STRIPE_SECRET_KEY` (when stripe selected) | mission-control / `live_money_readiness` | `payment_provider_not_live_validated` |
+| `STRIPE_SECRET_KEY` (only if the historical `stripe` adapter were selected; the activation target is Grow) | mission-control / `live_money_readiness` | `payment_provider_not_live_validated` |
 | `INVOICE_PROVIDER_API_KEY` (in live with `INVOICE_PROVIDER=morning`) | mission-control / `live_money_readiness` | `invoice provider not externally issuing live tax documents` (warning) |
 
 Demo defaults are accepted **only** in demo-preview mode and only when documented as such (e.g. `mock-webhook-secret`).
