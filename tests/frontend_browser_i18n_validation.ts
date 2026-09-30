@@ -345,6 +345,50 @@ async function main() {
       });
     }
 
+    // ── The admin entry: top-left corner, faint, clear of everything ─────
+    for (const locale of ["he", "en"] as const) {
+      await run(`${locale}: the admin entry sits top-left, is faint and overlaps nothing, at 1440 and 390`, async () => {
+        const problems: string[] = [];
+        await page!.goto(`${baseUrl}/preview/`);
+        await switchTo(page!, locale);
+        for (const viewport of [DESKTOP, MOBILE]) {
+          await page!.setViewport(viewport);
+          await page!.goto(`${baseUrl}/preview/#/`);
+          await wait(300);
+          const where = `${locale}@${viewport.width}`;
+          const s = await page!.evaluate(`(() => {
+            const e = document.querySelector('[data-testid="admin-hotspot"]');
+            if (!e) return null;
+            const r = e.getBoundingClientRect();
+            const dot = getComputedStyle(e, '::after');
+            const overlaps = [...document.querySelectorAll('.brand, .topbar a, .topbar button, .topbar input, .topbar select')]
+              .filter((o) => { const b = o.getBoundingClientRect(); return b.width > 0 && b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top; })
+              .map((o) => o.className || o.tagName);
+            const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+            // the corner is the device's SAFE corner (0 on a plain screen, the notch inset on a cutout device)
+            const probe = document.createElement('div'); probe.style.cssText = 'position:fixed;left:env(safe-area-inset-left,0px);top:env(safe-area-inset-top,0px)';
+            document.body.appendChild(probe); const safe = probe.getBoundingClientRect(); probe.remove();
+            return { left: r.left - safe.left, top: r.top - safe.top, w: r.width, dotW: parseFloat(dot.width), dotOpacity: Number(dot.opacity), overlaps, onTop: hit === e };
+          })()`) as null | { left: number; top: number; w: number; dotW: number; dotOpacity: number; overlaps: string[]; onTop: boolean };
+          if (!s) { problems.push(`${where}: no admin entry`); continue; }
+          if (s.left > 1 || s.top > 1) problems.push(`${where}: not in the top-left corner (${s.left},${s.top})`);
+          if (s.w < 24) problems.push(`${where}: tap target shrank to ${s.w}px`);
+          if (s.dotW > 7 || s.dotOpacity > 0.1) problems.push(`${where}: visible mark too prominent (${s.dotW}px @ ${s.dotOpacity})`);
+          if (s.overlaps.length) problems.push(`${where}: overlaps ${s.overlaps.join(", ")}`);
+          if (!s.onTop) problems.push(`${where}: something covers the admin entry`);
+        }
+        // one tap arms only; a second deliberate tap opens the admin password step
+        await page!.evaluate(`document.querySelector('[data-testid="admin-hotspot"]').click()`);
+        await wait(200);
+        if (String(await page!.evaluate(`location.hash`)).startsWith("#/admin")) problems.push(`${locale}: a single tap opened admin`);
+        await page!.evaluate(`document.querySelector('[data-testid="admin-hotspot"]').click()`);
+        await wait(400);
+        const after = await page!.evaluate(`({ hash: location.hash, stepUp: !!document.querySelector('[data-testid="admin-stepup"]') })`) as { hash: string; stepUp: boolean };
+        if (!after.hash.startsWith("#/admin") || !after.stepUp) problems.push(`${locale}: second tap did not reach the admin password step (${JSON.stringify(after)})`);
+        assert.deepEqual(problems, [], `\n  - ${problems.join("\n  - ")}`);
+      });
+    }
+
     // ── Visual proof ─────────────────────────────────────────────────────
     await run("evidence: screenshots of the same screens in both languages", async () => {
       const shots: { name: string; path: string; viewport: typeof DESKTOP }[] = [

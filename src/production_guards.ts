@@ -228,6 +228,14 @@ export function assertProductionRuntimeGuards(role: RuntimeRole, env: NodeJS.Pro
     failures.push("CANONICAL_POSTGRES_RUNTIME=1 is required on a hosted/production deployment: the non-canonical join path is test-harness only");
   }
 
+  // CI recovery 2026-09-29: the two-process fencing proof may isolate itself
+  // from unrelated worker maintenance, but that switch is a test-harness
+  // capability only. A hosted or production runtime must fail closed even if
+  // NODE_ENV was accidentally left as "test".
+  if ((hostedPlatformDeployment(env) || productionMode(env)) && String(env.SITON_TEST_DISABLE_WORKER_MAINTENANCE || "").trim() === "1") {
+    failures.push("SITON_TEST_DISABLE_WORKER_MAINTENANCE=1 is forbidden on hosted/production runtimes");
+  }
+
   // Black-Sky E2: SUPABASE_MANAGEMENT_API_TOKEN is a Supabase *account*
   // credential (billing add-ons, and on a broadly scoped token: projects,
   // secrets, database). src/infrastructure_compute.ts reads it from the web

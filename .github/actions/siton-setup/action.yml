@@ -1,0 +1,37 @@
+name: Siton job setup
+description: >
+  Node 22 with the npm download cache, a clean `npm ci` of the root and web
+  packages, and (optionally) the same build outputs the former single backend
+  job produced before its test steps: `.demo_dist` (build:demo) and
+  `web/dist` + `.mobile_dist` (mobile:build). Every job builds from its own
+  checkout of the same SHA; no build output is shared between jobs.
+inputs:
+  web:
+    description: Install the web/ package too
+    default: "true"
+  build:
+    description: Build .demo_dist, web/dist and .mobile_dist
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+        cache-dependency-path: |
+          package-lock.json
+          web/package-lock.json
+    - name: Clean dependency install
+      shell: bash
+      run: npm ci --no-audit --no-fund
+    - name: Clean web dependency install
+      if: inputs.web == 'true'
+      shell: bash
+      run: npm ci --prefix web --ignore-scripts --no-audit --no-fund
+    - name: Build demo bundle and web/mobile bundles
+      if: inputs.build == 'true'
+      shell: bash
+      run: |
+        npm run build:demo
+        npm run mobile:build

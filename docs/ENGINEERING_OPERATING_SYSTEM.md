@@ -6,7 +6,7 @@ Status: binding operating model for agent-led engineering work.
 
 GitHub is the shared control plane. Issues define work, Pull Requests carry code and evidence, checks supply machine verdicts, and `PROJECT_STATUS.md` remains the executive snapshot. Chat threads are not canonical handoff storage.
 
-The owner's computer is not required for cloud-managed runs. `.github/workflows/cloud-agent-manager.yml` executes on a GitHub-hosted runner and owns the task branch, canonical verification, status slot, commit, push and Pull Request. It never auto-merges.
+The owner's computer is not required for cloud-managed runs. Each review pass runs in its own job on a fresh runner (`cloud-agent-review.yml`): it applies the builder's patch onto a clean master checkout only after copying the control scripts and the read-only guard aside, and invokes only those copies, so nothing the builder executed can reach the reviewer. `.github/workflows/cloud-agent-manager.yml` executes on a GitHub-hosted runner and owns the task branch, canonical verification, status slot, commit, push and Pull Request. It never auto-merges.
 
 ## Team topology
 
@@ -32,9 +32,26 @@ Multiple writers may run only when their file and migration ownership is disjoin
 | Database, security, payments, authentication and critical concurrency | Senior | Codex | Independent review; run the separate swarm for four read-only lanes |
 | Documented exceptional cross-system decisions or exhausted Senior investigations | Apex | Codex or Codex reviewer | Astra on the Codex role; cross-provider review when available |
 
-`scripts/agent_router.cjs` is the executable policy. High-risk classification overrides a requested cheaper tier. A provider outage may fall back to the available provider, but the run records that review was not cross-provider.
+`scripts/agent_router.cjs` is the executable policy. High-risk classification overrides a requested cheaper tier. Sensitive task text (architecture, state machine, concurrency/idempotency, outbox, webhooks, auth/session/token, migrations/schema, money) also forces the Senior floor, even when the declared task type is ordinary or wrong; the declared type only chooses the builder. A provider outage may fall back to the available provider, but the run records that review was not cross-provider.
 
-The executable mapping is explicit: Economy uses `gpt-5.6-luna`, Standard uses `gpt-5.6-terra`, Senior uses `gpt-5.6-sol`, and Apex uses `gpt-6-astra` with `high` reasoning. The security lane and default head synthesis use Senior; only explicitly justified head synthesis escalates to Apex; test and source-of-truth scans use Economy. Model identifiers must be reviewed when OpenAI changes Codex model availability.
+### Model tiers (2026-09-28)
+
+Policy is written in tiers, never in model versions. `scripts/agent_model_tiers.cjs` is the single executable source; `npm run agents:models` prints the live table.
+
+| Tier | Use | Claude (stable alias) | Fallback | Codex |
+|---|---|---|---|---|
+| Economy | scans, inventories, simple checks | `haiku` | upward to `sonnet` | `gpt-5.6-luna` |
+| Standard | ordinary development | `sonnet` | upward to `opus` | `gpt-5.6-terra` |
+| Senior | database, security, payments, auth, state machine, architecture; every review of those and of CI gates | `opus` | none: fail closed | `gpt-5.6-sol` |
+| Apex | explicit escalation only (contract below) | `fable` | none: fail closed | `gpt-6-astra` (`high` reasoning) |
+
+- Claude tiers use the provider's stable aliases. Claude Code resolves each alias to the newest model of its family, so a model release needs no change here. Verified 2026-09-28 in Claude Code 2.1.284: `haiku` → `claude-haiku-4-5-20251001`, `sonnet` → `claude-sonnet-5-5`, `opus` → `claude-opus-5-5`, `fable` → `claude-fable-5-1`.
+- Fallback is upward only and never into Apex. Senior and Apex never fall back. Nothing ever falls back to a cheaper model.
+- A Claude reviewer is never below Standard.
+- Pins: repository variables `SITON_CLAUDE_MODEL_<TIER>` and `SITON_CODEX_MODEL_<TIER>` override a tier without a code change, e.g. to adopt a renamed Codex model. A Claude pin from a weaker family than the tier default (for example `sonnet` for Senior) is refused.
+- Codex has no provider tier alias, so its identifiers stay exact and live only in the tier table. The four swarm lanes still name their Codex model in `cloud-analysis-swarm.yml` and must be reviewed with the table.
+- Claude sub-agents in `.claude/agents/` declare their tier alias in `model:`; `AGENT_TIERS` assigns the tier and `npm run agents:check-models` fails on a pinned version, `inherit`, a weaker family or an untiered agent.
+- The security lane and default head synthesis use Senior; only explicitly justified head synthesis escalates to Apex; test and source-of-truth scans use Economy.
 
 ## Definition of done
 
@@ -69,7 +86,7 @@ Apex is opt-in through structured routing fields, never inferred from a keyword 
 
 The router validates the enum, minimum evidence length and critical-risk requirement; it does not semantically verify the operator's evidence. A routine CSS fix, broken test, standalone migration or ordinary money review does not justify Apex. No automatic retry escalates compute. Head synthesis remains Sol by default; the four analysts keep their original models. Re-run synthesis with evidence only when the above rules apply (the current swarm dispatch re-runs its four lanes as well).
 
-Apex applies to the Codex role. If Claude builds, Astra reviews; if Codex builds, Astra builds and handles the one bounded fix pass. Explicit role overrides that remove every Codex role are rejected. Claude's model is currently provider-default, not mapped to the OpenAI tier names. Telemetry records the exact Codex model and escalation reason.
+Apex applies to the Codex role. If Claude builds, Astra reviews; if Codex builds, Astra builds and handles the one bounded fix pass. Explicit role overrides that remove every Codex role are rejected. The Claude role at Apex runs `fable`. Telemetry records the exact Codex model, the Claude model and the escalation reason.
 
 ## Verified model support and access boundary (2026-09-22)
 

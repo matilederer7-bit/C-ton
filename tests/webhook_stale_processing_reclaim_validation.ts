@@ -100,8 +100,8 @@ try {
   await run("negative: processed / ignored events are never reclaimed, however old", async () => {
     for (const status of ["processed", "ignored"] as const) {
       const eventId = `evt-final-${status}-${randomUUID()}`;
-      await ingestion.claimEvent({ provider, event_id: eventId, event_type: "charge_captured", payload: {} });
-      await ingestion.markEvent(provider, eventId, status, "done");
+      const claim = await ingestion.claimEvent({ provider, event_id: eventId, event_type: "charge_captured", payload: {} });
+      await ingestion.markEvent(provider, eventId, status, "done", claim.claim_token);
       await ageClaim(eventId, 120);
       const replay = await ingestion.claimEvent({ provider, event_id: eventId, event_type: "charge_captured", payload: {} });
       assert.equal(replay.should_process, false, `${status} is final`);
@@ -127,6 +127,78 @@ try {
     assert.equal(again.rows[0].status, "pending", "a second sweep is a no-op");
     const next = await ingestion.claimEvent({ provider, event_id: stale, event_type: "charge_captured", payload: {} });
     assert.equal(next.should_process, true, "the next delivery processes the swept event");
+  });
+  // ── Claim fencing (Codex review on PR #99) ──────────────────────────────
+  // Processor A claims and stalls past the stale bound; processor B reclaims
+  // and finishes. When A wakes, its markEvent must be a no-op: it can neither
+  // overwrite B's terminal status nor make the event re-claimable again.
+  async function statusOf(eventId: string) {
+    const r = await pool.query(`SELECT status, payload_jsonb->>'classification_reason' AS reason FROM siton.webhook_events WHERE provider=$1 AND event_id=$2`, [provider, eventId]);
+    return r.rows[0] as { status: string; reason: string | null };
+  }
+
+  for (const [bStatus, aStatus] of [["processed", "failed"], ["ignored", "failed"], ["failed", "processed"], ["processed", "ignored"]] as const) {
+    await run(`fencing: stalled A cannot overwrite B's terminal '${bStatus}' with '${aStatus}'`, async () => {
+      const eventId = `evt-fence-${bStatus}-${aStatus}-${randomUUID()}`;
+      const a = await ingestion.claimEvent({ provider, event_id: eventId, event_type: "charge_captured", payload: {} });
+      assert.equal(a.should_process, true);
+      assert.ok(a.claim_token, "every claim carries a token");
+      await ageClaim(eventId, 30); // A stalls past the stale bound
+      const b = await ingestion.claimEvent({ provider, event_id: eventId, event_type: "charge_captured", payload: {} });
+      assert.equal(b.should_process, true, "B reclaims the stale claim");
+      assert.ok(b.claim_token && b.claim_token !== a.claim_token, "a reclaim mints a NEW token");
+      const bDone = await ingestion.markEvent(provider, eventId, bStatus, "b-final", b.claim_token);
+      assert.ok(bDone, "the current claimant finishes the event");
+      const aLate = await ingestion.markEvent(provider, eventId, aStatus, "a-stale", a.claim_token);
+      assert.equal(aLate, null, "the stalled claimant's markEvent is a no-op");
+      assert.deepEqual(await statusOf(eventId), { status: bStatus, reason: "b-final" }, "B's terminal status survives");
+      if (bStatus !== "failed") {
+        const replay = await ingestion.claimEvent({ provider, event_id: eventId, event_type: "charge_captured", payload: {} });
+        assert.equal(replay.should_process, false, "a finished event is not made re-claimable by the stale claimant");
+      }
+    });
+  }
+
+  await run("fencing: a stalled claimant cannot finish a row the sweep returned to pending, nor a row re-claimed while it slept", async () => {
+    const eventId = `evt-fence-sweep-${randomUUID()}`;
+    const a = await ingestion.claimEvent({ provider, event_id: eventId, event_type: "charge_captured", payload: {} });
+    await ageClaim(eventId, 30);
+    assert.ok(await ingestion.reclaimStaleProcessing(1000) >= 1);
+    assert.equal(await ingestion.markEvent(provider, eventId, "processed", "a-stale", a.claim_token), null, "A is fenced by the sweep");
+    assert.equal((await statusOf(eventId)).status, "pending");
+    const c = await ingestion.claimEvent({ provider, event_id: eventId, event_type: "charge_captured", payload: {} });
+    assert.equal(c.should_process, true);
+    assert.equal(await ingestion.markEvent(provider, eventId, "processed", "a-stale", a.claim_token), null, "A is still fenced after the next claim");
+    assert.equal((await statusOf(eventId)).status, "processing", "C's claim is untouched by A");
+    assert.ok(await ingestion.markEvent(provider, eventId, "processed", "c-final", c.claim_token));
+    assert.deepEqual(await statusOf(eventId), { status: "processed", reason: "c-final" });
+  });
+
+  await run("fencing: terminal states never move back — not even the SAME claimant can re-finish, and no token finishes nothing", async () => {
+    for (const status of ["processed", "ignored", "failed"] as const) {
+      const eventId = `evt-fence-terminal-${status}-${randomUUID()}`;
+      const a = await ingestion.claimEvent({ provider, event_id: eventId, event_type: "charge_captured", payload: {} });
+      assert.ok(await ingestion.markEvent(provider, eventId, status, "first", a.claim_token));
+      for (const other of ["processed", "ignored", "failed", "pending"] as const) {
+        assert.equal(await ingestion.markEvent(provider, eventId, other, "again", a.claim_token), null, `${status} -> ${other} by the same claimant is a no-op`);
+      }
+      assert.equal(await ingestion.markEvent(provider, eventId, "processed", "no-token", null), null, "a null token finishes nothing");
+      assert.deepEqual(await statusOf(eventId), { status, reason: "first" });
+    }
+  });
+
+  await run("fencing: concurrent finishes by the stalled and the current claimant — only the current one lands", async () => {
+    const eventId = `evt-fence-race-${randomUUID()}`;
+    const a = await ingestion.claimEvent({ provider, event_id: eventId, event_type: "charge_captured", payload: {} });
+    await ageClaim(eventId, 30);
+    const b = await ingestion.claimEvent({ provider, event_id: eventId, event_type: "charge_captured", payload: {} });
+    const [aRes, bRes] = await Promise.all([
+      ingestion.markEvent(provider, eventId, "failed", "a-stale", a.claim_token),
+      ingestion.markEvent(provider, eventId, "processed", "b-final", b.claim_token)
+    ]);
+    assert.equal(aRes, null);
+    assert.ok(bRes);
+    assert.deepEqual(await statusOf(eventId), { status: "processed", reason: "b-final" });
   });
 } finally {
   await pool.query(`DELETE FROM siton.webhook_events WHERE provider=$1 AND event_id LIKE 'evt-%'`, [provider]).catch(() => undefined);
