@@ -48,9 +48,10 @@ Runtime (updated 2026-09-30): the Fastify web service and the worker run on
 Render and the database is Supabase PostgreSQL; the Mall read model lives in
 `src/mall_read_model.ts`. The Base44 wording that stood here is historical.
 
-The Base44 Mall projection is disposable and repairable. Its public field
-allowlist contains only card-safe deal, progress, seller display-name, image,
-publication, and outcome data. It contains no buyer identity, contact or
+The Mall projection (`src/mall_read_model.ts`; the Base44 projection this
+paragraph once described no longer exists) is disposable and repairable. Its
+public field allowlist contains only card-safe deal, progress, seller
+display-name, image, publication, and outcome data. It contains no buyer identity, contact or
 delivery data; no seller private account data; and no provider, ledger, audit,
 payment, settlement, or storage-key fields.
 
@@ -74,7 +75,9 @@ and cannot mutate state, money, inventory, payout, or availability.
 
 ## Activation boundary
 
-This repository milestone may prepare Base44 resources and frontend source,
-but it does not publish the Base44 app, deploy a site/function, apply a hosted
-migration, configure a production domain, activate a provider, or write to
-production. Those remain separately authorized external actions.
+The 2026-04 milestone wording ("may prepare Base44 resources and frontend
+source, but does not publish the Base44 app or deploy a site/function") is
+historical: Base44 is not a runtime target any more. The boundary that still
+holds is that repository work does not apply a hosted migration, configure a
+production domain, activate a provider, or write to production. Those remain
+separately authorized external actions.
