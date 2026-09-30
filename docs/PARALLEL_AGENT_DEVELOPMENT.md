@@ -83,7 +83,7 @@ npm run qa:diagnose
 ```
 Expected: `QA_DIAGNOSE` … `QA_DIAGNOSE_CLEAN`. If it prints `QA_DIAGNOSE_ATTENTION problems=N`, read the lines: `occupied test ports` (someone's runtime is up), `stray runner processes (not killed)` (the other agent is mid-run — wait), `test-database connections … leaked` (a dead runner left sessions), `stale isolated databases` (drop only your own dead ones: `npm run qa:cleanup-stale-dbs -- --yes`, which only drops databases whose owning pid is dead, `scripts/qa_process_guard.cjs:26-33`). Nothing in `qa:diagnose` kills a process (`:12-13`); coordinate in the status file instead.
 
-CI is exempt only because each job has its own Postgres service container and its own runner (`backend-quality-gates.yml:22-40`, `release-readiness.yml:71-96`).
+CI is exempt only because each job has its own Postgres service container and its own runner (`.github/workflows/ci.yml`: every test lane, `focused-tests` and `preflight-database` declare their own `services: postgres`).
 
 ## 6. Daily protocol (both agents)
 

@@ -45,6 +45,13 @@ const STUCK_TIMEOUT_MS = Math.max(5_000, Number(process.env.WORKER_STUCK_TIMEOUT
 const HEARTBEAT_MS = Math.max(1_000, Number(process.env.WORKER_HEARTBEAT_MS || 10_000));
 const SHUTDOWN_TIMEOUT_MS = Math.max(1_000, Number(process.env.WORKER_SHUTDOWN_TIMEOUT_MS || 30_000));
 const RESILIENCE = resolveWorkerResilienceConfig(POLL_MS);
+// The two-process fencing proof deliberately blocks deadline_check handlers
+// with a table lock. Worker maintenance also reads that table, which can stall
+// a worker before it reaches the claim path the proof is trying to exercise.
+// Keep this escape hatch test-only so production behavior can never disable
+// maintenance through configuration.
+const TEST_DISABLE_MAINTENANCE =
+  process.env.NODE_ENV === "test" && process.env.SITON_TEST_DISABLE_WORKER_MAINTENANCE === "1";
 
 const controlPool = createRuntimePool("worker", 2);
 let accepting = true;
@@ -175,7 +182,7 @@ async function processCycle(pollCount: number) {
       }
     });
   }
-  await runWorkerMaintenance();
+  if (!TEST_DISABLE_MAINTENANCE) await runWorkerMaintenance();
   const metrics = await queueMetrics();
   logger.info({
     worker_id: WORKER_ID,

@@ -87,7 +87,7 @@ try {
     const eventId = `evt-after-${randomUUID()}`;
     const first = await ingestion.claimEvent({ provider, event_id: eventId, event_type: "authorization.captured", payload: {} });
     assert.equal(first.duplicate, false);
-    await ingestion.markEvent(provider, eventId, "processed");
+    await ingestion.markEvent(provider, eventId, "processed", null, first.claim_token);
     const again = await Promise.all([
       ingestion.claimEvent({ provider, event_id: eventId, event_type: "authorization.captured", payload: {} }),
       ingestion.claimEvent({ provider, event_id: eventId, event_type: "authorization.captured", payload: {} })
@@ -103,7 +103,7 @@ try {
     const eventId = `evt-retry-${randomUUID()}`;
     const first = await ingestion.claimEvent({ provider, event_id: eventId, event_type: "authorization.captured", payload: {} });
     assert.equal(first.duplicate, false);
-    await ingestion.markEvent(provider, eventId, "failed", "provider timeout");
+    await ingestion.markEvent(provider, eventId, "failed", "provider timeout", first.claim_token);
     const retries = await Promise.all(
       Array.from({ length: 6 }, () => ingestion.claimEvent({ provider, event_id: eventId, event_type: "authorization.captured", payload: { retry: true } }))
     );

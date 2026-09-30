@@ -174,8 +174,10 @@ export function AuthPanel(props: {
         ) : null}
         <form onSubmit={submit}>
           <div className="field">
-            <label htmlFor="auth-email">{t("auth.e_mail")}</label>
-            <input id="auth-email" dir="ltr" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+            {/* the admin surface also accepts a team admin's username (web/src/adminLogin.ts) */}
+            <label htmlFor="auth-email">{props.surface === "admin" && mode === "login" ? t("auth.email_or_username") : t("auth.e_mail")}</label>
+            <input id="auth-email" dir="ltr" type={props.surface === "admin" && mode === "login" ? "text" : "email"} required value={email} onChange={(e) => setEmail(e.target.value)}
+              autoComplete={props.surface === "admin" && mode === "login" ? "username" : "email"} autoCapitalize="none" spellCheck={false} />
           </div>
           {mode !== "recover" ? (
             <div className="field">

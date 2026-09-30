@@ -2,9 +2,9 @@ import { ContentAdmin } from "../receiptContent";
 ﻿import React, { useEffect, useMemo, useState } from "react";
 import { api, clearAuthSession, getAdminToken, Json } from "../api";
 import { clearOwnerSession } from "../ownerMode";
-import { lockAdmin } from "../adminGate";
 import { revokeSurface } from "../session";
 import { AuthPanel } from "../auth";
+import { AdminMfaStepUp } from "../adminMfa";
 import { BrandLoader, Countdown, EmptyState, Modal, Spinner, StatTile, StatusPill, Toast, useToast } from "../components";
 import { BrandMark } from "../brand";
 import { PropagationTree } from "../propagation";
@@ -1577,6 +1577,164 @@ function SystemScreen() {
   );
 }
 
+// ── admin team (owner round 2026-09-28) ────────────────────────────────────
+// A SuperAdmin adds an admin with a username + password. Authority is enforced
+// by the server (admin_users.manage, SuperAdmin only) — this screen only shows
+// what the server allows. The password is sent once, to the C-ton server,
+// which hands it to Supabase Auth server-side; it is never kept in state after
+// the request, stored or logged.
+const TEAM_ROLES = ["OpsAdmin", "SupportAdmin", "ReadOnlyAdmin", "SuperAdmin"] as const;
+const TEAM_ROLE_LABEL_KEYS: Record<string, string> = {
+  SuperAdmin: "admin_team.role_superadmin", OpsAdmin: "admin_team.role_opsadmin",
+  SupportAdmin: "admin_team.role_supportadmin", ReadOnlyAdmin: "admin_team.role_readonlyadmin"
+};
+const teamRoleLabel = (role: string) => (TEAM_ROLE_LABEL_KEYS[role] ? t(TEAM_ROLE_LABEL_KEYS[role]!) : role);
+const USERNAME_PATTERN = /^[a-z][a-z0-9._-]{2,31}$/;
+
+function teamPasswordProblem(password: string, username: string): string {
+  if (password.length < 12) return t("admin_team.password_rule_length");
+  if (password.trim() !== password) return t("admin_team.password_rule_whitespace");
+  if (!/[A-Za-z֐-׿]/.test(password) || !/[0-9]/.test(password)) return t("admin_team.password_rule_letter_digit");
+  if (new Set(password).size < 5) return t("admin_team.password_rule_repetitive");
+  if (username && password.toLowerCase().includes(username)) return t("admin_team.password_rule_username");
+  return "";
+}
+
+function AdminTeamScreen() {
+  const [data, setData] = useState<Json | null>(null);
+  const [error, setError] = useState("");
+  // the server is the authority: a 403 (not a SuperAdmin) hides the form
+  const [denied, setDenied] = useState(false);
+  const reload = () => api.adminTeam()
+    .then((d) => { setData(d); setError(""); setDenied(false); })
+    .catch((e: any) => { setDenied(e?.status === 403); setError(e?.message || t("admin.error")); });
+  useEffect(() => { reload(); }, []);
+  const [username, setUsername] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [role, setRole] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [toast, showToast] = useToast();
+
+  // a recent second factor is required by the server (MFA_REQUIRED): the
+  // step-up panel raises the session to AAL2 and the create is retried with
+  // the values still in the form
+  const [needMfa, setNeedMfa] = useState(false);
+
+  const createAdmin = async () => {
+    const name = username.trim().toLowerCase();
+    if (!USERNAME_PATTERN.test(name)) { setFormError(t("admin_team.username_rule")); return; }
+    if (!role) { setFormError(t("admin_team.choose_role")); return; }
+    const problem = teamPasswordProblem(password, name);
+    if (problem) { setFormError(problem); return; }
+    if (password !== confirm) { setFormError(t("admin_team.passwords_differ")); return; }
+    setBusy(true); setFormError("");
+    try {
+      await api.adminTeamCreate({ username: name, password, role, display_name: displayName.trim() || undefined });
+      setUsername(""); setDisplayName(""); setRole(""); setPassword(""); setConfirm("");
+      showToast(t("admin_team.created", { username: name }));
+      reload();
+    } catch (err: any) {
+      const code = String(err?.body?.error || "");
+      if (code === "MFA_REQUIRED") {
+        setNeedMfa(true);
+        setBusy(false);
+        return;
+      }
+      setPassword(""); setConfirm("");
+      setFormError(
+        code === "admin_username_taken" ? t("admin_team.username_taken")
+          : code === "admin_password_weak" ? t("admin_team.password_rejected")
+          : code === "ADMIN_PERMISSION_DENIED" ? t("admin_team.only_super_admin")
+          : code === "admin_provisioning_unavailable" ? t("admin_team.provisioning_unavailable")
+          : err?.message || t("admin.error")
+      );
+    }
+    setBusy(false);
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (busy || needMfa) return;
+    await createAdmin();
+  };
+
+  const admins: Json[] = (data as Json | null)?.admins || [];
+  return (
+    <>
+      <h1>{t("admin_team.title")}</h1>
+      {denied ? <div className="notice" data-testid="admin-team-denied">{t("admin_team.only_super_admin")}</div> : null}
+      {error && !denied ? <Err msg={error} /> : null}
+      {!denied ? (
+        <div className="panel">
+          <div className="panel-title">{t("admin_team.add_admin")}</div>
+          <p className="muted small">{t("admin_team.add_admin_hint")}</p>
+          <form onSubmit={submit} data-testid="admin-team-form" noValidate>
+            <div className="field">
+              <label htmlFor="team-username">{t("admin_team.username")}</label>
+              <input id="team-username" dir="ltr" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off"
+                autoCapitalize="none" spellCheck={false} maxLength={32} data-testid="admin-team-username" />
+              <span className="hint">{t("admin_team.username_rule")}</span>
+            </div>
+            <div className="field">
+              <label htmlFor="team-display-name">{t("admin_team.display_name")}</label>
+              <input id="team-display-name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={80} data-testid="admin-team-display-name" />
+            </div>
+            <div className="field">
+              <label htmlFor="team-role">{t("admin_team.role")}</label>
+              <select id="team-role" value={role} onChange={(e) => setRole(e.target.value)} data-testid="admin-team-role">
+                <option value="">{t("admin_team.choose_role")}</option>
+                {TEAM_ROLES.map((r) => <option key={r} value={r}>{teamRoleLabel(r)}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="team-password">{t("admin_team.password")}</label>
+              <input id="team-password" dir="ltr" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" data-testid="admin-team-password" />
+              <span className="hint">{t("admin_team.password_hint")}</span>
+            </div>
+            <div className="field">
+              <label htmlFor="team-password-confirm">{t("admin_team.password_confirm")}</label>
+              <input id="team-password-confirm" dir="ltr" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" data-testid="admin-team-password-confirm" />
+            </div>
+            {formError ? <div className="notice err" role="alert" data-testid="admin-team-error">{formError}</div> : null}
+            <button className="btn btn-primary" disabled={busy || needMfa} data-testid="admin-team-submit">{busy ? t("admin_team.creating") : t("admin_team.create")}</button>
+          </form>
+          {needMfa ? (
+            <AdminMfaStepUp
+              onVerified={() => { setNeedMfa(false); void createAdmin(); }}
+              onCancel={() => { setNeedMfa(false); setPassword(""); setConfirm(""); }}
+            />
+          ) : null}
+        </div>
+      ) : null}
+      {!denied && data ? (
+        <div className="panel">
+          <div className="panel-title">{t("admin_team.current_admins")}</div>
+          <div className="table-wrap">
+            <table className="data" data-testid="admin-team-list">
+              <thead><tr><th>{t("admin_team.login")}</th><th>{t("admin_team.display_name")}</th><th>{t("admin_team.role")}</th><th>{t("admin_team.status")}</th><th>{t("admin_team.created_at")}</th></tr></thead>
+              <tbody>
+                {admins.map((a) => (
+                  <tr key={a.admin_user_id}>
+                    <td dir="ltr">{a.username || a.email}</td>
+                    <td>{a.display_name || "—"}</td>
+                    <td>{teamRoleLabel(String(a.role))}</td>
+                    <td>{a.status === "Active" ? t("admin_team.active") : a.status}</td>
+                    <td>{a.created_at ? fmtDate(a.created_at) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
+      <Toast msg={toast} />
+    </>
+  );
+}
+
 // ── shell ──────────────────────────────────────────────────────────────────
 // Grouped IA: commerce first (the operator's daily work), growth second,
 // platform plumbing last.
@@ -1586,7 +1744,7 @@ const NAV_GROUPS: { label: string; items: [string, string][] }[] = [
   { label: "admin.nav_groups.label", items: [["deals", "admin.nav_groups.items_2"], ["sellers", "admin.nav_groups.items_3"], ["buyers", "admin.nav_groups.items_4"]] },
   { label: "admin.nav_groups.label_2", items: [["growth", "admin.nav_groups.items_5"]] },
   { label: "admin.nav_groups.label_3", items: [["operations", "admin.nav_groups.items_6"], ["payments", "admin.nav_groups.items_7"], ["notifications", "admin.nav_groups.items_8"], ["support", "admin.nav_groups.items_9"]] },
-  { label: "admin.nav_groups.label_4", items: [["content", "admin.nav_groups.items_10"], ["audit", "admin.nav_groups.items_11"], ["system", "admin.nav_groups.items_12"]] }
+  { label: "admin.nav_groups.label_4", items: [["content", "admin.nav_groups.items_10"], ["audit", "admin.nav_groups.items_11"], ["system", "admin.nav_groups.items_12"], ["team", "admin.nav_groups.items_13"]] }
 ];
 
 export function AdminArea({ sub, navigate }: { sub: string[]; navigate: (h: string) => void }) {
@@ -1623,8 +1781,10 @@ export function AdminArea({ sub, navigate }: { sub: string[]; navigate: (h: stri
             ))}
           </React.Fragment>
         ))}
-        <button style={{ marginTop: "auto", opacity: .7 }} data-testid="admin-lock" onClick={() => { lockAdmin(); window.location.hash = "#/"; window.location.reload(); }}>{t("admin.lock_admin")}</button>
-        <button style={{ opacity: .7 }} onClick={() => { clearAuthSession(); clearOwnerSession(); window.location.hash = "#/"; window.location.reload(); }}>{t("admin.sign_out")}</button>
+        {/* The only exit: ends the session (tokens, capabilities, the admin unlock marker).
+            The former "נעילת מנהל" only removed the client-side unlock marker while the
+            session stayed signed in — a second, unclear exit with no server-side effect. */}
+        <button style={{ marginTop: "auto", opacity: .7 }} data-testid="admin-sign-out" onClick={() => { clearAuthSession(); clearOwnerSession(); window.location.hash = "#/"; window.location.reload(); }}>{t("admin.sign_out")}</button>
       </nav>
       <main className="admin-main">
         {screen === "overview" ? <Overview navigate={navigate} /> : null}
@@ -1641,6 +1801,7 @@ export function AdminArea({ sub, navigate }: { sub: string[]; navigate: (h: stri
         {screen === "audit" ? <AuditScreen /> : null}
         {screen === "system" ? <SystemScreen /> : null}
         {screen === "content" ? <ContentAdmin /> : null}
+        {screen === "team" ? <AdminTeamScreen /> : null}
       </main>
     </div>
   );

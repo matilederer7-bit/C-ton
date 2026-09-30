@@ -39,6 +39,9 @@ export interface BrowserPage {
   reload(options?: { waitMs?: number }): Promise<void>;
   errors(): PageError[];
   clearErrors(): void;
+  // run a script in every new document before the page's own scripts
+  // (CDP Page.addScriptToEvaluateOnNewDocument); returns a remover
+  addInitScript(source: string): Promise<() => Promise<void>>;
   close(): Promise<void>;
 }
 
@@ -228,6 +231,11 @@ export async function launchPage(startUrl: string): Promise<BrowserPage> {
     },
     errors: () => [...errors],
     clearErrors: () => { errors.length = 0; },
+    async addInitScript(source) {
+      const added = await send("Page.addScriptToEvaluateOnNewDocument", { source });
+      const identifier = String(added.identifier);
+      return async () => { await send("Page.removeScriptToEvaluateOnNewDocument", { identifier }).catch(() => undefined); };
+    },
     async close() {
       await Promise.race([send("Browser.close").catch(() => undefined), wait(2_000)]);
       ws.close();

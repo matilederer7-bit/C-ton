@@ -32,6 +32,11 @@ export const LANDING_EN = {
     ]
   },
 
+  valueProposition: {
+    title: "Buy together. Get wholesale buying power.",
+    body: "Wholesale prices are built on volume. Until now, that power has mainly belonged to chains, importers and large businesses. Siton brings people into one deal and lets businesses, suppliers and manufacturers sell a large quantity at once at a better price for everyone. When buyers join together, their purchasing power grows, and where it fits the deal the product can move from the manufacturer or supplier straight to the door, with fewer layers in between."
+  } as LandingSectionContent,
+
   // OWNER copy pending in Hebrew as well — hidden while empty in both languages.
   whyGroupBuying: { title: "Why group buying pays off", body: "" } as LandingSectionContent,
 
@@ -57,7 +62,7 @@ export const LANDING_EN = {
     title: "Frequently asked questions",
     items: [
       { q: "Am I paying when I join a deal?", a: "No. Joining places a card authorization only. The charge happens only if the deal reaches its target and closes successfully." },
-      { q: "What happens if the deal doesn't reach its target?", a: "The authorization is released automatically and nobody is charged." },
+      { q: "What happens if the target isn't reached?", a: "Nothing — and that is exactly the point. Until the deal closes, only a card authorization is placed and nothing is charged. If the deal does not reach its target by the deadline, every participant's authorization is released automatically and nobody pays." },
       { q: "Do I need an account to join a deal?", a: "No. You join straight through the deal link. An account is needed only for sellers." },
       { q: "How do I follow a deal I joined?", a: "Right after you join you get a link to a personal tracking screen that shows the live state of the deal." },
       { q: "What is my personal link?", a: "Everyone who joins gets a share link of their own. When friends join through your link, the join is credited to you and you can see your effect on the deal." },

@@ -1,6 +1,6 @@
 import { assertRequiredTables } from "./schema_contract.js";
 import { readMoneyAmount, MONEY_EPSILON } from "./money_input.js";
-import { pickupOptionsMissingLocation } from "./pickup_location.js";
+import { deliveryOptionLabel, pickupOptionsMissingLocation } from "./pickup_location.js";
 import Fastify from "fastify";
 import { errorLogSerializer } from "./log_redaction.js";
 import { pool } from "./db.js";
@@ -1666,7 +1666,7 @@ async function ingestAndProcessPaymentEvent(args: {
       if (applied && applied.held) finalClassification = { status: "ignored", reason: applied.reason };
     }
 
-    await webhookIngestion.markEvent(args.provider, args.event_id, finalClassification.status, finalClassification.reason);
+    await webhookIngestion.markEvent(args.provider, args.event_id, finalClassification.status, finalClassification.reason, ingested.claim_token);
     return {
       duplicate: Boolean(ingested.duplicate),
       status: finalClassification.status,
@@ -1674,7 +1674,7 @@ async function ingestAndProcessPaymentEvent(args: {
     };
   } catch (error) {
     const failureReason = String(error instanceof Error ? error.message : error || "webhook_processing_failed").slice(0, 240);
-    await webhookIngestion.markEvent(args.provider, args.event_id, "failed", failureReason);
+    await webhookIngestion.markEvent(args.provider, args.event_id, "failed", failureReason, ingested.claim_token);
     throw error;
   }
 }
@@ -6595,11 +6595,15 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
   const draftThreshold = Math.ceil(0.9 * minUnits);
   const deliveryOptions = Array.isArray(body.delivery_options)
     ? body.delivery_options
+        // an entry names a method by a known TYPE or by typed text; an empty
+        // object is not a method and is dropped (as before)
+        .filter((option: any) => ["delivery", "pickup", "distribution_point"].includes(String(option?.option_type || "")) || String(option?.label || "").trim())
         .map((option: any, index: number) => ({
           option_type: ["delivery", "pickup", "distribution_point"].includes(String(option?.option_type || ""))
             ? String(option.option_type)
             : "pickup",
-          label: String(option?.label || "").trim().slice(0, 160),
+          // a method is chosen by its TYPE; an empty label keeps the type's name
+          label: deliveryOptionLabel(option?.option_type, option?.label),
           // Math.max(0, Number("abc")) is NaN, and numeric accepts 'NaN'
           // verbatim: the deal published with a NaN delivery cost and the fee
           // engine turned the poisoned total into a zero fee.
@@ -6608,7 +6612,6 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
           ...normalizeDeliveryCoordinates(option),
           ...normalizeDeliveryEstimate(option)
         }))
-        .filter((option: any) => option.label)
         .slice(0, 5)
     : [];
 
@@ -6896,7 +6899,7 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
       }
       const options = body.delivery_options.map((option: any, index: number) => ({
         option_type: ["delivery", "pickup", "distribution_point"].includes(String(option?.option_type || "")) ? String(option.option_type) : "pickup",
-        label: String(option?.label || "").trim().slice(0, 160),
+        label: deliveryOptionLabel(option?.option_type, option?.label),
         cost: readMoneyAmount(option?.cost ?? 0, { field: "delivery_cost", min: 0 }),
         sort_order: Number.isInteger(Number(option?.sort_order)) ? Number(option.sort_order) : index,
         ...normalizeDeliveryCoordinates(option),
@@ -6977,7 +6980,7 @@ app.put("/api/seller/deals/:dealId/delivery", async (req: any) => {
 
     const options = body.delivery_options.map((option: any, index: number) => ({
       option_type: ["delivery", "pickup", "distribution_point"].includes(String(option?.option_type || "")) ? String(option.option_type) : "pickup",
-      label: String(option?.label || "").trim().slice(0, 160),
+      label: deliveryOptionLabel(option?.option_type, option?.label),
       cost: Number(option?.cost || 0),
       sort_order: Number.isInteger(Number(option?.sort_order)) ? Number(option.sort_order) : index,
       ...normalizeDeliveryCoordinates(option),

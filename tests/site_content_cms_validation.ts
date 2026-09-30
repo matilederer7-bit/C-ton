@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { validateContent, CONTENT_SECTIONS } from "../src/site_content.js";
 import { normalizePage, validatePage, projectLegacy, contractFor, PAGE_CONTRACTS, CmsValidationError } from "../web/src/content/cmsTemplates.js";
-import { resolveHeroMedium } from "../web/src/heroMedium.js";
+import { resolveHeroMedium, resolveIntroVideo } from "../web/src/heroMedium.js";
 import { resolveFaqItems } from "../web/src/faqContent.js";
 import { LANDING_HE } from "../web/src/content/landing.he.js";
 import { sliceRange } from "../src/content_media.js";
@@ -71,14 +71,15 @@ try {
     assert.equal(codes({ blocks: [{ ...defaults.blocks[0], fields: { ...defaults.blocks[0]!.fields, primary_cta_link: "javascript:alert(1)" } }] }), "invalid_content_link");
     assert.equal(codes({ blocks: [{ ...defaults.blocks[0], fields: { ...defaults.blocks[0]!.fields, primary_cta_link: "https://x.invalid/<script>" } }] }), "content_html_not_allowed");
     for (const bad of ["//evil.invalid/x", "http://insecure.invalid", "data:text/html,x", "/path with space", "https://x.invalid/a\"b"]) assert.equal(codes({ blocks: [{ ...defaults.blocks[0], fields: { ...defaults.blocks[0]!.fields, primary_cta_link: bad } }] }), "invalid_content_link", bad);
-    for (const good of ["#/seller?signup=1", "/legal/terms", "https://example.invalid/a?b=1#c", ""]) assert.equal(codes({ blocks: [{ ...defaults.blocks[0], fields: { ...defaults.blocks[0]!.fields, primary_cta_link: good } }] }), "ok", good);
+    // all locked blocks (hero + owner value proposition + infographic) must be present, in order
+    for (const good of ["#/seller?signup=1", "/legal/terms", "https://example.invalid/a?b=1#c", ""]) assert.equal(codes({ blocks: [{ ...defaults.blocks[0], fields: { ...defaults.blocks[0]!.fields, primary_cta_link: good } }, defaults.blocks[1], defaults.blocks[2]] }), "ok", good);
     assert.equal(codes({ blocks: [{ ...defaults.blocks[0], fields: { ...defaults.blocks[0]!.fields, image: "https://evil.invalid/x.png" } }] }), "invalid_content_image");
     assert.equal(codes({ blocks: [{ ...defaults.blocks[0], fields: { ...defaults.blocks[0]!.fields, hacked: "x" } }] }), "invalid_content_field");
     assert.equal(codes({ blocks: [defaults.blocks[0], { id: "legal_1", type: "legal", enabled: true, fields: { title: "x", body: "y" } }] }), "template_not_allowed");
     assert.equal(codes({ blocks: [defaults.blocks[0], { id: "faq_9", type: "faq", enabled: true, fields: { title: "" }, items: [] }] }), "too_few_items");
     assert.equal(codes({ blocks: [defaults.blocks[0], { id: "Bad Id", type: "text", enabled: true, fields: {} }] }), "invalid_block_id");
     assert.equal(codes({ blocks: [defaults.blocks[0], { id: "t", type: "text", enabled: true, fields: { title: "x".repeat(161), body: "" } }] }), "invalid_content_length");
-    assert.equal(codes({ blocks: defaults.blocks.map(b => ({ ...b, enabled: b.id === "hero" })) }), "ok");
+    assert.equal(codes({ blocks: defaults.blocks.map(b => ({ ...b, enabled: b.id === "hero" || b.id === "value" || b.id === "how" })) }), "ok");
     assert.throws(() => validateContent("__proto__", {}), /invalid_content/);
     assert.throws(() => validateContent("home", { blocks: [] }), /locked_block_missing/);
     assert.equal(validatePage({ title: "מסמך", body: "תוכן" }, CONTENT_SECTIONS.legal_terms!).blocks[0]!.type, "legal");
@@ -92,6 +93,14 @@ try {
     assert.deepEqual(resolveHeroMedium({ ...base, mediaKind: "video", videoEnabled: false }), { kind: "image", url: "/brand.jpg", fromCms: false });
     assert.deepEqual(resolveHeroMedium({ ...base, mediaKind: "video", cmsVideoUrl: "/api/content-assets/v", prefersReducedMotion: true }), { kind: "image", url: "/brand.jpg", fromCms: false });
     assert.deepEqual(resolveHeroMedium({ ...base }), { kind: "video", url: "https://cdn.invalid/env.mp4", poster: "p" });
+    // the intro video slot (owner 2026-09-28): the logo stays; a configured video gets its own slot
+    // under it. `configured` (slot reserved) is separate from `play` (after first paint, motion allowed).
+    assert.equal(resolveIntroVideo({ ...base, mediaKind: "image" }), null, "an image hero has no video slot");
+    assert.equal(resolveIntroVideo({ fallbackImageUrl: "/b", mediaKind: "video" }), null, "a video choice with no source has no slot (nothing invented)");
+    assert.deepEqual(resolveIntroVideo({ ...base, mediaKind: "video", cmsVideoUrl: "/api/content-assets/v", cmsVideoPoster: "/api/content-assets/p", deferred: true }), { url: "/api/content-assets/v", poster: "/api/content-assets/p", play: true });
+    assert.deepEqual(resolveIntroVideo({ ...base, mediaKind: "video", deferred: false }), { url: "https://cdn.invalid/env.mp4", poster: "p", play: false }, "the slot is reserved before first paint, the video waits");
+    assert.equal(resolveIntroVideo({ ...base, mediaKind: "video", cmsVideoUrl: "/v", deferred: true, prefersReducedMotion: true })!.play, false, "reduced motion keeps the poster");
+    assert.equal(resolveIntroVideo({ ...base, mediaKind: "video", cmsVideoUrl: "/v", deferred: true, saveData: true })!.play, false, "save-data keeps the poster");
     assert.deepEqual(sliceRange("bytes=0-3", 10), { start: 0, end: 3 }); assert.deepEqual(sliceRange("bytes=8-", 10), { start: 8, end: 9 });
     assert.deepEqual(sliceRange("bytes=-2", 10), { start: 8, end: 9 }); assert.equal(sliceRange("bytes=20-", 10), "invalid"); assert.equal(sliceRange(undefined, 10), null);
   });
@@ -174,9 +183,10 @@ try {
     assert.equal(faqOf(await home()).items[0].q, LANDING_HE.faq.items[0]!.q, "public FAQ untouched until publish");
   });
   await run("admin reorders and disables blocks; the hero cannot move, be removed or hidden", async () => {
-    const draft = draftOf(p => { const i = p.blocks.findIndex((b: any) => b.id === "faq"); const [faq] = p.blocks.splice(i, 1); p.blocks.splice(1, 0, faq); p.blocks.find((b: any) => b.id === "trust").enabled = false; });
+    // the first free position is 3: hero, value proposition and infographic are locked ahead of it
+    const draft = draftOf(p => { const i = p.blocks.findIndex((b: any) => b.id === "faq"); const [faq] = p.blocks.splice(i, 1); p.blocks.splice(3, 0, faq); p.blocks.find((b: any) => b.id === "contact").enabled = false; });
     const r = await request("PUT", "/api/admin/site-content/home/draft", headers, { value: draft, revision: section.revision }); assert.equal(r.status, 200, r.body); await reload();
-    assert.equal(section.draft.blocks[1].id, "faq"); assert.equal(section.draft.blocks.find((b: any) => b.id === "trust").enabled, false);
+    assert.equal(section.draft.blocks[1].id, "value"); assert.equal(section.draft.blocks[2].id, "how"); assert.equal(section.draft.blocks[3].id, "faq"); assert.equal(section.draft.blocks.find((b: any) => b.id === "contact").enabled, false);
     const heroMoved = draftOf(p => { const [hero] = p.blocks.splice(0, 1); p.blocks.push(hero); });
     assert.equal((await request("PUT", "/api/admin/site-content/home/draft", headers, { value: heroMoved, revision: section.revision })).status, 400);
     const heroGone = draftOf(p => { p.blocks.splice(0, 1); });
@@ -220,8 +230,9 @@ try {
   await run("publish moves the draft to the public site; disabled section disappears publicly (API and page); previous value is kept", async () => {
     const r = await request("POST", "/api/admin/site-content/home/publish", headers, { revision: section.revision }); assert.equal(r.status, 200, r.body);
     const pub = await home();
-    assert.equal(pub.title, "כותרת טיוטה"); assert.equal(pub.image, imageUrl); assert.equal(pub.blocks[1].id, "faq"); assert.equal(faqOf(pub).items[0].q, "שאלה חדשה?");
-    assert.ok(!pub.blocks.some((b: any) => b.id === "trust"), "a hidden block's content never leaves the server");
+    assert.equal(pub.title, "כותרת טיוטה"); assert.equal(pub.image, imageUrl); assert.equal(pub.blocks[1].id, "value"); assert.equal(pub.blocks[2].id, "how"); assert.equal(pub.blocks[3].id, "faq"); assert.equal(faqOf(pub).items[0].q, "שאלה חדשה?");
+    assert.ok(!pub.blocks.some((b: any) => b.id === "trust"), "the retired trust block must never return");
+    assert.ok(!pub.blocks.some((b: any) => b.id === "contact"), "a hidden block's content never leaves the server");
     await reload(); assert.equal(section.draft, null); assert.ok(section.published_at);
     const row = (await pool.query(`SELECT previous_value_jsonb, updated_by FROM siton.site_content WHERE content_key='home'`)).rows[0];
     assert.equal(row.previous_value_jsonb.title, "כותרת מהגרסה הישנה"); assert.equal(row.updated_by, admin.admin_user_id);
