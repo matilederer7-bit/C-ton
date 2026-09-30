@@ -106,8 +106,9 @@ Until then the three legacy services keep building every `master` commit and fai
   `base44` token from the patterns and keep the rest: line 94 also rejects `http(s)`, `fetch` and
   `axios` in `src/inventory_repository.ts`, which is the internal-Postgres inventory boundary, and
   line 23 keeps guarding `render.yaml`; replace the `production=base44` banner at 107); delete the
-  integrity gate, its two config files, the fixture, both npm scripts, the preflight gate entry, the
-  two rollup entries, the classifier rule and the `.ps1`; delete
+  integrity gate, its two config files, the fixture, both npm scripts and the `ci.yml` step that
+  runs `test:base44-canonical-integrity` (line 181), the preflight gate entry, the two rollup
+  entries, the classifier rule and the `.ps1`; delete
   `tests/base44_canonical_integrity_validation.ts` and
   `tests/supabase_inventory_activation_hardening_validation.ts`; before deleting
   `tests/base44_mall_contract_validation.ts`, move its live-schema assertions on migration 049 (Mall
@@ -162,7 +163,7 @@ Until then the three legacy services keep building every `master` commit and fai
     `pickup_fulfillment_browser_proof.cjs`, `r6_hosted_browser_proof.cjs`, `p0_browser_proof.cjs`,
     `r7r8_browser_proof.cjs` (all in `DEPLOYMENT_RUNBOOK.md`);
   - indexed only by `scripts/README.md` or historical docs: `r6_staging_showcase_seed.cjs`,
-    `receipt_content_browser_proof.cjs`, `review_baseline_candidates.cjs`,
+    `review_baseline_candidates.cjs`,
     `review_r9c_migration_independent_proof.cjs`, `run_outbox_select.cjs`, `i18n/extract.cjs`,
     `extract_base44_inventory_sql.ps1` (Base44; also read by one test, see §3.1).
 - **SUPPORT without an automated caller but prescribed by live runbooks (keep, never in a D2
@@ -173,8 +174,9 @@ Until then the three legacy services keep building every `master` commit and fai
   gate), `pilot_readiness_proof.cjs` and `buyer_polish_browser_proof.cjs` (`DEPLOYMENT_RUNBOOK.md`,
   `PILOT_LAUNCH_RUNBOOK.md`), `restart_server_tsnode_clean.ps1` with `register-ts-node.mjs` and
   `restart_server_clean.ps1` (`OPERATIONAL_RUNBOOK.md` restart procedure; `scripts/README.md` calls
-  them operational). Any of these leaves SUPPORT only when the runbook procedure that names it is
-  intentionally replaced in the same PR.
+  them operational), `receipt_content_browser_proof.cjs` (`docs/SITE_CMS.md` operations section,
+  `docs/RECEIPT_TRUST_CONTENT.md`). Any of these leaves SUPPORT only when the runbook procedure that
+  names it is intentionally replaced in the same PR.
 - Everything else is SUPPORT or CORE with a live caller (`package.json`, a workflow, a preflight
   gate, a compose file or another script). Re-derive with
   `rg -n -F "<basename>" --glob '!scripts/<name>*' .` before touching any file; `scripts/README.md`
@@ -218,7 +220,7 @@ with their consumers updated (`scripts/architecture_truth_gate.cjs`, `scripts/le
 |---|---|---|---|
 | D1 | delete `.i18n-regen/` + classifier rule (`ci_change_classifier.cjs:97`) | FULL (the classifier file is a critical path; a deleted `.i18n-regen/*` path with the rule gone is "unclassified", also critical) | none |
 | D2 | delete the 6 zero-reference scripts; move the ARCHIVE scripts under `scripts/archive/` or delete the ones whose docs are themselves ARCHIVE; rewrite the runbook steps that name them and `scripts/README.md` | FULL (scripts are gate-or-tooling) | re-run the reference grep per file; runbooks updated in the same PR |
-| D3 | retire the Base44 gate cluster + `legacy/` (`architecture_truth_gate.cjs` rewritten to the Render/Supabase truth) | FULL, senior review | update `release_checklist.cjs`, `release_owner_check.cjs`, the classifier rule, `config/release-preflight-gates.json`, the two runbook lines, the `supabase_staging_security_foundation` test (drop only its `.ps1` case); the runtime never depended on it |
+| D3 | retire the Base44 gate cluster + `legacy/` (`architecture_truth_gate.cjs` rewritten to the Render/Supabase truth) | FULL, senior review (`ci-gates` family) | update `.github/workflows/ci.yml` (the `test:base44-canonical-integrity` step), `release_checklist.cjs`, `release_owner_check.cjs`, the classifier rule, `config/release-preflight-gates.json`, the two runbook lines, the `supabase_staging_security_foundation` test (drop only its `.ps1` case); the runtime never depended on it |
 | D4 | Product Library schema drop (`products`, `product_images`, `deals.product_id`, `deals.product_snapshot_jsonb`, trigger, constraints; new migration, never an edit of 072; `supabase/staging/025` retired from the grant lists) | FULL, senior review | PR B merged; staging census re-run (2026-09-30: 40 deals, 2 with product columns, both `PendingTarget` smoke deals from 2026-09-17, 1 product, 0 product images) and owner confirmation that those two smoke deals may lose their snapshot |
 | D5 | docs: move ARCHIVE files into `docs/archive/` in small batches with consumer updates; trim `PROJECT_STATUS.md` to the open tracks | FAST/STANDARD | none |
 | D6 | decision: dormant cloud-agent workflows + `stripe-sandbox-proof.yml` (keep dormant or retire with their tests) | FULL | owner decision |
