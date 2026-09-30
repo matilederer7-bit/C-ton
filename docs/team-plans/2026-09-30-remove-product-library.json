@@ -3,7 +3,7 @@
   "lead": "claude-lead",
   "base": "origin/master",
   "open_branches": [
-    "origin/claude/product-constitution-sot"
+    "origin/claude/outbox-evidence-rls"
   ],
   "interface_contract": {
     "src/delivery_estimate.ts": "exports normalizeDeliveryEstimate and describeDeliveryEstimate, moved verbatim from src/product_catalog.ts",
@@ -60,9 +60,11 @@
       "agent": "claude-lead",
       "role": "builder",
       "tier": "standard",
-      "scope": "integration by the lead. docs/PRODUCT_CATALOG.md (rewritten as a retirement note naming the removed routes, modules and the deleted test:product-catalog script) and the PROJECT_STATUS.md slot update land only after PR A (claude/product-constitution-sot, which already edits both files) is merged and this branch has merged master; at that point both paths are added to B2's allowed list and the plan is re-checked (TEAM_PLAN_PASS) before either file is written. Until then the checker's open_work_overlap rule keeps them out of every builder's allowed list.",
+      "scope": "integration by the lead. docs/PRODUCT_CATALOG.md (rewritten as a retirement note naming the removed routes, modules and the deleted test:product-catalog script) and the PROJECT_STATUS.md slot update land only after PR A (claude/product-constitution-sot, which already edits both files) is merged and this branch has merged master; PR #148 merged on 2026-09-30 (f517ad8) and master is merged into this branch, so both paths are now in B2's allowed list (plan re-checked before the writes).",
       "allowed": [
-        "docs/team-plans/2026-09-30-remove-product-library.json"
+        "docs/team-plans/2026-09-30-remove-product-library.json",
+        "PROJECT_STATUS.md",
+        "docs/PRODUCT_CATALOG.md"
       ],
       "forbidden": [
         "src/",
