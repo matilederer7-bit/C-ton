@@ -35,8 +35,15 @@ export const REQUIRED_TABLES = [
   "storage_cleanup_tasks", "operational_recovery_audit", "buyer_sessions", "buyer_resume_contexts",
   "discovery_events", "viral_attributions", "viral_events", "viral_metrics_cache", "content_assets", "site_content",
   "distribution_link_viewers", "distribution_link_viewer_grants", "distribution_link_viewer_sessions",
-  "distribution_link_viewer_login_attempts", "products", "product_images",
-  "outbox_enqueue_evidence", "fixture_purge_audit", "admin_user_audit"
+  "distribution_link_viewer_login_attempts",
+  "outbox_enqueue_evidence", "fixture_purge_audit", "admin_user_audit",
+  // Product Library removal (PR B): the products table is no longer part of
+  // the runtime surface, but the storage-cleanup worker and the deal-image
+  // delete paths still consult siton.product_images so that a blob shared
+  // with a retained legacy row is never deleted. The table therefore stays
+  // required until the schema migration that drops it also removes those
+  // reference checks (Codex on PR #151).
+  "product_images"
 ] as const;
 
 // EVERY migration in scripts/migration_manifest.cjs. Readiness fails closed

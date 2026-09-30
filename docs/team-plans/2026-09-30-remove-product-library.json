@@ -2,9 +2,7 @@
   "task": "PR B: remove the Product Library / Product Catalog surface (seller products page, /api/seller/products*, save-as-product, create-from-product, product snapshot locks) while keeping delivery estimates, ordinary deals, all three deal types, the Mall read model and every buyer surface working; no migration edit, no schema drop",
   "lead": "claude-lead",
   "base": "origin/master",
-  "open_branches": [
-    "origin/claude/product-constitution-sot"
-  ],
+  "open_branches": [],
   "interface_contract": {
     "src/delivery_estimate.ts": "exports normalizeDeliveryEstimate and describeDeliveryEstimate, moved verbatim from src/product_catalog.ts",
     "web/src/deliveryEstimate.ts": "exports deliveryEstimateText and validateEstimateRange, moved verbatim from web/src/productLibrary.ts"
@@ -60,9 +58,11 @@
       "agent": "claude-lead",
       "role": "builder",
       "tier": "standard",
-      "scope": "integration by the lead. docs/PRODUCT_CATALOG.md (rewritten as a retirement note naming the removed routes, modules and the deleted test:product-catalog script) and the PROJECT_STATUS.md slot update land only after PR A (claude/product-constitution-sot, which already edits both files) is merged and this branch has merged master; at that point both paths are added to B2's allowed list and the plan is re-checked (TEAM_PLAN_PASS) before either file is written. Until then the checker's open_work_overlap rule keeps them out of every builder's allowed list.",
+      "scope": "integration by the lead. docs/PRODUCT_CATALOG.md (rewritten as a retirement note naming the removed routes, modules and the deleted test:product-catalog script) and the PROJECT_STATUS.md slot update land only after PR A (claude/product-constitution-sot, which already edits both files) is merged and this branch has merged master; PR #148 merged on 2026-09-30 (f517ad8) and master is merged into this branch, so both paths are now in B2's allowed list (plan re-checked before the writes).",
       "allowed": [
-        "docs/team-plans/2026-09-30-remove-product-library.json"
+        "docs/team-plans/2026-09-30-remove-product-library.json",
+        "PROJECT_STATUS.md",
+        "docs/PRODUCT_CATALOG.md"
       ],
       "forbidden": [
         "src/",
@@ -115,5 +115,6 @@
         "every finding fixed or answered"
       ]
     }
-  ]
+  ],
+  "sequencing_note": "Written 2026-09-30 with open branch claude/product-constitution-sot (PR #148, squash-merged f517ad8); claude/outbox-evidence-rls (PR #149, squash-merged abc0a12) shared src/schema_contract.ts with B1 (REQUIRED_MIGRATION_IDS vs REQUIRED_TABLES) and merged ahead of this PR; master is merged into this branch after each. Squash-merged branches are not listed because they keep diffing against master and would be false overlaps; the plan was re-checked (TEAM_PLAN_PASS) after both merges."
 }

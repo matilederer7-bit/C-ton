@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import pg from "pg";
 import {
@@ -300,6 +300,102 @@ await run("S5 POST /deals idempotency replays, rejects drift, and serializes con
     [sellerId, concurrentPayload.title]
   );
   assert.equal(Number(concurrentRows.rows[0].count), 1, "concurrent retries must persist exactly one Draft");
+});
+
+// Mirrors the server's create-request hash recipe (sorted-key canonical JSON
+// over the normalized Draft fields) so the test can store a row exactly as the
+// pre-removal, Product-backed create path stored it.
+function canonicalJsonForTest(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    const serialized = JSON.stringify(value);
+    return serialized === undefined ? "null" : serialized;
+  }
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJsonForTest(item)).join(",")}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJsonForTest(record[key])}`).join(",")}}`;
+}
+
+function deterministicUuidForTest(input: string): string {
+  const bytes = Buffer.from(createHash("sha256").update(input).digest().subarray(0, 16));
+  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x50;
+  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+await run("S5b POST /deals replays a legacy Product-backed create (no title, no terms) from the stored response", async () => {
+  // Before the Product Library removal a voucher Draft could be created FROM a
+  // Product: the body carried product_id and no title / voucher_terms, and the
+  // server filled both from the Product snapshot. Such a request, retried with
+  // its original Idempotency-Key after the removal, must still recover the
+  // stored response (Codex on PR #151) instead of a 400 it never received.
+  const { sellerId, cookie } = await provisionActiveSeller("seller-legacy-replay");
+  const legacyKey = `seller-create:${randomUUID()}`;
+  const legacyProductId = randomUUID();
+  const deadline = new Date(Date.now() + 4 * 60 * 60_000).toISOString();
+  const legacyBody = { product_id: legacyProductId, deal_type: "voucher", price_per_unit: 35, min_units: 2, max_units: 12, deadline };
+  const legacyDealId = deterministicUuidForTest(`seller_deal_create:${sellerId}:${legacyKey}`);
+  const legacyHash = createHash("sha256").update(canonicalJsonForTest({
+    title: "",
+    description: "",
+    description_short: "",
+    price_per_unit: 35,
+    min_units: 2,
+    max_units: 12,
+    threshold_units: 2,
+    deadline,
+    deal_type: "voucher",
+    product_id: legacyProductId,
+    delivery_options: [],
+    voucher_terms: null,
+    ticket_terms: null
+  })).digest("hex");
+  const storedResponse = { deal_id: legacyDealId, state: "Draft", deal_type: "voucher" };
+
+  // Without a stored row the removed Product path cannot be served: the
+  // validation that became mandatory after the removal still answers 400.
+  const fresh = await app.inject({
+    method: "POST",
+    url: "/deals",
+    headers: { cookie, "idempotency-key": legacyKey },
+    payload: legacyBody
+  });
+  assert.equal(fresh.statusCode, 400, fresh.body);
+  assert.equal(fresh.json().code, "voucher_terms_required");
+  const freshRows = await pool.query(`SELECT COUNT(*)::int AS count FROM siton.deals WHERE deal_id=$1`, [legacyDealId]);
+  assert.equal(Number(freshRows.rows[0].count), 0, "a rejected legacy body must not persist a Draft");
+
+  await pool.query(
+    `INSERT INTO siton.idempotency_log
+       (entity_type, entity_id, action_name, idempotency_key, request_hash, response_code, response_jsonb)
+     VALUES ('deal',$1,'seller_deal_create',$2,$3,'OK',$4)`,
+    [legacyDealId, legacyKey, legacyHash, JSON.stringify(storedResponse)]
+  );
+  const replay = await app.inject({
+    method: "POST",
+    url: "/deals",
+    headers: { cookie, "idempotency-key": legacyKey },
+    payload: legacyBody
+  });
+  assert.equal(replay.statusCode, 200, replay.body);
+  assert.deepEqual(replay.json(), storedResponse, "same key + same legacy payload must recover the stored response");
+
+  // A legacy replay is still a replay: payload drift under the same key is
+  // refused with the idempotency answer, not with the deferred validation.
+  const drift = await app.inject({
+    method: "POST",
+    url: "/deals",
+    headers: { cookie, "idempotency-key": legacyKey },
+    payload: { ...legacyBody, price_per_unit: 36 }
+  });
+  assert.equal(drift.statusCode, 409, drift.body);
+  assert.equal(drift.json().code, "IDEMPOTENCY_PAYLOAD_MISMATCH");
+
+  // Without an idempotency key there is nothing to replay: the body is
+  // validated immediately, product_id or not.
+  const noKey = await app.inject({ method: "POST", url: "/deals", headers: { cookie }, payload: legacyBody });
+  assert.equal(noKey.statusCode, 400, noKey.body);
+  assert.equal(noKey.json().code, "voucher_terms_required");
 });
 
 await run("S6 Draft PATCH persists matching voucher/ticket terms and rejects cross-type terms atomically", async () => {
