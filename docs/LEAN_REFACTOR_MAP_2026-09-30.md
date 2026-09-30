@@ -101,11 +101,18 @@ Until then the three legacy services keep building every `master` commit and fai
   `docs/SENIOR_ADVERSARIAL_REVIEW.md` F-07 already flagged it.
 - Retirement plan (one FULL-profile PR, senior review, `ci-gates` family): rewrite
   `architecture_truth_gate.cjs` to assert the Render/Supabase truth (keep every R2/R3/R4 assertion;
-  drop the Base44 manifest assertions at lines 8–10 and 49–53, the `render.yaml`/inventory
-  "no base44" string checks at 23 and 94 become moot, the `production=base44` banner at 107 goes,
-  and the `legacy/render/render.legacy.yaml` existence check at 12 goes); delete the integrity gate,
-  its two config files, the fixture, both npm scripts, the preflight gate entry, the two rollup
-  entries, the classifier rule, the three Base44 tests and the `.ps1`; edit
+  drop the Base44 manifest assertions at lines 8–10 and 49–53 and the
+  `legacy/render/render.legacy.yaml` existence check at 12; at lines 23 and 94 remove only the
+  `base44` token from the patterns and keep the rest: line 94 also rejects `http(s)`, `fetch` and
+  `axios` in `src/inventory_repository.ts`, which is the internal-Postgres inventory boundary, and
+  line 23 keeps guarding `render.yaml`; replace the `production=base44` banner at 107); delete the
+  integrity gate, its two config files, the fixture, both npm scripts, the preflight gate entry, the
+  two rollup entries, the classifier rule and the `.ps1`; delete
+  `tests/base44_canonical_integrity_validation.ts` and
+  `tests/supabase_inventory_activation_hardening_validation.ts`; before deleting
+  `tests/base44_mall_contract_validation.ts`, move its live-schema assertions on migration 049 (Mall
+  indexes, acquisition-source constraint, no buyer PII in the projection) into a replacement Mall
+  test, since no other test carries them; edit
   `supabase_staging_security_foundation_validation.ts` to drop only its `.ps1` case (never delete a
   test for an unrelated reason); update the two runbook lines; then delete `base44/`. Keep the Mall
   read model in `src/` untouched (it does not depend on Base44).
@@ -154,10 +161,8 @@ Until then the three legacy services keep building every `master` commit and fai
     superseded by `db_backup_restore_rehearsal.cjs`), `launch_polish_browser_proof.cjs`,
     `pickup_fulfillment_browser_proof.cjs`, `r6_hosted_browser_proof.cjs`, `p0_browser_proof.cjs`,
     `r7r8_browser_proof.cjs` (all in `DEPLOYMENT_RUNBOOK.md`);
-  - indexed only by `scripts/README.md` or historical docs: `buyer_polish_browser_proof.cjs`,
-    `r6_staging_showcase_seed.cjs`, `receipt_content_browser_proof.cjs`, `register-ts-node.mjs`
-    (used by `restart_server_tsnode_clean.ps1`), `restart_server_clean.ps1`,
-    `restart_server_tsnode_clean.ps1`, `review_baseline_candidates.cjs`,
+  - indexed only by `scripts/README.md` or historical docs: `r6_staging_showcase_seed.cjs`,
+    `receipt_content_browser_proof.cjs`, `review_baseline_candidates.cjs`,
     `review_r9c_migration_independent_proof.cjs`, `run_outbox_select.cjs`, `i18n/extract.cjs`,
     `extract_base44_inventory_sql.ps1` (Base44; also read by one test, see §3.1).
 - **SUPPORT without an automated caller but prescribed by live runbooks (keep, never in a D2
@@ -165,7 +170,11 @@ Until then the three legacy services keep building every `master` commit and fai
   DATABASE_INCIDENT, PAYMENT_INCIDENT, OPERATIONAL, DISASTER_RECOVERY, CREDENTIAL_COMPROMISE,
   PAYMENT_RECONCILIATION), `r3_hosted_proof.cjs` (deployment, credential-compromise,
   disaster-recovery and security-incident runbooks; also an existence assertion in the architecture
-  gate), `pilot_readiness_proof.cjs` (`DEPLOYMENT_RUNBOOK.md`, `PILOT_LAUNCH_RUNBOOK.md`).
+  gate), `pilot_readiness_proof.cjs` and `buyer_polish_browser_proof.cjs` (`DEPLOYMENT_RUNBOOK.md`,
+  `PILOT_LAUNCH_RUNBOOK.md`), `restart_server_tsnode_clean.ps1` with `register-ts-node.mjs` and
+  `restart_server_clean.ps1` (`OPERATIONAL_RUNBOOK.md` restart procedure; `scripts/README.md` calls
+  them operational). Any of these leaves SUPPORT only when the runbook procedure that names it is
+  intentionally replaced in the same PR.
 - Everything else is SUPPORT or CORE with a live caller (`package.json`, a workflow, a preflight
   gate, a compose file or another script). Re-derive with
   `rg -n -F "<basename>" --glob '!scripts/<name>*' .` before touching any file; `scripts/README.md`
