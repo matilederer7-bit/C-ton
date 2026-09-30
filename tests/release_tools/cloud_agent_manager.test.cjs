@@ -269,7 +269,7 @@ test("cloud workflow is owner-gated at intake, serialized, lifecycle-guarded and
   for (const text of [workflow, read(REVIEW)]) {
     assert.doesNotMatch(text, /^\s+(contents|pull-requests|actions|id-token|packages|deployments|statuses|checks): write/m);
     assert.doesNotMatch(text, /secrets: inherit/);
-    const checkouts = (text.match(/uses: actions\/checkout@v4/g) || []).length;
+    const checkouts = (text.match(/uses: actions\/checkout@v\d+/g) || []).length;
     assert.ok(checkouts > 0);
     assert.equal((text.match(/persist-credentials: false/g) || []).length, checkouts, "every checkout drops its credentials");
   }
