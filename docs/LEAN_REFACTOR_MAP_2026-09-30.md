@@ -21,7 +21,7 @@ consumer) · **DELETE CANDIDATE** (no consumer and no history value).
 | repository | 1,388 | — |
 | `docs/` markdown | 273 (+14 root reports) | tiered in `docs/DOCUMENTATION_MAP.md` |
 | `tests/` | 364 | CORE evidence; auto-discovered by `scripts/run_test_group.cjs`; not a deletion target |
-| `scripts/` | 139 | 6 DELETE CANDIDATES, ~14 ARCHIVE, rest SUPPORT/CORE (§3.5) |
+| `scripts/` | 139 | 2 DELETE CANDIDATES, ~17 ARCHIVE, rest SUPPORT/CORE (§3.5) |
 | `src/` | 161 | CORE |
 | `web/` | 100 | CORE |
 | `.i18n-regen/` | 66 | DELETE CANDIDATE (§3.4) |
@@ -152,17 +152,27 @@ Until then the three legacy services keep building every `master` commit and fai
 
 ### 3.5 `scripts/` (139 files)
 
-- **DELETE CANDIDATES (zero references anywhere, including `PROJECT_STATUS.md`):**
-  `bounded_load_test.cjs`, `migrate_showcase_images_to_supabase.cjs` (R7 one-off, storage retired),
-  `site_cms_rehearsal.cjs`, `p06a_geolocation_browser_proof.cjs`, `p07_owner_acceptance_proof.cjs`,
-  `p07c_polling_browser_proof.cjs`.
-- **ARCHIVE (no automated caller; docs-only references, some of them live runbooks):**
+- **DELETE CANDIDATES (zero references anywhere, including `PROJECT_STATUS.md`, and no
+  behavioural assertions of their own):** `bounded_load_test.cjs` (local latency measurement on a
+  disposable database; states no product behaviour) and `migrate_showcase_images_to_supabase.cjs`
+  (R7 one-off, its target storage is retired).
+- **ARCHIVE (no automated caller; docs-only or zero references, some of them live runbooks):**
+  - unreferenced real-browser / end-to-end proofs that carry browser-level assertions no
+    automated test repeats (a proof nobody automates naturally has no caller, so a zero reference
+    count does not prove that deleting it keeps coverage): `p06a_geolocation_browser_proof.cjs`
+    (the only real-browser exercise of the seller geolocation flow: CDP-granted, emulated and
+    denied permission paths S1–S9; `frontend_foundation_geolocation_strategy_validation.ts` covers
+    injected dependencies and source wiring only), `p07_owner_acceptance_proof.cjs` (public deal
+    page owner-acceptance scenarios incl. seller-inquiry sheet and 390px layout),
+    `p07c_polling_browser_proof.cjs` (real-browser polling cadence / 429 / hidden-tab measurement)
+    and `site_cms_rehearsal.cjs` (CMS draft → preview → publish → restore rehearsal against a running
+    service). D2 moves them under `scripts/archive/`; none is deleted before an equivalent
+    browser-level proof exists (§6 rule 3);
   - cited by operational runbooks, so D2 must rewrite those steps before deleting or moving:
     `dr_backup_restore_drill.cjs` (BACKUP_RESTORE, SECURITY_INCIDENT, DB_BACKUP_RESTORE_REHEARSAL;
-    superseded by `db_backup_restore_rehearsal.cjs`), `r6_hosted_browser_proof.cjs` (the
+    superseded by `db_backup_restore_rehearsal.cjs`) and `r6_hosted_browser_proof.cjs` (the
     deployment runbook itself says its failures are not regressions: Mall-ON assumptions, old
-    selectors, 1/5 on 2026-09-10) and `r7r8_browser_proof.cjs` (hosted image/RTL/admin-screen
-    check, `DEPLOYMENT_RUNBOOK.md:183`);
+    selectors, 1/5 on 2026-09-10);
   - indexed only by `scripts/README.md` or historical docs: `r6_staging_showcase_seed.cjs`,
     `review_baseline_candidates.cjs`,
     `review_r9c_migration_independent_proof.cjs`, `run_outbox_select.cjs`, `i18n/extract.cjs`,
@@ -172,7 +182,10 @@ Until then the three legacy services keep building every `master` commit and fai
   DATABASE_INCIDENT, PAYMENT_INCIDENT, OPERATIONAL, DISASTER_RECOVERY, CREDENTIAL_COMPROMISE,
   PAYMENT_RECONCILIATION), `r3_hosted_proof.cjs` (deployment, credential-compromise,
   disaster-recovery and security-incident runbooks; also an existence assertion in the architecture
-  gate), `pilot_readiness_proof.cjs` (`PILOT_LAUNCH_RUNBOOK.md`), the merge-time browser proofs
+  gate), `pilot_readiness_proof.cjs` (`PILOT_LAUNCH_RUNBOOK.md`), `r7r8_browser_proof.cjs`
+  (`DEPLOYMENT_RUNBOOK.md:183`: the only prescribed hosted browser proof that requires the
+  Supabase-backed Mall and deal-gallery images to render; the retained `p0_browser_proof.cjs` is
+  local-only there), the merge-time browser proofs
   `launch_polish_browser_proof.cjs`, `buyer_polish_browser_proof.cjs`,
   `pickup_fulfillment_browser_proof.cjs` and `p0_browser_proof.cjs` (`DEPLOYMENT_RUNBOOK.md:185`
   prescribes them on every merge SHA; the pickup proof is the only end-to-end exercise of the
@@ -225,7 +238,7 @@ with their consumers updated (`scripts/architecture_truth_gate.cjs`, `scripts/le
 | Step | Scope | Profile | Blockers to clear first |
 |---|---|---|---|
 | D1 | delete `.i18n-regen/` + classifier rule (`ci_change_classifier.cjs:97`) | FULL (the classifier file is a critical path; a deleted `.i18n-regen/*` path with the rule gone is "unclassified", also critical) | none |
-| D2 | delete the 6 zero-reference scripts; move the ARCHIVE scripts under `scripts/archive/` or delete the ones whose docs are themselves ARCHIVE; rewrite the runbook steps that name them and `scripts/README.md` | FULL (scripts are gate-or-tooling) | re-run the reference grep per file; runbooks updated in the same PR |
+| D2 | delete the 2 zero-reference scripts; move the ARCHIVE scripts under `scripts/archive/` (the unreferenced browser proofs are never deleted, see §3.5) or delete the ones whose docs are themselves ARCHIVE; rewrite the runbook steps that name them and `scripts/README.md` | FULL (scripts are gate-or-tooling) | re-run the reference grep per file; runbooks updated in the same PR |
 | D3 | retire the Base44 gate cluster + `legacy/` (`architecture_truth_gate.cjs` rewritten to the Render/Supabase truth) | FULL, senior review (`ci-gates` family) | update `.github/workflows/ci.yml` (the `test:base44-canonical-integrity` step), `release_checklist.cjs`, `release_owner_check.cjs`, the classifier rule, `config/release-preflight-gates.json`, the two runbook lines, the `supabase_staging_security_foundation` test (drop only its `.ps1` case); the runtime never depended on it |
 | D4 | Product Library schema drop (`products`, `product_images`, `deals.product_id`, `deals.product_snapshot_jsonb`, trigger, constraints; new migration, never an edit of 072; `supabase/staging/025` retired from the grant lists) | FULL, senior review | PR B merged; staging census re-run (2026-09-30: 40 deals, 2 with product columns, both `PendingTarget` smoke deals from 2026-09-17, 1 product, 0 product images) and owner confirmation that those two smoke deals may lose their snapshot |
 | D5 | docs: move ARCHIVE files into `docs/archive/` in small batches with consumer updates; trim `PROJECT_STATUS.md` to the open tracks | FAST/STANDARD | none |
