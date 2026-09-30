@@ -40,7 +40,7 @@ Supabase staging (`siton-staging`, hnptacfzuqebfgeshadq): **080** (admin team) +
 | PR-19 | Clear `ADVERSARIAL_REVIEW_NOT_PERFORMED` in `config/real-money-release-policy.json` with dated evidence (owner decides whether the red-team and Black-Sky reports suffice or a further review is required) | OPEN | **REAL MONEY LAUNCH BLOCKER** |
 | PR-20 | Owner approval of production payment activation (`PRODUCTION_PAYMENT_ACTIVATION_NOT_APPROVED`), then the separately reviewed commit that flips the policy to `ALLOWED` with evidence for every reason (`docs/REAL_MONEY_RELEASE_GOVERNANCE.md`); runtime variables are set only after that | OPEN | **REAL MONEY LAUNCH BLOCKER** |
 | PR-21 | Render web plan (currently `free`, hibernates) and Supabase Site URL decisions for launch | OPEN | launch prerequisite |
-| PR-22 | Decide whether Base44 remains an intended runtime (`scripts/release_checklist.cjs` O-4) | OPEN | recommended |
+| PR-22 | Decide whether Base44 remains an intended runtime (`scripts/release_checklist.cjs` O-4) | DONE (2026-09-30: Base44 is historical, never a runtime — `docs/CURRENT_ARCHITECTURE_2026-09-30.md`; retiring the gate cluster that still asserts `production=base44` is Lean Refactor step D3) | — |
 | PR-23 | Confirm the production seller-approval step (`verification_status='approved'` required to publish, else `409 seller_kyc_not_approved`) and staff an approval process (`docs/SELLER_ONBOARDING_KYC.md`) | OPEN | launch prerequisite |
 | PR-24 | Hosted browser proofs (seller journey, buyer join, admin) re-run against the deployed launch SHA | OPEN | launch prerequisite |
 | PR-25 | Owner acknowledges the runbooks: deployment, rollback, payment incident, security incident, database incident | OPEN | launch prerequisite |

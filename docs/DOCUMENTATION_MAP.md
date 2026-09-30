@@ -169,7 +169,7 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/BASE44_WORKER_ACTIVATION_BLOCKER.md` | Base44 Worker Activation Blocker | Base44-era |
 | `docs/BUYER_PAYMENT_PROVIDER_PRODUCTION_READINESS.md` | Buyer Payment Provider Readiness | readiness audit |
 | `docs/BUYER_TRACKING_REFINEMENT.md` | Buyer Tracking Refinement | dated pass |
-| `docs/CANONICAL_ARCHITECTURE_V1.md` | Siton V1 Canonical Architecture | Base44 runtime superseded by R2-R4; owner decision PR-22 open |
+| `docs/CANONICAL_ARCHITECTURE_V1.md` | Siton V1 Canonical Architecture | superseded by CURRENT_ARCHITECTURE_2026-09-30 (Base44-era); the runtime decision is settled, Base44 is historical, its gate cluster is Lean Refactor step D3 |
 | `docs/CANONICAL_DRIFT_AUDIT_2026-04-18.md` | Canonical Drift Audit | closed audit |
 | `docs/CANONICAL_PRODUCT_POLICY_CODE_CLEANUP_2026-09-16.md` | Code Cleanup Task, policy alignment | finished task record |
 | `docs/CANONICAL_REPO_DECISION.md` | Canonical Repo Decision | old decision |
