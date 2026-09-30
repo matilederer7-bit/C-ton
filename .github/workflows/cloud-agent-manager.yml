@@ -162,7 +162,7 @@ jobs:
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -304,7 +304,7 @@ jobs:
           persist-credentials: false
 
       - name: Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -509,7 +509,7 @@ jobs:
           persist-credentials: false
 
       - name: Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -518,13 +518,13 @@ jobs:
         run: npm ci
 
       - name: Download reviewed patch
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: siton-patch-1
           path: ${{ runner.temp }}/siton-patch-1
 
       - name: Download review findings
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: siton-review-1
           path: ${{ runner.temp }}/siton-review-1
@@ -721,7 +721,7 @@ jobs:
           persist-credentials: false
 
       - name: Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -770,14 +770,14 @@ jobs:
         run: test "$UPSTREAM" = success || { echo "An upstream job failed or was skipped; no branch, commit or PR is created." >&2; exit 1; }
 
       - name: Download final task patch
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ${{ needs.review-1.outputs.needs_fix == 'true' && 'siton-patch-2' || 'siton-patch-1' }}
           path: ${{ runner.temp }}/siton-final-patch
 
       - name: Download final review evidence
         if: needs.route.outputs.reviewer != 'none'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ${{ needs.review-1.outputs.needs_fix == 'true' && 'siton-review-2' || 'siton-review-1' }}
           path: ${{ runner.temp }}/siton-final-review
@@ -997,7 +997,7 @@ jobs:
       - name: Download agent execution records
         if: always()
         continue-on-error: true
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: siton-*
           path: ${{ runner.temp }}/siton-telemetry
