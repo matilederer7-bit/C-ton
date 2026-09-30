@@ -122,14 +122,14 @@ jobs:
           esac
 
       - name: Checkout canonical master at the task base
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.base_sha }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -161,7 +161,7 @@ jobs:
           echo "manifest_sha256=$(sha256sum "$CONTROL/SHA256SUMS" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Download task patch
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ${{ inputs.patch_artifact }}
           path: ${{ runner.temp }}/siton-patch
@@ -297,7 +297,7 @@ jobs:
 
       - name: Upload review evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: siton-review-${{ inputs.pass }}
           path: ${{ runner.temp }}/siton-review-out
