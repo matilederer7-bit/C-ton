@@ -10,7 +10,7 @@ Three tiers. A document's tier is decided by its role today, not by its title. H
 | **REFERENCE** | design, architecture, policy, legal text and runbooks that are still operationally useful | read when the task touches the area; may carry dated sections |
 | **ARCHIVE** | delivery reports, stage closeouts, audits, handoffs, superseded decisions | history only; must carry a superseded/historical marker if anything inside reads as current authority |
 
-Physical relocation of ARCHIVE files into `docs/archive/` is incremental and mechanical: several gates and tests read documents by path (`scripts/architecture_truth_gate.cjs`, `scripts/legal_compliance_gate.cjs`, `src/admin_mission_control.ts`, `tests/*`), so moves happen in small consumer-proven batches, never in bulk. D5 batch 1 (2026-10-01) moved five zero-consumer Morning Handoff records without changing their contents. `docs/archive/` is tracked (`.gitignore` exception) and stays inside every repository scan (`scripts/lib/repo_scan_policy.cjs` `INCLUDED_DIR_PATHS`), so archiving a document never removes it from the secret/PII scan or the sweeps.
+Physical relocation of ARCHIVE files into `docs/archive/` is incremental and mechanical: several gates and tests read documents by path (`scripts/architecture_truth_gate.cjs`, `scripts/legal_compliance_gate.cjs`, `src/admin_mission_control.ts`, `tests/*`), so moves happen in small consumer-proven batches, never in bulk. D5 batches 1–3 (2026-10-01) moved fifty-one zero-consumer records (the Morning Handoffs and their DECISION / ISSUES / LOG companions) without changing their contents. `docs/archive/` is tracked (`.gitignore` exception) and stays inside every repository scan (`scripts/lib/repo_scan_policy.cjs` `INCLUDED_DIR_PATHS`), so archiving a document never removes it from the secret/PII scan or the sweeps.
 
 Counts: CANONICAL 12 · REFERENCE 100 · ARCHIVE 175 (287 documents: everything under `docs/` plus the root reports; `legacy/render/README.md` and `legacy/render/docs/*` were deleted by Lean Refactor D3-B on 2026-10-01). Out of scope: `.claude/agents/*.md` (agent definitions, CI-checked), `scripts/README.md`, `scripts/retired/README.md`, `ios/App/CapApp-SPM/README.md`.
 
@@ -158,14 +158,14 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `SECURITY_HARDENING_DELIVERY_REPORT.md` | Security Hardening Delivery Report | delivery report |
 | `SECURITY_IDENTITY_TRACKING_DELIVERY_REPORT.md` | Security Identity Tracking Delivery Report | delivery report |
 | `docs/ADVERSARIAL_HARDENING_DECISION.md` | Adversarial Hardening Decision | historical decision |
-| `docs/ADVERSARIAL_HARDENING_ISSUES.md` | Adversarial Hardening Issues | night-run log |
-| `docs/ADVERSARIAL_HARDENING_LOG.md` | Adversarial Hardening Log | night log |
+| `docs/archive/ADVERSARIAL_HARDENING_ISSUES.md` | Adversarial Hardening Issues | night-run log |
+| `docs/archive/ADVERSARIAL_HARDENING_LOG.md` | Adversarial Hardening Log | night log |
 | `docs/ADVERSARIAL_RESILIENCE_GATE.md` | Adversarial Resilience Gate | gate report |
 | `docs/ARCHITECTURE_REBASE_R0.md` | Architecture Rebase R0 | R0 rebase log |
 | `docs/ARCHITECTURE_REBASE_R1_SUPABASE_STAGING.md` | Rebase R1 Supabase Staging | R1 log |
-| `docs/BACKEND_CLOSURE_DECISION.md` | Backend Closure Decision | historical decision |
-| `docs/BACKEND_PROFESSIONALIZATION_AUDIT.md` | Backend Professionalization Audit | audit |
-| `docs/BACKEND_PROFESSIONALIZATION_DECISION.md` | Backend Professionalization Decision | decision |
+| `docs/archive/BACKEND_CLOSURE_DECISION.md` | Backend Closure Decision | historical decision |
+| `docs/archive/BACKEND_PROFESSIONALIZATION_AUDIT.md` | Backend Professionalization Audit | audit |
+| `docs/archive/BACKEND_PROFESSIONALIZATION_DECISION.md` | Backend Professionalization Decision | decision |
 | `docs/BACKEND_SECURITY_HARDENING_AUDIT.md` | Backend security hardening audit | audit (long) |
 | `docs/BASE44_DATA_MIGRATION_CENSUS_R1.md` | Base44 Data Migration Census R1 | Base44-era |
 | `docs/BASE44_WORKER_ACTIVATION_BLOCKER.md` | Base44 Worker Activation Blocker | Base44-era |
@@ -184,35 +184,35 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/DEAL_TYPES_E2E_GATE.md` | Deal Types E2E Gate | gate report |
 | `docs/DEAL_TYPES_E2E_HANDOFF.md` | Deal Types E2E Handoff | handoff |
 | `docs/DEAL_TYPE_EXPANSION_DELIVERY_REPORT.md` | Deal Type Expansion Delivery Report | delivery report |
-| `docs/DEMO_DEPLOYMENT_EXECUTION_DECISION.md` | Demo Deployment Execution Decision | old run |
-| `docs/DEMO_DEPLOYMENT_EXECUTION_ISSUES.md` | Demo Deployment Execution Issues | old run |
-| `docs/DEMO_DEPLOYMENT_EXECUTION_LOG.md` | Demo Deployment Execution Log | old run |
-| `docs/DEMO_PREVIEW_DEPLOYMENT_DECISION.md` | Demo/Preview Deployment Decision | old run |
-| `docs/DEMO_PREVIEW_DEPLOYMENT_ISSUES.md` | Demo/Preview Deployment Issues | old run |
-| `docs/DEMO_PREVIEW_DEPLOYMENT_LOG.md` | Demo/Preview Deployment Log | old run |
+| `docs/archive/DEMO_DEPLOYMENT_EXECUTION_DECISION.md` | Demo Deployment Execution Decision | old run |
+| `docs/archive/DEMO_DEPLOYMENT_EXECUTION_ISSUES.md` | Demo Deployment Execution Issues | old run |
+| `docs/archive/DEMO_DEPLOYMENT_EXECUTION_LOG.md` | Demo Deployment Execution Log | old run |
+| `docs/archive/DEMO_PREVIEW_DEPLOYMENT_DECISION.md` | Demo/Preview Deployment Decision | old run |
+| `docs/archive/DEMO_PREVIEW_DEPLOYMENT_ISSUES.md` | Demo/Preview Deployment Issues | old run |
+| `docs/archive/DEMO_PREVIEW_DEPLOYMENT_LOG.md` | Demo/Preview Deployment Log | old run |
 | `docs/DOC_ENCODING_AND_READABILITY.md` | Doc Encoding And Readability | old note |
 | `docs/EXTERNAL_ACTIVATION_CHECKLIST.md` | V1 External Activation Checklist | Base44-era checklist |
-| `docs/FINAL_CANONICAL_AUDIT_DECISION.md` | Final Canonical Audit Decision | old audit |
-| `docs/FINAL_CANONICAL_AUDIT_ISSUES.md` | Final Canonical Audit Issues | old audit |
-| `docs/FINAL_CANONICAL_AUDIT_LOG.md` | Final Canonical Audit Log | old audit |
+| `docs/archive/FINAL_CANONICAL_AUDIT_DECISION.md` | Final Canonical Audit Decision | old audit |
+| `docs/archive/FINAL_CANONICAL_AUDIT_ISSUES.md` | Final Canonical Audit Issues | old audit |
+| `docs/archive/FINAL_CANONICAL_AUDIT_LOG.md` | Final Canonical Audit Log | old audit |
 | `docs/FINAL_ZERO_DEVELOPMENT_CLOSURE.md` | V1 Final Zero-Development Closure | closeout |
-| `docs/FRONTEND_EXECUTION_LOG.md` | Frontend Execution Log | log |
+| `docs/archive/FRONTEND_EXECUTION_LOG.md` | Frontend Execution Log | log |
 | `docs/FRONTEND_FOUNDATION_RTL_ACCESSIBILITY.md` | Frontend Foundation RTL/A11y | dated stage |
-| `docs/FRONTEND_ISSUES.md` | Frontend Issues | old |
-| `docs/FRONTEND_PROGRESS_DECISION.md` | Frontend Progress Decision | old |
+| `docs/archive/FRONTEND_ISSUES.md` | Frontend Issues | old |
+| `docs/archive/FRONTEND_PROGRESS_DECISION.md` | Frontend Progress Decision | old |
 | `docs/FRONTEND_START_GATE.md` | Frontend Start Gate | old |
 | `docs/FULL_E2E_GATE.md` | Full E2E Gate | gate report |
 | `docs/FULL_PRODUCT_CLOSURE_DECISION.md` | FULL PRODUCT CLOSURE DECISION | superseded |
-| `docs/FULL_PRODUCT_CLOSURE_ISSUES.md` | FULL PRODUCT CLOSURE ISSUES | superseded |
-| `docs/FULL_PRODUCT_CLOSURE_LOG.md` | FULL PRODUCT CLOSURE LOG | superseded |
+| `docs/archive/FULL_PRODUCT_CLOSURE_ISSUES.md` | FULL PRODUCT CLOSURE ISSUES | superseded |
+| `docs/archive/FULL_PRODUCT_CLOSURE_LOG.md` | FULL PRODUCT CLOSURE LOG | superseded |
 | `docs/FULL_SYSTEM_QA_DECISION.md` | Full System QA Decision | old QA |
-| `docs/FULL_SYSTEM_QA_ISSUES.md` | Full System QA Issues | old QA |
-| `docs/FULL_SYSTEM_QA_LOG.md` | Full System QA Log | old QA |
+| `docs/archive/FULL_SYSTEM_QA_ISSUES.md` | Full System QA Issues | old QA |
+| `docs/archive/FULL_SYSTEM_QA_LOG.md` | Full System QA Log | old QA |
 | `docs/GAP_REGISTER_MASTER.md` | Gap Register Master | old gap map |
 | `docs/HOUSEKEEPING_SUMMARY.md` | Housekeeping Summary | old cleanup |
-| `docs/INTERNAL_MAXIMAL_CLOSURE_DECISION.md` | Internal Maximal Closure Decision | old |
-| `docs/INTERNAL_MAXIMAL_CLOSURE_ISSUES.md` | Internal Maximal Closure Issues | old |
-| `docs/INTERNAL_MAXIMAL_CLOSURE_LOG.md` | Internal Maximal Closure Log | old |
+| `docs/archive/INTERNAL_MAXIMAL_CLOSURE_DECISION.md` | Internal Maximal Closure Decision | old |
+| `docs/archive/INTERNAL_MAXIMAL_CLOSURE_ISSUES.md` | Internal Maximal Closure Issues | old |
+| `docs/archive/INTERNAL_MAXIMAL_CLOSURE_LOG.md` | Internal Maximal Closure Log | old |
 | `docs/LAUNCH_GAP_REPORT.md` | Launch Gap Report (closed web pilot) | dated report |
 | `docs/LAUNCH_POLISH_SPRINT_1.md` | Launch Polish Sprint 1 | sprint report |
 | `docs/LAUNCH_POLISH_SPRINT_2.md` | Launch Polish Sprint 2 | sprint report |
@@ -220,26 +220,26 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/LOAD_CAPACITY_BASELINE_REPORT.md` | Load & Capacity Baseline Report | dated report |
 | `docs/LOCAL_STAGE_COMPLETION_REPORT.md` | Local Stage Completion Report | stage report |
 | `docs/LOGGING_HARDENING.md` | Logging Hardening | old stage |
-| `docs/MASTER_PRODUCT_DEEP_MAP_AND_HARDENING_DECISION.md` | Master Product Deep Map Decision | old |
-| `docs/MASTER_PRODUCT_DEEP_MAP_AND_HARDENING_ISSUES.md` | Master Product Deep Map Issues | old |
-| `docs/MASTER_PRODUCT_DEEP_MAP_AND_HARDENING_LOG.md` | Master Product Deep Map Log | superseded |
+| `docs/archive/MASTER_PRODUCT_DEEP_MAP_AND_HARDENING_DECISION.md` | Master Product Deep Map Decision | old |
+| `docs/archive/MASTER_PRODUCT_DEEP_MAP_AND_HARDENING_ISSUES.md` | Master Product Deep Map Issues | old |
+| `docs/archive/MASTER_PRODUCT_DEEP_MAP_AND_HARDENING_LOG.md` | Master Product Deep Map Log | superseded |
 | `docs/MOBILE_TECHNICAL_INVENTORY.md` | Mobile technical inventory | dated inventory |
 | `docs/MONEY_PILOT_SCOPE.md` | Money Pilot Scope | proposal |
-| `docs/MORNING_HANDOFF_ADVERSARIAL_HARDENING.md` | Morning Handoff Adversarial Hardening | handoff |
-| `docs/MORNING_HANDOFF_BACKEND_PROFESSIONALIZATION.md` | Morning Handoff Backend Prof. | handoff |
+| `docs/archive/MORNING_HANDOFF_ADVERSARIAL_HARDENING.md` | Morning Handoff Adversarial Hardening | handoff |
+| `docs/archive/MORNING_HANDOFF_BACKEND_PROFESSIONALIZATION.md` | Morning Handoff Backend Prof. | handoff |
 | `docs/archive/MORNING_HANDOFF_DEMO_DEPLOYMENT_EXECUTION.md` | Morning Handoff Demo Deployment | handoff |
 | `docs/archive/MORNING_HANDOFF_DEMO_PREVIEW_DEPLOYMENT.md` | Morning Handoff Demo/Preview | handoff |
 | `docs/archive/MORNING_HANDOFF_FINAL_CANONICAL_AUDIT.md` | Morning Handoff Final Canonical Audit | handoff |
 | `docs/archive/MORNING_HANDOFF_FRONTEND_EXECUTION.md` | Morning Handoff Frontend | handoff |
-| `docs/MORNING_HANDOFF_FULL_PRODUCT_CLOSURE.md` | Morning Handoff Full Product Closure | superseded |
+| `docs/archive/MORNING_HANDOFF_FULL_PRODUCT_CLOSURE.md` | Morning Handoff Full Product Closure | superseded |
 | `docs/archive/MORNING_HANDOFF_FULL_SYSTEM_QA.md` | Morning Handoff Full System QA | handoff |
-| `docs/MORNING_HANDOFF_INTERNAL_MAXIMAL_CLOSURE.md` | Morning Handoff Internal Maximal Closure | handoff |
-| `docs/MORNING_HANDOFF_MASTER_PRODUCT_DEEP_MAP_AND_HARDENING.md` | Morning Handoff Master Product Deep Map | superseded |
-| `docs/MORNING_HANDOFF_PREPROD_TORTURE_QA.md` | Morning Handoff Preprod Torture QA | handoff |
-| `docs/MORNING_HANDOFF_REAL_INTEGRATIONS.md` | Morning Handoff Real Integrations | handoff |
-| `docs/MORNING_HANDOFF_REAL_PAYMENT_AND_RECONCILIATION.md` | Morning Handoff Real Payment | handoff |
-| `docs/MORNING_HANDOFF_REMAINING_PRODUCT_SURFACES.md` | Morning Handoff Remaining Surfaces | superseded |
-| `docs/MORNING_HANDOFF_ULTIMATE_PRELIVE_QA_RC.md` | Morning Handoff Ultimate Pre-Live QA | handoff |
+| `docs/archive/MORNING_HANDOFF_INTERNAL_MAXIMAL_CLOSURE.md` | Morning Handoff Internal Maximal Closure | handoff |
+| `docs/archive/MORNING_HANDOFF_MASTER_PRODUCT_DEEP_MAP_AND_HARDENING.md` | Morning Handoff Master Product Deep Map | superseded |
+| `docs/archive/MORNING_HANDOFF_PREPROD_TORTURE_QA.md` | Morning Handoff Preprod Torture QA | handoff |
+| `docs/archive/MORNING_HANDOFF_REAL_INTEGRATIONS.md` | Morning Handoff Real Integrations | handoff |
+| `docs/archive/MORNING_HANDOFF_REAL_PAYMENT_AND_RECONCILIATION.md` | Morning Handoff Real Payment | handoff |
+| `docs/archive/MORNING_HANDOFF_REMAINING_PRODUCT_SURFACES.md` | Morning Handoff Remaining Surfaces | superseded |
+| `docs/archive/MORNING_HANDOFF_ULTIMATE_PRELIVE_QA_RC.md` | Morning Handoff Ultimate Pre-Live QA | handoff |
 | `docs/MVP_COMPLETION_GATE.md` | MVP Completion Gate | gate report |
 | `docs/OPERATIONAL_SCRIPT_VALIDATION.md` | Operational Script Validation | old stage |
 | `docs/OVERNIGHT_ENGINEERING_HANDOFF_2026-08-31.md` | Overnight Engineering Handoff | night handoff |
@@ -256,8 +256,8 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/PAYMENT_RED_TEAM_2026-09-18.md` | Payment Rail Red-Team | red-team |
 | `docs/POST_E2E_REFACTOR_AUDIT.md` | Post E2E Refactor Audit | audit |
 | `docs/PREPROD_TORTURE_QA_DECISION.md` | Preprod Torture QA Decision | old QA |
-| `docs/PREPROD_TORTURE_QA_ISSUES.md` | Preprod Torture QA Issues | old QA |
-| `docs/PREPROD_TORTURE_QA_LOG.md` | Preprod Torture QA Log | old QA |
+| `docs/archive/PREPROD_TORTURE_QA_ISSUES.md` | Preprod Torture QA Issues | old QA |
+| `docs/archive/PREPROD_TORTURE_QA_LOG.md` | Preprod Torture QA Log | old QA |
 | `docs/PRODUCT_CATALOG.md` | Product catalog, Products and frozen Deal snapshots | feature removed by the 2026-09-30 constitution |
 | `docs/PRODUCT_DIRECTION_ALIGNMENT_2026-04-09.md` | Product Direction Alignment | old direction (Mall as primary surface); superseded banner in the file |
 | `docs/PRODUCT_SURFACES_REFINEMENT.md` | Product Surfaces Refinement | dated stage |
@@ -272,15 +272,15 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/RC_GATE_DECISION.md` | RC Gate Decision | old decision |
 | `docs/RC_STAGING_SMOKE.md` | RC Staging Deploy Smoke (LEGACY RENDER) | legacy evidence |
 | `docs/READ_SURFACES_TRUTH_ALIGNMENT.md` | Read Surfaces Truth Alignment | dated stage |
-| `docs/REAL_INTEGRATIONS_DECISION.md` | Real Integrations Decision | old |
-| `docs/REAL_INTEGRATIONS_EXECUTION_LOG.md` | Real Integrations Log | old |
-| `docs/REAL_INTEGRATIONS_ISSUES.md` | Real Integrations Issues | old |
+| `docs/archive/REAL_INTEGRATIONS_DECISION.md` | Real Integrations Decision | old |
+| `docs/archive/REAL_INTEGRATIONS_EXECUTION_LOG.md` | Real Integrations Log | old |
+| `docs/archive/REAL_INTEGRATIONS_ISSUES.md` | Real Integrations Issues | old |
 | `docs/REAL_PAYMENT_AND_RECONCILIATION_DECISION.md` | Real Payment Decision | old |
-| `docs/REAL_PAYMENT_AND_RECONCILIATION_ISSUES.md` | Real Payment Issues | old |
-| `docs/REAL_PAYMENT_AND_RECONCILIATION_LOG.md` | Real Payment Log | old |
+| `docs/archive/REAL_PAYMENT_AND_RECONCILIATION_ISSUES.md` | Real Payment Issues | old |
+| `docs/archive/REAL_PAYMENT_AND_RECONCILIATION_LOG.md` | Real Payment Log | old |
 | `docs/RED_TEAM_SYSTEM_2026-09-18.md` | System Red Team | red-team |
 | `docs/REMAINING_PRODUCT_SURFACES_DECISION.md` | Remaining Surfaces Decision | superseded |
-| `docs/REMAINING_PRODUCT_SURFACES_ISSUES.md` | Remaining Surfaces Issues | old |
+| `docs/archive/REMAINING_PRODUCT_SURFACES_ISSUES.md` | Remaining Surfaces Issues | old |
 | `docs/REMAINING_PRODUCT_SURFACES_LOG.md` | Remaining Surfaces Log | old |
 | `docs/REPOSITORY_FINAL_HYGIENE_DECISION.md` | Repository Final Hygiene Decision | old |
 | `docs/RUNTIME_VALIDATION_LIMITATIONS.md` | Runtime Validation Limitations | old |
@@ -313,7 +313,7 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/TEST_BASELINE_DECISION.md` | Test Baseline Decision | old |
 | `docs/TEST_INVENTORY.md` | TEST INVENTORY, Unit Mapping | old inventory |
 | `docs/ULTIMATE_PRELIVE_QA_RC_DECISION.md` | Ultimate Pre-Live QA Decision | old QA |
-| `docs/ULTIMATE_PRELIVE_QA_RC_ISSUES.md` | Ultimate Pre-Live QA Issues | old QA |
+| `docs/archive/ULTIMATE_PRELIVE_QA_RC_ISSUES.md` | Ultimate Pre-Live QA Issues | old QA |
 | `docs/ULTIMATE_PRELIVE_QA_RC_LOG.md` | Ultimate Pre-Live QA Log | old QA |
 | `docs/UX_NIGHT_REINTEGRATION.md` | Overnight UX reintegration | night report |
 | `docs/V1_1_BASE44_PRE_ACTIVATION_SNAPSHOT.md` | V1.1 Base44 pre-activation snapshot | Base44-era |
