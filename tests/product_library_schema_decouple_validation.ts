@@ -35,7 +35,7 @@ assert.doesNotMatch(schema, /["']product_images["']/, "readiness must not requir
 assert.match(app, /const legacyProductId = typeof body\.product_id === "string"/);
 assert.match(app, /const deferLegacyValidation = Boolean\(createIdempotencyKey && legacyProductId\)/);
 assert.match(app, /product_id:\s*legacyProductId \|\| null/);
-assert.match(app, /stored\.request_hash === createRequestHash/);
+assert.match(app, /String\(prior\.rows\[0\]\.request_hash \|\| ""\) !== createRequestHash/);
 
 // C1 never edits migration 072 and never retires the delivery-estimate feature
 // that happened to land in the same historical migration.
