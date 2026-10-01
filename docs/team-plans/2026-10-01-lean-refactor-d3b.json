@@ -1,0 +1,85 @@
+{
+  "task": "Lean Refactor D3-B: delete the Base44 gate cluster and legacy/ now that the architecture gate (D3-A, PR #157, 49b810c) asserts the Render/Supabase runtime: base44/, scripts/base44_canonical_integrity_gate.cjs, its two configs and fixture, the Base44-only tests, scripts/extract_base44_inventory_sql.ps1 (+ its single test case), the legacy-excluded-surfaces classifier rule, the three npm scripts, legacy/ (12 files, zero runtime/CI consumers), the runbook lines; add the Base44 SDK token scan of frontend/, scripts/, .github and web/src to the architecture gate so the deleted integrity gate's only live scan survives; Mall read model, routes and migrations untouched",
+  "lead": "claude-lead",
+  "base": "origin/master",
+  "open_branches": [],
+  "assignments": [
+    {
+      "id": "B1",
+      "agent": "claude-lead",
+      "role": "builder",
+      "tier": "senior",
+      "scope": "git rm of the cluster; package.json scripts gate:base44-canonical-integrity, test:base44-canonical-integrity, legacy:validate-render; ci_change_classifier rule legacy-excluded-surfaces; tests/supabase_staging_security_foundation_validation.ts drops only inventory_source_is_git_reconstructable; architecture gate gains the legacy SDK/entity token scan + mutation tests; repo_scan_policy comment; docs: OUTBOX_WORKER_OPERATIONS, ARCHITECTURE_REBASE_R3_RENDER_WEB, AWS_ACCORDION_DEPLOYMENT_BLUEPRINT (REFERENCE), STAGE32B_OPERATIONAL_RECOVERY (ARCHIVE, operational command lines only), CURRENT_ARCHITECTURE, DOCUMENTATION_MAP, CI_TEST_STRATEGY, scripts/retired/README.md, map §3.1/§3.3/D3 row, PROJECT_STATUS.md",
+      "allowed": [
+        "base44/",
+        "legacy/",
+        "scripts/base44_canonical_integrity_gate.cjs",
+        "scripts/extract_base44_inventory_sql.ps1",
+        "config/base44-canonical-registry.json",
+        "config/base44-canonical-callers.json",
+        "tests/fixtures/base44_integrity_clean_snapshot.json",
+        "tests/base44_canonical_integrity_validation.ts",
+        "tests/base44_mall_contract_validation.ts",
+        "tests/supabase_inventory_activation_hardening_validation.ts",
+        "tests/hosted_v11_activation_gate_validation.ts",
+        "tests/supabase_staging_security_foundation_validation.ts",
+        "tests/release_tools/architecture_truth_gate.test.cjs",
+        "tests/release_tools/repo_scan_policy.test.cjs",
+        "tests/canonical_sql_invariants_validation.ts",
+        "scripts/architecture_truth_gate.cjs",
+        "scripts/ci_change_classifier.cjs",
+        "scripts/lib/repo_scan_policy.cjs",
+        "scripts/retired/README.md",
+        "package.json",
+        "docs/OUTBOX_WORKER_OPERATIONS.md",
+        "docs/ARCHITECTURE_REBASE_R3_RENDER_WEB.md",
+        "docs/AWS_ACCORDION_DEPLOYMENT_BLUEPRINT.md",
+        "docs/STAGE32B_OPERATIONAL_RECOVERY.md",
+        "docs/CURRENT_ARCHITECTURE_2026-09-30.md",
+        "docs/DOCUMENTATION_MAP.md",
+        "docs/CI_TEST_STRATEGY.md",
+        "docs/LEAN_REFACTOR_MAP_2026-09-30.md",
+        "docs/team-plans/2026-10-01-lean-refactor-d3b.json",
+        "PROJECT_STATUS.md"
+      ],
+      "forbidden": [
+        "src/",
+        "web/src/",
+        "supabase/",
+        "render.yaml",
+        "src/migrations/",
+        "tests/legacy_runtime_isolation_validation.ts",
+        "tests/mall_runtime_validation.ts",
+        "tests/mall_hidden_by_default_validation.ts",
+        "tests/mall_read_model_validation.ts",
+        "config/release-preflight-gates.json",
+        ".github/workflows/"
+      ],
+      "depends_on": [],
+      "dod": [
+        "zero references to base44/, legacy/, the .ps1, the integrity gate or its npm scripts remain outside ARCHIVE-tier history and the status/map records",
+        "every deleted test's live-canonical assertion is proven present in tests/canonical_sql_invariants_validation.ts or the architecture gate",
+        "Mall tests, inventory/schema tests, legacy isolation, release-tools, classifier tests, static preflight, lint, secret/PII, hygiene, i18n PASS; the architecture gate PASS with its new scan and FAIL on a planted legacy SDK token",
+        "CI FULL profile green on the final head"
+      ]
+    },
+    {
+      "id": "R1",
+      "agent": "claude-subagent",
+      "role": "reviewer",
+      "senior": true,
+      "tier": "senior",
+      "scope": "independent senior review: nothing live deleted (Mall read model, routes, migration 049, inventory grants), no test deleted that held a canonical-source assertion without a replacement, the ported token scan is at least as strong as scanLegacyReferences for the trees it covered, no gate weakened, no scan blind spot created",
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "verdict with concrete failure scenarios"
+      ]
+    }
+  ],
+  "sequencing_note": "tests/canonical_sql_invariants_validation.ts moved from forbidden to allowed after the independent review asked for the literal 24-field lock of PUBLIC_MALL_DEAL_FIELDS that the deleted Base44 contract test used to provide. Written 2026-10-01 after D3-A (PR #157) squash-merged as 49b810c; starts only once Render web + worker are live on 49b810c (owner rule). open_branches is empty. Codex cross-provider review unavailable (quota exhausted 2026-09-30); merges on the independent senior review plus green CI."
+}

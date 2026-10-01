@@ -12,7 +12,7 @@ Three tiers. A document's tier is decided by its role today, not by its title. H
 
 Physical relocation of ARCHIVE files into `docs/archive/` is a later, mechanical step: several gates and tests read documents by path (`scripts/architecture_truth_gate.cjs`, `scripts/legal_compliance_gate.cjs`, `src/admin_mission_control.ts`, `tests/*`), so moves happen per file with their consumers updated, never in bulk.
 
-Counts: CANONICAL 12 · REFERENCE 100 · ARCHIVE 176 (288 documents: everything under `docs/` plus the root reports and `legacy/render/README.md`). Out of scope: `.claude/agents/*.md` (agent definitions, CI-checked), `legacy/render/docs/*` (quarantined, ARCHIVE by location), `scripts/README.md`, `ios/App/CapApp-SPM/README.md`.
+Counts: CANONICAL 12 · REFERENCE 100 · ARCHIVE 175 (287 documents: everything under `docs/` plus the root reports; `legacy/render/README.md` and `legacy/render/docs/*` were deleted by Lean Refactor D3-B on 2026-10-01). Out of scope: `.claude/agents/*.md` (agent definitions, CI-checked), `scripts/README.md`, `scripts/retired/README.md`, `ios/App/CapApp-SPM/README.md`.
 
 ## CANONICAL (read these)
 
@@ -64,7 +64,7 @@ Reading order for a new agent is exactly the "Start every meaningful task" list 
 | `docs/DELIVERY_DATA_HANDOFF.md` | Delivery Data Handoff | feature spec |
 | `docs/DEPLOYMENT_RUNBOOK.md` | Deployment Runbook | runbook |
 | `docs/DISASTER_RECOVERY_RUNBOOK.md` | Disaster Recovery Runbook | runbook |
-| `docs/DISTRIBUTOR_TERMS_HE.md` | תנאי מפיץ | legal text served at `/legal/affiliates` and required verbatim by `scripts/legal_compliance_gate.cjs`; **known drift:** it still defines a מפיץ identity while the constitution recognises no distributor business role — reconciliation is a separate owner-approved legal-text change (2026-09-16 amendment §5 keeps the text unchanged) |
+| `docs/DISTRIBUTOR_TERMS_HE.md` | תנאי לינקי הפצה | legal text served at `/legal/affiliates` (legacy compatibility slug) and pinned by `scripts/legal_compliance_gate.cjs`: no distributor business role, aggregate-only link viewer without buyer personal data, no external distribution commission; the legacy filename is kept for compatibility (PR #159) |
 | `docs/DOCKER_READINESS.md` | Docker Readiness | ops reference |
 | `docs/ENVIRONMENT_CONTRACT.md` | Environment Contract | env contract |
 | `docs/ERROR_MONITORING.md` | Error monitoring (Sentry) | error monitoring |
@@ -322,7 +322,6 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/foundation-canonical-2026-04-18/README.md` | Foundation pack, HISTORICAL SOURCE | marked historical/obsolete |
 | `docs/runtime-contract-resolution.md` | runtime-contract-resolution | old note, unreadable |
 | `docs/USER_TEST_CONDITIONAL_DEAL_PLAN.md` | Conditional Deal User Test Plan | research plan from 2026-08-23, not an operating document |
-| `legacy/render/README.md` | Legacy Render snapshot | quarantined pre-R3 Render snapshot README; evidence only |
 
 ## Known drift markers added 2026-09-30
 
@@ -331,7 +330,7 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 - Runtime sentences corrected in place: `ENVIRONMENT_CONTRACT.md`, `AWS_ACCORDION_DEPLOYMENT_BLUEPRINT.md`, `INVOICE_PROVIDER_MORNING_ADAPTER.md`, `SITON_V1_1_MALL_PRODUCT_DIRECTION.md`, `MOBILE_APP_RELEASE_READINESS.md`, `RC_STAGING_SMOKE.md`, `legacy/render/README.md`.
 - Distributor-as-role wording corrected in REFERENCE docs: `INFORMATION_SECURITY_POLICY.md`, `PRIVACY_DATA_MAP.md`, `PRODUCTION_DATA_ACCESS_BOUNDARIES.md`, `ADMIN_LEGAL_OPS_POLICY.md`, `ACCESSIBILITY_COMPLIANCE.md`, `SECURITY_INCIDENT_RUNBOOK.md`, `LEGAL_TRUST_SURFACES.md`.
 - `docs/PRODUCT_CATALOG.md`: removal banner.
-- Code-side drift closed by Lean Refactor D3-A: `scripts/architecture_truth_gate.cjs` asserts the Render web + Render worker + Supabase runtime; `base44/runtime-manifest.json` (still saying `production_runtime = base44`) is no longer read by any gate and is deleted by D3-B.
+- Code-side drift closed by Lean Refactor D3-A/D3-B: `scripts/architecture_truth_gate.cjs` asserts the Render web + Render worker + Supabase runtime and rejects any Base44 SDK call or token in the code trees; `base44/`, its configs, gate and tests, and `legacy/render/` are deleted (2026-10-01).
 
 ## Housekeeping candidates (not done here)
 

@@ -9,8 +9,8 @@
 // repository scan?". Scanners call `walkRepository()` and never re-implement
 // exclusions. The policy is deliberately conservative: it excludes only
 // generated, vendored, version-control, temporary and review artefacts, never a
-// real source directory. `tests/`, `tests/lab/`, `legacy/`, `supabase/`,
-// `scripts/`, `src/`, `web/src` and `frontend/` all remain scanned.
+// real source directory. `tests/`, `tests/lab/`, `supabase/`, `scripts/`,
+// `src/`, `web/src` and `frontend/` all remain scanned.
 //
 // Tests for this policy live in tests/release_tools/repo_scan_policy.test.cjs.
 const fs = require("node:fs");

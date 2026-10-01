@@ -901,7 +901,7 @@ export async function buildSellerAnalytics(c: any, sellerId: string, period: Sel
     },
     attribution: {
       measurement_only: true,
-      disclaimer_he: "נתוני ייחוס בלבד. סיטון אינה מחשבת עמלה ואינה מבצעת תשלום למפיצים.",
+      disclaimer_he: "נתוני ייחוס בלבד. סיטון אינה מחשבת עמלה ואינה מבצעת תשלום לגורם חיצוני בגין הפצה.",
       links_count: attributionRows.length,
       attributed_units: sumRows(attributionRows, (row) => num(row.attributed_units)),
       attributed_gross: sumRows(attributionRows, (row) => num(row.attributed_gross)),

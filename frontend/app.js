@@ -3257,7 +3257,7 @@ function renderCtonHome() {
       <a href="/legal/privacy">מדיניות פרטיות</a>
       <a href="/legal/refunds">ביטולים והחזרים</a>
       <a href="/legal/sellers">תנאי מוכרים</a>
-      <a href="/legal/affiliates">תנאי מפיצים</a>
+      <a href="/legal/affiliates">תנאי לינקי הפצה</a>
     </footer>
   `;
 }
@@ -3872,7 +3872,7 @@ function renderDealPage() {
           <div class="summary-item"><span class="muted">סגירת חלון ההצטרפות</span><strong>${dt(deal.deadline)}</strong></div>
           <div class="summary-item"><span class="muted">מספר משתתפים</span><strong>${num(metrics.participants_count)}</strong></div>
         </div>
-        ${affiliateRef ? `<div class="info-strip tone-info"><strong>ייחוס שותף נשמר במסלול</strong><p class="small">קוד ההפניה <span class="mono">${esc(affiliateRef)}</span> יישאר מחובר להצטרפות הזאת ויופיע במסכים הפנימיים הרלוונטיים.</p></div>` : ""}
+        ${affiliateRef ? `<div class="info-strip tone-info"><strong>ייחוס לינק ההפצה נשמר במסלול</strong><p class="small">קוד ההפניה <span class="mono">${esc(affiliateRef)}</span> יישאר מחובר להצטרפות הזאת ויופיע במסכים הפנימיים הרלוונטיים.</p></div>` : ""}
         ${flow ? renderExistingFlow(flow, deal.deal_id) : ""}
         ${renderLegalReferenceStrip("deal")}
       </article>
@@ -6078,7 +6078,7 @@ function renderAdminPage() {
           </div>
           <div class="field">
             <label>מזהה תחום</label>
-            <input name="supportScopeKey" type="text" placeholder="מזהה עסקה, משתתף, מפיץ, מוכר או system" />
+            <input name="supportScopeKey" type="text" placeholder="מזהה עסקה, משתתף, מקור הפצה, מוכר או system" />
           </div>
         </div>
         <div class="field"><label>כותרת פנייה</label><input name="supportTitle" type="text" placeholder="סיכום קצר לפנייה" /></div>
@@ -7257,7 +7257,7 @@ const INTERNAL_TABLE_HEADER_LABELS = {
   action_name: "פעולה",
   deal_state: "מצב עסקה",
   gross_amount: "סכום ברוטו",
-  affiliate_name: "שם שותף"
+  affiliate_name: "שם מקור הפצה"
 };
 
 function formatInternalTableHeader(column) {
@@ -7517,7 +7517,7 @@ function formatSupportScopeType(scopeType) {
   const map = {
     deal: "עסקה",
     participant: "משתתף",
-    affiliate: "מפיץ",
+    affiliate: "מקור הפצה",
     seller: "מוכר",
     system: "מערכת"
   };
@@ -7617,7 +7617,7 @@ function renderLegalLinkRow() {
       <a href="/legal/refunds">ביטולים והחזרים</a>
       <a href="/app/accessibility" data-nav="/app/accessibility">הצהרת נגישות</a>
       <a href="/legal/sellers">תנאי מוכרים</a>
-      <a href="/legal/affiliates">תנאי מפיצים</a>
+      <a href="/legal/affiliates">תנאי לינקי הפצה</a>
       <a href="/legal/payments">מדיניות תשלומים</a>
       <a href="/app/contact" data-nav="/app/contact">יצירת קשר</a>
     </div>
@@ -7706,7 +7706,7 @@ function renderTermsPage() {
       { title: "אין התחייבות להשלמת העסקה", body: "אין התחייבות שהעסקה תצא לפועל, ואין התחייבות לזמינות מוצר עד השלמת העסקה. העסקה יכולה להיכשל אם לא מתקיימים תנאי הסף, אם חל כשל סליקה, או אם מנגנוני המערכת מסמנים מצב שאינו מאפשר השלמה." },
       { title: "תנאים קריטיים לאחר פרסום", body: "מחיר, מינימום, מקסימום, דדליין, אופן קבלה ותנאים קריטיים נוספים אינם משתנים לאחר פרסום העסקה. לאחר נעילה לפי חוקת העסקה אין ביטול מתוך המערכת אלא אם מצב העסקה והמנגנונים הקיימים מאפשרים זאת." },
       { title: "כלל 90%", body: "עסקה תיחשב מוצלחת רק אם חויבו בפועל לפחות 90% מהמינימום שהוגדר. אם פחות מכך חויב בפועל, העסקה נכשלת לפי מנגנון המערכת." },
-      { title: "לינקי הפצה ומפיצים", body: "מפיצים הם ערוץ מדידה ושיתוף בלבד. אין במערכת עמלה, יתרה, payout או תשלום למפיץ, וכל הסכמה אחרת בין מוכר למפיץ נמצאת מחוץ ל-C-ton." },
+      { title: "לינקי הפצה ומדידה", body: "לינק הפצה הוא אמצעי ייחוס ומדידה בלבד. אין בסיטון משתמש או תפקיד עסקי בשם מפיץ, ואין מנגנון עמלה, יתרה, payout או תשלום לגורם חיצוני בגין הפצה. כל הסכמה מסחרית חיצונית היא באחריות הצדדים בלבד." },
       { title: "הודעות ומקור אמת", body: "SMS, Email או הודעות אחרות הם כלי עזר בלבד. מסך המעקב של ההשתתפות והסטטוסים שמוצגים במערכת הם מקור האמת לגבי מצב העסקה, תפיסת המסגרת וההשתתפות." },
       { title: "כשלים טכניים ועיכובים", body: "שגיאות טכניות, כשלי רשת, כשלי סליקה או עיכובים יטופלו לפי מנגנוני המערכת והסטטוסים הקיימים. ייתכנו עיכובים שאינם בשליטת C-ton, למשל אצל ספק סליקה או חברת אשראי." },
       { title: "אחריות הקונה", body: "הקונה אחראי למסור פרטים נכונים, לעקוב אחר מצב ההשתתפות במסך המעקב, ולוודא שהכמות ואופן הקבלה שנשמרו תואמים את רצונו לפני אישור המסגרת." },
@@ -7773,7 +7773,7 @@ function renderSellerTermsPage() {
       { title: "תנאים קריטיים", body: "לאחר פרסום אין שינוי שקט של תנאים קריטיים. מחיר, מינימום, מקסימום, דדליין, משלוח, חלון השלמה ועמלות חייבים להיות סופיים לפני פרסום." },
       { title: "נעילה וביטול", body: "לאחר נעילת העסקה לפי חוקת העסקה אין ביטול מתוך המערכת, אלא אם מצב העסקה והמנגנונים האוטומטיים הקיימים מאפשרים זאת. מסך המעקב הוא מקור האמת לקונה." },
       { title: "כלל 90%", body: "המוכר מבין שהעסקה תושלם אם יחויבו בפועל לפחות 90% מהמינימום לפי יחידות. לכן ייתכן שהעסקה תושלם גם אם לא כל ההתחייבויות חויבו בפועל." },
-      { title: "עמלת C-ton", body: "C-ton גובה 8% כולל הכל מהכל, כולל משלוח, למעט מעמ. אין עמלת מפיצים במערכת וכל הסדר עם מפיץ הוא מחוץ למערכת בלבד." },
+      { title: "עמלת C-ton", body: "C-ton גובה עמלה קבועה של 8% מהסכום שנגבה בפועל מהלקוח, כולל משלוח וכל רכיב רכישה אחר, למעט רכיב המע״מ של הלקוח. אין שיעור עמלה שונה לעסקה ואין בסיטון מנגנון עמלה לגורם חיצוני בגין הפצה." },
       { title: "דמו ובדיקה משפטית", body: "סביבת הדמו אינה סביבת תשלום אמיתית ואין להסתמך על נתוני דמו כמסחר אמיתי. נוסח זה דורש בדיקה משפטית לפני שימוש בפרודקשן." },
       { title: "KYC והקפאה", body: "מוכר נדרש לאישור KYC בסיסי לפני פעילות אמיתית. C-ton רשאית להקפיא פעילות במקרה של חשד להונאה, תלונה מהותית, בעיית אספקה או סיכון משפטי." }
     ]

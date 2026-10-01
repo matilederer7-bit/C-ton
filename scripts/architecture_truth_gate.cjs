@@ -35,8 +35,10 @@
 // top-level block, a second envVars block, the legacy env: alias, an env
 // source other than value / sync / generateValue, a duplicated key), the worker LOGIN
 // provisioning, the Dockerfile/package entrypoint parity, the migration
-// manifest ⇄ schema contract parity, and the architecture SoT naming the real
-// runtime and not Base44.
+// manifest ⇄ schema contract parity, the architecture SoT naming the real
+// runtime and not Base44, and a scan of every code tree for a Base44 SDK call
+// or the Base44 token (the one live check the retired Base44 integrity gate
+// performed).
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -45,6 +47,39 @@ const CANONICAL_WORKER = "siton-staging-worker";
 const WORKER_ENTRYPOINT = "node .demo_dist/src/worker.js";
 const WEB_ENTRYPOINT = "node .demo_dist/src/app.js";
 const SECRET_KEY = /(SECRET|_KEY$|TOKEN|DSN|SALT|PASSWORD|DATABASE_URL)/;
+
+// Base44 SDK shapes (entity CRUD, function invoke, client construction) must
+// not come back anywhere in the code trees; the bare token must not come back
+// in the runtime, shell, scripts, web app or workflows (tests keep negative
+// guards that name it, so they are scanned for the SDK shapes only).
+const LEGACY_SDK_PATTERNS = [
+  /@base44\//,
+  /createClientFromRequest/,
+  /createClient\(\s*\{\s*appId/,
+  /\.entities\.[A-Za-z_]+\.(?:list|filter|get|create|update|delete|bulkCreate|bulkUpdate)\(/,
+  /\.entities\s*\[\s*["'][A-Za-z_]+["']\s*\]/,
+  /\bbase44\.(?:functions|entities|auth|integrations)\b/
+];
+// `supabase.functions.invoke(...)` is the canonical stack's own Edge Function
+// call and is deliberately NOT matched.
+const LEGACY_SDK_TREES = ["src", "frontend", "scripts", "tests", "web", ".github"];
+const LEGACY_TOKEN_TREES = ["src", "frontend", "scripts", "web", ".github"];
+const LEGACY_TOKEN_ROOT_FILES = ["package.json", "Dockerfile", "docker-compose.yml", "docker-compose.release-lab.yml", ".dockerignore", ".env.example", ".env.demo.example"];
+// Text surfaces only (code, config, markup, styles, manifests, shell); never a
+// binary asset.
+const CODE_FILE = /\.(?:cjs|mjs|js|jsx|ts|tsx|mts|cts|json|jsonc|ya?ml|html|sh|ps1|toml|css|svg|webmanifest|env|txt)$/;
+const SCAN_SKIP_DIRS = new Set(["node_modules", ".git", ".tmp_test_dist", ".demo_dist", ".mobile_dist", "dist", "build", "coverage"]);
+const SELF_RELATIVE = "scripts/architecture_truth_gate.cjs";
+
+function walkCode(dir) {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    if (SCAN_SKIP_DIRS.has(entry.name)) return [];
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) return walkCode(full);
+    return CODE_FILE.test(entry.name) ? [full] : [];
+  });
+}
 
 // Files the gate reads, relative to the repository root. Exported so the gate
 // test can copy exactly this surface into a scratch repository.
@@ -161,6 +196,13 @@ function parseBlueprintServices(text) {
 
 function envOf(service, key) {
   return service.$env.find((entry) => entry.key === key) || null;
+}
+
+// Every file the Base44 token scan reads (the gate test asserts the active
+// shell pages and PowerShell tooling are in this set).
+function listBase44ScanFiles(root) {
+  const at = (relative) => path.join(root, relative);
+  return [...LEGACY_TOKEN_TREES.flatMap((tree) => walkCode(at(tree))), ...LEGACY_TOKEN_ROOT_FILES.map(at).filter((file) => fs.existsSync(file))];
 }
 
 function runArchitectureGate(root = process.cwd()) {
@@ -342,12 +384,28 @@ function runArchitectureGate(root = process.cwd()) {
   assert(/Base44\*{0,2} is historical/.test(architectureDoc), "the architecture SoT must state that Base44 is historical");
   assert(!/production_runtime\s*[:=]\s*"?base44/i.test(architectureDoc), "the architecture SoT must never certify Base44 as the production runtime");
 
+  // ── No Base44 SDK call or token anywhere in the code trees ───────────────
+  const relativeOf = (file) => path.relative(root, file).replace(/\\/g, "/");
+  for (const tree of LEGACY_SDK_TREES) {
+    for (const file of walkCode(at(tree))) {
+      if (relativeOf(file) === SELF_RELATIVE) continue;
+      const source = fs.readFileSync(file, "utf8");
+      const hit = LEGACY_SDK_PATTERNS.find((pattern) => pattern.test(source));
+      assert(!hit, `Base44 SDK usage in ${relativeOf(file)} (${hit}): Base44 is historical, never a runtime`);
+    }
+  }
+  const tokenFiles = listBase44ScanFiles(root);
+  for (const file of tokenFiles) {
+    if (relativeOf(file) === SELF_RELATIVE) continue;
+    assert(!/base44/i.test(fs.readFileSync(file, "utf8")), `Base44 reference in ${relativeOf(file)}: Base44 is historical, never a runtime`);
+  }
+
   return {
     banner: `ARCHITECTURE_GATE_PASS runtime=render_web+render_worker+supabase_postgres web=${web.name} worker=${worker.name} deploy=checksPass target_inventory=canonical_postgres migrations=${manifestEntries.length}`
   };
 }
 
-module.exports = { runArchitectureGate, parseBlueprintServices, GATE_INPUT_FILES, CANONICAL_WEB, CANONICAL_WORKER };
+module.exports = { runArchitectureGate, parseBlueprintServices, listBase44ScanFiles, GATE_INPUT_FILES, CANONICAL_WEB, CANONICAL_WORKER };
 
 if (require.main === module) {
   try {

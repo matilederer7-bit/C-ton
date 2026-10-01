@@ -21,5 +21,5 @@ from the repository root exactly as before, with the `scripts/retired/` prefix:
 | `run_outbox_select.cjs` | legacy `public.outbox_events` probe (the live schema is `siton.*`) | reference only |
 | `i18n/extract.cjs` | the one-shot i18n extractor that produced `../i18n/extracted.he.json`; `--src=` and `--write-extracted` still work, output goes to `.i18n-work/` | one-shot tooling |
 
-`extract_base44_inventory_sql.ps1` stays in `scripts/` until D3 retires it together with the
-test that reads it.
+`extract_base44_inventory_sql.ps1` was deleted by Lean Refactor D3-B together with the Base44
+cluster (its only test case read it).
