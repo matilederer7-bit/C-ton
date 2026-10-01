@@ -245,8 +245,8 @@ with their consumers updated (`scripts/architecture_truth_gate.cjs`, `scripts/le
 | D2 | **DONE 2026-10-01** — deleted `bounded_load_test.cjs`; moved the 12 ARCHIVE scripts under `scripts/retired/` (named `retired`, not `archive`, because `scripts/lib/repo_scan_policy.cjs` skips any `archive` directory and the files must stay scanned — found by the independent review; requires rewritten, each run once from the root; `extract_base44_inventory_sql.ps1` left for D3; the three REFERENCE runbooks, `scripts/README.md`, `R6_STAGING_SHOWCASE`, `CODEX_BASELINE_REVIEW` and `DB_BACKUP_RESTORE_REHEARSAL` rewritten; the purely historical ARCHIVE records `R9C_PRODUCTION_EXTRACTION_AUDIT`, `STAGING_ACCEPTANCE_2026-09-10`, `REPOSITORY_FINAL_HYGIENE_DECISION` keep their original paths as history). Original plan: delete the 1 zero-reference script; move the ARCHIVE scripts under `scripts/retired/` (the unreferenced browser proofs are never deleted, see §3.5; `extract_base44_inventory_sql.ps1` is left in place for D3 because a test still reads it) or delete the ones whose docs are themselves ARCHIVE; a relocated script must keep working: rewrite its relative requires and root derivations (`dr_backup_restore_drill.cjs` loads `./lib/destructive_target_guard.cjs`; `review_r9c_migration_independent_proof.cjs` loads sibling migration modules; `i18n/extract.cjs` derives the repository root from its own directory; `migrate_showcase_images_to_supabase.cjs` dynamically imports `../src/product_image_storage.ts`) and run each moved script once after the move (none has an automated caller to expose a `MODULE_NOT_FOUND` or a wrong scan root) — a script whose dependency layout cannot be kept cheaply stays in place; rewrite the runbook steps that name them and `scripts/README.md` | FULL (scripts are gate-or-tooling) | re-run the reference grep per file; runbooks updated in the same PR |
 | D3 | split in two by owner decision 2026-10-01. **D3-A (PR, 2026-10-01):** `architecture_truth_gate.cjs` rewritten to the Render/Supabase truth (module + CLI, `tests/release_tools/architecture_truth_gate.test.cjs` proves 32 drifts by mutation), the live invariants of the Base44-era tests moved to `tests/canonical_sql_invariants_validation.ts`, the `base44-canonical-integrity` gate unwired from the preflight catalogue, `release_checklist` (gate map + owner item O-4, decided), `release_owner_check` and the `ci.yml` step. **D3-B (PR, 2026-10-01):** deleted `base44/` (19), `legacy/` (12), the integrity gate + its two configs + fixture, the four Base44-only tests (`base44_canonical_integrity`, `base44_mall_contract`, `supabase_inventory_activation_hardening`, `hosted_v11_activation_gate`), the `.ps1` (+ its single test case), the `legacy-excluded-surfaces` classifier rule and the three npm scripts; the architecture gate gained the Base44 SDK/token scan of every code tree (the retired integrity gate's only live check); the runbook and reference-doc lines rewritten. Original plan: retire the Base44 gate cluster + `legacy/` (`architecture_truth_gate.cjs` rewritten to the Render/Supabase truth) | FULL, senior review (`ci-gates` family) | update `.github/workflows/ci.yml` (the `test:base44-canonical-integrity` step), `release_checklist.cjs`, `release_owner_check.cjs`, the classifier rule, `config/release-preflight-gates.json`, the two runbook lines, the `supabase_staging_security_foundation` test (drop only its `.ps1` case); the runtime never depended on it |
 | D4 | Product Library schema drop (`products`, `product_images`, `deals.product_id`, `deals.product_snapshot_jsonb`, trigger, constraints; new migration, never an edit of 072; `supabase/staging/025` retired from the grant lists) | FULL, senior review | PR B merged; staging census re-run (2026-09-30: 40 deals, 2 with product columns, both `PendingTarget` smoke deals from 2026-09-17, 1 product, 0 product images) and owner confirmation that those two smoke deals may lose their snapshot; **production is a separate owner-managed database** (PROJECT_STATUS.md PR-5), so before the migration is applied there: either proof from its ledger that 072 was never applied, or a production census (`products`, `product_images`, deals with `product_id` / `product_snapshot_jsonb`) plus an explicit data disposition (export or accepted loss) and owner confirmation for that database — a staging census never authorises the production drop |
-| D5 | **IN PROGRESS 2026-10-01 — batch 1 (PR #163):** moved five HISTORICAL Morning Handoff records into `docs/archive/` after zero active-code search hits; contents unchanged, `DOCUMENTATION_MAP` paths updated. `docs/archive/` stays scanned: `scripts/lib/repo_scan_policy.cjs` excludes any `archive` directory, so it gained `INCLUDED_DIR_PATHS = ["docs/archive"]` (secret/PII scan and the repository-wide sweeps cover the moved documents exactly as under `docs/`; tested in `repo_scan_policy.test.cjs`), and `.gitignore` un-ignores `docs/archive/` (a plain `archive/` rule would otherwise hide new files from `git add`). **Batch 2:** five more zero-consumer Morning Handoff records (`ADVERSARIAL_HARDENING`, `BACKEND_PROFESSIONALIZATION`, `PREPROD_TORTURE_QA`, `REAL_INTEGRATIONS`, `ULTIMATE_PRELIVE_QA_RC`), byte-identical. **Batch 3:** the 41 zero-consumer DECISION / ISSUES / LOG companions of those handoffs plus the last five Morning Handoffs (consumer check on the extension-less stem, every file already carries the SUPERSEDED/HISTORICAL marker). **Batch 4:** 24 delivery / closure / audit reports, including the eight root `*_DELIVERY_REPORT.md` files (the repository root then held only the canonical files plus `BLACK_SKY_FINAL_REPORT.md` and `RED_TEAM_FINAL_REPORT.md`; both moved in batch 6). **Batch 5:** the 32 remaining zero-consumer records (stage, pass, red-team, payment-plan and decision records; `SECURITY_HARDENING_GATE` after its only consumer moved in batch 4). **Batch 6:** 39 records linked only from other documents (incl. `BLACK_SKY_FINAL_REPORT.md` and `RED_TEAM_FINAL_REPORT.md` from the root; the 12 active documents that cite them — runbooks, `PAYMENT_ACTIVATION_SOURCE_OF_TRUTH`, `CURRENT_ARCHITECTURE`, `CANONICAL_FOUNDATION_SOURCE_OF_TRUTH`, `PROJECT_STATUS` — point into `docs/archive/`). Remaining outside: 29, each with a code / test / config / team-plan consumer or a D2 keep-path decision. Continue only in small consumer-proven batches; trim `PROJECT_STATUS.md` only after concurrent status-owning PRs close. | FAST/STANDARD | none |
-| D6 | decision: dormant cloud-agent workflows + `stripe-sandbox-proof.yml` (keep dormant or retire with their tests) | FULL | owner decision |
+| D5 | **MOVES DONE 2026-10-01 (PRs #163, #173, #177, #178, #180, #181): 146 of 175 ARCHIVE documents in `docs/archive/`; the 29 others stay on purpose (§7.3). `PROJECT_STATUS.md` trim OPEN (waits for the concurrent status-owning PR #174 to close).** Batch 1 (PR #163): moved five HISTORICAL Morning Handoff records into `docs/archive/` after zero active-code search hits; contents unchanged, `DOCUMENTATION_MAP` paths updated. `docs/archive/` stays scanned: `scripts/lib/repo_scan_policy.cjs` excludes any `archive` directory, so it gained `INCLUDED_DIR_PATHS = ["docs/archive"]` (secret/PII scan and the repository-wide sweeps cover the moved documents exactly as under `docs/`; tested in `repo_scan_policy.test.cjs`), and `.gitignore` un-ignores `docs/archive/` (a plain `archive/` rule would otherwise hide new files from `git add`). **Batch 2:** five more zero-consumer Morning Handoff records (`ADVERSARIAL_HARDENING`, `BACKEND_PROFESSIONALIZATION`, `PREPROD_TORTURE_QA`, `REAL_INTEGRATIONS`, `ULTIMATE_PRELIVE_QA_RC`), byte-identical. **Batch 3:** the 41 zero-consumer DECISION / ISSUES / LOG companions of those handoffs plus the last five Morning Handoffs (consumer check on the extension-less stem, every file already carries the SUPERSEDED/HISTORICAL marker). **Batch 4:** 24 delivery / closure / audit reports, including the eight root `*_DELIVERY_REPORT.md` files (the repository root then held only the canonical files plus `BLACK_SKY_FINAL_REPORT.md` and `RED_TEAM_FINAL_REPORT.md`; both moved in batch 6). **Batch 5:** the 32 remaining zero-consumer records (stage, pass, red-team, payment-plan and decision records; `SECURITY_HARDENING_GATE` after its only consumer moved in batch 4). **Batch 6:** 39 records linked only from other documents (incl. `BLACK_SKY_FINAL_REPORT.md` and `RED_TEAM_FINAL_REPORT.md` from the root; the 12 active documents that cite them — runbooks, `PAYMENT_ACTIVATION_SOURCE_OF_TRUTH`, `CURRENT_ARCHITECTURE`, `CANONICAL_FOUNDATION_SOURCE_OF_TRUTH`, `PROJECT_STATUS` — point into `docs/archive/`). Remaining outside: 29, each with a code / test / config / team-plan consumer or a D2 keep-path decision. Continue only in small consumer-proven batches; trim `PROJECT_STATUS.md` only after concurrent status-owning PRs close. | FAST/STANDARD | none |
+| D6 | **CLASSIFIED 2026-10-01, no change (§7.4):** the five cloud-agent workflows (`cloud-agent-manager`, `cloud-agent-review`, `cloud-analysis-swarm`, `cloud-credential-preflight`, `agent-manager-intake`) KEEP — remote / phone agent orchestration with no active replacement; `stripe-sandbox-proof.yml` KEEP (dormant), not a delete candidate — Stripe is still a selectable adapter in code and a test pins the workflow; it retires only as one bundle with an owner decision to retire the Stripe adapter | FULL | owner decision (Stripe adapter) |
 | later | `/app` legacy shell (`frontend/`) | product decision | owner decision; shared links must keep resolving |
 
 ## 5. Supabase finding: `siton.outbox_enqueue_evidence` without RLS
@@ -281,3 +281,85 @@ with their consumers updated (`scripts/architecture_truth_gate.cjs`, `scripts/le
 4. One group per PR. CI green on the head. Independent review + Codex.
 5. After merge with runtime impact: confirm both Render services live on the merge SHA and
    `/readiness` 200.
+
+## 7. Post-refactor census (2026-10-01, after D1–D5)
+
+A fresh census of the repository as it is after D1–D5, not the 2026-09-30 map. It was produced by three independent
+read-only passes (src / web / frontend; scripts / dependencies / config / root; tests / workflows) and re-proved with
+`git grep -w`, `tsc --noUnusedLocals` and the test runner's own discovery. Zero references is never treated as
+"deletable" on its own: browser proofs, recovery scripts, operator runbook tools and security seams stay.
+
+### 7.1 Done in this round (each its own PR: independent review, CI green on the synced head, merge, master CI)
+
+| PR | Class | What |
+|---|---|---|
+| R1 #171 | DELETE | `zod` (dependency) and `vitest` (devDependency), 0 importers; −57 lockfile entries, 0 version changes |
+| R2 #172 | DELETE | dead code in non-money runtime modules: the unused in-file payment mock in `app.ts` (the live one is `payment_provider.ts`), a duplicate `ensureLegalAcceptanceTables`, `RECLAIM_EVERY_N_POLLS`, `deliveryEligible`, 15 zero-reference exports, write-only memo variables, 21 unused import bindings |
+| R3 #175 | DELETE | `web/src/vtree.tsx` (imported by nothing) with its 21 i18n keys and 17 CSS rules; 4 zero-reference web exports |
+| R4 #176 | DELETE | npm scripts `test:agent-router`, `test:agent-models` (covered by `test:release-tools`), `test:launch-rehearsal` (duplicate), `test:demo-package` (alias); the Base44 `.gitignore` rule; `DOCKER_READINESS` CMD drift |
+| R5 #179 | REFACTOR | the five pure buyer-tracking builders and the deal / buyer / money state unions moved verbatim from `frontend_runtime.ts` to `src/tracking_projection.ts` |
+| D5 batches 1–6 | ARCHIVE | 146 ARCHIVE documents moved into `docs/archive/` (blobs identical); `docs/archive/` kept inside every repository scan |
+
+### 7.2 Remaining REFACTOR CANDIDATES (not done — behaviour-sensitive or needs a decision)
+
+| Item | Why not now |
+|---|---|
+| `src/frontend_runtime.ts` (≈12 300 lines) further splits: legal HTML render, admin ops / support / pilot route groups, `/app` shell routes | verbatim route-group moves are mechanical but each is large; one concern per PR, after R5 |
+| `src/app.ts` (≈8 600 lines): `http_security`, ops routes, seller-deal routes | same; money / outbox / lifecycle code stays untouched |
+| Duplicated helpers: `paymentMinorAmount` + `parsePositiveIntegerQuantity` (app.ts / frontend_runtime.ts), five `roundMoney` copies | **money** — out of scope for a behaviour-free refactor; consolidate only in a reviewed money PR |
+| `sha256` hex ×3, `randomBytes(32).base64url` ×5, peppered token hash ×2, cookie parsers ×2 (not identical), `requireUuid` ×3 (messages differ) | **auth** — out of scope; cookie parsers and `requireUuid` differ in behaviour |
+| Unused locals in money / auth / payment files (`admin_identity`, `grow_payment_adapter`, `invoice_dispatch`, `participant_tracking_security`, `payment_provider`, `payout_provider`, `payout_rail`, `webhook_ingestion`) | deliberately left out of R2 |
+| `frontend/app.js` superseded renderers (`renderHomeLegacy`, `renderDealPage`, `renderOtpPage`, `renderPaymentPage`, `renderConfirmationPage`, `renderTrackingPage`, `renderSellerPage`, `renderSellerDealPage`, …) | four tests slice the file by these names; they must be retargeted to the live `renderCton*` renderers first, without losing an assertion |
+| ~50 single-file `npm run test:*` shortcuts | every `tests/*.ts` already runs in CI via `scripts/run_test_group.cjs`; 13 names are pinned by tests (`mvp_completion`, `refund_policy`, `deal_types`, `security_hardening`) and `docs/TEST_INVENTORY.md` lists them |
+| `DISABLE_OUTBOX_WORKER` (no effect, only displayed), `TWILIO_*` (no provider), `DEBUG_JOIN_LOGGING` (no reader) | config / runtime-policy / docs sweep together with `config/runtime-environment-policy.json` |
+| Browser-proof scripts each carry their own CDP launcher (≈13 copies) | extract `scripts/lib/cdp.cjs`; proofs have no automated caller, so each must be re-run once after the change |
+| ts-node + `register-ts-node.mjs` + the two `restart_server*.ps1` (Windows / local paths) | `architecture_truth_gate.test.cjs` lists the `.ps1` files and `OPERATIONAL_RUNBOOK` documents them |
+| `/api/admin/notifications/status` duplicate alias of `/notifications-status` (0 consumers) | admin route; remove together with the route-inventory test update |
+
+### 7.2b Remaining DELETE CANDIDATES (each needs its own owner-approved PR)
+
+| Item | Proof / blocker |
+|---|---|
+| `docs/archive/db-drift-resolution.md`, `docs/archive/runtime-contract-resolution.md` | unreadable encoding, zero consumers; archived meanwhile |
+| `/api/admin/notifications/status` | duplicate alias of `/notifications-status`, 0 consumers in web / frontend / tests / scripts; admin route — remove with the route-inventory update |
+| superseded renderers in `frontend/app.js` | dead (no dispatcher reaches them), but four tests slice them by name — retarget first (§7.2) |
+| `src/stage10c_harden_deals.sql` | retired 3-line marker; only a comment in migration 022 names it (migrations are never edited, so it stays unless the owner accepts a dangling comment) |
+
+### 7.3 Kept on purpose (SUPPORT / CORE despite few or no callers)
+
+- `revokeParticipantTrackingTokens` (security seam, `SECURITY_INCIDENT_RUNBOOK`), `setTranslationSuggester` (no-MT seam), test-only seams (`fault_injection`, `reset*ForTests`, `synthetic_payment_provider`).
+- `/legal/affiliates` (compatibility URL), the `/app` shell (`frontend/`, active runtime), `/api/payments/tokenize` (explicit 410 tombstone).
+- `src/stage10c_harden_deals.sql` (retired 3-line marker named by migration 022, which is never edited).
+- Operator tools with runbook callers only: `run_pg_query.cjs`, `grow_reference_reseal.cjs`, `pilot_readiness_proof.cjs`, the browser proofs, `scripts/retired/*` (D2).
+- 29 ARCHIVE documents outside `docs/archive/`: read by code, a test, a config or a team plan, linked from such a record, or kept by the D2 path decision.
+
+### 7.4 Tests and workflows
+
+No orphan test (the runner discovers every `tests/*.ts`), no assertion-free test, no provable duplicate; the closest
+pairs each keep unique assertions. Every workflow's scripts exist.
+
+D6 (workflows) — classification, no change made:
+
+| Workflow | Class | Reason |
+|---|---|---|
+| `cloud-agent-manager.yml`, `cloud-agent-review.yml`, `cloud-analysis-swarm.yml`, `cloud-credential-preflight.yml`, `agent-manager-intake.yml` | **KEEP** | remote / phone agent orchestration; no active replacement exists in the repository; credentials missing is not "legacy" |
+| `stripe-sandbox-proof.yml` | **KEEP (dormant)** — not a delete candidate | Stripe is still a selectable adapter in code (`src/payment_provider.ts`, `production_guards.ts`, `config/startup-config-matrix.json`); `tests/stripe_sandbox_external_gate_validation.ts` pins it. It can only retire as one bundle with an owner decision to retire the Stripe adapter itself (workflow, external tests, runner, report scanner, npm script, doc) |
+| `mobile-readiness.yml` | SUPPORT | the only runner of `scripts/mobile_readiness_tests.cjs` and the android/ios drift check |
+| `codex-rereview.yml`, `offsite-db-backup.yml` | SUPPORT | useful while Codex reviews / once backup secrets are set |
+| `ci.yml` | CORE | `ci-verdict` is the required check |
+
+### 7.5 Branches (census only, nothing deleted)
+
+Master was re-rooted at #75 (root `28523f1`, 2026-09-22); 118 of 184 remote branches share no history with master
+and there are no tags. GitHub keeps `refs/pull/<n>/head` for every PR, so a branch whose tip is a PR head stays
+recoverable after deletion; any other tip is the only copy of its commits.
+
+| Class | Count | Deletion |
+|---|---|---|
+| ACTIVE — open PR | 9 | no |
+| MERGED — tip is the merged PR head | 79 | safe deletion candidates |
+| SUPERSEDED — tip is a closed, unmerged PR head | 28 | safe deletion candidates after review |
+| PR exists but the tip moved after it | 5 | review first (later commits are the only copy) |
+| No PR — the branch is the only copy | 63 | keep, or archive-tag / bundle before any deletion |
+
+The per-branch list is in the owner report of 2026-10-01.
