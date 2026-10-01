@@ -161,17 +161,89 @@ if (!/אינו מקבל מידע אישי|אינה כוללת.*מידע אישי
   }
 }
 
-// Canonical money rule: Siton's fee is a system constant. Legal copy may
-// explain it, but may never create a per-deal or contract override.
-if (/8%[^\n]{0,220}(אלא אם נקבע אחרת|ככל שלא נקבע אחרת|הסכם כתוב)/.test(legalPages)) {
-  failures.push("legal copy makes the fixed 8% Siton fee overridable");
-}
-if (!/8%[^\n]{0,260}למעט רכיב המע״מ של הלקוח/.test(legalPages)
-    || !/8%[^\n]{0,260}למעט רכיב המע"מ של הלקוח/.test(sellerTerms)) {
-  failures.push("legal copy does not pin the 8% fee base to collected amount excluding the customer's VAT component");
-}
-if (/תנאי מפיצים|לינקי הפצה ומפיצים/.test(app)) {
-  failures.push("obsolete distributor-role wording remains visible in the product");
+// ── Distribution-link model and the fixed 8% fee (owner rules) ─────────────
+// Siton has no distributor/affiliate business role, and its fee is a system
+// constant with no per-deal or written-contract override; a buyer join is an
+// authorization hold only. These rules are enforced over EVERY surface a
+// reader can see — the served legal pages, the Hebrew legal documents, the
+// legacy shell, runtime-rendered copy, API copy, the React app and the i18n
+// sources — line by line, so restoring old wording anywhere (a title, a nav
+// label, a heading, a definition, an override placed before or after "8%")
+// fails. A missing surface fails closed.
+{
+  const SURFACE_FILES = [
+    "src/legal_pages.ts", "frontend/app.js", "src/frontend_runtime.ts", "src/app.ts",
+    "src/seller_analytics.ts", "src/distribution_hub.ts",
+    "docs/DISTRIBUTOR_TERMS_HE.md", "docs/SELLER_TERMS_HE.md", "docs/BUYER_TERMS_HE.md",
+    "docs/PRIVACY_POLICY_HE.md", "docs/CANCELLATION_REFUND_POLICY_HE.md",
+    "web/src/i18n/dictionaries/he.ts", "web/src/i18n/dictionaries/en.ts",
+    "scripts/i18n/seed.he.json", "scripts/i18n/extracted.he.json", "scripts/i18n/en.json"
+  ];
+  const SURFACE_TREES = ["web/src"];
+  const SURFACE_EXT = /\.(?:ts|tsx|js|jsx|cjs|mjs|json|html|md)$/;
+  const surfaces = new Map();
+  for (const rel of SURFACE_FILES) {
+    if (!exists(rel)) { failures.push("distribution-link rule surface missing: " + rel); continue; }
+    surfaces.set(rel, read(rel));
+  }
+  for (const docRel of fs.readdirSync(path.join(root, "docs")).filter((name) => /_HE\.md$/.test(name)).map((name) => "docs/" + name)) {
+    if (!surfaces.has(docRel)) surfaces.set(docRel, read(docRel));
+  }
+  const walk = (rel) => {
+    const abs = path.join(root, rel);
+    if (!fs.existsSync(abs)) { failures.push("distribution-link rule surface tree missing: " + rel); return; }
+    for (const entry of fs.readdirSync(abs, { withFileTypes: true })) {
+      const child = rel + "/" + entry.name;
+      if (entry.isDirectory()) { if (entry.name !== "node_modules") walk(child); }
+      else if (SURFACE_EXT.test(entry.name) && !surfaces.has(child)) surfaces.set(child, read(child));
+    }
+  };
+  for (const tree of SURFACE_TREES) walk(tree);
+
+  // The only Hebrew "distributor" words a reader may meet: the explicit
+  // negation ("no business role named distributor") and the verb "distribute
+  // a link". Anything else is the role coming back.
+  const ALLOWED_DISTRIBUTOR_WORDS = [/תפקיד עסקי בשם "?מפיץ"?/g, /מפיצים לינק/g];
+  const ENGLISH_ROLE = /\b(?:distributors?|affiliates?)\b/i;
+  const ENGLISH_DICTIONARIES = new Set(["web/src/i18n/dictionaries/en.ts", "scripts/i18n/en.json"]);
+  const FEE_OR_CHARGE = /עמל|8%|8 אחוז|חיוב|תפיסת מסגרת/;
+  const EXCEPTION = /אלא אם (?:כן )?(?:נקבע|יוסכם|הוסכם|צוין|יצוין)|ככל שלא (?:נקבע|הוסכם|צוין)|הסכם כתוב|בהסכם|לפי הסכם|שיעור (?:ה)?עמלה (?:ש)?(?:ייקבע|יקבע|יוגדר|ישתנה|יכול להשתנות|מותאם)|(?:ייקבע|יקבע|יוגדר|תיקבע|תוגדר) (?:לכל|בכל|ברמת|לפי) עסקה/;
+  for (const [rel, text] of surfaces) {
+    const lines = text.split(/\r?\n/);
+    lines.forEach((line, index) => {
+      const where = rel + ":" + (index + 1);
+      let stripped = line;
+      for (const allowed of ALLOWED_DISTRIBUTOR_WORDS) stripped = stripped.replace(allowed, "");
+      if (/מפיצ|מפיץ/.test(stripped)) failures.push("distributor-role wording returned (no distributor business role exists): " + where);
+      if (ENGLISH_DICTIONARIES.has(rel)) {
+        const entry = /^\s*"[^"]+"\s*:\s*"(.*)"\s*,?\s*$/.exec(line);
+        if (entry && ENGLISH_ROLE.test(entry[1])) failures.push("distributor/affiliate role wording returned in English copy: " + where);
+      }
+      // An exception clause is a finding when the fee / charge it qualifies is
+      // on the same line or one of the two lines before it (a following
+      // sentence such as "8%. Unless otherwise agreed in writing." counts).
+      if (EXCEPTION.test(line) && FEE_OR_CHARGE.test(lines.slice(Math.max(0, index - 2), index + 1).join("\n"))) {
+        failures.push("legal copy makes the fixed 8% Siton fee overridable or adds an exception to the authorization-hold-only rule: " + where);
+      }
+    });
+  }
+
+  const quoteNorm = (text) => norm(text).replace(/״/g, "\"");
+  const pins = [
+    ["src/legal_pages.ts", "אין שיעור עמלה שונה לעסקה", "the fixed 8% fee (no per-deal rate)"],
+    ["docs/SELLER_TERMS_HE.md", "אין שיעור עמלה שונה לעסקה", "the fixed 8% fee (no per-deal rate)"],
+    ["frontend/app.js", "אין שיעור עמלה שונה לעסקה", "the fixed 8% fee (no per-deal rate)"],
+    ["src/legal_pages.ts", "בהצטרפות לעסקה מתבצעת תפיסת מסגרת אשראי בלבד", "authorization hold only on join"],
+    ["src/legal_pages.ts", "חיוב בפועל אינו מתבצע לפני שהעסקה נסגרת להצטרפות וננעלת", "no charge before close/lock"],
+    ["docs/DISTRIBUTOR_TERMS_HE.md", "אין בסיטון משתמש או תפקיד עסקי בשם \"מפיץ\"", "no distributor business role"]
+  ];
+  for (const [rel, phrase, rule] of pins) {
+    if (surfaces.has(rel) && !quoteNorm(surfaces.get(rel)).includes(phrase)) failures.push("legal copy no longer pins " + rule + ": " + rel);
+  }
+  if (!/8%[^\n]{0,260}למעט רכיב המע"מ של הלקוח/.test(quoteNorm(read("src/legal_pages.ts")))
+      || !/8%[^\n]{0,260}למעט רכיב המע"מ של הלקוח/.test(quoteNorm(read("docs/SELLER_TERMS_HE.md")))) {
+    failures.push("legal copy does not pin the 8% fee base to collected amount excluding the customer's VAT component");
+  }
 }
 
 if (!app.includes("sellerPublishCriticalTermsAccepted") || !app.includes("sellerPublishThresholdAccepted")) failures.push("seller publish operational confirmations are missing");

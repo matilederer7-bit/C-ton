@@ -28,6 +28,12 @@ const FIXTURE_FILES = [
   "docs/SELLER_KYC_POLICY.md",
   "docs/DISTRIBUTOR_TERMS_HE.md",
   "docs/ADMIN_LEGAL_OPS_POLICY.md",
+  "src/seller_analytics.ts",
+  "src/distribution_hub.ts",
+  "web/src",
+  "scripts/i18n/seed.he.json",
+  "scripts/i18n/extracted.he.json",
+  "scripts/i18n/en.json",
   "config/raw-card-term-allowlist.json",
   "scripts/lib",
   "scripts/compliance_payment_scan.cjs",
@@ -124,8 +130,114 @@ const MUTATIONS = [
     from: "עבור שירותי הפלטפורמה, C-ton גובה עמלה קבועה בשיעור 8%.",
     to: "עבור שירותי הפלטפורמה, C-ton גובה עמלה קבועה בשיעור 8%, אלא אם נקבע אחרת בהסכם כתוב.",
     expect: /fixed 8% Siton fee overridable/
+  },
+  // Independent review of PR #159: the rules must hold on every surface and in
+  // every position, not only for the exact strings above.
+  {
+    name: "the pre-PR override wording returns with the exception BEFORE the 8%",
+    file: "src/legal_pages.ts",
+    from: "עבור שירותי הפלטפורמה, C-ton גובה עמלה קבועה בשיעור 8%.",
+    to: "ככל שלא נקבע אחרת בהסכם כתוב, עמלת C-ton היא 8% מהסכום שנגבה בפועל.",
+    expect: /fixed 8% Siton fee overridable[^\n]*src\/legal_pages\.ts:/
+  },
+  {
+    name: "the seller terms document makes the fee contract-overridable",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה, אלא אם נקבע אחרת בהסכם כתוב.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the seller terms card in the legacy shell makes the fee contract-overridable",
+    file: "frontend/app.js",
+    from: "אין שיעור עמלה שונה לעסקה ואין בסיטון",
+    to: "אלא אם נקבע אחרת בהסכם כתוב. ואין בסיטון",
+    expect: /fixed 8% Siton fee overridable[^\n]*frontend\/app\.js:/
+  },
+  {
+    name: "the seller terms document allows a per-deal fee rate",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "שיעור העמלה ייקבע לכל עסקה.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:|no longer pins the fixed 8% fee/
+  },
+  {
+    name: "the join copy regains an exception to the authorization-hold-only rule",
+    file: "src/legal_pages.ts",
+    from: "בהצטרפות לעסקה מתבצעת תפיסת מסגרת אשראי בלבד.",
+    to: "בשלב הראשון מתבצעת תפיסת מסגרת אשראי בלבד, אלא אם צוין במפורש אחרת ובכפוף לדין.",
+    expect: /authorization-hold-only rule[^\n]*src\/legal_pages\.ts:/
+  },
+  {
+    name: "the distributor role definition returns while the negation phrase stays",
+    file: "src/legal_pages.ts",
+    from: "לינק הפצה\nקישור ייחודי לעסקה",
+    to: "מפיץ\nמשתמש או גורם שמפיץ לינק ייחודי לעסקה.\n\nלינק הפצה\nקישור ייחודי לעסקה",
+    expect: /distributor-role wording returned[^\n]*src\/legal_pages\.ts:/
+  },
+  {
+    name: "the legal page nav label returns to Distributor terms",
+    file: "src/legal_pages.ts",
+    from: "navLabel: \"תנאי לינקי הפצה\"",
+    to: "navLabel: \"תנאי מפיצים\"",
+    expect: /distributor-role wording returned[^\n]*src\/legal_pages\.ts:/
+  },
+  {
+    name: "the distribution-link terms document heading returns to Distributor terms",
+    file: "docs/DISTRIBUTOR_TERMS_HE.md",
+    from: "# תנאי לינקי הפצה",
+    to: "# תנאי מפיצים",
+    expect: /distributor-role wording returned[^\n]*docs\/DISTRIBUTOR_TERMS_HE\.md:/
+  },
+  {
+    name: "the Hebrew i18n dictionary nav label returns to Distributor terms",
+    file: "web/src/i18n/dictionaries/he.ts",
+    from: "\"legal.nav.affiliates\": \"תנאי לינקי הפצה\"",
+    to: "\"legal.nav.affiliates\": \"תנאי מפיצים\"",
+    expect: /distributor-role wording returned[^\n]*web\/src\/i18n\/dictionaries\/he\.ts:/
+  },
+  {
+    name: "the English i18n dictionary nav label returns to Distributor terms",
+    file: "web/src/i18n/dictionaries/en.ts",
+    from: "\"legal.nav.affiliates\": \"Distribution link terms\"",
+    to: "\"legal.nav.affiliates\": \"Distributor terms\"",
+    expect: /role wording returned in English copy[^\n]*web\/src\/i18n\/dictionaries\/en\.ts:/
+  },
+  {
+    name: "a React page hard-codes distributor wording",
+    file: "web/src/pages/distribution.tsx",
+    from: "<DistributionDisclaimer text={payload.disclaimer_he} />",
+    to: "<p>מפיצים מובילים</p><DistributionDisclaimer text={payload.disclaimer_he} />",
+    expect: /distributor-role wording returned[^\n]*web\/src\/pages\/distribution\.tsx:/
+  },
+  {
+    name: "the seller analytics API disclaimer names distributors again",
+    file: "src/seller_analytics.ts",
+    from: "תשלום לגורם חיצוני בגין הפצה",
+    to: "תשלום למפיצים",
+    expect: /distributor-role wording returned[^\n]*src\/seller_analytics\.ts:/
+  },
+  {
+    name: "the no-distributor-role statement disappears from the distribution-link terms document",
+    file: "docs/DISTRIBUTOR_TERMS_HE.md",
+    from: "אין בסיטון משתמש או תפקיד עסקי בשם \"מפיץ\".",
+    to: "הלינק נמסר לגורם חיצוני.",
+    expect: /no-role \/ aggregate-only \/ no-commission posture|no longer pins no distributor business role/
   }
 ];
+
+// Negative control: the verb "distribute a link" is ordinary seller copy, not a role.
+test("legal gate still passes when seller copy uses the verb 'distribute a link'", () => {
+  const fixture = createFixtureRepo(FIXTURE_FILES);
+  try {
+    assert.match(fixture.read("frontend/app.js"), /ומפיצים לינק ישיר לקונים/);
+    const result = runGate(fixture);
+    assert.equal(result.status, 0, result.out);
+    assert.doesNotMatch(result.out, /distributor-role wording returned/);
+  } finally {
+    fixture.cleanup();
+  }
+});
 
 for (const mutation of MUTATIONS) {
   test("legal gate fails when: " + mutation.name, () => {
