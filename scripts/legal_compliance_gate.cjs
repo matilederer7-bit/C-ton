@@ -84,7 +84,7 @@ for (const link of ["/app/terms", "/app/privacy", "/app/refunds", "/app/accessib
   if (!/slug:\s*"affiliates"/.test(legalPages)) failures.push("distribution-link legal page compatibility slug \"affiliates\" is missing from src/legal_pages.ts");
   if (!/title:\s*"תנאי לינקי הפצה"/.test(legalPages)) failures.push("distribution-link legal page must be titled תנאי לינקי הפצה");
   if (/title:\s*"תנאי מפיצים"/.test(legalPages)) failures.push("obsolete distributor-role title returned to the legal page");
-  if (!/אין משתמש או תפקיד עסקי בשם "מפיץ"/.test(legalPages)) failures.push("legal page must explicitly state that Siton has no distributor business role");
+  if (!/אין בסיטון משתמש או תפקיד עסקי בשם "מפיץ"/.test(legalPages)) failures.push("legal page must explicitly state that Siton has no distributor business role");
   if (!app.includes("/legal/affiliates")) failures.push("missing compatibility policy link: /legal/affiliates");
 }
 
