@@ -372,7 +372,7 @@ test("engineering operating system has routing, parallel analysis and telemetry 
   assert.match(workflow, /gh run watch/);
   assert.match(workflow, /swarm-synthesis/);
   assert.match(swarm, /max-parallel: 4/);
-  assert.match(swarm, /gpt-5\.6-luna/);
+  assert.match(swarm, /gpt-6\\.luna/);
   assert.match(swarm, /gpt-5\.6-terra/);
   assert.match(swarm, /gpt-5\.6-sol/);
   assert.match(swarm, /architecture/);
@@ -429,7 +429,7 @@ test('manager and swarm wire Apex end to end without raising all analyst tiers',
   assert.match(form, /label: Apex evidence/);
   assert.match(swarm, /model: \$\{\{ steps\.head_route\.outputs\.codex_model \}\}/);
   assert.match(swarm, /'apex' \|\| 'senior'/);
-  assert.match(swarm, /lane: tests\s+model: gpt-5\.6-luna/);
+  assert.match(swarm, /lane: tests\s+model: gpt-6\\.luna/);
   assert.match(swarm, /lane: security\s+model: gpt-5\.6-sol/);
 });
 
