@@ -10,7 +10,7 @@ Three tiers. A document's tier is decided by its role today, not by its title. H
 | **REFERENCE** | design, architecture, policy, legal text and runbooks that are still operationally useful | read when the task touches the area; may carry dated sections |
 | **ARCHIVE** | delivery reports, stage closeouts, audits, handoffs, superseded decisions | history only; must carry a superseded/historical marker if anything inside reads as current authority |
 
-Physical relocation of ARCHIVE files into `docs/archive/` is incremental and mechanical: several gates and tests read documents by path (`scripts/architecture_truth_gate.cjs`, `scripts/legal_compliance_gate.cjs`, `src/admin_mission_control.ts`, `tests/*`), so moves happen in small consumer-proven batches, never in bulk. D5 batches 1–3 (2026-10-01) moved fifty-one zero-consumer records (the Morning Handoffs and their DECISION / ISSUES / LOG companions) without changing their contents. `docs/archive/` is tracked (`.gitignore` exception) and stays inside every repository scan (`scripts/lib/repo_scan_policy.cjs` `INCLUDED_DIR_PATHS`), so archiving a document never removes it from the secret/PII scan or the sweeps.
+Physical relocation of ARCHIVE files into `docs/archive/` is incremental and mechanical: several gates and tests read documents by path (`scripts/architecture_truth_gate.cjs`, `scripts/legal_compliance_gate.cjs`, `src/admin_mission_control.ts`, `tests/*`), so moves happen in small consumer-proven batches, never in bulk. D5 batches 1–4 (2026-10-01) moved seventy-five zero-consumer records (the Morning Handoffs and their DECISION / ISSUES / LOG companions; delivery, closure and audit reports, including the eight `*_DELIVERY_REPORT.md` files that sat at the repository root) without changing their contents. `docs/archive/` is tracked (`.gitignore` exception) and stays inside every repository scan (`scripts/lib/repo_scan_policy.cjs` `INCLUDED_DIR_PATHS`), so archiving a document never removes it from the secret/PII scan or the sweeps.
 
 Counts: CANONICAL 12 · REFERENCE 100 · ARCHIVE 175 (287 documents: everything under `docs/` plus the root reports; `legacy/render/README.md` and `legacy/render/docs/*` were deleted by Lean Refactor D3-B on 2026-10-01). Out of scope: `.claude/agents/*.md` (agent definitions, CI-checked), `scripts/README.md`, `scripts/retired/README.md`, `ios/App/CapApp-SPM/README.md`.
 
@@ -148,15 +148,15 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | Document | Title | Why archived |
 |---|---|---|
 | `BLACK_SKY_FINAL_REPORT.md` | Black-Sky Final Report | delivery report |
-| `DEAL_TYPES_E2E_DELIVERY_REPORT.md` | Deal Types E2E Delivery Report | delivery report |
-| `DOCKER_AWS_ACCORDION_DELIVERY_REPORT.md` | Docker + AWS Accordion Delivery Report | delivery report |
-| `MVP_DEEP_COMPLETION_DELIVERY_REPORT.md` | MVP Deep Completion Delivery Report | delivery report |
-| `OPS_HARDENING_AND_READINESS_DELIVERY_REPORT.md` | Ops Hardening Delivery Report | delivery report |
-| `POST_E2E_REFACTOR_DELIVERY_REPORT.md` | Post E2E Refactor Delivery Report | delivery report |
+| `docs/archive/DEAL_TYPES_E2E_DELIVERY_REPORT.md` | Deal Types E2E Delivery Report | delivery report |
+| `docs/archive/DOCKER_AWS_ACCORDION_DELIVERY_REPORT.md` | Docker + AWS Accordion Delivery Report | delivery report |
+| `docs/archive/MVP_DEEP_COMPLETION_DELIVERY_REPORT.md` | MVP Deep Completion Delivery Report | delivery report |
+| `docs/archive/OPS_HARDENING_AND_READINESS_DELIVERY_REPORT.md` | Ops Hardening Delivery Report | delivery report |
+| `docs/archive/POST_E2E_REFACTOR_DELIVERY_REPORT.md` | Post E2E Refactor Delivery Report | delivery report |
 | `RED_TEAM_FINAL_REPORT.md` | Red Team Final Report | red-team report |
-| `REFUND_POLICY_ALIGNMENT_DELIVERY_REPORT.md` | Refund Policy Alignment Delivery Report | delivery report |
-| `SECURITY_HARDENING_DELIVERY_REPORT.md` | Security Hardening Delivery Report | delivery report |
-| `SECURITY_IDENTITY_TRACKING_DELIVERY_REPORT.md` | Security Identity Tracking Delivery Report | delivery report |
+| `docs/archive/REFUND_POLICY_ALIGNMENT_DELIVERY_REPORT.md` | Refund Policy Alignment Delivery Report | delivery report |
+| `docs/archive/SECURITY_HARDENING_DELIVERY_REPORT.md` | Security Hardening Delivery Report | delivery report |
+| `docs/archive/SECURITY_IDENTITY_TRACKING_DELIVERY_REPORT.md` | Security Identity Tracking Delivery Report | delivery report |
 | `docs/ADVERSARIAL_HARDENING_DECISION.md` | Adversarial Hardening Decision | historical decision |
 | `docs/archive/ADVERSARIAL_HARDENING_ISSUES.md` | Adversarial Hardening Issues | night-run log |
 | `docs/archive/ADVERSARIAL_HARDENING_LOG.md` | Adversarial Hardening Log | night log |
@@ -166,7 +166,7 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/archive/BACKEND_CLOSURE_DECISION.md` | Backend Closure Decision | historical decision |
 | `docs/archive/BACKEND_PROFESSIONALIZATION_AUDIT.md` | Backend Professionalization Audit | audit |
 | `docs/archive/BACKEND_PROFESSIONALIZATION_DECISION.md` | Backend Professionalization Decision | decision |
-| `docs/BACKEND_SECURITY_HARDENING_AUDIT.md` | Backend security hardening audit | audit (long) |
+| `docs/archive/BACKEND_SECURITY_HARDENING_AUDIT.md` | Backend security hardening audit | audit (long) |
 | `docs/BASE44_DATA_MIGRATION_CENSUS_R1.md` | Base44 Data Migration Census R1 | Base44-era |
 | `docs/BASE44_WORKER_ACTIVATION_BLOCKER.md` | Base44 Worker Activation Blocker | Base44-era |
 | `docs/BUYER_PAYMENT_PROVIDER_PRODUCTION_READINESS.md` | Buyer Payment Provider Readiness | readiness audit |
@@ -175,15 +175,15 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/CANONICAL_DRIFT_AUDIT_2026-04-18.md` | Canonical Drift Audit | closed audit |
 | `docs/CANONICAL_PRODUCT_POLICY_CODE_CLEANUP_2026-09-16.md` | Code Cleanup Task, policy alignment | finished task record |
 | `docs/CANONICAL_REPO_DECISION.md` | Canonical Repo Decision | old decision |
-| `docs/CLOSED_PILOT_WAR_GAME_REPORT.md` | Closed pilot war game | report |
-| `docs/CLOSING_PRODUCT_GAPS_AUDIT.md` | Closing Product Gaps Audit | audit |
-| `docs/CODEX_BASELINE_INTEGRATION_REPORT.md` | Baseline integration report | report |
+| `docs/archive/CLOSED_PILOT_WAR_GAME_REPORT.md` | Closed pilot war game | report |
+| `docs/archive/CLOSING_PRODUCT_GAPS_AUDIT.md` | Closing Product Gaps Audit | audit |
+| `docs/archive/CODEX_BASELINE_INTEGRATION_REPORT.md` | Baseline integration report | report |
 | `docs/CODEX_BASELINE_REVIEW.md` | Baseline candidate review | review |
 | `docs/DB_BACKUP_RESTORE_REHEARSAL.md` | DB backup / restore rehearsal | dated rehearsal |
 | `docs/DB_CONFIGURATION_UNIFICATION.md` | DB Configuration Unification | old stage |
 | `docs/DEAL_TYPES_E2E_GATE.md` | Deal Types E2E Gate | gate report |
-| `docs/DEAL_TYPES_E2E_HANDOFF.md` | Deal Types E2E Handoff | handoff |
-| `docs/DEAL_TYPE_EXPANSION_DELIVERY_REPORT.md` | Deal Type Expansion Delivery Report | delivery report |
+| `docs/archive/DEAL_TYPES_E2E_HANDOFF.md` | Deal Types E2E Handoff | handoff |
+| `docs/archive/DEAL_TYPE_EXPANSION_DELIVERY_REPORT.md` | Deal Type Expansion Delivery Report | delivery report |
 | `docs/archive/DEMO_DEPLOYMENT_EXECUTION_DECISION.md` | Demo Deployment Execution Decision | old run |
 | `docs/archive/DEMO_DEPLOYMENT_EXECUTION_ISSUES.md` | Demo Deployment Execution Issues | old run |
 | `docs/archive/DEMO_DEPLOYMENT_EXECUTION_LOG.md` | Demo Deployment Execution Log | old run |
@@ -195,7 +195,7 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/archive/FINAL_CANONICAL_AUDIT_DECISION.md` | Final Canonical Audit Decision | old audit |
 | `docs/archive/FINAL_CANONICAL_AUDIT_ISSUES.md` | Final Canonical Audit Issues | old audit |
 | `docs/archive/FINAL_CANONICAL_AUDIT_LOG.md` | Final Canonical Audit Log | old audit |
-| `docs/FINAL_ZERO_DEVELOPMENT_CLOSURE.md` | V1 Final Zero-Development Closure | closeout |
+| `docs/archive/FINAL_ZERO_DEVELOPMENT_CLOSURE.md` | V1 Final Zero-Development Closure | closeout |
 | `docs/archive/FRONTEND_EXECUTION_LOG.md` | Frontend Execution Log | log |
 | `docs/FRONTEND_FOUNDATION_RTL_ACCESSIBILITY.md` | Frontend Foundation RTL/A11y | dated stage |
 | `docs/archive/FRONTEND_ISSUES.md` | Frontend Issues | old |
@@ -209,7 +209,7 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/archive/FULL_SYSTEM_QA_ISSUES.md` | Full System QA Issues | old QA |
 | `docs/archive/FULL_SYSTEM_QA_LOG.md` | Full System QA Log | old QA |
 | `docs/GAP_REGISTER_MASTER.md` | Gap Register Master | old gap map |
-| `docs/HOUSEKEEPING_SUMMARY.md` | Housekeeping Summary | old cleanup |
+| `docs/archive/HOUSEKEEPING_SUMMARY.md` | Housekeeping Summary | old cleanup |
 | `docs/archive/INTERNAL_MAXIMAL_CLOSURE_DECISION.md` | Internal Maximal Closure Decision | old |
 | `docs/archive/INTERNAL_MAXIMAL_CLOSURE_ISSUES.md` | Internal Maximal Closure Issues | old |
 | `docs/archive/INTERNAL_MAXIMAL_CLOSURE_LOG.md` | Internal Maximal Closure Log | old |
@@ -217,8 +217,8 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/LAUNCH_POLISH_SPRINT_1.md` | Launch Polish Sprint 1 | sprint report |
 | `docs/LAUNCH_POLISH_SPRINT_2.md` | Launch Polish Sprint 2 | sprint report |
 | `docs/LEGACY_FOUNDATION_DOC_STATUS_2026-04-18.md` | Legacy Foundation Document Status | doc-status note |
-| `docs/LOAD_CAPACITY_BASELINE_REPORT.md` | Load & Capacity Baseline Report | dated report |
-| `docs/LOCAL_STAGE_COMPLETION_REPORT.md` | Local Stage Completion Report | stage report |
+| `docs/archive/LOAD_CAPACITY_BASELINE_REPORT.md` | Load & Capacity Baseline Report | dated report |
+| `docs/archive/LOCAL_STAGE_COMPLETION_REPORT.md` | Local Stage Completion Report | stage report |
 | `docs/LOGGING_HARDENING.md` | Logging Hardening | old stage |
 | `docs/archive/MASTER_PRODUCT_DEEP_MAP_AND_HARDENING_DECISION.md` | Master Product Deep Map Decision | old |
 | `docs/archive/MASTER_PRODUCT_DEEP_MAP_AND_HARDENING_ISSUES.md` | Master Product Deep Map Issues | old |
@@ -284,12 +284,12 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/REMAINING_PRODUCT_SURFACES_LOG.md` | Remaining Surfaces Log | old |
 | `docs/REPOSITORY_FINAL_HYGIENE_DECISION.md` | Repository Final Hygiene Decision | old |
 | `docs/RUNTIME_VALIDATION_LIMITATIONS.md` | Runtime Validation Limitations | old |
-| `docs/SANDBOX_DRY_RUN_REPORT.md` | Sandbox Dry-Run Report | report |
+| `docs/archive/SANDBOX_DRY_RUN_REPORT.md` | Sandbox Dry-Run Report | report |
 | `docs/SECURITY_HARDENING_GATE.md` | Security Hardening Gate | gate report |
 | `docs/SELLER_AUTH_ATTACK_PLAN.md` | Seller Auth Attack Plan | old plan |
 | `docs/SENIOR_ADVERSARIAL_REVIEW.md` | Senior Skeptical Engineer Adversarial Review | review; §LONG_HORIZON marked OBSOLETE/HISTORICAL |
-| `docs/SHELF_CLOSEOUT_2026-09-17.md` | Shelf closeout, Claude lane | closeout |
-| `docs/SITON_V1_1_PRODUCT_DEPTH_AUDIT.md` | V1.1 Product Depth Audit | audit |
+| `docs/archive/SHELF_CLOSEOUT_2026-09-17.md` | Shelf closeout, Claude lane | closeout |
+| `docs/archive/SITON_V1_1_PRODUCT_DEPTH_AUDIT.md` | V1.1 Product Depth Audit | audit |
 | `docs/SOURCE_DOCX_OBSOLETE_RULES.md` | Source .docx, HISTORICAL SOURCE | obsolete rules |
 | `docs/SPEC_DRIFT_MAP_2026-04-19.md` | Spec drift map | closed |
 | `docs/STAGE11_RUNTIME_VERIFICATION_2026-03-29.md` | Stage 11 Runtime Verification | stage |
@@ -302,7 +302,7 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/STAGE32B_LIVE_DIAGNOSIS_2026-08-14.md` | אבחון חי, Stage 32B | live diagnosis |
 | `docs/STAGE32B_OPERATIONAL_RECOVERY.md` | Stage 32B Operational Recovery | stage |
 | `docs/STAGE4_OPERATIONAL_READINESS_MAP.md` | Stage 4 Operational Readiness Map | stage |
-| `docs/STAGE_32C_PRODUCT_SURFACE_CLOSURE.md` | Stage 32C Product Surface Closure | stage |
+| `docs/archive/STAGE_32C_PRODUCT_SURFACE_CLOSURE.md` | Stage 32C Product Surface Closure | stage |
 | `docs/STAGE_32D_FINAL_INTERNAL_CODE_FREEZE.md` | Stage 32D Code Freeze | freeze |
 | `docs/STAGE_9D_DRIFT_REPORT.md` | STAGE 9D DRIFT REPORT | historical |
 | `docs/STAGING_ACCEPTANCE_2026-09-10.md` | Staging acceptance | acceptance |
@@ -316,8 +316,8 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/archive/ULTIMATE_PRELIVE_QA_RC_ISSUES.md` | Ultimate Pre-Live QA Issues | old QA |
 | `docs/ULTIMATE_PRELIVE_QA_RC_LOG.md` | Ultimate Pre-Live QA Log | old QA |
 | `docs/UX_NIGHT_REINTEGRATION.md` | Overnight UX reintegration | night report |
-| `docs/V1_1_BASE44_PRE_ACTIVATION_SNAPSHOT.md` | V1.1 Base44 pre-activation snapshot | Base44-era |
-| `docs/V1_1_RESUMED_LIVE_CLOSURE_2026-08-26.md` | V1.1 Resumed Live-Closure | Base44-era |
+| `docs/archive/V1_1_BASE44_PRE_ACTIVATION_SNAPSHOT.md` | V1.1 Base44 pre-activation snapshot | Base44-era |
+| `docs/archive/V1_1_RESUMED_LIVE_CLOSURE_2026-08-26.md` | V1.1 Resumed Live-Closure | Base44-era |
 | `docs/db-drift-resolution.md` | db-drift-resolution | old note, unreadable |
 | `docs/foundation-canonical-2026-04-18/README.md` | Foundation pack, HISTORICAL SOURCE | marked historical/obsolete |
 | `docs/runtime-contract-resolution.md` | runtime-contract-resolution | old note, unreadable |
