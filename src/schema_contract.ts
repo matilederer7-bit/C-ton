@@ -36,14 +36,7 @@ export const REQUIRED_TABLES = [
   "discovery_events", "viral_attributions", "viral_events", "viral_metrics_cache", "content_assets", "site_content",
   "distribution_link_viewers", "distribution_link_viewer_grants", "distribution_link_viewer_sessions",
   "distribution_link_viewer_login_attempts",
-  "outbox_enqueue_evidence", "fixture_purge_audit", "admin_user_audit",
-  // Product Library removal (PR B): the products table is no longer part of
-  // the runtime surface, but the storage-cleanup worker and the deal-image
-  // delete paths still consult siton.product_images so that a blob shared
-  // with a retained legacy row is never deleted. The table therefore stays
-  // required until the schema migration that drops it also removes those
-  // reference checks (Codex on PR #151).
-  "product_images"
+  "outbox_enqueue_evidence", "fixture_purge_audit", "admin_user_audit"
 ] as const;
 
 // EVERY migration in scripts/migration_manifest.cjs. Readiness fails closed
@@ -61,7 +54,7 @@ export const REQUIRED_MIGRATION_IDS = [
   "041", "042", "043", "044", "045", "046", "047", "048", "049", "050", "051", "052",
   "053", "054", "055", "056", "057", "058", "059", "060", "061", "065", "066", "067",
   "068", "069", "070", "071", "072", "073", "074", "075", "076", "077",
-  "078", "079", "080", "081"
+  "078", "079", "080", "081", "082"
 ] as const;
 
 // Money / audit history the runtime roles must never DELETE or TRUNCATE, as

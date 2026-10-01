@@ -64,7 +64,7 @@ Reading order for a new agent is exactly the "Start every meaningful task" list 
 | `docs/DELIVERY_DATA_HANDOFF.md` | Delivery Data Handoff | feature spec |
 | `docs/DEPLOYMENT_RUNBOOK.md` | Deployment Runbook | runbook |
 | `docs/DISASTER_RECOVERY_RUNBOOK.md` | Disaster Recovery Runbook | runbook |
-| `docs/DISTRIBUTOR_TERMS_HE.md` | תנאי מפיץ | legal text served at `/legal/affiliates` and required verbatim by `scripts/legal_compliance_gate.cjs`; **known drift:** it still defines a מפיץ identity while the constitution recognises no distributor business role — reconciliation is a separate owner-approved legal-text change (2026-09-16 amendment §5 keeps the text unchanged) |
+| `docs/DISTRIBUTOR_TERMS_HE.md` | תנאי לינקי הפצה | legal text served at `/legal/affiliates` (legacy compatibility slug) and pinned by `scripts/legal_compliance_gate.cjs`: no distributor business role, aggregate-only link viewer without buyer personal data, no external distribution commission; the legacy filename is kept for compatibility (PR #159) |
 | `docs/DOCKER_READINESS.md` | Docker Readiness | ops reference |
 | `docs/ENVIRONMENT_CONTRACT.md` | Environment Contract | env contract |
 | `docs/ERROR_MONITORING.md` | Error monitoring (Sentry) | error monitoring |

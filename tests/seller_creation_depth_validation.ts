@@ -324,6 +324,14 @@ function deterministicUuidForTest(input: string): string {
 }
 
 await run("S5b POST /deals replays a legacy Product-backed create (no title, no terms) from the stored response", async () => {
+  // Product Library C2 (migration 082) dropped siton.products and the Deal
+  // Product columns. The replay below must keep working without them: the
+  // client product_id lives only in the request hash, never in the schema.
+  const productColumns = await pool.query(
+    `SELECT column_name FROM information_schema.columns WHERE table_schema='siton' AND table_name='deals' AND column_name IN ('product_id','product_snapshot_jsonb')`
+  );
+  assert.equal(productColumns.rowCount, 0, "C2 removed the Deal Product columns");
+  assert.equal((await pool.query(`SELECT to_regclass('siton.products') AS t`)).rows[0].t, null, "C2 removed siton.products");
   // Before the Product Library removal a voucher Draft could be created FROM a
   // Product: the body carried product_id and no title / voucher_terms, and the
   // server filled both from the Product snapshot. Such a request, retried with

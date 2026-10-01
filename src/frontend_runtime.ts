@@ -5921,7 +5921,7 @@ export function registerFrontendExperience(
       // ── Sheet 5: Attribution (only if data exists) ──────────────────────────
       if (attributions.length > 0) {
         const ws5 = wb.addWorksheet("Attribution");
-        ws5.addRow(["נתוני ייחוס בלבד. אין בסיטון חישוב עמלה או תשלום למפיצים."]);
+        ws5.addRow(["נתוני ייחוס בלבד. אין בסיטון מנגנון עמלה או תשלום לגורם חיצוני בגין הפצה."]);
         ws5.getRow(1).font = { italic: true };
         ws5.addRow([]);
         ws5.columns = [
@@ -5951,7 +5951,7 @@ export function registerFrontendExperience(
         "קובץ זה הוא מסירת נתוני עסקה למוכר לאחר השלמת העסקה.",
         "סיטון מספקת רשימת זכאים ונתוני גבייה לפי המידע במערכת.",
         "האחריות לאספקת המוצר, טיפול בכתובות, זמני משלוח ושירות לקוחות לאחר המכירה היא של המוכר.",
-        "נתוני מפיצים, אם קיימים, הם נתוני ייחוס בלבד ואינם מהווים עמלה או התחייבות תשלום מצד סיטון."
+        "נתוני לינקי הפצה הם נתוני ייחוס בלבד ואינם מהווים עמלה או התחייבות תשלום מצד סיטון לגורם חיצוני."
       ];
       for (const line of notesText) {
         const nr = wsNotes.addRow([line]);
@@ -11420,7 +11420,7 @@ export function registerFrontendExperience(
         const originType = String(row.origin_type || "");
         const humanName = String(row.internal_name || "").trim();
         const label =
-          originType === "distributor" ? `מפיץ: ${String(row.affiliate_name || humanName || row.source_code || "")}`
+          originType === "distributor" ? `מקור הפצה: ${String(row.affiliate_name || humanName || row.source_code || "")}`
           : originType === "seller" ? (humanName || "קישור המוכר")
           : originType === "campaign" ? (humanName || `קמפיין: ${String(row.source_code || "")}`)
           : originType === "participant" ? `שיתוף של ${maskName(row.origin_buyer_name)}`

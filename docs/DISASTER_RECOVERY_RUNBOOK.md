@@ -110,7 +110,7 @@ for f in 001_siton_inventory_v1.sql 006_canonical_postgres_runtime_boundary.sql 
          013_r6_viral_graph_grants.sql 014_r6_worker_webhook_ingest.sql 016_r8_admin_notification_attempts_read.sql \
          017_r8_admin_payout_rail_read.sql 018_p0_2_bindings_and_deal_delete.sql 019_p0_3_chat_reactions_business_profiles.sql \
          020_p0_4_field_change_audit.sql 021_p0_5_support_messages.sql 022_p0_7_seller_inquiries.sql \
-         023_receipt_content_grants.sql 024_r9c_payment_lifecycle_grants.sql 025_product_catalog_grants.sql \
+         023_receipt_content_grants.sql 024_r9c_payment_lifecycle_grants.sql \
          026_distribution_link_viewer_grants.sql; do
   psql "$RESTORE_URL" -v ON_ERROR_STOP=1 -f "supabase/staging/$f" || { echo "GRANT_APPLY_FAILED $f"; break; }
 done
