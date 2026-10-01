@@ -1,0 +1,69 @@
+{
+  "task": "Product Library C2 (Issue #160): forward migration 082 retires the Product Library schema of migration 072 — trigger trg_deals_product_snapshot_immutable, function siton.prevent_published_deal_product_snapshot_change(), deals FK/CHECKs/index, deals.product_id, deals.product_snapshot_jsonb, siton.product_images, siton.products — with a fail-closed guard on Product image rows, no CASCADE, IF EXISTS everywhere; keep delivery estimates, every Deal / participant / AuthHeld / money / payment / outbox / idempotency / audit row and the legacy Product-backed create replay; retire supabase/staging/025; staging only, never production",
+  "lead": "claude-lead",
+  "base": "origin/master",
+  "open_branches": [],
+  "assignments": [
+    {
+      "id": "B1",
+      "agent": "claude-lead",
+      "role": "builder",
+      "tier": "senior",
+      "scope": "src/migrations/082_retire_product_library_schema.sql, manifest + REQUIRED_MIGRATION_IDS, retirement of supabase/staging/025_product_catalog_grants.sql (file + the two grant-file lists + DR runbook line), tests/product_library_schema_retirement_validation.ts (static shape, live schema, 081->082 upgrade with a Product-backed Deal / AuthHeld participant / legacy idempotency row fingerprinted, rerun no-op, Product-image guard atomic), S5b asserts the columns are gone, D12 try/finally (C1 review nit), docs/PRODUCT_CATALOG.md, PROJECT_STATUS.md",
+      "allowed": [
+        "src/migrations/082_retire_product_library_schema.sql",
+        "scripts/migration_manifest.cjs",
+        "src/schema_contract.ts",
+        "supabase/staging/025_product_catalog_grants.sql",
+        "scripts/db_backup_restore_rehearsal.cjs",
+        "tests/runtime_role_route_privilege_validation.ts",
+        "docs/DISASTER_RECOVERY_RUNBOOK.md",
+        "tests/product_library_schema_retirement_validation.ts",
+        "tests/seller_creation_depth_validation.ts",
+        "tests/deal_images_validation.ts",
+        "docs/PRODUCT_CATALOG.md",
+        "docs/team-plans/2026-10-01-product-library-c2-schema-retirement.json",
+        "PROJECT_STATUS.md",
+        "tests/release_tools/architecture_truth_gate.test.cjs"
+      ],
+      "forbidden": [
+        "src/migrations/072_product_catalog_and_fulfillment_estimates.sql",
+        "any other existing migration",
+        "deal / participant / payment / outbox / idempotency / audit row deletion or update",
+        "delivery-estimate columns or constraints",
+        "the legacy product_id request-hash compatibility in src/app.ts",
+        "production database",
+        "real money"
+      ],
+      "depends_on": [],
+      "dod": [
+        "fresh staging census equals the C1 census",
+        "staging dependency census shows no object beyond 072's own",
+        "082 drops exactly the listed objects, no CASCADE, IF EXISTS everywhere, refuses with Product image rows",
+        "migration preflight: fresh install, upgrade from origin/master, partial catch-up, rerun, schema drift all PASS",
+        "081->082 upgrade fingerprint proof and rerun no-op PASS",
+        "S5b legacy replay passes with the columns gone",
+        "independent senior review (data loss, idempotency, dependencies, money history, delivery estimates, operational risk) and green FULL CI before merge",
+        "guard: Product rows / Product-backed Deals need the per-database disposition flag; Product image rows refused always; empty / fresh databases pass",
+        "staging, schema first: after review MERGE + green FULL CI on the frozen head, export the Product row + snapshots, apply 082 + SET LOCAL disposition flag + ledger row in one transaction BEFORE the merge; post-migration census equals baseline except the dropped objects; then merge, master CI, Render web + worker live on the merge SHA, /readiness 200, clean logs"
+      ]
+    },
+    {
+      "id": "R1",
+      "agent": "claude-subagent",
+      "role": "reviewer",
+      "senior": true,
+      "tier": "senior",
+      "scope": "independent senior review of migration 082 and its proofs: data-loss risk, idempotency compatibility, FK/trigger/function dependencies, money/payment history preservation, delivery-estimate preservation, forward/backward operational risk",
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "verdict recorded on the final head"
+      ]
+    }
+  ]
+}

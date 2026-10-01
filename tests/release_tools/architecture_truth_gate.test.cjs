@@ -302,7 +302,9 @@ test("drift: a migration in REQUIRED_MIGRATION_IDS that the manifest does not de
 test("drift: the newest manifest migration missing from the schema contract", () => {
   expectFail((repo) => {
     repo.write("src/migrations/099_future.sql", "SELECT 1;\n");
-    repo.edit("scripts/migration_manifest.cjs", '["081", "081_outbox_enqueue_evidence_rls.sql"]', '["081", "081_outbox_enqueue_evidence_rls.sql"],\n  ["099", "099_future.sql"]');
+    // Appended at the END of the manifest array (whatever the current last
+    // entry is), so the planted 099 is the newest migration.
+    repo.edit("scripts/migration_manifest.cjs", "\n].map((", ',\n  ["099", "099_future.sql"]\n].map((');
   }, /newest migration \(099\) must be in REQUIRED_MIGRATION_IDS/);
 });
 

@@ -10,7 +10,7 @@ Three tiers. A document's tier is decided by its role today, not by its title. H
 | **REFERENCE** | design, architecture, policy, legal text and runbooks that are still operationally useful | read when the task touches the area; may carry dated sections |
 | **ARCHIVE** | delivery reports, stage closeouts, audits, handoffs, superseded decisions | history only; must carry a superseded/historical marker if anything inside reads as current authority |
 
-Physical relocation of ARCHIVE files into `docs/archive/` is incremental and mechanical: several gates and tests read documents by path (`scripts/architecture_truth_gate.cjs`, `scripts/legal_compliance_gate.cjs`, `src/admin_mission_control.ts`, `tests/*`), so moves happen in small consumer-proven batches, never in bulk. D5 batch 1 (2026-10-01) moved five zero-consumer Morning Handoff records without changing their contents. Batch 2 is prepared on a stacked branch with five additional Morning Handoff records; it must not merge before batch 1.
+Physical relocation of ARCHIVE files into `docs/archive/` is incremental and mechanical: several gates and tests read documents by path (`scripts/architecture_truth_gate.cjs`, `scripts/legal_compliance_gate.cjs`, `src/admin_mission_control.ts`, `tests/*`), so moves happen in small consumer-proven batches, never in bulk. D5 batches 1–2 (2026-10-01) moved ten zero-consumer Morning Handoff records without changing their contents. `docs/archive/` is tracked (`.gitignore` exception) and stays inside every repository scan (`scripts/lib/repo_scan_policy.cjs` `INCLUDED_DIR_PATHS`), so archiving a document never removes it from the secret/PII scan or the sweeps.
 
 Counts: CANONICAL 12 · REFERENCE 100 · ARCHIVE 175 (287 documents: everything under `docs/` plus the root reports; `legacy/render/README.md` and `legacy/render/docs/*` were deleted by Lean Refactor D3-B on 2026-10-01). Out of scope: `.claude/agents/*.md` (agent definitions, CI-checked), `scripts/README.md`, `scripts/retired/README.md`, `ios/App/CapApp-SPM/README.md`.
 
@@ -64,7 +64,7 @@ Reading order for a new agent is exactly the "Start every meaningful task" list 
 | `docs/DELIVERY_DATA_HANDOFF.md` | Delivery Data Handoff | feature spec |
 | `docs/DEPLOYMENT_RUNBOOK.md` | Deployment Runbook | runbook |
 | `docs/DISASTER_RECOVERY_RUNBOOK.md` | Disaster Recovery Runbook | runbook |
-| `docs/DISTRIBUTOR_TERMS_HE.md` | תנאי מפיץ | legal text served at `/legal/affiliates` and required verbatim by `scripts/legal_compliance_gate.cjs`; **known drift:** it still defines a מפיץ identity while the constitution recognises no distributor business role — reconciliation is a separate owner-approved legal-text change (2026-09-16 amendment §5 keeps the text unchanged) |
+| `docs/DISTRIBUTOR_TERMS_HE.md` | תנאי לינקי הפצה | legal text served at `/legal/affiliates` (legacy compatibility slug) and pinned by `scripts/legal_compliance_gate.cjs`: no distributor business role, aggregate-only link viewer without buyer personal data, no external distribution commission; the legacy filename is kept for compatibility (PR #159) |
 | `docs/DOCKER_READINESS.md` | Docker Readiness | ops reference |
 | `docs/ENVIRONMENT_CONTRACT.md` | Environment Contract | env contract |
 | `docs/ERROR_MONITORING.md` | Error monitoring (Sentry) | error monitoring |
