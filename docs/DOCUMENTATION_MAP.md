@@ -10,7 +10,7 @@ Three tiers. A document's tier is decided by its role today, not by its title. H
 | **REFERENCE** | design, architecture, policy, legal text and runbooks that are still operationally useful | read when the task touches the area; may carry dated sections |
 | **ARCHIVE** | delivery reports, stage closeouts, audits, handoffs, superseded decisions | history only; must carry a superseded/historical marker if anything inside reads as current authority |
 
-Physical relocation of ARCHIVE files into `docs/archive/` is a later, mechanical step: several gates and tests read documents by path (`scripts/architecture_truth_gate.cjs`, `scripts/legal_compliance_gate.cjs`, `src/admin_mission_control.ts`, `tests/*`), so moves happen per file with their consumers updated, never in bulk.
+Physical relocation of ARCHIVE files into `docs/archive/` is incremental and mechanical: several gates and tests read documents by path (`scripts/architecture_truth_gate.cjs`, `scripts/legal_compliance_gate.cjs`, `src/admin_mission_control.ts`, `tests/*`), so moves happen in small consumer-proven batches, never in bulk. D5 batch 1 (2026-10-01) moved five zero-consumer Morning Handoff records without changing their contents.
 
 Counts: CANONICAL 12 · REFERENCE 100 · ARCHIVE 175 (287 documents: everything under `docs/` plus the root reports; `legacy/render/README.md` and `legacy/render/docs/*` were deleted by Lean Refactor D3-B on 2026-10-01). Out of scope: `.claude/agents/*.md` (agent definitions, CI-checked), `scripts/README.md`, `scripts/retired/README.md`, `ios/App/CapApp-SPM/README.md`.
 
@@ -227,12 +227,12 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/MONEY_PILOT_SCOPE.md` | Money Pilot Scope | proposal |
 | `docs/MORNING_HANDOFF_ADVERSARIAL_HARDENING.md` | Morning Handoff Adversarial Hardening | handoff |
 | `docs/MORNING_HANDOFF_BACKEND_PROFESSIONALIZATION.md` | Morning Handoff Backend Prof. | handoff |
-| `docs/MORNING_HANDOFF_DEMO_DEPLOYMENT_EXECUTION.md` | Morning Handoff Demo Deployment | handoff |
-| `docs/MORNING_HANDOFF_DEMO_PREVIEW_DEPLOYMENT.md` | Morning Handoff Demo/Preview | handoff |
-| `docs/MORNING_HANDOFF_FINAL_CANONICAL_AUDIT.md` | Morning Handoff Final Canonical Audit | handoff |
-| `docs/MORNING_HANDOFF_FRONTEND_EXECUTION.md` | Morning Handoff Frontend | handoff |
+| `docs/archive/MORNING_HANDOFF_DEMO_DEPLOYMENT_EXECUTION.md` | Morning Handoff Demo Deployment | handoff |
+| `docs/archive/MORNING_HANDOFF_DEMO_PREVIEW_DEPLOYMENT.md` | Morning Handoff Demo/Preview | handoff |
+| `docs/archive/MORNING_HANDOFF_FINAL_CANONICAL_AUDIT.md` | Morning Handoff Final Canonical Audit | handoff |
+| `docs/archive/MORNING_HANDOFF_FRONTEND_EXECUTION.md` | Morning Handoff Frontend | handoff |
 | `docs/MORNING_HANDOFF_FULL_PRODUCT_CLOSURE.md` | Morning Handoff Full Product Closure | superseded |
-| `docs/MORNING_HANDOFF_FULL_SYSTEM_QA.md` | Morning Handoff Full System QA | handoff |
+| `docs/archive/MORNING_HANDOFF_FULL_SYSTEM_QA.md` | Morning Handoff Full System QA | handoff |
 | `docs/MORNING_HANDOFF_INTERNAL_MAXIMAL_CLOSURE.md` | Morning Handoff Internal Maximal Closure | handoff |
 | `docs/MORNING_HANDOFF_MASTER_PRODUCT_DEEP_MAP_AND_HARDENING.md` | Morning Handoff Master Product Deep Map | superseded |
 | `docs/MORNING_HANDOFF_PREPROD_TORTURE_QA.md` | Morning Handoff Preprod Torture QA | handoff |
