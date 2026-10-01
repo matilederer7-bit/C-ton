@@ -40,9 +40,9 @@ Policy is written in tiers, never in model versions. `scripts/agent_model_tiers.
 
 | Tier | Use | Claude (stable alias) | Fallback | Codex |
 |---|---|---|---|---|
-| Economy | scans, inventories, simple checks | `haiku` | upward to `sonnet` | `gpt-5.6-luna` |
-| Standard | ordinary development | `sonnet` | upward to `opus` | `gpt-5.6-terra` |
-| Senior | database, security, payments, auth, state machine, architecture; every review of those and of CI gates | `opus` | none: fail closed | `gpt-5.6-sol` |
+| Economy | scans, inventories, simple checks | `haiku` | upward to `sonnet` | `gpt-6-luna` |
+| Standard | ordinary development | `sonnet` | upward to `opus` | `gpt-6.1-sol` (`medium` reasoning) |
+| Senior | database, security, payments, auth, state machine, architecture; every review of those and of CI gates | `opus` | none: fail closed | `gpt-6.1-sol` (`high` reasoning) |
 | Apex | explicit escalation only (contract below) | `fable` | none: fail closed | `gpt-6-astra` (`high` reasoning) |
 
 - Claude tiers use the provider's stable aliases. Claude Code resolves each alias to the newest model of its family, so a model release needs no change here. Verified 2026-09-28 in Claude Code 2.1.284: `haiku` → `claude-haiku-4-5-20251001`, `sonnet` → `claude-sonnet-5-5`, `opus` → `claude-opus-5-5`, `fable` → `claude-fable-5-1`.
@@ -84,13 +84,13 @@ Apex is opt-in through structured routing fields, never inferred from a keyword 
 | conflicting-reviews | References to the conflicting reports and the unresolved substantive disagreement |
 | senior-investigation-exhausted | References to distinct failed Senior attempts and the unresolved cross-layer defect |
 
-The router validates the enum, minimum evidence length and critical-risk requirement; it does not semantically verify the operator's evidence. A routine CSS fix, broken test, standalone migration or ordinary money review does not justify Apex. No automatic retry escalates compute. Head synthesis remains Sol by default; the four analysts keep their original models. Re-run synthesis with evidence only when the above rules apply (the current swarm dispatch re-runs its four lanes as well).
+The router validates the enum, minimum evidence length and critical-risk requirement; it does not semantically verify the operator's evidence. A routine CSS fix, broken test, standalone migration or ordinary money review does not justify Apex. No automatic retry escalates compute. Head synthesis remains GPT-6.1 Sol at Senior by default; the four analysts use the tier-aligned GPT-6 family models. Re-run synthesis with evidence only when the above rules apply (the current swarm dispatch re-runs its four lanes as well).
 
 Apex applies to the Codex role. If Claude builds, Astra reviews; if Codex builds, Astra builds and handles the one bounded fix pass. Explicit role overrides that remove every Codex role are rejected. The Claude role at Apex runs `fable`. Telemetry records the exact Codex model, the Claude model and the escalation reason.
 
 ## Verified model support and access boundary (2026-09-22)
 
-- Official [model catalog](https://developers.openai.com/api/docs/models) lists Luna, Terra, Sol and Astra with the exact IDs above. [Astra documentation](https://developers.openai.com/api/docs/models/gpt-6-astra) supports high reasoning and tool use through Responses.
+- Official [model catalog](https://developers.openai.com/api/docs/models) lists GPT-6 Luna, GPT-6.1 Sol and GPT-6 Astra with the exact IDs above. [Astra documentation](https://developers.openai.com/api/docs/models/gpt-6-astra) supports high reasoning and tool use through Responses.
 - The local Codex app advertises `gpt-6-astra` among its available task/agent models. This is app availability, not an entitlement check for a GitHub API key.
 - The [Codex GitHub Action](https://learn.chatgpt.com/docs/github-action) accepts `model` and `effort` and invokes Codex through the Responses API. The workflow passes the routed model on every Codex build/review/fix call.
 - Inspected the actual OpenAI Action v1 source at commit `86365089eb2b84e0a8fb0717b304f8bdcb13b20e`: `action.yml` declares `model`, `effort` and `permission-profile`; `src/runCodexExec.ts` passes the model directly as `--model` and effort as `model_reasoning_effort`, with no three-model allowlist.
@@ -134,7 +134,7 @@ Verified on GitHub-hosted runners with no local computer involved.
 | A blocked run reports to the owner's phone | Manager run `35732726575` posted the missing secret names and the exact owner action to Issue #74 with no `SITON_AGENT_GITHUB_TOKEN` present | PASS |
 | Credential state is checkable without a terminal | Preflight run `35732337550` reported `Overall: BLOCKED` with a per-secret table | PASS |
 | `SITON_AGENT_GITHUB_TOKEN`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` configured | Preflight run `35732337550`: all four reported `not configured` | BLOCKED, owner action |
-| Claude builds, Claude reviews, Codex builds, real Luna/Terra/Sol/Astra inference | Not attempted; requires the credentials above | NOT PROVEN |
+| Claude builds, Claude reviews, Codex builds, real GPT-6 Luna/GPT-6.1 Sol/GPT-6 Astra inference | Not attempted; requires the credentials above | NOT PROVEN |
 
 Nothing above may be restated as a successful agent inference. Model metadata access and job topology are not proof that a builder or reviewer produced work.
 
