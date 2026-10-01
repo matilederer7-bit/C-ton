@@ -1,0 +1,72 @@
+{
+  "task": "Legal/product terminology reconciliation: keep the legacy /legal/affiliates and internal affiliate/distributor compatibility identifiers, but remove the distributor business role from user-facing/legal copy; pin the fixed 8% Siton fee and authorization-hold-first rule; strengthen legal gates and mutation tests. No DB/API/schema/state-machine changes.",
+  "lead": "chatgpt-lead",
+  "base": "origin/master",
+  "open_branches": [
+    "claude/lean-refactor-d3b"
+  ],
+  "assignments": [
+    {
+      "id": "B1",
+      "agent": "chatgpt-lead",
+      "role": "builder",
+      "tier": "senior",
+      "scope": "legal pages, Hebrew legal docs, legacy shell/export visible terminology, i18n source dictionaries/generated dictionaries, legal compliance gate and focused legal tests",
+      "allowed": [
+        "src/legal_pages.ts",
+        "frontend/app.js",
+        "src/frontend_runtime.ts",
+        "docs/DISTRIBUTOR_TERMS_HE.md",
+        "docs/PRIVACY_POLICY_HE.md",
+        "docs/SELLER_TERMS_HE.md",
+        "scripts/legal_compliance_gate.cjs",
+        "tests/legal_trust_validation.ts",
+        "tests/legal_trust_layer_validation.ts",
+        "tests/release_tools/legal_gate.test.cjs",
+        "scripts/i18n/seed.he.json",
+        "scripts/i18n/extracted.he.json",
+        "scripts/i18n/en.json",
+        "web/src/i18n/dictionaries/he.ts",
+        "web/src/i18n/dictionaries/en.ts",
+        "docs/team-plans/2026-10-01-legal-distribution-link-reconciliation.json"
+      ],
+      "forbidden": [
+        "PROJECT_STATUS.md until claude/lean-refactor-d3b no longer modifies it",
+        "src/migrations/",
+        "supabase/",
+        "render.yaml",
+        "payment/state-machine implementation",
+        "affiliate/distributor DB table names",
+        "legacy /api/affiliate route names"
+      ],
+      "depends_on": [],
+      "dod": [
+        "no user-facing distributor role except explicit negative statements saying Siton has no such business role",
+        "fixed 8% legal copy matches the Product Constitution and has no per-deal/written-contract override",
+        "buyer legal copy pins authorization hold before charge",
+        "legacy compatibility URL/API/DB/internal identifiers remain unchanged",
+        "legal gate mutation-tests the obsolete distributor title, reintroduced distributor role and 8% override",
+        "i18n generated dictionaries match their JSON sources",
+        "independent review and CI green on the final head before merge"
+      ]
+    },
+    {
+      "id": "R1",
+      "agent": "independent-reviewer",
+      "role": "reviewer",
+      "senior": true,
+      "tier": "senior",
+      "scope": "review final PR head for legal/product consistency, compatibility regressions and gate false negatives",
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "independent reviewer verdict recorded; findings fixed before merge"
+      ]
+    }
+  ],
+  "sequencing_note": "Created while Claude D3-B PR #158 is open. This PR deliberately avoids every file changed by #158. PROJECT_STATUS is deferred until #158 lands or closes so the two workstreams remain non-overlapping. Codex review is currently quota-blocked; another independent reviewer is required before merge."
+}
