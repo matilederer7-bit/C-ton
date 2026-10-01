@@ -953,7 +953,7 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 - UPDATED: 2026-10-01
 - COMPLETED:
   - Root cause verified against repository code and live Supabase staging: the CMS client/server accept admin MP4/WebM hero video up to 10 MB, while BOTH the deployed `storage-broker` and the `deal-images` bucket are image-only with a 2 MB ceiling.
-  - Fix branch is rebuilt from current master `4101d97`; no overlap with the active Lean Refactor R1/R2 or D5 batch 2 scopes.
+  - Fix branch is synced to current master `e48b73c`; no overlap with the active Lean Refactor R1/R2 or D5 batch 2 scopes.
   - Broker policy is aligned to the existing application contract: JPEG/PNG/WebP up to 5 MB; MP4/WebM up to 10 MB. Existing key scoping, checksum, no-overwrite and broker authentication stay unchanged.
   - Added `supabase/staging/029_content_media_bucket_policy.sql`: bucket ceiling 10 MB with image + MP4/WebM MIME allow-list; per-type image/video limits remain enforced by app + broker. The script does not change bucket public-read state or client mutation policies.
   - Added regression coverage that pins client, server and broker video limits together so this deployment-contract drift is caught by CI.
