@@ -362,9 +362,11 @@ Current invariants:
 
 - COMPLETED: batch 1 (PR #163, built by ChatGPT, synced with `master` `9744b06` by a merge commit): five HISTORICAL Morning Handoff records (`DEMO_DEPLOYMENT_EXECUTION`, `DEMO_PREVIEW_DEPLOYMENT`, `FINAL_CANONICAL_AUDIT`, `FRONTEND_EXECUTION`, `FULL_SYSTEM_QA`) moved to `docs/archive/`, blobs byte-identical; `DOCUMENTATION_MAP` paths updated; `LEAN_REFACTOR_MAP` D5 IN PROGRESS. Topology: `chatgpt/lean-refactor-d5-docs-batch2` is stacked on batch 1 (its 12 batch-1 commits plus five more handoffs) and ships as the next PR after #163, not as a parallel branch.
 - TESTED: per file, exact-stem search over the repository outside `docs/archive/` and the map: no consumer (code, test, gate, script, workflow, config, active doc). Directory consumers checked: `legal_compliance_gate` reads only top-level `docs/*_HE.md` (no `_HE` file moves); `secret_pii_scan` and `seven_day_cap_sweep` walk the whole tree through `scripts/lib/repo_scan_policy.cjs`, which skipped every `archive` directory — independent review (DO NOT MERGE, P2) found the move would have taken the documents out of both; fixed: the policy keeps `docs/archive` scanned (`INCLUDED_DIR_PATHS`, new test in `repo_scan_policy.test.cjs`; `secret_pii_scan` walks the five archived files again), `.gitignore` un-ignores `docs/archive/`, `scripts/README.md` and the map count (175) corrected. `secret_pii_scan`, `seven_day_cap_sweep`, `proof_no_real_money`, `repository_hygiene_check` PASS; release-tools 418/0; `mvp_completion_validation` (classifier focused test) PASS.
-- OPEN: independent review, CI on the synced head, merge; batch 2; remaining ARCHIVE batches; `PROJECT_STATUS.md` trim.
-- PERCENT: D5 in progress (batch 1 of several).
-- NEXT: #163 review → CI → merge → batch 2.
+- MERGED: batch 1 PR #163 squash-merged as `4101d97` (FULL CI green on `d7336ab`, run 36911753828; independent review MERGE after the scan-policy fix).
+- COMPLETED (batch 2, `chatgpt/lean-refactor-d5-docs-batch2`, built by ChatGPT stacked on batch 1, synced onto `4101d97`; the maps were rebased onto master's reviewed version): five more HISTORICAL Morning Handoff records (`ADVERSARIAL_HARDENING`, `BACKEND_PROFESSIONALIZATION`, `PREPROD_TORTURE_QA`, `REAL_INTEGRATIONS`, `ULTIMATE_PRELIVE_QA_RC`) moved to `docs/archive/`, blobs identical, each with the SUPERSEDED/HISTORICAL marker, zero consumers outside the maps.
+- OPEN: batch 2 review, CI, merge; remaining ARCHIVE batches (census: 110 zero-consumer, 50 linked only from other docs, 15 read by code/tests/plans — those stay in place unless the consumer is updated); `PROJECT_STATUS.md` trim.
+- PERCENT: D5 in progress (batches 1–2).
+- NEXT: batch 2 → CI → merge → zero-consumer family batches.
 
 ### Claude Code latest milestone — Product Library C2 (2026-10-01): migration 082 retires the Product Library schema (staging only)
 
