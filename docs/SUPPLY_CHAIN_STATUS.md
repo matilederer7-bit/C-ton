@@ -27,7 +27,7 @@ A `node_modules` that is a symlink/junction into another checkout (the parallel-
 | `exceljs` | moderate (direct, production) | seller Excel export | yes, MAJOR (`exceljs@3.4.0` downgrade path reported by npm; verify) | via old `uuid`; upgrade needs export validation (`tests/seller_deal_excel_export_validation.ts`). |
 | `uuid` (old) | moderate (transitive) | via exceljs / xcode | no | buffer bounds in v3/v5/v6; not used with buffers here. |
 | `tar` | critical (dev: `@capacitor/cli`) | mobile tooling | yes | dev-only; upgrade capacitor CLI/assets together. |
-| `vitest` / `@vitest/mocker` | critical (dev) | unused test framework (the suite uses `node --test` / compiled TS) | yes | consider removing `vitest` from devDependencies. |
+| `vitest` / `@vitest/mocker` | critical (dev) | unused test framework (the suite uses `node --test` / compiled TS) | — | **removed** 2026-10-01 (Lean Refactor R1), together with the unused production dependency `zod`. |
 | `vite`, `postcss`, `esbuild` (web) | high/low (dev) | web build | yes | upgrade with the web toolchain. |
 | `sharp` (via `@capacitor/assets`) | high (dev) | icon generation | no | dev-only. |
 | `xmldom`, `xcode`, `@trapezedev/project` (via capacitor) | high/moderate (dev) | mobile tooling | partial | dev-only. |
@@ -41,4 +41,4 @@ A `node_modules` that is a symlink/junction into another checkout (the parallel-
 
 ## Next step
 
-Financial + UX integration is done (PR #9, #12, #13). Next: one dedicated change upgrading `fastify` (and its transitive tree), reviewing `exceljs`, removing `vitest` if unused, and refreshing the capacitor toolchain; run `npm run release:preflight:full` on the result. This is an owner/engineering decision listed in `scripts/release_checklist.cjs` OPEN_ITEMS; it is not a blocker for the release-readiness reintegration.
+Financial + UX integration is done (PR #9, #12, #13). Next: one dedicated change upgrading `fastify` (and its transitive tree), reviewing `exceljs` and refreshing the capacitor toolchain; run `npm run release:preflight:full` on the result. This is an owner/engineering decision listed in `scripts/release_checklist.cjs` OPEN_ITEMS; it is not a blocker for the release-readiness reintegration.

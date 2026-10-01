@@ -38,6 +38,6 @@ Regenerate the live numbers with `npm run release:preflight -- --profile full` (
 | Owner + reviewer | F-13 provider-contract resolution (R9C rails are on master; the provider-side facts are not proven) |
 | Provider (Grow) | sandbox `userId`/`pageCode`; live verification |
 | Senior skeptical engineer | adversarial review of the integrated master (financial rails, UX, release tooling) |
-| Engineering | runtime gaps (`docs/RUNTIME_ENVIRONMENT_POLICY.md`), HC-1/HC-3, LOG-1, GAP-HTTP-1..3, dependency upgrades (`docs/SUPPLY_CHAIN_STATUS.md`), optional removal of `vitest` |
+| Engineering | runtime gaps (`docs/RUNTIME_ENVIRONMENT_POLICY.md`), HC-1/HC-3, LOG-1, GAP-HTTP-1..3, dependency upgrades (`docs/SUPPLY_CHAIN_STATUS.md`; `vitest` and `zod` removed as unused, Lean Refactor R1) |
 | Engineering (observed while grounding the runbooks, `src/` untouched here) | `src/admin_mission_control.ts` outbox trace query selects `outbox_events.event_id` (the column is `event_uuid`) and returns empty through `safeQuery`; the `payment_attempts.provider_reference` half of the 2026-09-14 observation is resolved by migration 067; `service_role` retains EXECUTE on `siton_inventory_rpc`; tracking-token revoke helper has no route caller |
 | CI | first green run of `release-readiness.yml` incl. `docker-release-lab` on this PR |
