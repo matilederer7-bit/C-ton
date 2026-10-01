@@ -196,6 +196,13 @@ function envOf(service, key) {
   return service.$env.find((entry) => entry.key === key) || null;
 }
 
+// Every file the Base44 token scan reads (the gate test asserts the active
+// shell pages and PowerShell tooling are in this set).
+function listBase44ScanFiles(root) {
+  const at = (relative) => path.join(root, relative);
+  return [...LEGACY_TOKEN_TREES.flatMap((tree) => walkCode(at(tree))), ...LEGACY_TOKEN_ROOT_FILES.map(at).filter((file) => fs.existsSync(file))];
+}
+
 function runArchitectureGate(root = process.cwd()) {
   const at = (relative) => path.join(root, relative);
   const exists = (relative) => fs.existsSync(at(relative));
@@ -385,7 +392,7 @@ function runArchitectureGate(root = process.cwd()) {
       assert(!hit, `Base44 SDK usage in ${relativeOf(file)} (${hit}): Base44 is historical, never a runtime`);
     }
   }
-  const tokenFiles = [...LEGACY_TOKEN_TREES.flatMap((tree) => walkCode(at(tree))), ...LEGACY_TOKEN_ROOT_FILES.map(at).filter((file) => fs.existsSync(file))];
+  const tokenFiles = listBase44ScanFiles(root);
   for (const file of tokenFiles) {
     if (relativeOf(file) === SELF_RELATIVE) continue;
     assert(!/base44/i.test(fs.readFileSync(file, "utf8")), `Base44 reference in ${relativeOf(file)}: Base44 is historical, never a runtime`);
@@ -396,7 +403,7 @@ function runArchitectureGate(root = process.cwd()) {
   };
 }
 
-module.exports = { runArchitectureGate, parseBlueprintServices, GATE_INPUT_FILES, CANONICAL_WEB, CANONICAL_WORKER };
+module.exports = { runArchitectureGate, parseBlueprintServices, listBase44ScanFiles, GATE_INPUT_FILES, CANONICAL_WEB, CANONICAL_WORKER };
 
 if (require.main === module) {
   try {
