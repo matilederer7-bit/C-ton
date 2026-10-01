@@ -27,4 +27,5 @@ Retired (no automated caller; moved by Lean Refactor D2, still runnable from the
 repository root): see `scripts/retired/README.md`.
 
 Historical one-off scripts from the 2026-03-30 hygiene pass were removed from the
-repository (`archive/` is git-ignored); `scripts/retired/` is the only tracked archive.
+repository (a top-level `archive/` is git-ignored); `scripts/retired/` is the tracked
+script archive and `docs/archive/` the tracked document archive (Lean Refactor D5).

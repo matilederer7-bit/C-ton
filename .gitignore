@@ -45,6 +45,8 @@ archive_temp/
 .demo_dist/
 .mobile_dist/
 archive/
+# Lean Refactor D5: tracked historical documents live in docs/archive/.
+!docs/archive/
 backups/
 
 .sixth/
