@@ -44,7 +44,6 @@
     "test:platform-fee-payments": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/platform_fee_payments_8_percent_validation.js",
     "test:seller-payout-rail": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/seller_payout_rail_validation.js",
     "test:spec-drift-wave3": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/spec_drift_regression_wave3_validation.js",
-    "test:demo-package": "npm run build:demo",
     "test:demo-readiness": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/demo_readiness_validation.js",
     "test:admin-support-cases": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/admin_support_cases_validation.js",
     "test:mission-control": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/mission_control_validation.js",
@@ -111,7 +110,6 @@
     "test:stage32c-product-surface": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/stage32c_product_surface_closure_validation.js",
     "test:grow-adapter": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/grow_payment_adapter_validation.js",
     "test:synthetic-money": "node scripts/run_launch_rehearsal.cjs",
-    "test:launch-rehearsal": "node scripts/run_launch_rehearsal.cjs",
     "qa:pilot-war-game": "node scripts/closed_pilot_war_game.cjs",
     "test:admin-overview-settlement": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/admin_overview_settlement_truth_validation.js",
     "test:pickup-navigation": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/pickup_navigation_validation.js",
@@ -159,8 +157,6 @@
     "qa:cleanup-stale-dbs": "node scripts/qa_process_guard.cjs --cleanup-stale-dbs",
     "qa:classified": "node scripts/qa_run_classified.cjs",
     "test:release-tools": "node --test \"tests/release_tools/**/*.test.cjs\"",
-    "test:agent-router": "node --test tests/release_tools/agent_router.test.cjs",
-    "test:agent-models": "node --test tests/release_tools/agent_model_tiers.test.cjs tests/release_tools/agent_readonly_bash_guard.test.cjs",
     "agents:models": "node scripts/agent_model_tiers.cjs table",
     "agents:check-models": "node scripts/agent_model_tiers.cjs check-agents",
     "gate:seven-day-cap": "node scripts/seven_day_cap_sweep.cjs",
@@ -194,8 +190,7 @@
     "exceljs": "^4.4.0",
     "fastify": "^5.12.5",
     "pg": "^8.23.0",
-    "pino": "^10.3.1",
-    "zod": "^4.6.5"
+    "pino": "^10.3.1"
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
@@ -204,8 +199,7 @@
     "@types/pg": "^8.23.1",
     "ts-node": "^10.9.2",
     "tsx": "^4.23.15",
-    "typescript": "^5.9.3",
-    "vitest": "^5.0.2"
+    "typescript": "^5.9.3"
   },
   "overrides": {
     "fast-uri": "^3.1.8",

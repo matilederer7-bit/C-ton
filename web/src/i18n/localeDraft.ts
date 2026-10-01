@@ -220,11 +220,6 @@ function writeStore(store: DraftStore): void {
   }
 }
 
-export function clearDraftStore(): void {
-  if (!hasDom()) return;
-  try { window.sessionStorage.removeItem(DRAFT_STORAGE_KEY); } catch { /* ignore */ }
-}
-
 /**
  * Save what is on screen RIGHT NOW under `locale`.
  *

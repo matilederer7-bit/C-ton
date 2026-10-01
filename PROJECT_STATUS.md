@@ -365,12 +365,17 @@ Current invariants:
 - MERGED: batch 1 PR #163 squash-merged as `4101d97` (FULL CI green on `d7336ab`, run 36911753828; independent review MERGE after the scan-policy fix).
 - COMPLETED (batch 2, `chatgpt/lean-refactor-d5-docs-batch2`, built by ChatGPT stacked on batch 1, synced onto `4101d97`; the maps were rebased onto master's reviewed version): five more HISTORICAL Morning Handoff records (`ADVERSARIAL_HARDENING`, `BACKEND_PROFESSIONALIZATION`, `PREPROD_TORTURE_QA`, `REAL_INTEGRATIONS`, `ULTIMATE_PRELIVE_QA_RC`) moved to `docs/archive/`, blobs identical, each with the SUPERSEDED/HISTORICAL marker, zero consumers outside the maps.
 - COMPLETED (batch 3, `claude/lean-refactor-d5-docs-batch3`): the remaining five Morning Handoffs and the 36 DECISION / ISSUES / LOG companions of the handoff family (DEMO_*, REAL_*, FINAL_CANONICAL_AUDIT_*, FRONTEND_*, FULL_*, ADVERSARIAL_HARDENING_*, INTERNAL_MAXIMAL_CLOSURE_*, MASTER_PRODUCT_DEEP_MAP_*, PREPROD_*, ULTIMATE_*, REMAINING_*, BACKEND_*_DECISION/AUDIT) — 41 files, zero consumers on the extension-less stem outside the maps and `docs/archive/`, all byte-identical, all carry the historical marker.
+- MERGED: batch 2 PR #173 squash-merged as `3ad69e5` (CI green on the synced head `d6c9daa`, independent review MERGE).
+- MERGED: batch 3 PR #177 squash-merged as `fce4bb7` (CI green on `37dca13`, independent review MERGE).
 - COMPLETED (batch 4, `claude/lean-refactor-d5-docs-batch4`): 24 delivery / closure / audit reports moved, including the eight root `*_DELIVERY_REPORT.md` files (`DEAL_TYPES_E2E_DELIVERY_REPORT` moves with its only consumer, `DEAL_TYPES_E2E_HANDOFF`); zero consumers on the extension-less stem outside `docs/archive/` and the maps, byte-identical, all carry a historical marker.
+- MERGED: batch 4 PR #178 squash-merged as `172a8a9` (CI green on the synced head `8ea3b2d`, independent review MERGE).
 - COMPLETED (batch 5, `claude/lean-refactor-d5-docs-batch5`): the 32 remaining zero-consumer records (PASS2–6, STAGE*, R9A/R9C, red-team and payment-plan records, LAUNCH_POLISH_SPRINT_1/2, decisions; `SECURITY_HARDENING_GATE` once its only consumer moved in batch 4). All 107 zero-consumer ARCHIVE documents are now in `docs/archive/`.
+- MERGED: batch 5 PR #180 squash-merged as `f1acfc5` (CI green on `dc4ea37`, independent review MERGE).
 - COMPLETED (batch 6, `claude/lean-refactor-d5-docs-batch6`): 39 ARCHIVE records linked only from other documents moved (incl. the two root reports `BLACK_SKY_FINAL_REPORT.md` / `RED_TEAM_FINAL_REPORT.md`); the 12 active documents citing them were repointed to `docs/archive/` (this also fixed `INCIDENT_RESPONSE_RUNBOOK`, which already pointed at a non-existent `docs/RED_TEAM_FINAL_REPORT.md`). 29 ARCHIVE documents stay in place on purpose (code / test / config / team-plan consumer, or the D2 keep-path decision).
-- OPEN: batches 3–6 review, CI, merge (census: 110 zero-consumer, 50 linked only from other docs, 15 read by code/tests/plans — those stay in place unless the consumer is updated); `PROJECT_STATUS.md` trim.
-- PERCENT: D5 in progress (batches 1–2).
-- NEXT: batch 2 → CI → merge → zero-consumer family batches.
+- CENSUS (reconciled): 175 ARCHIVE documents. 110 had no consumer by full file name; the stricter extension-less stem check found a consumer for 5 of them, 2 of which moved once their only consumer moved, so batches 1–5 archived 107; batch 6 archived 39 linked only from documents; 29 stay outside `docs/archive/` (code / test / config / team-plan consumer, linked from such a record, or the D2 keep-path decision). Total archived: 146.
+- OPEN: batch 6 review, CI, merge; `PROJECT_STATUS.md` trim after the concurrent status-owning PR (#174, ChatGPT) closes.
+- PERCENT: D5 in progress (batches 1–5 merged; batch 6 open).
+- NEXT: batch 6 → CI → merge → post-refactor census section → `PROJECT_STATUS.md` trim.
 
 ### Claude Code latest milestone — Product Library C2 (2026-10-01): migration 082 retires the Product Library schema (staging only)
 

@@ -60,9 +60,6 @@ backups/
 uploads/
 .ci-artifacts/
 
-# Base44 machine-local project link (contains the app ID; never commit).
-base44/.app.jsonc
-
 # Mobile signing/provisioning credentials are external release inputs.
 *.jks
 *.keystore

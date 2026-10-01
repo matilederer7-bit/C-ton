@@ -13,8 +13,6 @@ import {
   type NotificationTemplateKey
 } from "./notification_templates.js";
 
-const { Pool } = pg;
-
 import { evaluateNotificationRecipientSafety } from "./notification_safety.js";
 import { maskDestination } from "./otp_rail.js";
 import { NOTIFICATION_MAX_ATTEMPTS } from "./runtime_config.js";
@@ -160,8 +158,6 @@ export function getNotificationProviderSummary(provider: NotificationProvider) {
     external_delivery: false
   };
 }
-
-export const getSmsProviderSummary = getNotificationProviderSummary;
 
 export type EnqueueNotificationInput = {
   event_type: NotificationEventType;
