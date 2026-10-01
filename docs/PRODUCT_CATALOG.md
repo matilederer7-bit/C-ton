@@ -24,33 +24,48 @@ runtime surface that this document once described as current behaviour:
   response).
 - **141 i18n keys** of the Product Library removed from the dictionaries.
 
-## What still exists (schema only, until PR C)
+## Schema retirement (PR C1 #161, PR C2 / migration 082, 2026-10-01)
 
-Migration `072` is applied and stays untouched (applied migrations are never edited). The
-tables `siton.products`, `siton.product_images` and the columns `deals.product_id`,
-`deals.product_snapshot_jsonb` therefore still exist until PR C2.
+Migration `072` is applied and stays untouched (applied migrations are never edited).
 
-PR C1 deliberately removes the **runtime dependency** first: storage cleanup and Deal-image
-delete paths no longer query `siton.product_images`, and readiness no longer requires that table.
-The legacy Product-backed create request hash/replay compatibility remains because old
-`siton.idempotency_log` rows may still contain a Product id in their request hash. Delivery
-estimate columns from migration 072 remain current product functionality.
+PR C1 (#161) removed the last **runtime dependency**: storage cleanup and the Deal-image /
+Deal delete paths no longer query `siton.product_images`, and readiness no longer requires that
+table. Shared-blob protection between Deal images stays (`tests/deal_images_validation.ts` D12).
 
-The verified staging census on 2026-10-01 found 1 Product, 0 Product images and exactly 2
-Product-backed Deals; both are explicit `Smoke 20260917` fixtures with snapshots. One of those
-Deals has a participant in `JoinedAuthorized/AuthHeld`, so PR C never deletes either Deal,
-participant, authorization/money state, outbox row or audit history. PR C2 is a separate forward
-migration that retires only the Product Library schema objects. Production execution remains
-blocked pending a fresh production census, explicit data disposition and owner confirmation.
+PR C2 adds the forward migration `082_retire_product_library_schema.sql`, which drops the
+Product Library schema only: the trigger `trg_deals_product_snapshot_immutable` and its function
+`siton.prevent_published_deal_product_snapshot_change()`, the `deals` FK
+`deals_product_id_fkey`, the CHECKs `deals_product_snapshot_presence_check` /
+`deals_product_snapshot_shape_check`, the index `idx_deals_product_id`, the columns
+`deals.product_id` / `deals.product_snapshot_jsonb`, and the tables `siton.product_images` and
+`siton.products` (with their own indexes, constraints, RLS policies and grants). No `CASCADE`;
+every statement is `IF EXISTS` (a rerun is a no-op). It refuses to run while
+`siton.product_images` holds any row (a pointer to a stored blob needs an explicit disposition).
+The staging grant file `supabase/staging/025_product_catalog_grants.sql` is retired with it.
+
+Kept: the delivery-estimate columns 072 also added
+(`deal_delivery_options.estimated_min/max_business_days` and their three CHECKs), every Deal,
+participant, authorization / money state, payment evidence, outbox, idempotency and audit row,
+and the legacy Product-backed create replay: a client `product_id` still enters the
+`POST /deals` request hash so old `siton.idempotency_log` rows keep matching
+(`tests/seller_creation_depth_validation.ts` S5b, which now also asserts the column is gone).
+
+The staging census on 2026-10-01 (before and again at C2 build time) found 1 Product, 0 Product
+images and exactly 2 Product-backed Deals; both are explicit `Smoke 20260917` fixtures with
+snapshots, one with a participant in `JoinedAuthorized/AuthHeld`. Both Deals and that
+participant stay; only their two Product columns go. **C2 is applied to staging only.**
+Production execution remains blocked pending a fresh production census, explicit data
+disposition, backup/rollback evidence and owner confirmation.
 
 ## Data model created by migration 072 (historical reference)
 
 | Object | Notes |
 |---|---|
 | `siton.products` | seller-owned; `status` active/archived (never deleted by the web runtime); `revision ≥ 1`; `type_attributes` + `fulfillment_defaults` JSONB objects |
-| `siton.product_images` | metadata per Product image; storage object may be shared with Deal images (reference-counted before deletion) |
+| `siton.product_images` | metadata per Product image; storage object could be shared with Deal images (reference-counted before deletion until C1) |
 | `siton.deals.product_id` | FK `ON DELETE SET NULL`; `product_snapshot_jsonb` must be present when set |
 | `siton.deal_delivery_options.estimated_min/max_business_days` | optional 0–365 range, `max ≥ min`; relative to Deal completion |
 
-Staging grants: `supabase/staging/025_product_catalog_grants.sql` (web runtime only, RLS on,
-no Data API exposure). Boot fail-closes until 072 is applied (`REQUIRED_TABLES`).
+Staging grants were `supabase/staging/025_product_catalog_grants.sql` (web runtime only, RLS on,
+no Data API exposure; retired with C2). Boot fail-closes on the migration ledger
+(`REQUIRED_MIGRATION_IDS`, now through `082`); the Product tables left `REQUIRED_TABLES` in C1.

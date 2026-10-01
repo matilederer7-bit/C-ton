@@ -451,54 +451,61 @@ await run("D12 a storage object shared between Deals survives image delete, Deal
   const dealA = await insertDraftDeal(sellerId);
   const dealB = await insertDraftDeal(sellerId);
   const dealC = await insertDraftDeal(sellerId);
-  const uploaded = await app.inject({ method: "POST", url: `/api/seller/deals/${dealA}/images`, headers: { "x-seller-id": sellerId }, payload: imagePayload() });
-  assert.equal(uploaded.statusCode, 201, uploaded.body);
-  const imageA = uploaded.json().image.image_id;
-  const source = (await pool.query(
-    `SELECT storage_provider, storage_key, public_url, original_filename, mime_type, size_bytes FROM siton.deal_images WHERE image_id=$1`,
-    [imageA]
-  )).rows[0];
-  const storageKey = String(source.storage_key);
-  const storedPath = join(uploadDir, storageKey);
-  for (const dealId of [dealB, dealC]) {
-    await pool.query(
-      `INSERT INTO siton.deal_images (deal_id, storage_provider, storage_key, public_url, original_filename, mime_type, size_bytes, sort_order, is_primary)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,0,true)`,
-      [dealId, source.storage_provider, storageKey, source.public_url, source.original_filename, source.mime_type, source.size_bytes]
-    );
+  let storageKey = "";
+  try {
+    const uploaded = await app.inject({ method: "POST", url: `/api/seller/deals/${dealA}/images`, headers: { "x-seller-id": sellerId }, payload: imagePayload() });
+    assert.equal(uploaded.statusCode, 201, uploaded.body);
+    const imageA = uploaded.json().image.image_id;
+    const source = (await pool.query(
+      `SELECT storage_provider, storage_key, public_url, original_filename, mime_type, size_bytes FROM siton.deal_images WHERE image_id=$1`,
+      [imageA]
+    )).rows[0];
+    storageKey = String(source.storage_key);
+    const storedPath = join(uploadDir, storageKey);
+    for (const dealId of [dealB, dealC]) {
+      await pool.query(
+        `INSERT INTO siton.deal_images (deal_id, storage_provider, storage_key, public_url, original_filename, mime_type, size_bytes, sort_order, is_primary)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,0,true)`,
+        [dealId, source.storage_provider, storageKey, source.public_url, source.original_filename, source.mime_type, source.size_bytes]
+      );
+    }
+    const pendingTasks = async () => Number((await pool.query(
+      `SELECT COUNT(*)::int AS count FROM siton.storage_cleanup_tasks WHERE storage_key=$1 AND status IN ('pending','processing')`,
+      [storageKey]
+    )).rows[0].count);
+
+    // 1. Image-delete route: the blob is still referenced by Deals B and C.
+    const deletedImage = await app.inject({ method: "DELETE", url: `/api/seller/deals/${dealA}/images/${imageA}`, headers: { "x-seller-id": sellerId } });
+    assert.equal(deletedImage.statusCode, 200, deletedImage.body);
+    assert.equal(deletedImage.json().deletion, "retained_shared");
+    assert.equal((await stat(storedPath)).isFile(), true, "a blob still referenced by another Deal must survive the image delete");
+    assert.equal(await pendingTasks(), 0, "no cleanup task for a shared blob");
+
+    // 2. Cleanup worker: a task for a still-referenced blob completes without deleting it.
+    await pool.query(`INSERT INTO siton.storage_cleanup_tasks (storage_provider, storage_key, reason) VALUES ($1,$2,'validation_shared_blob')`, [source.storage_provider, storageKey]);
+    await processStorageCleanupBatch(50, 60_000);
+    const sharedTask = (await pool.query(`SELECT status FROM siton.storage_cleanup_tasks WHERE storage_key=$1 AND reason='validation_shared_blob'`, [storageKey])).rows[0];
+    assert.equal(sharedTask.status, "completed");
+    assert.equal((await stat(storedPath)).isFile(), true, "the cleanup worker must not delete a blob another Deal still references");
+
+    // 3. Deal-delete route: Deal B goes, Deal C still references the blob.
+    const deletedB = await app.inject({ method: "DELETE", url: `/api/seller/deals/${dealB}`, headers: { "x-seller-id": sellerId } });
+    assert.equal(deletedB.statusCode, 200, deletedB.body);
+    assert.equal(await pendingTasks(), 0, "deleting one of two Deals sharing a blob schedules no cleanup");
+    assert.equal((await stat(storedPath)).isFile(), true);
+
+    // 4. Last reference: deleting Deal C schedules cleanup, and the worker removes the blob.
+    const deletedC = await app.inject({ method: "DELETE", url: `/api/seller/deals/${dealC}`, headers: { "x-seller-id": sellerId } });
+    assert.equal(deletedC.statusCode, 200, deletedC.body);
+    assert.equal(await pendingTasks(), 1, "the last Deal reference schedules exactly one cleanup task");
+    await processStorageCleanupBatch(50, 60_000);
+    await assert.rejects(() => stat(storedPath), (error: any) => error?.code === "ENOENT");
+  } finally {
+    // Leave nothing behind on failure: the cleanup tasks of this blob and any
+    // Deal of this seller that a failed step did not delete.
+    if (storageKey) await pool.query(`DELETE FROM siton.storage_cleanup_tasks WHERE storage_key=$1`, [storageKey]);
+    await pool.query(`DELETE FROM siton.deals WHERE deal_id = ANY($1::uuid[])`, [[dealA, dealB, dealC]]).catch(() => undefined);
   }
-  const pendingTasks = async () => Number((await pool.query(
-    `SELECT COUNT(*)::int AS count FROM siton.storage_cleanup_tasks WHERE storage_key=$1 AND status IN ('pending','processing')`,
-    [storageKey]
-  )).rows[0].count);
-
-  // 1. Image-delete route: the blob is still referenced by Deals B and C.
-  const deletedImage = await app.inject({ method: "DELETE", url: `/api/seller/deals/${dealA}/images/${imageA}`, headers: { "x-seller-id": sellerId } });
-  assert.equal(deletedImage.statusCode, 200, deletedImage.body);
-  assert.equal(deletedImage.json().deletion, "retained_shared");
-  assert.equal((await stat(storedPath)).isFile(), true, "a blob still referenced by another Deal must survive the image delete");
-  assert.equal(await pendingTasks(), 0, "no cleanup task for a shared blob");
-
-  // 2. Cleanup worker: a task for a still-referenced blob completes without deleting it.
-  await pool.query(`INSERT INTO siton.storage_cleanup_tasks (storage_provider, storage_key, reason) VALUES ($1,$2,'validation_shared_blob')`, [source.storage_provider, storageKey]);
-  await processStorageCleanupBatch(50, 60_000);
-  const sharedTask = (await pool.query(`SELECT status FROM siton.storage_cleanup_tasks WHERE storage_key=$1 AND reason='validation_shared_blob'`, [storageKey])).rows[0];
-  assert.equal(sharedTask.status, "completed");
-  assert.equal((await stat(storedPath)).isFile(), true, "the cleanup worker must not delete a blob another Deal still references");
-
-  // 3. Deal-delete route: Deal B goes, Deal C still references the blob.
-  const deletedB = await app.inject({ method: "DELETE", url: `/api/seller/deals/${dealB}`, headers: { "x-seller-id": sellerId } });
-  assert.equal(deletedB.statusCode, 200, deletedB.body);
-  assert.equal(await pendingTasks(), 0, "deleting one of two Deals sharing a blob schedules no cleanup");
-  assert.equal((await stat(storedPath)).isFile(), true);
-
-  // 4. Last reference: deleting Deal C schedules cleanup, and the worker removes the blob.
-  const deletedC = await app.inject({ method: "DELETE", url: `/api/seller/deals/${dealC}`, headers: { "x-seller-id": sellerId } });
-  assert.equal(deletedC.statusCode, 200, deletedC.body);
-  assert.equal(await pendingTasks(), 1, "the last Deal reference schedules exactly one cleanup task");
-  await processStorageCleanupBatch(50, 60_000);
-  await assert.rejects(() => stat(storedPath), (error: any) => error?.code === "ENOENT");
-  await pool.query(`DELETE FROM siton.storage_cleanup_tasks WHERE storage_key=$1`, [storageKey]);
 });
 
 await pool.end();
