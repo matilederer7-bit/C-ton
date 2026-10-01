@@ -16,6 +16,7 @@ const productImage = await readFile("src/product_image_storage.ts", "utf8");
 const contentMedia = await readFile("src/content_media.ts", "utf8");
 const contentAssets = await readFile("web/src/contentAssets.ts", "utf8");
 const storageBroker = await readFile("supabase/functions/storage-broker/index.ts", "utf8");
+const storageBucketPolicy = await readFile("supabase/staging/029_content_media_bucket_policy.sql", "utf8");
 const mission = await readFile("src/admin_mission_control.ts", "utf8");
 const runtime = await readFile("src/frontend_runtime.ts", "utf8");
 const migration = await readFile("src/migrations/037_admin_intervention_and_storage.sql", "utf8");
@@ -64,6 +65,9 @@ await run("cms_video_storage_broker_contract_validation", async () => {
   assert.match(storageBroker, /\["video\/webm", 10 \* 1024 \* 1024\]/);
   assert.match(storageBroker, /const maxBytes = MAX_BYTES_BY_CONTENT_TYPE\.get\(contentType\)/);
   assert.match(storageBroker, /bytes\.length > maxBytes/);
+  assert.match(storageBucketPolicy, /file_size_limit = 10485760/);
+  assert.match(storageBucketPolicy, /'video\/mp4'/);
+  assert.match(storageBucketPolicy, /'video\/webm'/);
 });
 
 await run("upload_path_traversal_validation", async () => {
