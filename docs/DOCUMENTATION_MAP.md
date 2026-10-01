@@ -10,7 +10,7 @@ Three tiers. A document's tier is decided by its role today, not by its title. H
 | **REFERENCE** | design, architecture, policy, legal text and runbooks that are still operationally useful | read when the task touches the area; may carry dated sections |
 | **ARCHIVE** | delivery reports, stage closeouts, audits, handoffs, superseded decisions | history only; must carry a superseded/historical marker if anything inside reads as current authority |
 
-Physical relocation of ARCHIVE files into `docs/archive/` is incremental and mechanical: several gates and tests read documents by path (`scripts/architecture_truth_gate.cjs`, `scripts/legal_compliance_gate.cjs`, `src/admin_mission_control.ts`, `tests/*`), so moves happen in small consumer-proven batches, never in bulk. D5 batch 1 (2026-10-01) moved five zero-consumer Morning Handoff records without changing their contents. `docs/archive/` is tracked (`.gitignore` exception) and stays inside every repository scan (`scripts/lib/repo_scan_policy.cjs` `INCLUDED_DIR_PATHS`), so archiving a document never removes it from the secret/PII scan or the sweeps.
+Physical relocation of ARCHIVE files into `docs/archive/` is incremental and mechanical: several gates and tests read documents by path (`scripts/architecture_truth_gate.cjs`, `scripts/legal_compliance_gate.cjs`, `src/admin_mission_control.ts`, `tests/*`), so moves happen in small consumer-proven batches, never in bulk. D5 batches 1–2 (2026-10-01) moved ten zero-consumer Morning Handoff records without changing their contents. `docs/archive/` is tracked (`.gitignore` exception) and stays inside every repository scan (`scripts/lib/repo_scan_policy.cjs` `INCLUDED_DIR_PATHS`), so archiving a document never removes it from the secret/PII scan or the sweeps.
 
 Counts: CANONICAL 12 · REFERENCE 100 · ARCHIVE 175 (287 documents: everything under `docs/` plus the root reports; `legacy/render/README.md` and `legacy/render/docs/*` were deleted by Lean Refactor D3-B on 2026-10-01). Out of scope: `.claude/agents/*.md` (agent definitions, CI-checked), `scripts/README.md`, `scripts/retired/README.md`, `ios/App/CapApp-SPM/README.md`.
 
@@ -225,8 +225,8 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/MASTER_PRODUCT_DEEP_MAP_AND_HARDENING_LOG.md` | Master Product Deep Map Log | superseded |
 | `docs/MOBILE_TECHNICAL_INVENTORY.md` | Mobile technical inventory | dated inventory |
 | `docs/MONEY_PILOT_SCOPE.md` | Money Pilot Scope | proposal |
-| `docs/MORNING_HANDOFF_ADVERSARIAL_HARDENING.md` | Morning Handoff Adversarial Hardening | handoff |
-| `docs/MORNING_HANDOFF_BACKEND_PROFESSIONALIZATION.md` | Morning Handoff Backend Prof. | handoff |
+| `docs/archive/MORNING_HANDOFF_ADVERSARIAL_HARDENING.md` | Morning Handoff Adversarial Hardening | handoff |
+| `docs/archive/MORNING_HANDOFF_BACKEND_PROFESSIONALIZATION.md` | Morning Handoff Backend Prof. | handoff |
 | `docs/archive/MORNING_HANDOFF_DEMO_DEPLOYMENT_EXECUTION.md` | Morning Handoff Demo Deployment | handoff |
 | `docs/archive/MORNING_HANDOFF_DEMO_PREVIEW_DEPLOYMENT.md` | Morning Handoff Demo/Preview | handoff |
 | `docs/archive/MORNING_HANDOFF_FINAL_CANONICAL_AUDIT.md` | Morning Handoff Final Canonical Audit | handoff |
@@ -235,11 +235,11 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/archive/MORNING_HANDOFF_FULL_SYSTEM_QA.md` | Morning Handoff Full System QA | handoff |
 | `docs/MORNING_HANDOFF_INTERNAL_MAXIMAL_CLOSURE.md` | Morning Handoff Internal Maximal Closure | handoff |
 | `docs/MORNING_HANDOFF_MASTER_PRODUCT_DEEP_MAP_AND_HARDENING.md` | Morning Handoff Master Product Deep Map | superseded |
-| `docs/MORNING_HANDOFF_PREPROD_TORTURE_QA.md` | Morning Handoff Preprod Torture QA | handoff |
-| `docs/MORNING_HANDOFF_REAL_INTEGRATIONS.md` | Morning Handoff Real Integrations | handoff |
+| `docs/archive/MORNING_HANDOFF_PREPROD_TORTURE_QA.md` | Morning Handoff Preprod Torture QA | handoff |
+| `docs/archive/MORNING_HANDOFF_REAL_INTEGRATIONS.md` | Morning Handoff Real Integrations | handoff |
 | `docs/MORNING_HANDOFF_REAL_PAYMENT_AND_RECONCILIATION.md` | Morning Handoff Real Payment | handoff |
 | `docs/MORNING_HANDOFF_REMAINING_PRODUCT_SURFACES.md` | Morning Handoff Remaining Surfaces | superseded |
-| `docs/MORNING_HANDOFF_ULTIMATE_PRELIVE_QA_RC.md` | Morning Handoff Ultimate Pre-Live QA | handoff |
+| `docs/archive/MORNING_HANDOFF_ULTIMATE_PRELIVE_QA_RC.md` | Morning Handoff Ultimate Pre-Live QA | handoff |
 | `docs/MVP_COMPLETION_GATE.md` | MVP Completion Gate | gate report |
 | `docs/OPERATIONAL_SCRIPT_VALIDATION.md` | Operational Script Validation | old stage |
 | `docs/OVERNIGHT_ENGINEERING_HANDOFF_2026-08-31.md` | Overnight Engineering Handoff | night handoff |
