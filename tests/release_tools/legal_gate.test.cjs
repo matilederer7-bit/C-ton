@@ -482,6 +482,84 @@ const MUTATIONS = [
     to: "חיוב בפועל יתבצע רק לאחר שהעסקה ננעלה, אלא אם צוין אחרת בדף העסקה. חיוב בפועל אינו מתבצע לפני שהעסקה נסגרת להצטרפות וננעלת",
     expect: /authorization-hold-only rule[^\n]*src\/legal_pages\.ts:/
   },
+  // Sixth review pass (findings on head 4746d43).
+  {
+    name: "the seller terms describe a premium-deal fee that varies",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. עמלת C-ton בעסקאות פרימיום משתנה.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the seller terms describe a fee 'not fixed but varying by category'",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. העמלה לא קבועה אלא משתנה לפי קטגוריה.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the seller terms describe a fee 'not fixed but depending on category'",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. העמלה לא קבועה אלא תלויה בקטגוריה.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the seller terms describe a rate 'not varying per deal but by product category' (אלא is not לא)",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. שיעור העמלה לא משתנה מעסקה לעסקה אלא בהתאם לקטגוריית המוצר.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the seller terms describe a fee 'not fixed'",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. העמלה לא קבועה.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the seller terms describe an 18% premium fee hidden after a VAT mention",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. עמלת C-ton 8% בתוספת מע״מ, ובעסקאות פרימיום 18%.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the seller terms describe a first-month fee waiver",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. C-ton אינה גובה עמלה בחודש הראשון.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the seller terms describe a fee exemption for new sellers",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. פטור מעמלה למוכרים חדשים.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the seller terms describe no fee for premium deals",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. ללא עמלה בעסקאות פרימיום.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the privacy policy says successful distribution sources are entitled to a commission from Siton",
+    file: "docs/PRIVACY_POLICY_HE.md",
+    from: "## למה המידע נאסף",
+    to: "מקורות הפצה מצליחים זכאים לעמלה מסיטון.\n\n## למה המידע נאסף",
+    expect: /positive external-distribution money statement[^\n]*docs\/PRIVACY_POLICY_HE\.md:/
+  },
+  {
+    name: "the privacy policy says part of Siton's fee is allocated to distribution links",
+    file: "docs/PRIVACY_POLICY_HE.md",
+    from: "## למה המידע נאסף",
+    to: "חלק מעמלת סיטון מוקצה ללינקי הפצה.\n\n## למה המידע נאסף",
+    expect: /positive external-distribution money statement[^\n]*docs\/PRIVACY_POLICY_HE\.md:/
+  },
   {
     name: "the legacy shell HTML links to Distributor terms",
     file: "frontend/index.html",
