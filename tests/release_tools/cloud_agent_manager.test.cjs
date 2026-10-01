@@ -372,9 +372,9 @@ test("engineering operating system has routing, parallel analysis and telemetry 
   assert.match(workflow, /gh run watch/);
   assert.match(workflow, /swarm-synthesis/);
   assert.match(swarm, /max-parallel: 4/);
-  assert.match(swarm, /gpt-6\\.luna/);
-  assert.match(swarm, /gpt-5\.6-terra/);
-  assert.match(swarm, /gpt-5\.6-sol/);
+  assert.match(swarm, /gpt-6-luna/);
+  assert.match(swarm, /gpt-6\.1-sol/);
+  assert.match(swarm, /gpt-6\.1-sol/);
   assert.match(swarm, /architecture/);
   assert.match(swarm, /security/);
   assert.match(swarm, /source-of-truth/);
@@ -405,7 +405,7 @@ test('model access preflight confirms metadata without claiming inference and ne
   }
   await assert.rejects(verifyModelAccess({ model }), /OPENAI_API_KEY/);
   await assert.rejects(verifyModelAccess({ apiKey: 'test-only', model: 'invented' }), /Unknown/);
-  await assert.rejects(verifyModelAccess({ apiKey: 'test-only', model, fetchImpl: async () => ({ ok: true, json: async () => ({ id: 'gpt-5.6-sol' }) }) }), /did not confirm/);
+  await assert.rejects(verifyModelAccess({ apiKey: 'test-only', model, fetchImpl: async () => ({ ok: true, json: async () => ({ id: 'gpt-6.1-sol' }) }) }), /did not confirm/);
 });
 
 // Workflow wiring guards cover the inputs that previously never reached the router.
@@ -430,7 +430,7 @@ test('manager and swarm wire Apex end to end without raising all analyst tiers',
   assert.match(swarm, /model: \$\{\{ steps\.head_route\.outputs\.codex_model \}\}/);
   assert.match(swarm, /'apex' \|\| 'senior'/);
   assert.match(swarm, /lane: tests\s+model: gpt-6\\.luna/);
-  assert.match(swarm, /lane: security\s+model: gpt-5\.6-sol/);
+  assert.match(swarm, /lane: security\s+model: gpt-6\.1-sol/);
 });
 
 test("a credential-blocked run still reaches the owner on the source issue", () => {
