@@ -30,12 +30,13 @@ Render workspace is legacy (see the Render cleanup record in `PROJECT_STATUS.md`
 
 - **Base44** is historical. It is not a production or staging runtime, no request or
   worker path depends on it, and `tests/legacy_runtime_isolation_validation.ts` asserts
-  `src/` never references it. The `base44/` directory, `config/base44-*.json`,
-  `scripts/base44_canonical_integrity_gate.cjs` and the Base44 assertions inside
-  `scripts/architecture_truth_gate.cjs` are retained only because CI gates still read
-  them. Retiring that cluster is a tracked Lean Refactor item, done in one reviewed
-  FULL-profile change; until then the gate's `production=base44` banner is a stale
-  string, not a statement of fact.
+  `src/` never references it. `scripts/architecture_truth_gate.cjs` asserts this
+  page's runtime (Render web + Render worker + Supabase PostgreSQL) and rejects any
+  blueprint, inventory boundary or architecture document that names Base44 again
+  (Lean Refactor D3-A; `tests/release_tools/architecture_truth_gate.test.cjs` proves
+  every assertion by mutation). The `base44/` directory, `config/base44-*.json`,
+  `scripts/base44_canonical_integrity_gate.cjs` and the Base44-only tests are no
+  longer part of any gate or release rollup and are deleted by Lean Refactor D3-B.
 - **`legacy/render/`** is quarantined evidence of the pre-R3 Render setup.
 - **Docker Compose / local PostgreSQL** are the local and CI harness, not a deployment.
 

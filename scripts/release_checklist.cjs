@@ -30,7 +30,6 @@ const OPEN_ITEMS = [
   { category: "INFRA", owner: "owner (Render console)", text: "OTP_HASH_SALT added to both Render services (generateValue). STILL OPEN for staging, which hashes OTP codes with the salt published in this repository; production now refuses to boot without it", ref: "docs/SENIOR_ADVERSARIAL_REVIEW.md O-2" },
   { category: "INFRA", owner: "owner (Render console)", text: "Render BLUEPRINT SYNC applied so the Worker start command becomes `node .demo_dist/src/worker.js`. Until synced the hosted worker still does not drain on deploy: npm stays PID 1 and the SIGTERM never reaches stopWorker()", ref: "docs/SENIOR_ADVERSARIAL_REVIEW.md O-1 (F-01)" },
   { category: "INFRA", owner: "engineering", text: "Production image ships the dev toolchain (tar + vitest criticals): move dotenv to dependencies, then `RUN npm prune --omit=dev` after `npm run build:demo`; verify via docker-release-lab", ref: "docs/SENIOR_ADVERSARIAL_REVIEW.md O-3 (F-12)" },
-  { category: "OPERATIONS", owner: "owner", text: "Decide whether Base44 remains an intended runtime: the architecture gate certifies `production_runtime=base44` while the same manifest carries publish_performed:false and labels Render legacy_runtime", ref: "docs/SENIOR_ADVERSARIAL_REVIEW.md O-4 (F-07)" },
   { category: "INFRA", owner: "owner", text: "Render Starter plan for the web service and Supabase Site URL decisions (pilot readiness)", ref: "PROJECT_STATUS.md launch gap" },
   { category: "INFRA", owner: "CI", text: "Docker lab (docker-release-lab job of Siton CI) green for this SHA", ref: ".github/workflows/ci.yml" },
   { category: "SECURITY", owner: "owner", text: "Production seller publish requires verification_status=approved: confirm the approval step is intended (lean onboarding holds outside production)", ref: "legal_compliance_gate OWNER_DECISION" },
@@ -43,7 +42,7 @@ const OPEN_ITEMS = [
 ];
 
 const GATE_TO_CATEGORY = {
-  typescript: "CODE", "lint-backend-enforcement": "CODE", "architecture-gate": "CODE", "base44-canonical-integrity": "CODE", "build-demo": "CODE", "repository-hygiene": "CODE", "reproducible-build": "CODE",
+  typescript: "CODE", "lint-backend-enforcement": "CODE", "architecture-gate": "CODE", "build-demo": "CODE", "repository-hygiene": "CODE", "reproducible-build": "CODE",
   "payment-compliance-scan": "SECURITY", "legal-compliance": "SECURITY", "secret-pii-scan": "SECURITY", "logging-hygiene": "SECURITY", "route-inventory": "SECURITY", "route-authorization-behavioural": "SECURITY", "http-security-smoke": "SECURITY", "security-tests": "SECURITY",
   "runtime-ddl-scan": "MIGRATIONS", "migration-preflight": "MIGRATIONS", "migration-preflight-static": "MIGRATIONS",
   "backup-restore-rehearsal": "DATA",

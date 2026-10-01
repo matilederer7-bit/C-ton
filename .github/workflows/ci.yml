@@ -97,7 +97,7 @@ jobs:
   # ---------------------------------------------------------------------------
   # Static gates (every profile; no database): the release preflight static
   # profile (TypeScript, enforcement scan, architecture, payment/raw-card,
-  # runtime DDL, money/tax canon, legal, Base44 integrity, secret/PII, logging
+  # runtime DDL, money/tax canon, legal, secret/PII, logging
   # hygiene, runtime environment policy, startup matrix, no-real-money proof,
   # route inventory, migration manifest, demo build, mobile/PWA contract,
   # repository hygiene, supply chain, Docker static) plus the backend-only
@@ -171,14 +171,13 @@ jobs:
           node scripts/seven_day_cap_sweep.cjs --self-test 2>&1 | tee .ci-artifacts/seven-day-cap.log
           npm run gate:seven-day-cap 2>&1 | tee -a .ci-artifacts/seven-day-cap.log
 
-      - name: Canonical integrity and operational repair validation
+      - name: Operational repair validation
         env:
           NODE_ENV: test
           DISABLE_OUTBOX_WORKER: "1"
           PAYMENT_PROVIDER: mockpay
           PAYMENT_PROVIDER_MODE: mock-backed
         run: |
-          npm run test:base44-canonical-integrity 2>&1 | tee .ci-artifacts/base44-canonical-integrity-test.log
           npm run test:operational-repair 2>&1 | tee .ci-artifacts/operational-repair-test.log
 
       - name: Diff whitespace gate
