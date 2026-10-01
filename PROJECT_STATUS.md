@@ -952,19 +952,20 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 
 - UPDATED: 2026-10-01
 - COMPLETED:
-  - Root cause verified against repository code and the live Supabase staging Edge Function: the CMS client/server accept admin MP4/WebM hero video up to 10 MB, but the deployed `storage-broker` is stale and accepts image MIME types only with a 2 MB ceiling.
+  - Root cause verified against repository code and live Supabase staging: the CMS client/server accept admin MP4/WebM hero video up to 10 MB, while BOTH the deployed `storage-broker` and the `deal-images` bucket are image-only with a 2 MB ceiling.
   - Fix branch is rebuilt from current master `4101d97`; no overlap with the active Lean Refactor R1/R2 or D5 batch 2 scopes.
   - Broker policy is aligned to the existing application contract: JPEG/PNG/WebP up to 5 MB; MP4/WebM up to 10 MB. Existing key scoping, checksum, no-overwrite and broker authentication stay unchanged.
+  - Added `supabase/staging/029_content_media_bucket_policy.sql`: bucket ceiling 10 MB with image + MP4/WebM MIME allow-list; per-type image/video limits remain enforced by app + broker. The script does not change bucket public-read state or client mutation policies.
   - Added regression coverage that pins client, server and broker video limits together so this deployment-contract drift is caught by CI.
 - TESTED:
   - Repository diff reviewed: only `supabase/functions/storage-broker/index.ts`, the focused storage-readiness regression test, and this status block are in scope.
-  - Live staging diagnosis verified through Supabase function metadata/content: deployed `storage-broker` version 1 is image-only and materially behind repository master.
+  - Live staging diagnosis verified through Supabase function metadata/content and `storage.buckets`: deployed `storage-broker` version 1 is image-only and the `deal-images` bucket is `2097152` bytes with image-only MIME types.
   - Current-head CI and independent review are still pending; no green claim yet.
 - OPEN:
   - Open PR, obtain independent review, and require green CI on the exact final head.
-  - Merge, then deploy the merged `storage-broker` function to Supabase staging only and verify the deployed function content/version.
+  - Merge, then apply the merged staging bucket policy and deploy the merged `storage-broker` function to Supabase staging only; verify both live configurations.
   - A successful authenticated CMS upload still requires a real admin-session proof after deployment; do not call the user flow verified before that proof.
-- PERCENT: 60%. Root cause and code fix are complete; CI, review, merge, staging deployment and live upload proof remain.
+- PERCENT: 65%. Both live blockers are mapped and repository fixes are complete; CI, review, merge, staging apply/deploy and live upload proof remain.
 - NEXT: PR -> independent review -> current-head CI -> merge -> staging Edge Function deploy -> authenticated CMS retry/proof.
 <!-- AGENT_STATUS:chatgpt:END -->
 
