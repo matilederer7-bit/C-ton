@@ -1,27 +1,22 @@
 {
   "task": "Product Library PR C1: remove the remaining runtime dependency on siton.product_images and the readiness requirement for that table, without DDL, row deletion, money-state mutation or migration-072 edits; preserve legacy Product-backed idempotent replay and delivery estimates.",
-  "lead": "chatgpt-lead",
+  "lead": "chatgpt",
   "base": "origin/master",
-  "open_branches": [
-    "claude/lean-refactor-d3b",
-    "chatgpt/legal-distribution-links"
-  ],
+  "open_branches": [],
   "assignments": [
     {
       "id": "B1",
-      "agent": "chatgpt-lead",
+      "agent": "chatgpt",
       "role": "builder",
       "tier": "senior",
-      "scope": "three product_images reference checks in src/app.ts; REQUIRED_TABLES in src/schema_contract.ts; static regression test; PRODUCT_CATALOG retirement note; no schema mutation",
+      "scope": "three product_images reference checks in src/app.ts; REQUIRED_TABLES in src/schema_contract.ts; static regression test; PRODUCT_CATALOG retirement note; no schema mutation (B1 also wrote tests/product_library_schema_decouple_validation.ts and this plan; both were handed to B2 for the review follow-ups — sequential, never concurrent)",
       "allowed": [
         "src/app.ts",
         "src/schema_contract.ts",
-        "tests/product_library_schema_decouple_validation.ts",
-        "docs/PRODUCT_CATALOG.md",
-        "docs/team-plans/2026-10-01-product-library-c1-runtime-decouple.json"
+        "docs/PRODUCT_CATALOG.md"
       ],
       "forbidden": [
-        "PROJECT_STATUS.md while PR #158 modifies it",
+        "PROJECT_STATUS.md outside its own status slot",
         "src/migrations/",
         "supabase/",
         "deals/participants/payment/outbox data",
@@ -40,12 +35,41 @@
       ]
     },
     {
+      "id": "B2",
+      "agent": "claude-lead",
+      "role": "builder",
+      "tier": "senior",
+      "scope": "review follow-ups: behavioural shared-blob test D12 in tests/deal_images_validation.ts (image delete, Deal delete and cleanup worker keep a blob another Deal references; mutation-proven on all three paths), stricter runtime-reference test (unqualified product_images and siton.products), master sync, this plan and the PROJECT_STATUS Claude slot",
+      "allowed": [
+        "tests/deal_images_validation.ts",
+        "tests/product_library_schema_decouple_validation.ts",
+        "docs/team-plans/2026-10-01-product-library-c1-runtime-decouple.json",
+        "PROJECT_STATUS.md"
+      ],
+      "forbidden": [
+        "src/migrations/",
+        "supabase/",
+        "src/app.ts",
+        "src/schema_contract.ts",
+        "deals/participants/payment/outbox data",
+        "real money / production"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "D12 passes and fails under each of the three sharing-check mutations",
+        "decouple test forbids unqualified product_images and siton.products in runtime src",
+        "focused suites green"
+      ]
+    },
+    {
       "id": "R1",
-      "agent": "independent-reviewer",
+      "agent": "claude-lead",
       "role": "reviewer",
       "senior": true,
       "tier": "senior",
-      "scope": "review storage-blob reference semantics, idempotency replay compatibility and readiness fail-closed behavior after Product runtime decoupling",
+      "scope": "review storage-blob reference semantics, idempotency replay compatibility and readiness fail-closed behavior after Product runtime decoupling (claude-lead reviews the ChatGPT build B1)",
       "reviews": [
         "B1"
       ],
@@ -54,6 +78,24 @@
       ],
       "dod": [
         "review verdict recorded; every finding fixed before merge"
+      ],
+      "forbidden": []
+    },
+    {
+      "id": "R2",
+      "agent": "claude-subagent",
+      "role": "reviewer",
+      "senior": true,
+      "tier": "senior",
+      "scope": "independent senior review of the final #161 head (B1 + B2), focus: shared-blob safety, idempotency compatibility, no DDL/data change, test strength",
+      "reviews": [
+        "B2"
+      ],
+      "depends_on": [
+        "B2"
+      ],
+      "dod": [
+        "verdict recorded on the final head"
       ]
     }
   ],

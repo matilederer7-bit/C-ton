@@ -25,6 +25,10 @@ function runtimeSourceFiles(dir: string): string[] {
 for (const file of runtimeSourceFiles("src")) {
   const source = fs.readFileSync(file, "utf8");
   assert.doesNotMatch(source, /siton\.product_images/i, `runtime must not query siton.product_images after C1: ${file}`);
+  // Also unqualified (search_path) references, and the products table itself:
+  // the runtime reads neither, so C2 can drop both without a runtime change.
+  assert.doesNotMatch(source, /\bproduct_images\b/i, `runtime must not reference product_images after C1: ${file}`);
+  assert.doesNotMatch(source, /siton\.products\b/i, `runtime must not query siton.products after C1: ${file}`);
 }
 assert.doesNotMatch(schema, /["']product_images["']/, "readiness must not require product_images after C1");
 
