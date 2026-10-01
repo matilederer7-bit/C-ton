@@ -66,6 +66,22 @@ const EXCLUDED_DIR_PATHS = Object.freeze([
   "ios/App/App/public"
 ]);
 
+// Repository-relative directory PATHS that stay scanned although their name is
+// in EXCLUDED_DIR_NAMES. `docs/archive/` holds tracked historical documents
+// (Lean Refactor D5): moving a document there must not take it out of the
+// secret/PII scan or the repository-wide sweeps, so it is scanned exactly as it
+// was under `docs/`. Generated or scratch `archive` directories anywhere else
+// stay excluded.
+const INCLUDED_DIR_PATHS = Object.freeze(["docs/archive"]);
+
+// Exact match only: the exception lifts the name exclusion for `docs/archive`
+// itself, never for an excluded directory nested inside it
+// (`docs/archive/node_modules`, `docs/archive/.tmp_x` stay excluded).
+function isIncludedDirPath(relDir) {
+  const posix = toPosix(relDir);
+  return INCLUDED_DIR_PATHS.includes(posix);
+}
+
 // File name patterns that are never canonical source: logs, review artefacts,
 // generated binaries, dumps, local env files.
 const EXCLUDED_FILE_PATTERNS = Object.freeze([
@@ -120,8 +136,9 @@ function isCanonicalSourcePath(rel) {
   const segments = posix.split("/").filter(Boolean);
   if (segments.length === 0) return false;
   const fileName = segments[segments.length - 1];
-  for (const segment of segments.slice(0, -1)) {
-    if (isExcludedDirName(segment)) return false;
+  const dirs = segments.slice(0, -1);
+  for (let index = 0; index < dirs.length; index += 1) {
+    if (isExcludedDirName(dirs[index]) && !isIncludedDirPath(dirs.slice(0, index + 1).join("/"))) return false;
   }
   if (isExcludedDirPath(segments.slice(0, -1).join("/"))) return false;
   if (isExcludedFileName(fileName)) return false;
@@ -154,7 +171,8 @@ function walkRepository(root, options = {}) {
       const abs = path.join(dir, entry.name);
       if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory()) {
-        if (isExcludedDirName(entry.name) || extra.has(entry.name)) continue;
+        if (extra.has(entry.name)) continue;
+        if (isExcludedDirName(entry.name) && !isIncludedDirPath(path.relative(root, abs))) continue;
         if (isExcludedDirPath(path.relative(root, abs))) continue;
         visit(abs);
         continue;
@@ -174,7 +192,7 @@ function walkRepository(root, options = {}) {
     // A requested root that is itself excluded (e.g. someone passes
     // ".worktrees") is refused rather than silently walked.
     const relRoot = toPosix(path.relative(root, dir));
-    if (relRoot && relRoot.split("/").some((segment) => isExcludedDirName(segment))) continue;
+    if (relRoot && relRoot.split("/").some((segment, index, all) => isExcludedDirName(segment) && !isIncludedDirPath(all.slice(0, index + 1).join("/")))) continue;
     if (isExcludedDirPath(relRoot)) continue;
     visit(dir);
   }
@@ -187,8 +205,9 @@ function describePolicy() {
     excluded_dir_names: [...EXCLUDED_DIR_NAMES],
     excluded_dir_prefixes: [...EXCLUDED_DIR_PREFIXES],
     excluded_dir_paths: [...EXCLUDED_DIR_PATHS],
+    included_dir_paths: [...INCLUDED_DIR_PATHS],
     excluded_file_patterns: EXCLUDED_FILE_PATTERNS.map((pattern) => pattern.source),
-    always_scanned_examples: ["src", "tests", "tests/lab", "scripts", "supabase", "legacy", "frontend", "web/src", "config", "docs"]
+    always_scanned_examples: ["src", "tests", "tests/lab", "scripts", "supabase", "legacy", "frontend", "web/src", "config", "docs", "docs/archive"]
   };
 }
 
@@ -196,6 +215,7 @@ module.exports = {
   EXCLUDED_DIR_NAMES,
   EXCLUDED_DIR_PREFIXES,
   EXCLUDED_DIR_PATHS,
+  INCLUDED_DIR_PATHS,
   EXCLUDED_FILE_PATTERNS,
   SOURCE_EXTENSIONS,
   CODE_EXTENSIONS,
