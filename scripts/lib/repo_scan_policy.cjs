@@ -74,9 +74,12 @@ const EXCLUDED_DIR_PATHS = Object.freeze([
 // stay excluded.
 const INCLUDED_DIR_PATHS = Object.freeze(["docs/archive"]);
 
+// Exact match only: the exception lifts the name exclusion for `docs/archive`
+// itself, never for an excluded directory nested inside it
+// (`docs/archive/node_modules`, `docs/archive/.tmp_x` stay excluded).
 function isIncludedDirPath(relDir) {
   const posix = toPosix(relDir);
-  return INCLUDED_DIR_PATHS.some((included) => posix === included || posix.startsWith(included + "/"));
+  return INCLUDED_DIR_PATHS.includes(posix);
 }
 
 // File name patterns that are never canonical source: logs, review artefacts,

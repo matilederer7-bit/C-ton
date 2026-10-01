@@ -156,7 +156,10 @@ test("docs/archive stays scanned while every other archive directory stays exclu
       "docs/archive/nested/OLDER.md": "violation 3",
       "archive/old/app.ts": "violation 4",
       "src/archive/generated.ts": "violation 5",
-      "docs/other/archive/scratch.md": "violation 6"
+      "docs/other/archive/scratch.md": "violation 6",
+      "docs/archive/node_modules/pkg/README.md": "violation 7",
+      "docs/archive/.tmp_review/notes.md": "violation 8",
+      "docs/archive/archive/nested.md": "violation 9"
     });
     assert.deepEqual(policy.walkRepository(root).map((file) => file.rel), [
       "docs/archive/nested/OLDER.md",
@@ -172,6 +175,8 @@ test("docs/archive stays scanned while every other archive directory stays exclu
     assert.equal(policy.isCanonicalSourcePath("archive/old/app.ts"), false);
     assert.equal(policy.isCanonicalSourcePath("src/archive/generated.ts"), false);
     assert.equal(policy.isCanonicalSourcePath("docs/other/archive/scratch.md"), false);
+    assert.equal(policy.isCanonicalSourcePath("docs/archive/node_modules/pkg/README.md"), false);
+    assert.equal(policy.isCanonicalSourcePath("docs/archive/archive/nested.md"), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
