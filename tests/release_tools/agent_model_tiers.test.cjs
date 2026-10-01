@@ -31,6 +31,23 @@ test("tiers resolve to the provider's stable aliases, cheapest to strongest", ()
   assert.deepEqual(TIER_ORDER.map((tier) => claudeModelForTier(tier, NO_ENV)), ["haiku", "sonnet", "opus", "fable"]);
 });
 
+test("active Codex routing surfaces contain only the current GPT-6 family IDs", () => {
+  const surfaces = [
+    "scripts/agent_model_tiers.cjs",
+    "scripts/agent_credentials_preflight.cjs",
+    ".github/workflows/cloud-analysis-swarm.yml",
+    "docs/ENGINEERING_OPERATING_SYSTEM.md",
+  ];
+  for (const relative of surfaces) {
+    const source = fs.readFileSync(path.join(root, relative), "utf8");
+    assert.doesNotMatch(source, /gpt-5\.6-(?:luna|terra|sol)|gpt-6-terra|\bTerra\b/, relative);
+  }
+  assert.equal(codexModelForTier("economy", NO_ENV), "gpt-6-luna");
+  assert.equal(codexModelForTier("standard", NO_ENV), "gpt-6.1-sol");
+  assert.equal(codexModelForTier("senior", NO_ENV), "gpt-6.1-sol");
+  assert.equal(codexModelForTier("apex", NO_ENV), "gpt-6-astra");
+});
+
 test("telemetry records the Claude model of each role, including the raised reviewer", () => {
   const { buildMetric } = require("../../scripts/agent_router.cjs");
   const route = routeTask({ taskType: "tests", risk: "low", env: NO_ENV });
