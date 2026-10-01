@@ -55,7 +55,7 @@ await run("legal_footer_links_validation", async () => {
   assert.match(legalPages, /affiliates/);
   assert.match(legalPages, /title:\s*"תנאי לינקי הפצה"/);
   assert.doesNotMatch(legalPages, /title:\s*"תנאי מפיצים"/);
-  assert.match(legalPages, /אין משתמש או תפקיד עסקי בשם "מפיץ"/);
+  assert.match(legalPages, /אין בסיטון משתמש או תפקיד עסקי בשם "מפיץ"/);
 });
 
 await run("legal_recovery_copy_validation", async () => {
