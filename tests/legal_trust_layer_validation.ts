@@ -109,7 +109,7 @@ await run("legal pages and payment disclosure text are available", async () => {
   assert.equal(sellers.statusCode, 200);
   assert.equal(affiliates.statusCode, 200);
   assert.match(affiliates.body, /תנאי לינקי הפצה/);
-  assert.match(affiliates.body, /אין משתמש או תפקיד עסקי בשם &quot;מפיץ&quot;|אין משתמש או תפקיד עסקי בשם "מפיץ"/);
+  assert.match(affiliates.body, /אין בסיטון משתמש או תפקיד עסקי בשם &quot;מפיץ&quot;|אין בסיטון משתמש או תפקיד עסקי בשם "מפיץ"/);
   assert.doesNotMatch(affiliates.body, /תנאי מפיצים|המפיץ הוא גורם/);
   assert.equal(demo.statusCode, 200);
   assert.equal(payments.statusCode, 200);
