@@ -1,0 +1,62 @@
+{
+  "task": "Replace stale PR #156 with a complete GPT-6 routing refresh on current master. Align Economy to gpt-6-luna, Standard/Senior to gpt-6.1-sol with distinct reasoning effort, and Apex to gpt-6-astra; update credential preflight and all release-tool consumers so one model may serve multiple tiers without collapsing tier reporting.",
+  "lead": "chatgpt-lead",
+  "base": "origin/master",
+  "assignments": [
+    {
+      "id": "B1",
+      "agent": "chatgpt-lead",
+      "role": "builder",
+      "tier": "senior",
+      "scope": "OpenAI/Codex model routing policy, cloud-analysis swarm model pins, credential preflight model reporting, and associated release-tool tests/docs",
+      "allowed": [
+        ".github/workflows/cloud-analysis-swarm.yml",
+        "docs/ENGINEERING_OPERATING_SYSTEM.md",
+        "scripts/agent_model_tiers.cjs",
+        "scripts/agent_credentials_preflight.cjs",
+        "tests/release_tools/agent_model_tiers.test.cjs",
+        "tests/release_tools/agent_credentials_preflight.test.cjs",
+        "tests/release_tools/agent_router.test.cjs",
+        "tests/release_tools/cloud_agent_manager.test.cjs",
+        "docs/team-plans/2026-10-01-openai-routing-gpt6-refresh.json"
+      ],
+      "forbidden": [
+        "PROJECT_STATUS.md until concurrent status-owning PRs #159/#161 close",
+        "payment/runtime/business logic",
+        "DB/schema/migrations",
+        "Claude model aliases",
+        "Apex escalation policy semantics"
+      ],
+      "depends_on": [],
+      "dod": [
+        "official OpenAI model IDs confirmed from current model catalog",
+        "Economy routes to gpt-6-luna",
+        "Standard routes to gpt-6.1-sol at medium reasoning",
+        "Senior routes to gpt-6.1-sol at high reasoning",
+        "Apex remains gpt-6-astra",
+        "credential preflight checks shared Sol once and reports both Standard and Senior as affected if unavailable",
+        "all stale gpt-5.6/Terra expectations removed from the touched routing consumers",
+        "release-tool tests and full CI green on final head",
+        "independent review before merge"
+      ]
+    },
+    {
+      "id": "R1",
+      "agent": "independent-reviewer",
+      "role": "reviewer",
+      "senior": true,
+      "tier": "senior",
+      "scope": "review model-routing truth, fail-closed behavior, shared-model/multi-tier reporting, and test completeness",
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "MERGE or concrete findings recorded on exact final head"
+      ]
+    }
+  ],
+  "sequencing_note": "This replacement is isolated from #159, #161 and #163. Do not merge until current master is resynced and PROJECT_STATUS is updated without clobbering concurrent work. Old PR #156 is closed only after this replacement PR exists."
+}
