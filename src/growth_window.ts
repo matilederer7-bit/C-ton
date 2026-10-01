@@ -25,7 +25,6 @@ export type GrowthWindowResolution =
   | { ok: false; error: string; message_he: string };
 
 export const GROWTH_DEFAULT_DAYS = 7;
-export const GROWTH_PRESET_DAYS = [7, 30, 90] as const;
 /** technical ceiling for a preset (10 years) — not a product cap */
 export const GROWTH_MAX_PRESET_DAYS = 3650;
 export const GROWTH_RANGE_FLOOR_ISO = "2020-01-01T00:00:00.000Z";

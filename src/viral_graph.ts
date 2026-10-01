@@ -21,9 +21,7 @@ import { randomBytes } from "node:crypto";
 
 type Queryable = { query: (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number | null }> };
 
-export const VIRAL_SUCCESS_MONEY_STATES = ["ChargedSuccess", "RecoveredCharge"] as const;
 const SUCCESS_STATES_SQL = `('ChargedSuccess','RecoveredCharge')`;
-const ACTIVE_BUYER_STATES_SQL = `NOT IN ('DealFailed','Dropped')`;
 
 // Personal share codes are opaque: they never contain internal ids. 12 base36
 // chars (~62 bits) + 'p' prefix keeps them collision-resistant and matched by

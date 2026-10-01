@@ -43,10 +43,6 @@ export function isOperationalCasePriority(value: unknown): value is OperationalC
   return OPERATIONAL_CASE_PRIORITIES.includes(String(value || "") as OperationalCasePriority);
 }
 
-export function isOperationalCaseSource(value: unknown): value is OperationalCaseSource {
-  return OPERATIONAL_CASE_SOURCES.includes(String(value || "") as OperationalCaseSource);
-}
-
 export function operationalCaseEventAction(action: string) {
   return `case.${action}`;
 }
