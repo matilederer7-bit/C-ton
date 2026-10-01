@@ -9,7 +9,7 @@
       "agent": "claude-lead",
       "role": "builder",
       "tier": "senior",
-      "scope": "architecture gate rewrite as a module + CLI; tests/release_tools/architecture_truth_gate.test.cjs with mutation cases; tests/canonical_sql_invariants_validation.ts (migration 049 Mall read-model assertions, PUBLIC_MALL_DEAL_FIELDS PII exclusion, siton_inventory search_path hardening from supabase/staging/001); remove base44-canonical-integrity from config/release-preflight-gates.json, scripts/release_checklist.cjs (gate map + owner item O-4, decided 2026-09-30), scripts/release_owner_check.cjs, .github/workflows/ci.yml step and the two package.json scripts; docs that describe the gate banner; map D3 row and PROJECT_STATUS.md",
+      "scope": "architecture gate rewrite as a module + CLI; tests/release_tools/architecture_truth_gate.test.cjs with mutation cases; tests/canonical_sql_invariants_validation.ts (migration 049 Mall read-model assertions, PUBLIC_MALL_DEAL_FIELDS PII exclusion, siton_inventory search_path hardening from supabase/staging/001); remove base44-canonical-integrity from config/release-preflight-gates.json, scripts/release_checklist.cjs (gate map + owner item O-4, decided 2026-09-30), scripts/release_owner_check.cjs and the .github/workflows/ci.yml step (the two package.json scripts stay runnable until D3-B deletes the gate they run, together with the runbook lines that name them); docs that describe the gate banner; map D3 row and PROJECT_STATUS.md",
       "allowed": [
         "scripts/architecture_truth_gate.cjs",
         "tests/release_tools/architecture_truth_gate.test.cjs",

@@ -26,9 +26,10 @@
 //   R4 — exactly one Background Worker, started as the built Node entrypoint
 //        (never npm as PID 1), RUNTIME_ROLE=worker.
 // What it adds: exactly one web + one worker with their canonical names, same
-// branch / trigger / image on both, role separation (web disables the outbox
-// worker, worker runs it), secrets never inline in the blueprint, staging
-// money providers never live through the blueprint, the worker LOGIN
+// branch / trigger / image on both, single instance each, role separation (web
+// disables the outbox worker, worker runs it), secrets never inline in the
+// blueprint, the mock provider and PAYMENT_ENVIRONMENT=demo pinned in the
+// blueprint (a fail-closed parser rejects every shape it does not know), the worker LOGIN
 // provisioning, the Dockerfile/package entrypoint parity, the migration
 // manifest ⇄ schema contract parity, and the architecture SoT naming the real
 // runtime and not Base44.
@@ -79,37 +80,69 @@ function assert(condition, message) {
   if (!condition) fail(message);
 }
 
-// Minimal reader for the blueprint's `services:` list. It understands exactly
-// the shape render.yaml uses (two-space list items, `- key:` env entries) and
-// ignores full-line comments, so a comment explaining a rule never trips it.
+// Fail-closed reader for the blueprint's `services:` list. It accepts exactly
+// the shape render.yaml uses (two-space list items, four-space service keys,
+// `- key:` env entries with value / sync / generateValue) and REJECTS anything
+// else: a service written with another indentation or in flow style, a second
+// top-level block (`databases:`), an env entry in flow style or with a
+// `fromDatabase` / `fromService` source, a duplicated env key. Full-line
+// comments and blank lines are ignored, so a comment explaining a rule never
+// trips it; a trailing ` # comment` on a value is stripped, as are matching
+// single or double quotes.
 function parseBlueprintServices(text) {
-  const lines = text.split(/\r?\n/).filter((line) => !/^\s*#/.test(line));
   const services = [];
   let service = null;
   let env = null;
-  for (const line of lines) {
+  let inServices = false;
+  const lines = text.split(/\r?\n/);
+  const unquote = (raw) => {
+    let v = String(raw).replace(/\s+#.*$/, "").trim();
+    const m = /^(["'])(.*)\1$/.exec(v);
+    return m ? m[2] : v;
+  };
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (/^\s*#/.test(line) || /^\s*$/.test(line)) continue;
+    const where = `render.yaml:${index + 1}`;
     let m;
+    if (/^services:\s*$/.test(line)) {
+      assert(!inServices, `${where}: duplicate services: block`);
+      inServices = true;
+      continue;
+    }
+    if (/^\S/.test(line)) fail(`${where}: the blueprint may declare only the services: block (found ${line.trim()})`);
+    assert(inServices, `${where}: content before the services: block`);
     if ((m = /^  - type:\s*(\S+)\s*$/.exec(line))) {
-      service = { type: m[1], env: [] };
+      service = { type: unquote(m[1]), env: [], envKeys: new Set() };
       services.push(service);
       env = null;
       continue;
     }
-    if (!service) continue;
+    assert(service, `${where}: a service must start with \`  - type:\` (found ${line.trim()})`);
     if ((m = /^    (\w+):\s*(.*?)\s*$/.exec(line))) {
+      assert(!(m[1] in service) || m[1] === "env", `${where}: duplicate service key ${m[1]}`);
       if (m[1] === "envVars") { env = service.env; continue; }
       env = null;
-      service[m[1]] = m[2];
+      assert(m[2] !== "", `${where}: service key ${m[1]} without an inline value is not a blueprint shape this gate accepts`);
+      service[m[1]] = unquote(m[2]);
       continue;
     }
     if (env && (m = /^      - key:\s*(\S+)\s*$/.exec(line))) {
-      env.push({ key: m[1] });
+      const key = unquote(m[1]);
+      assert(!service.envKeys.has(key), `${where}: duplicate env key ${key} on ${service.type} ${service.name || ""}`);
+      service.envKeys.add(key);
+      env.push({ key });
       continue;
     }
-    if (env && env.length && (m = /^        (value|sync|generateValue):\s*(.*?)\s*$/.exec(line))) {
-      env[env.length - 1][m[1]] = m[2].replace(/^"(.*)"$/, "$1");
+    if (env && env.length && (m = /^        (\w+):\s*(.*?)\s*$/.exec(line))) {
+      assert(["value", "sync", "generateValue"].includes(m[1]), `${where}: env source ${m[1]} is not accepted (only value, sync: false or generateValue: true)`);
+      assert(!(m[1] in env[env.length - 1]), `${where}: duplicate ${m[1]} on env key ${env[env.length - 1].key}`);
+      env[env.length - 1][m[1]] = unquote(m[2]);
+      continue;
     }
+    fail(`${where}: unrecognised blueprint line (${line.trim()}); the gate accepts only the canonical two-space list shape`);
   }
+  assert(inServices, "render.yaml declares no services: block");
   return services;
 }
 
@@ -142,6 +175,8 @@ function runArchitectureGate(root = process.cwd()) {
   assert(!/npm\s+run\s+start:(?:web|worker):prod/.test(renderDirectives), "the hosted blueprint must never start a runtime through npm: npm as PID 1 swallows the platform stop signal and the Node drain handler never runs");
   assert(/value:\s*worker\b/.test(renderBlueprint), "the Background Worker must declare RUNTIME_ROLE=worker");
 
+  const typeDirectives = (renderDirectives.match(/^\s*-?\s*type\s*:/gm) || []).length;
+  assert(typeDirectives === 2, `the blueprint must declare exactly two services, web + worker (found ${typeDirectives} type: directives)`);
   const services = parseBlueprintServices(renderBlueprint);
   assert(services.length === 2, `the blueprint must declare exactly two services, web + worker (found ${services.length})`);
   const webServices = services.filter((s) => s.type === "web");
@@ -159,6 +194,7 @@ function runArchitectureGate(root = process.cwd()) {
     assert(service.branch === "master", `${label} must deploy branch master (found ${service.branch})`);
     assert(service.autoDeployTrigger === "checksPass", `${label} must deploy only after the GitHub checks pass (autoDeployTrigger: checksPass, found ${service.autoDeployTrigger})`);
     assert(service.region === "frankfurt", `${label} must stay in region frankfurt next to the Supabase eu-central-1 database (found ${service.region})`);
+    for (const scalingKey of ["numInstances", "scaling", "autoscaling"]) assert(!(scalingKey in service), `${label} must stay a single instance (no ${scalingKey}): the worker's lease model and the free web plan assume one process each`);
     const canonicalRuntime = envOf(service, "CANONICAL_POSTGRES_RUNTIME");
     assert(canonicalRuntime && canonicalRuntime.value === "1", `${label} must set CANONICAL_POSTGRES_RUNTIME=1`);
     const deploymentMode = envOf(service, "APP_DEPLOYMENT_MODE");
@@ -170,7 +206,7 @@ function runArchitectureGate(root = process.cwd()) {
       assert(entry.value === undefined && (entry.sync === "false" || entry.generateValue === "true"), `${label} must never carry ${entry.key} inline: secrets are sync: false or generateValue: true`);
     }
     const paymentEnvironment = envOf(service, "PAYMENT_ENVIRONMENT");
-    assert(paymentEnvironment && !/^(live|production)$/i.test(paymentEnvironment.value || ""), `${label} must not activate real money through the blueprint (PAYMENT_ENVIRONMENT live/production); activation is a separate governed change`);
+    assert(paymentEnvironment && paymentEnvironment.value === "demo", `${label} must keep PAYMENT_ENVIRONMENT=demo in the checked-in blueprint (found ${paymentEnvironment && paymentEnvironment.value}); real-money activation is a separate governed change, never a blueprint edit`);
     const paymentProvider = envOf(service, "PAYMENT_PROVIDER");
     assert(paymentProvider && paymentProvider.value === "mockpay", `${label} must keep the mock payment provider in the checked-in blueprint`);
   }

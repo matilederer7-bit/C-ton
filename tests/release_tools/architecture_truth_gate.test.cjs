@@ -94,6 +94,19 @@ test("drift: a second background worker", () => {
   }, /exactly one Background Worker/);
 });
 
+test("drift: a third service written in a layout the parser does not recognise", () => {
+  expectFail((repo) => repo.write("render.yaml", repo.read("render.yaml") + "\n  -   type: web\n      name: siton-shadow-web\n      runtime: docker\n      dockerfilePath: ./Dockerfile\n"), /exactly two services, web \+ worker \(found 3 type: directives\)/);
+  expectFail((repo) => repo.write("render.yaml", repo.read("render.yaml") + "\n  - {type: web, name: siton-shadow-web}\n"), /exactly two services|unrecognised blueprint line/);
+});
+
+test("drift: a second top-level block (a Render-managed database)", () => {
+  expectFail((repo) => repo.write("render.yaml", repo.read("render.yaml") + "\ndatabases:\n  - name: siton-db\n    plan: free\n"), /only the services: block/);
+});
+
+test("drift: the worker scaled to several instances", () => {
+  expectFail((repo) => repo.edit("render.yaml", "    dockerCommand: node .demo_dist/src/worker.js\n", "    dockerCommand: node .demo_dist/src/worker.js\n    numInstances: 3\n"), /must stay a single instance/);
+});
+
 test("drift: the web service renamed", () => {
   expectFail((repo) => repo.edit("render.yaml", "name: siton-staging-web\n", "name: siton-demo-preview\n"), /must be named siton-staging-web/);
 });
@@ -123,7 +136,7 @@ test("drift: the web service running the outbox worker too", () => {
 });
 
 test("drift: the worker disabling the outbox worker", () => {
-  expectFail((repo) => repo.edit("render.yaml", "    dockerCommand: node .demo_dist/src/worker.js\n", "    dockerCommand: node .demo_dist/src/worker.js\n    envVars:\n      - key: DISABLE_OUTBOX_WORKER\n        value: \"1\"\n"), /worker service must not disable the outbox worker|exactly two services|RUNTIME_ROLE=worker/);
+  expectFail((repo) => repo.edit("render.yaml", "      - key: RUNTIME_ROLE\n        value: worker\n", "      - key: RUNTIME_ROLE\n        value: worker\n      - key: DISABLE_OUTBOX_WORKER\n        value: \"1\"\n"), /worker service must not disable the outbox worker/);
 });
 
 test("drift: the web health check moved off /readiness", () => {
@@ -132,7 +145,17 @@ test("drift: the web health check moved off /readiness", () => {
 
 // ── Secrets and money through the blueprint ───────────────────────────────
 test("drift: DATABASE_URL inline in the blueprint", () => {
-  expectFail((repo) => repo.edit("render.yaml", "      - key: DATABASE_URL\n        sync: false\n", "      - key: DATABASE_URL\n        value: postgresql://siton_web_login:hunter2@db.example.supabase.co:5432/postgres\n"), /DATABASE_URL must be an external Render secret|must not embed a database credential/);
+  expectFail((repo) => repo.edit("render.yaml", "      - key: DATABASE_URL\n        sync: false\n", "      - key: DATABASE_URL\n        value: postgresql://siton_web_login:hunter2@db.example.supabase.co:5432/postgres\n"), /must not embed a database credential/);
+});
+
+test("drift: the web DATABASE_URL no longer an external secret while the worker's still is", () => {
+  // The worker's entry keeps the blueprint-wide `DATABASE_URL / sync: false`
+  // regex satisfied, so only the per-service assertion can catch this.
+  expectFail((repo) => repo.edit("render.yaml", "      - key: DATABASE_URL\n        sync: false\n", "      - key: DATABASE_URL\n        value: \"\"\n"), /web siton-staging-web DATABASE_URL must be an external secret/);
+});
+
+test("drift: a DATABASE_URL sourced from a Render-managed database", () => {
+  expectFail((repo) => repo.edit("render.yaml", "      - key: DATABASE_URL\n        sync: false\n", "      - key: DATABASE_URL\n        fromDatabase:\n          name: siton-db\n          property: connectionString\n"), /env source fromDatabase is not accepted/);
 });
 
 test("drift: a secret-like key carried inline", () => {
@@ -140,7 +163,18 @@ test("drift: a secret-like key carried inline", () => {
 });
 
 test("drift: real money activated through the blueprint", () => {
-  expectFail((repo) => repo.edit("render.yaml", "      - key: PAYMENT_ENVIRONMENT\n        value: demo\n", "      - key: PAYMENT_ENVIRONMENT\n        value: live\n"), /must not activate real money through the blueprint/);
+  expectFail((repo) => repo.edit("render.yaml", "      - key: PAYMENT_ENVIRONMENT\n        value: demo\n", "      - key: PAYMENT_ENVIRONMENT\n        value: live\n"), /PAYMENT_ENVIRONMENT=demo/);
+  expectFail((repo) => repo.edit("render.yaml", "      - key: PAYMENT_ENVIRONMENT\n        value: demo\n", "      - key: PAYMENT_ENVIRONMENT\n        value: live # temporary\n"), /PAYMENT_ENVIRONMENT=demo/);
+  expectFail((repo) => repo.edit("render.yaml", "      - key: PAYMENT_ENVIRONMENT\n        value: demo\n", "      - key: PAYMENT_ENVIRONMENT\n        value: 'live'\n"), /PAYMENT_ENVIRONMENT=demo/);
+  expectFail((repo) => repo.edit("render.yaml", "      - key: PAYMENT_ENVIRONMENT\n        value: demo\n", "      - key: PAYMENT_ENVIRONMENT\n        value: sandbox\n"), /PAYMENT_ENVIRONMENT=demo/);
+});
+
+test("drift: a duplicated env key overriding the provider later in the list", () => {
+  expectFail((repo) => repo.edit("render.yaml", "      - key: SENTRY_DSN\n        sync: false\n", "      - key: SENTRY_DSN\n        sync: false\n      - key: PAYMENT_PROVIDER\n        value: grow\n"), /duplicate env key PAYMENT_PROVIDER/);
+});
+
+test("drift: a flow-style env entry smuggling a credential", () => {
+  expectFail((repo) => repo.edit("render.yaml", "      - key: SENTRY_DSN\n        sync: false\n", "      - key: SENTRY_DSN\n        sync: false\n      - {key: GROW_API_KEY, value: sk_live_x}\n"), /unrecognised blueprint line/);
 });
 
 test("drift: a real payment provider in the checked-in blueprint", () => {
@@ -166,7 +200,8 @@ test("drift: a root Procfile or a second Render blueprint", () => {
 });
 
 test("drift: the architecture SoT certifying Base44 as the production runtime", () => {
-  expectFail((repo) => repo.editAll("docs/CURRENT_ARCHITECTURE_2026-09-30.md", "**Base44** is historical.", "**Base44** is the production_runtime: base44 authority."), /never certify Base44|Base44 is historical/);
+  expectFail((repo) => repo.editAll("docs/CURRENT_ARCHITECTURE_2026-09-30.md", "**Base44** is historical.", "**Base44** is historical. production_runtime: base44"), /never certify Base44/);
+  expectFail((repo) => repo.editAll("docs/CURRENT_ARCHITECTURE_2026-09-30.md", "**Base44** is historical.", "**Base44** is the authority."), /Base44 is historical/);
 });
 
 test("drift: the architecture SoT no longer naming the real runtime", () => {
