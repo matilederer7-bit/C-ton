@@ -1,0 +1,61 @@
+{
+  "task": "Product Library PR C1: remove the remaining runtime dependency on siton.product_images and the readiness requirement for that table, without DDL, row deletion, money-state mutation or migration-072 edits; preserve legacy Product-backed idempotent replay and delivery estimates.",
+  "lead": "chatgpt-lead",
+  "base": "origin/master",
+  "open_branches": [
+    "claude/lean-refactor-d3b",
+    "chatgpt/legal-distribution-links"
+  ],
+  "assignments": [
+    {
+      "id": "B1",
+      "agent": "chatgpt-lead",
+      "role": "builder",
+      "tier": "senior",
+      "scope": "three product_images reference checks in src/app.ts; REQUIRED_TABLES in src/schema_contract.ts; static regression test; PRODUCT_CATALOG retirement note; no schema mutation",
+      "allowed": [
+        "src/app.ts",
+        "src/schema_contract.ts",
+        "tests/product_library_schema_decouple_validation.ts",
+        "docs/PRODUCT_CATALOG.md",
+        "docs/team-plans/2026-10-01-product-library-c1-runtime-decouple.json"
+      ],
+      "forbidden": [
+        "PROJECT_STATUS.md while PR #158 modifies it",
+        "src/migrations/",
+        "supabase/",
+        "deals/participants/payment/outbox data",
+        "legacy product_id request-hash compatibility",
+        "delivery estimate columns/logic",
+        "real money / production"
+      ],
+      "depends_on": [],
+      "dod": [
+        "runtime has zero siton.product_images SQL references",
+        "readiness no longer requires product_images",
+        "legacy Product-backed idempotency hash and deferred replay path remain",
+        "migration 072 remains untouched and delivery-estimate columns remain",
+        "storage cleanup, deal image, deal deletion, seller creation/idempotency, readiness/schema tests pass",
+        "independent review and green CI on final head before merge"
+      ]
+    },
+    {
+      "id": "R1",
+      "agent": "independent-reviewer",
+      "role": "reviewer",
+      "senior": true,
+      "tier": "senior",
+      "scope": "review storage-blob reference semantics, idempotency replay compatibility and readiness fail-closed behavior after Product runtime decoupling",
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "review verdict recorded; every finding fixed before merge"
+      ]
+    }
+  ],
+  "sequencing_note": "C1 is deliberately non-destructive and can run in parallel with D3-B and the legal terminology PR because file scopes do not overlap. C2 is a separate forward-migration PR after C1 merges and staging is verified. No production schema change is authorized by this plan."
+}
