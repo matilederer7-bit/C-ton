@@ -331,7 +331,7 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 - Runtime sentences corrected in place: `ENVIRONMENT_CONTRACT.md`, `AWS_ACCORDION_DEPLOYMENT_BLUEPRINT.md`, `INVOICE_PROVIDER_MORNING_ADAPTER.md`, `SITON_V1_1_MALL_PRODUCT_DIRECTION.md`, `MOBILE_APP_RELEASE_READINESS.md`, `RC_STAGING_SMOKE.md`, `legacy/render/README.md`.
 - Distributor-as-role wording corrected in REFERENCE docs: `INFORMATION_SECURITY_POLICY.md`, `PRIVACY_DATA_MAP.md`, `PRODUCTION_DATA_ACCESS_BOUNDARIES.md`, `ADMIN_LEGAL_OPS_POLICY.md`, `ACCESSIBILITY_COMPLIANCE.md`, `SECURITY_INCIDENT_RUNBOOK.md`, `LEGAL_TRUST_SURFACES.md`.
 - `docs/PRODUCT_CATALOG.md`: removal banner.
-- Code-side drift still open (needs its own FULL-profile change): `scripts/architecture_truth_gate.cjs` and `base44/runtime-manifest.json` still assert `production_runtime = base44`.
+- Code-side drift closed by Lean Refactor D3-A: `scripts/architecture_truth_gate.cjs` asserts the Render web + Render worker + Supabase runtime; `base44/runtime-manifest.json` (still saying `production_runtime = base44`) is no longer read by any gate and is deleted by D3-B.
 
 ## Housekeeping candidates (not done here)
 

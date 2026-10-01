@@ -53,7 +53,7 @@ function main() {
   const realMoney = policyLib.loadRealMoneyPolicy(root);
   const items = (preflight && preflight.items) || [];
   const build = rollup(items, ["typescript", "build-demo", "reproducible-build", "mobile-pwa-gate"]);
-  const tests = rollup(items, ["release-tools-tests", "route-authorization-behavioural", "payment-tests", "security-tests", "lint-backend-enforcement", "architecture-gate", "base44-canonical-integrity"]);
+  const tests = rollup(items, ["release-tools-tests", "route-authorization-behavioural", "payment-tests", "security-tests", "lint-backend-enforcement", "architecture-gate"]);
   const migrations = rollup(items, ["migration-preflight", "migration-preflight-static", "runtime-ddl-scan", "backup-restore-rehearsal"]);
   const security = rollup(items, ["payment-compliance-scan", "legal-compliance", "secret-pii-scan", "logging-hygiene", "route-inventory", "http-security-smoke", "runtime-environment-policy", "startup-config-matrix", "no-real-money-proof", "health-contract"]);
   const docker = rollup(items, ["docker-readiness-static", "release-local-lab"]);

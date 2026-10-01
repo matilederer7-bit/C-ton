@@ -2,7 +2,7 @@
 
 Goal: every safety proof is kept, and each change pays only for the proofs it needs. Independent proofs run in parallel, so the wall-clock answer on a pull request is short. Nothing is deleted, no assertion is weakened, and no blocking gate becomes advisory.
 
-Sources of truth: GitHub = code; Render = web/backend/worker staging runtime; Supabase = canonical PostgreSQL/Auth/infra; Grow = payment provider boundary, currently disabled (mock provider on every checked-in target). Base44 is an excluded legacy surface guarded by the canonical-integrity gate; it is never the business runtime.
+Sources of truth: GitHub = code; Render = web/backend/worker staging runtime; Supabase = canonical PostgreSQL/Auth/infra; Grow = payment provider boundary, currently disabled (mock provider on every checked-in target). Base44 is history, never the business runtime: `scripts/architecture_truth_gate.cjs` asserts the Render web + Render worker + Supabase runtime and rejects any Base44 reference in the blueprint or the inventory boundary.
 
 ## One pipeline: `.github/workflows/ci.yml` ("Siton CI")
 
@@ -85,7 +85,7 @@ Every test lane builds `.demo_dist`, `web/dist` and `.mobile_dist` from its own 
 
 | Duplication | Before | After |
 |---|---|---|
-| Static preflight gates (tsc, enforcement scan, architecture, payment scan, runtime DDL, Base44 gate, demo build, mobile/PWA gate, …) | up to 3× per PR: the backend job, `preflight-static`, and again inside `preflight-database` (standard profile includes the static gates) | once, in `static-gates` (`release:preflight:static`) |
+| Static preflight gates (tsc, enforcement scan, architecture, payment scan, runtime DDL, demo build, mobile/PWA gate, …) | up to 3× per PR: the backend job, `preflight-static`, and again inside `preflight-database` (standard profile includes the static gates) | once, in `static-gates` (`release:preflight:static`) |
 | `npm run lint` + `npm run scan:backend` | both, and they are the same script (`backend_enforcement_scan.cjs`) | once (inside the static preflight) |
 | `test:all` on every push to `master` | re-ran the ten groups (15m00s) right after the same ten groups had passed in the same job | removed from the merge path; the whole pipeline runs FULL nightly (`schedule`), which keeps the order and frequency repetition signal |
 | `web-runtime-resilience` waited for `web-runtime-core` | serial | parallel (no data dependency) |
