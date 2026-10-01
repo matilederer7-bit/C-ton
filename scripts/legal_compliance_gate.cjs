@@ -141,11 +141,8 @@ for (const term of ["commission", "balance", "withdrawal", "affiliate_fee", "dis
   const re = new RegExp("affiliate[^\\n]{0,80}" + term + "|distributor[^\\n]{0,80}" + term, "i");
   if (re.test(distributionModule)) failures.push("distribution-link module contains forbidden external-money term: " + term);
 }
-if (!/אינו מקבל מידע אישי|אינה כוללת.*מידע אישי|אין גישה.*מידע אישי/.test(distributionTerms)
-    || !/אינה מחשבת.*עמלה|אין.*עמלה/.test(distributionTerms)
-    || !/אין בסיטון משתמש או תפקיד עסקי בשם "מפיץ"/.test(distributionTerms)) {
-  failures.push("distribution-link terms do not pin no-role / aggregate-only / no-commission posture");
-}
+// The distribution-link terms posture (no role / aggregate-only / no
+// commission) is pinned word for word in the distribution-link block below.
 
 {
   // The only remaining affiliate route is the anonymous visit recorder. It
@@ -162,16 +159,19 @@ if (!/אינו מקבל מידע אישי|אינה כוללת.*מידע אישי
 }
 
 // ── Distribution-link model and the fixed 8% fee (owner rules) ─────────────
-// Siton has no distributor/affiliate business role, and its fee is a system
-// constant with no per-deal or written-contract override; a buyer join is an
-// authorization hold only. These rules are enforced over EVERY surface a
-// reader can see — the served legal pages, the Hebrew legal documents, the
-// legacy shell, runtime-rendered copy, API copy, the React app and the i18n
-// sources — line by line, so restoring old wording anywhere (a title, a nav
-// label, a heading, a definition, an override placed before or after "8%")
+// Siton has no distributor/affiliate business role; it never calculates,
+// accrues, collects or pays an external party for distribution; an external
+// link viewer sees aggregates only; its fee is a system constant with no
+// per-deal or contractual override; a buyer join is an authorization hold
+// only. These rules are enforced over EVERY reader-visible surface — all
+// runtime source under src/ (served legal pages, API copy, notification and
+// receipt templates), the legacy shell and its HTML, the React app and its
+// HTML entry, the i18n sources and every Hebrew legal document — line by
+// line, so old wording restored anywhere (title, nav label, heading,
+// definition, an override before or after "8%", a positive commission line)
 // fails. A missing surface fails closed.
 {
-  const SURFACE_FILES = [
+  const REQUIRED_SURFACES = [
     "src/legal_pages.ts", "frontend/app.js", "src/frontend_runtime.ts", "src/app.ts",
     "src/seller_analytics.ts", "src/distribution_hub.ts",
     "docs/DISTRIBUTOR_TERMS_HE.md", "docs/SELLER_TERMS_HE.md", "docs/BUYER_TERMS_HE.md",
@@ -179,69 +179,127 @@ if (!/אינו מקבל מידע אישי|אינה כוללת.*מידע אישי
     "web/src/i18n/dictionaries/he.ts", "web/src/i18n/dictionaries/en.ts",
     "scripts/i18n/seed.he.json", "scripts/i18n/extracted.he.json", "scripts/i18n/en.json"
   ];
-  const SURFACE_TREES = ["web/src"];
-  const SURFACE_EXT = /\.(?:ts|tsx|js|jsx|cjs|mjs|json|html|md)$/;
+  const SURFACE_TREES = [
+    { rel: "src", ext: /\.(?:ts|js|cjs|mjs|html)$/, skipDirs: new Set(["migrations"]) },
+    { rel: "frontend", ext: /\.(?:js|html)$/, skipDirs: new Set() },
+    { rel: "web/src", ext: /\.(?:ts|tsx|js|jsx|json|html)$/, skipDirs: new Set() }
+  ];
+  const OPTIONAL_SURFACES = ["web/index.html"];
+  // Gershayim and typographic quotes are the same character for these rules.
+  const quoteNorm = (text) => String(text).replace(/[״“”]/g, "\"");
   const surfaces = new Map();
-  for (const rel of SURFACE_FILES) {
-    if (!exists(rel)) { failures.push("distribution-link rule surface missing: " + rel); continue; }
-    surfaces.set(rel, read(rel));
+  const addSurface = (rel) => { if (!surfaces.has(rel)) surfaces.set(rel, quoteNorm(read(rel))); };
+  for (const rel of REQUIRED_SURFACES) {
+    if (!exists(rel)) failures.push("distribution-link rule surface missing: " + rel);
+    else addSurface(rel);
   }
-  for (const docRel of fs.readdirSync(path.join(root, "docs")).filter((name) => /_HE\.md$/.test(name)).map((name) => "docs/" + name)) {
-    if (!surfaces.has(docRel)) surfaces.set(docRel, read(docRel));
-  }
-  const walk = (rel) => {
-    const abs = path.join(root, rel);
-    if (!fs.existsSync(abs)) { failures.push("distribution-link rule surface tree missing: " + rel); return; }
-    for (const entry of fs.readdirSync(abs, { withFileTypes: true })) {
+  for (const rel of OPTIONAL_SURFACES) if (exists(rel)) addSurface(rel);
+  for (const name of fs.readdirSync(path.join(root, "docs"))) if (/_HE\.md$/.test(name)) addSurface("docs/" + name);
+  const walk = (rel, tree) => {
+    for (const entry of fs.readdirSync(path.join(root, rel), { withFileTypes: true })) {
       const child = rel + "/" + entry.name;
-      if (entry.isDirectory()) { if (entry.name !== "node_modules") walk(child); }
-      else if (SURFACE_EXT.test(entry.name) && !surfaces.has(child)) surfaces.set(child, read(child));
+      if (entry.isDirectory()) { if (entry.name !== "node_modules" && !tree.skipDirs.has(entry.name)) walk(child, tree); }
+      else if (tree.ext.test(entry.name)) addSurface(child);
     }
   };
-  for (const tree of SURFACE_TREES) walk(tree);
+  for (const tree of SURFACE_TREES) {
+    if (!exists(tree.rel)) failures.push("distribution-link rule surface tree missing: " + tree.rel);
+    else walk(tree.rel, tree);
+  }
 
-  // The only Hebrew "distributor" words a reader may meet: the explicit
-  // negation ("no business role named distributor") and the verb "distribute
-  // a link". Anything else is the role coming back.
-  const ALLOWED_DISTRIBUTOR_WORDS = [/תפקיד עסקי בשם "?מפיץ"?/g, /מפיצים לינק/g];
+  // The only Hebrew "distributor" words a reader may meet: the canonical
+  // NEGATION ("Siton has no user or business role named distributor") and
+  // the verb "(you) distribute the link". The negation is matched with its
+  // negative opening so a positive role sentence reusing the tail is caught;
+  // the verb is matched without a definite article (המפיצים = "the
+  // distributors") and never on a line that also talks about a fee.
+  const ROLE_NEGATION = /(?:אין בסיטון|אינה יוצרת בסיטון) משתמש או תפקיד עסקי בשם "?מפיץ"?/g;
+  const DISTRIBUTE_VERB = /(?<![֐-׿])ו?מפיצים (?:את )?ה?לינק(?:ים)?(?![֐-׿])/g;
+  const HEBREW_FEE = /עמל|8%|8 אחוז/;
+  // The authorization hold ("תפיסת (ה)מסגרת") anchors the hold-only rule; a
+  // bare "חיוב" is too broad (seller-side lock clauses legitimately qualify
+  // themselves near the word).
+  const FEE_OR_HOLD = /עמל|8%|8 אחוז|תפיסת (?:ה)?מסגרת/;
+  // An exception clause that would let the fixed fee or the hold-only rule
+  // vary: found within WINDOW lines (before or after) of a fee / hold mention
+  // in a legal document, or on the same line anywhere else.
+  const HEBREW_EXCEPTION = /אלא אם|ככל שלא|בכפוף להסכמה|הסכמה אחרת|סוכם|יוסכם|הוסכם|שיוסכם|בכתב|הסכם/;
+  // Rate-variation wording: a finding on any line that names the fee.
+  const RATE_VARIATION = /שיעור אחר|שיעור (?:ה)?עמלה (?:ה)?שונה(?! לעסקה)|מופחת|הנחה|ייקבע|יקבע|יוגדר|תיקבע|תוגדר|ישתנה|יכול להשתנות|מותאם|לפי עסקה|לכל עסקה|לכל מוכר|לפי מוכר/;
+  const LAWFUL_EXCEPTION = /אלא אם (?:הדבר )?נדרש(?:ת)? (?:לפי|על פי) (?:ה)?דין/g;
   const ENGLISH_ROLE = /\b(?:distributors?|affiliates?)\b/i;
-  const ENGLISH_DICTIONARIES = new Set(["web/src/i18n/dictionaries/en.ts", "scripts/i18n/en.json"]);
-  const FEE_OR_CHARGE = /עמל|8%|8 אחוז|חיוב|תפיסת מסגרת/;
-  const EXCEPTION = /אלא אם (?:כן )?(?:נקבע|יוסכם|הוסכם|צוין|יצוין)|ככל שלא (?:נקבע|הוסכם|צוין)|הסכם כתוב|בהסכם|לפי הסכם|שיעור (?:ה)?עמלה (?:ש)?(?:ייקבע|יקבע|יוגדר|ישתנה|יכול להשתנות|מותאם)|(?:ייקבע|יקבע|יוגדר|תיקבע|תוגדר) (?:לכל|בכל|ברמת|לפי) עסקה/;
+  const ENGLISH_FEE = /8\s?%|\bfee\b|commission/i;
+  const ENGLISH_EXCEPTION = /\bunless\b|otherwise agreed|written (?:agreement|contract)|negotiat|discounted|custom rate|per[- ]deal rate|different rate/i;
+  const isEnglishCopySurface = (rel) => /(?:^web\/src\/i18n\/dictionaries\/en\.ts|^scripts\/i18n\/en\.json|\.md|\.html)$/.test(rel) || rel === "src/legal_pages.ts";
+  // A positive external-money statement: fee / payment / balance for an
+  // external party or for distribution, with no negation in the sentence.
+  const EXTERNAL_MONEY = /(?:עמלה|תשלום|יתרה|payout)/;
+  const EXTERNAL_PARTY = /(?:גורם חיצוני|בגין הפצה|לינק הפצה|לינקי הפצה|למפיץ|מקור הפצה)/;
+  const NEGATION = /(?:^|[\s,("])ו?(?:אינה|אינו|אין|אינם|אינן|לא|ללא)(?=[\s,.)"])/;
+  const WINDOW = 3;
   for (const [rel, text] of surfaces) {
     const lines = text.split(/\r?\n/);
+    const isLegalDoc = /^docs\/.*_HE\.md$/.test(rel) || rel === "src/legal_pages.ts";
     lines.forEach((line, index) => {
       const where = rel + ":" + (index + 1);
-      let stripped = line;
-      for (const allowed of ALLOWED_DISTRIBUTOR_WORDS) stripped = stripped.replace(allowed, "");
-      if (/מפיצ|מפיץ/.test(stripped)) failures.push("distributor-role wording returned (no distributor business role exists): " + where);
-      if (ENGLISH_DICTIONARIES.has(rel)) {
+      const around = lines.slice(Math.max(0, index - WINDOW), index + WINDOW + 1).join("\n");
+      let stripped = line.replace(ROLE_NEGATION, "");
+      const verbStripped = stripped.replace(DISTRIBUTE_VERB, "");
+      if (verbStripped !== stripped && HEBREW_FEE.test(line)) failures.push("distribution wording tied to a fee (no external distribution commission exists): " + where);
+      stripped = verbStripped;
+      if (/מפיצ|מפיץ/.test(stripped)) failures.push("distributor-role wording returned (no distributor business role exists; say לינק הפצה / מקור הפצה or use the canonical negation): " + where);
+      if (/^(?:web\/src\/i18n\/dictionaries\/en\.ts|scripts\/i18n\/en\.json)$/.test(rel)) {
         const entry = /^\s*"[^"]+"\s*:\s*"(.*)"\s*,?\s*$/.exec(line);
         if (entry && ENGLISH_ROLE.test(entry[1])) failures.push("distributor/affiliate role wording returned in English copy: " + where);
       }
-      // An exception clause is a finding when the fee / charge it qualifies is
-      // on the same line or one of the two lines before it (a following
-      // sentence such as "8%. Unless otherwise agreed in writing." counts).
-      if (EXCEPTION.test(line) && FEE_OR_CHARGE.test(lines.slice(Math.max(0, index - 2), index + 1).join("\n"))) {
+      // Fee / hold exceptions: the qualifier anywhere within WINDOW lines of a
+      // fee or charge mention, before or after it.
+      const lawful = line.replace(LAWFUL_EXCEPTION, "");
+      if ((HEBREW_EXCEPTION.test(lawful) && (isLegalDoc ? FEE_OR_HOLD.test(around) : FEE_OR_HOLD.test(line)))
+          || (RATE_VARIATION.test(lawful) && HEBREW_FEE.test(line))) {
         failures.push("legal copy makes the fixed 8% Siton fee overridable or adds an exception to the authorization-hold-only rule: " + where);
+      }
+      if (isEnglishCopySurface(rel) && ENGLISH_EXCEPTION.test(line) && ENGLISH_FEE.test(around)) {
+        failures.push("English copy makes the fixed 8% Siton fee overridable: " + where);
+      }
+      for (const sentence of line.split(/[.!?;]/)) {
+        // The negation must govern the money term: it has to come BEFORE it
+        // ("C-ton computes a commission …, and does not issue an invoice" is
+        // positive even though the sentence contains a negation).
+        const moneyAt = sentence.search(EXTERNAL_MONEY);
+        if (moneyAt >= 0 && EXTERNAL_PARTY.test(sentence) && !NEGATION.test(" " + sentence.slice(0, moneyAt))) {
+          failures.push("positive external-distribution money statement (Siton never calculates, accrues, collects or pays for distribution): " + where);
+          break;
+        }
       }
     });
   }
 
-  const quoteNorm = (text) => norm(text).replace(/״/g, "\"");
+  // Exact pins: the canonical sentences must stay word for word.
   const pins = [
     ["src/legal_pages.ts", "אין שיעור עמלה שונה לעסקה", "the fixed 8% fee (no per-deal rate)"],
     ["docs/SELLER_TERMS_HE.md", "אין שיעור עמלה שונה לעסקה", "the fixed 8% fee (no per-deal rate)"],
     ["frontend/app.js", "אין שיעור עמלה שונה לעסקה", "the fixed 8% fee (no per-deal rate)"],
     ["src/legal_pages.ts", "בהצטרפות לעסקה מתבצעת תפיסת מסגרת אשראי בלבד", "authorization hold only on join"],
     ["src/legal_pages.ts", "חיוב בפועל אינו מתבצע לפני שהעסקה נסגרת להצטרפות וננעלת", "no charge before close/lock"],
-    ["docs/DISTRIBUTOR_TERMS_HE.md", "אין בסיטון משתמש או תפקיד עסקי בשם \"מפיץ\"", "no distributor business role"]
+    ["src/legal_pages.ts", "אין בסיטון משתמש או תפקיד עסקי בשם \"מפיץ\"", "no distributor business role"],
+    ["docs/DISTRIBUTOR_TERMS_HE.md", "אין בסיטון משתמש או תפקיד עסקי בשם \"מפיץ\"", "no distributor business role"],
+    ["src/legal_pages.ts", "C-ton אינה מחשבת עמלה לגורם חיצוני בגין הפצה", "no external distribution commission"],
+    ["src/legal_pages.ts", "C-ton אינה צוברת עבורו יתרה", "no external distribution balance"],
+    ["src/legal_pages.ts", "C-ton אינה גובה עבורו עמלה ואינה מעבירה לו תשלום", "no external distribution payment"],
+    ["src/legal_pages.ts", "C-ton אינה מחשבת, אינה צוברת, אינה גובה ואינה משלמת עמלה לגורם חיצוני בגין הפצה", "no external distribution commission"],
+    ["docs/DISTRIBUTOR_TERMS_HE.md", "C-ton אינה מחשבת, צוברת, גובה או משלמת עמלה לגורם חיצוני בגין הפצה", "no external distribution commission"],
+    ["docs/SELLER_TERMS_HE.md", "C-ton אינה מחשבת, צוברת, גובה או משלמת עמלה לגורם חיצוני בגין הפצה", "no external distribution commission"],
+    ["src/legal_pages.ts", "היא אינה כוללת מידע אישי על קונים", "aggregate-only link viewer (no buyer personal data)"],
+    ["src/legal_pages.ts", "הגישה אינה כוללת שמות, טלפונים, אימיילים, כתובות, אמצעי תשלום או סטטוסי חיוב אישיים של קונים", "aggregate-only link viewer (no buyer personal data)"],
+    ["docs/DISTRIBUTOR_TERMS_HE.md", "אין גישה למידע אישי על קונים", "aggregate-only link viewer (no buyer personal data)"],
+    ["docs/PRIVACY_POLICY_HE.md", "ואינו מקבל מידע אישי על קונים", "aggregate-only link viewer (no buyer personal data)"]
   ];
   for (const [rel, phrase, rule] of pins) {
-    if (surfaces.has(rel) && !quoteNorm(surfaces.get(rel)).includes(phrase)) failures.push("legal copy no longer pins " + rule + ": " + rel);
+    if (surfaces.has(rel) && !norm(surfaces.get(rel)).includes(phrase)) failures.push("legal copy no longer pins " + rule + ": " + rel);
   }
-  if (!/8%[^\n]{0,260}למעט רכיב המע"מ של הלקוח/.test(quoteNorm(read("src/legal_pages.ts")))
-      || !/8%[^\n]{0,260}למעט רכיב המע"מ של הלקוח/.test(quoteNorm(read("docs/SELLER_TERMS_HE.md")))) {
+  if (!/8%[^\n]{0,260}למעט רכיב המע"מ של הלקוח/.test(norm(surfaces.get("src/legal_pages.ts") || ""))
+      || !/8%[^\n]{0,260}למעט רכיב המע"מ של הלקוח/.test(norm(surfaces.get("docs/SELLER_TERMS_HE.md") || ""))) {
     failures.push("legal copy does not pin the 8% fee base to collected amount excluding the customer's VAT component");
   }
 }

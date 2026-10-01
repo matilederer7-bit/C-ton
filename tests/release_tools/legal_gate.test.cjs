@@ -29,6 +29,7 @@ const FIXTURE_FILES = [
   "docs/DISTRIBUTOR_TERMS_HE.md",
   "docs/ADMIN_LEGAL_OPS_POLICY.md",
   "src/seller_analytics.ts",
+  "src/notification_templates.ts",
   "src/distribution_hub.ts",
   "web/src",
   "scripts/i18n/seed.he.json",
@@ -222,9 +223,114 @@ const MUTATIONS = [
     file: "docs/DISTRIBUTOR_TERMS_HE.md",
     from: "אין בסיטון משתמש או תפקיד עסקי בשם \"מפיץ\".",
     to: "הלינק נמסר לגורם חיצוני.",
-    expect: /no-role \/ aggregate-only \/ no-commission posture|no longer pins no distributor business role/
+    expect: /no longer pins no distributor business role[^\n]*docs\/DISTRIBUTOR_TERMS_HE\.md/
+  }
+  ,
+  // Second independent review pass (findings 1-4 on head 3f94796).
+  {
+    name: "a positive distributor role reuses the tail of the negation phrase",
+    file: "src/legal_pages.ts",
+    from: "יצירת הלינק או מסירתו אינה יוצרת בסיטון משתמש או תפקיד עסקי בשם \"מפיץ\".",
+    to: "יצירת הלינק או מסירתו יוצרת בסיטון תפקיד עסקי בשם \"מפיץ\" הזכאי לעמלה.",
+    expect: /distributor-role wording returned[^\n]*src\/legal_pages\.ts:/
+  },
+  {
+    name: "the seller terms let the seller appoint a distributor",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "המוכר אחראי להוצאת מסמכים חשבונאיים",
+    to: "המוכר רשאי למנות גורם לתפקיד עסקי בשם \"מפיץ\". המוכר אחראי להוצאת מסמכים חשבונאיים",
+    expect: /distributor-role wording returned[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "'the link distributors get a commission' hides behind the verb allowance",
+    file: "frontend/app.js",
+    from: "ומפיצים לינק ישיר לקונים</h1>",
+    to: "ומפיצים לינק ישיר לקונים</h1><p>המפיצים לינקים מקבלים עמלה</p>",
+    expect: /distributor-role wording returned[^\n]*frontend\/app\.js:/
+  },
+  {
+    name: "the fee becomes overridable with other wording (agreed otherwise in writing)",
+    file: "src/legal_pages.ts",
+    from: "עבור שירותי הפלטפורמה, C-ton גובה עמלה קבועה בשיעור 8%.",
+    to: "עבור שירותי הפלטפורמה, C-ton גובה עמלה קבועה בשיעור 8%, אלא אם סוכם אחרת בכתב.",
+    expect: /fixed 8% Siton fee overridable[^\n]*src\/legal_pages\.ts:/
+  },
+  {
+    name: "a selected-seller reduced fee appears",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. מוכרים נבחרים זכאים לעמלה מופחתת.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "a contract exception is placed on the line BEFORE the fee paragraph",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "המוכר אחראי להוצאת מסמכים חשבונאיים אם אינו מחובר למערכת חשבוניות.",
+    to: "המוכר אחראי להוצאת מסמכים חשבונאיים אם אינו מחובר למערכת חשבוניות.\n\nככל שלא הוסכם אחרת בהסכם כתוב בין C-ton למוכר:",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "English copy makes the fee overridable",
+    file: "web/src/i18n/dictionaries/en.ts",
+    from: "\"legal.nav.affiliates\": \"Distribution link terms\",",
+    to: "\"legal.nav.affiliates\": \"Distribution link terms\",\n  \"legal.fee_note\": \"Siton charges 8% unless otherwise agreed in writing\",",
+    expect: /English copy makes the fixed 8% Siton fee overridable/
+  },
+  {
+    name: "the distribution-link terms document turns the no-commission sentence positive",
+    file: "docs/DISTRIBUTOR_TERMS_HE.md",
+    from: "C-ton אינה מחשבת, צוברת, גובה או משלמת עמלה לגורם חיצוני בגין הפצה",
+    to: "C-ton מחשבת וצוברת עמלה לגורם חיצוני בגין הפצה ומשלמת אותה מדי חודש",
+    expect: /positive external-distribution money statement[^\n]*docs\/DISTRIBUTOR_TERMS_HE\.md:/
+  },
+  {
+    name: "the served /legal/affiliates page turns the no-commission sentence positive",
+    file: "src/legal_pages.ts",
+    from: "C-ton אינה מחשבת עמלה לגורם חיצוני בגין הפצה.",
+    to: "C-ton מחשבת עמלה לגורם חיצוני בגין הפצה ומעבירה לו תשלום.",
+    expect: /positive external-distribution money statement[^\n]*src\/legal_pages\.ts:/
+  },
+  {
+    name: "the link viewer no-PII sentence is removed from the served page",
+    file: "src/legal_pages.ts",
+    from: "היא אינה כוללת מידע אישי על קונים.",
+    to: "היא כוללת את פרטי הקונים.",
+    expect: /no longer pins aggregate-only link viewer/
+  },
+  {
+    name: "a notification template names a distributor",
+    file: "src/notification_templates.ts",
+    from: "\n",
+    to: "\n// המפיץ שלך הביא 3 הצטרפויות\n",
+    expect: /distributor-role wording returned[^\n]*src\/notification_templates\.ts:/
+  },
+  {
+    name: "the legacy shell HTML links to Distributor terms",
+    file: "frontend/index.html",
+    from: "</body>",
+    to: "<a>תנאי מפיצים</a></body>",
+    expect: /distributor-role wording returned[^\n]*frontend\/index\.html:/
   }
 ];
+
+// Negative controls: legitimate copy must not trip the rules (a gate that
+// fires on ordinary wording gets weakened).
+for (const control of [
+  { name: "the negation written with Hebrew gershayim", file: "docs/DISTRIBUTOR_TERMS_HE.md", from: "אין בסיטון משתמש או תפקיד עסקי בשם \"מפיץ\"", to: "אין בסיטון משתמש או תפקיד עסקי בשם ״מפיץ״" },
+  { name: "the verb 'distribute the link' with an object marker", file: "frontend/app.js", from: "ומפיצים לינק ישיר לקונים</h1>", to: "ומפיצים את הלינק בוואטסאפ</h1>" },
+  { name: "an exception required by law next to the fee", file: "docs/SELLER_TERMS_HE.md", from: "אין שיעור עמלה שונה לעסקה.", to: "אין שיעור עמלה שונה לעסקה, אלא אם הדבר נדרש לפי דין." }
+]) {
+  test("legal gate still passes on legitimate copy: " + control.name, () => {
+    const fixture = createFixtureRepo(FIXTURE_FILES);
+    try {
+      fixture.mutate(control.file, control.from, control.to);
+      const result = runGate(fixture);
+      assert.equal(result.status, 0, result.out);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+}
 
 // Negative control: the verb "distribute a link" is ordinary seller copy, not a role.
 test("legal gate still passes when seller copy uses the verb 'distribute a link'", () => {
