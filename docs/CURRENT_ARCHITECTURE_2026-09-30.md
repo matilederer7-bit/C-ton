@@ -34,8 +34,9 @@ Render workspace is legacy (see the Render cleanup record in `PROJECT_STATUS.md`
   page's runtime (Render web + Render worker + Supabase PostgreSQL) and rejects any
   blueprint, inventory boundary or architecture document that names Base44 again
   (Lean Refactor D3-A; `tests/release_tools/architecture_truth_gate.test.cjs` proves
-  every assertion by mutation, and scans every code tree for a Base44 SDK call or
-  token). The `base44/` directory, `config/base44-*.json`,
+  every assertion by mutation); the gate also rejects a Base44 SDK call in any code
+  tree and the Base44 token in the runtime, shell, scripts, web, workflow and root
+  build files. The `base44/` directory, `config/base44-*.json`,
   `scripts/base44_canonical_integrity_gate.cjs`, the Base44-only tests and
   `legacy/render/` were deleted by Lean Refactor D3-B (2026-10-01).
 - **`legacy/render/`** (pre-R3 Render evidence) was deleted by Lean Refactor D3-B; the root `render.yaml` is the only Render blueprint.

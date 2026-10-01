@@ -53,18 +53,21 @@ const SECRET_KEY = /(SECRET|_KEY$|TOKEN|DSN|SALT|PASSWORD|DATABASE_URL)/;
 // in the runtime, shell, scripts, web app or workflows (tests keep negative
 // guards that name it, so they are scanned for the SDK shapes only).
 const LEGACY_SDK_PATTERNS = [
-  /@base44\/sdk/,
+  /@base44\//,
   /createClientFromRequest/,
   /createClient\(\s*\{\s*appId/,
-  /\.entities\.[A-Za-z_]+\.(?:list|filter|create|update|delete|bulkUpdate)\(/,
-  /\bfunctions\.invoke\(/,
-  /\bbase44\.auth\b/
+  /\.entities\.[A-Za-z_]+\.(?:list|filter|get|create|update|delete|bulkCreate|bulkUpdate)\(/,
+  /\.entities\s*\[\s*["'][A-Za-z_]+["']\s*\]/,
+  /\bbase44\.(?:functions|entities|auth|integrations)\b/
 ];
-const LEGACY_SDK_TREES = ["src", "frontend", "scripts", "tests", "web/src", ".github"];
-const LEGACY_TOKEN_TREES = ["src", "frontend", "scripts", "web/src", ".github"];
-const CODE_FILE = /\.(?:cjs|mjs|js|jsx|ts|tsx|json|jsonc|ya?ml)$/;
+// `supabase.functions.invoke(...)` is the canonical stack's own Edge Function
+// call and is deliberately NOT matched.
+const LEGACY_SDK_TREES = ["src", "frontend", "scripts", "tests", "web", ".github"];
+const LEGACY_TOKEN_TREES = ["src", "frontend", "scripts", "web", ".github"];
+const LEGACY_TOKEN_ROOT_FILES = ["package.json", "Dockerfile", "docker-compose.yml", "docker-compose.release-lab.yml", ".dockerignore"];
+const CODE_FILE = /\.(?:cjs|mjs|js|jsx|ts|tsx|mts|cts|json|jsonc|ya?ml|html|sh|ps1|toml)$/;
 const SCAN_SKIP_DIRS = new Set(["node_modules", ".git", ".tmp_test_dist", ".demo_dist", ".mobile_dist", "dist", "build", "coverage"]);
-const SELF = path.basename(__filename);
+const SELF_RELATIVE = "scripts/architecture_truth_gate.cjs";
 
 function walkCode(dir) {
   if (!fs.existsSync(dir)) return [];
@@ -373,19 +376,19 @@ function runArchitectureGate(root = process.cwd()) {
   assert(!/production_runtime\s*[:=]\s*"?base44/i.test(architectureDoc), "the architecture SoT must never certify Base44 as the production runtime");
 
   // ── No Base44 SDK call or token anywhere in the code trees ───────────────
+  const relativeOf = (file) => path.relative(root, file).replace(/\\/g, "/");
   for (const tree of LEGACY_SDK_TREES) {
     for (const file of walkCode(at(tree))) {
-      if (path.basename(file) === SELF) continue;
+      if (relativeOf(file) === SELF_RELATIVE) continue;
       const source = fs.readFileSync(file, "utf8");
       const hit = LEGACY_SDK_PATTERNS.find((pattern) => pattern.test(source));
-      assert(!hit, `Base44 SDK usage in ${path.relative(root, file).replace(/\\/g, "/")} (${hit}): Base44 is historical, never a runtime`);
+      assert(!hit, `Base44 SDK usage in ${relativeOf(file)} (${hit}): Base44 is historical, never a runtime`);
     }
   }
-  for (const tree of LEGACY_TOKEN_TREES) {
-    for (const file of walkCode(at(tree))) {
-      if (path.basename(file) === SELF) continue;
-      assert(!/base44/i.test(fs.readFileSync(file, "utf8")), `Base44 reference in ${path.relative(root, file).replace(/\\/g, "/")}: Base44 is historical, never a runtime`);
-    }
+  const tokenFiles = [...LEGACY_TOKEN_TREES.flatMap((tree) => walkCode(at(tree))), ...LEGACY_TOKEN_ROOT_FILES.map(at).filter((file) => fs.existsSync(file))];
+  for (const file of tokenFiles) {
+    if (relativeOf(file) === SELF_RELATIVE) continue;
+    assert(!/base44/i.test(fs.readFileSync(file, "utf8")), `Base44 reference in ${relativeOf(file)}: Base44 is historical, never a runtime`);
   }
 
   return {

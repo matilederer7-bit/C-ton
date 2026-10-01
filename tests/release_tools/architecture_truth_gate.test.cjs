@@ -220,6 +220,27 @@ test("drift: a Base44 SDK call or token coming back in a code tree", () => {
   expectFail((repo) => repo.write("web/src/planted.ts", `export const runtime = "${token}";\n`), /Base44 reference in web\/src\/planted\.ts/);
   expectFail((repo) => repo.write(".github/workflows/planted.yml", `name: ${token} sync\non: push\n`), /Base44 reference in \.github\/workflows\/planted\.yml/);
   expectFail((repo) => repo.write("src/planted.ts", `export const BRIDGE = "${token.toLowerCase()}-bridge";\n`), /Base44 reference in src\/planted\.ts/);
+  expectFail((repo) => repo.write("web/vite.config.ts", `import plugin from "@${token.toLowerCase()}/vite-plugin";\n`), /Base44 SDK usage in web\/vite\.config\.ts/);
+  expectFail((repo) => repo.write("web/index.html", `<script src="https://cdn.${token.toLowerCase()}.app/sdk.js"></script>\n`), /Base44 reference in web\/index\.html/);
+  expectFail((repo) => repo.write("frontend/planted.html", `<meta name="runtime" content="${token}">\n`), /Base44 reference in frontend\/planted\.html/);
+  expectFail((repo) => repo.write("scripts/planted.sh", `#!/bin/sh\necho deploying to ${token}\n`), /Base44 reference in scripts\/planted\.sh/);
+  expectFail((repo) => repo.write("tests/planted_entity_validation.ts", `const row = await client${[".entities[", "\"Deal\"", "]"].join("")}.get("x");\n`), /Base44 SDK usage in tests\/planted_entity_validation\.ts/);
+  expectFail((repo) => repo.write("tests/planted_get_validation.ts", `const row = await client${[".entities.", "Deal", ".get("].join("")}"x");\n`), /Base44 SDK usage in tests\/planted_get_validation\.ts/);
+  expectFail((repo) => {
+    const pkg = JSON.parse(repo.read("package.json"));
+    pkg.scripts["deploy:legacy"] = `${token.toLowerCase()} deploy`;
+    repo.write("package.json", JSON.stringify(pkg));
+  }, /Base44 reference in package\.json/);
+});
+
+test("control: the canonical Supabase Edge Function call is not mistaken for the legacy SDK", () => {
+  const repo = scratchRepo();
+  try {
+    repo.write("web/src/broker.ts", "export const call = () => supabase.functions.invoke(\"storage-broker\", { body: {} });\n");
+    assert.doesNotThrow(() => gate.runArchitectureGate(repo.dir));
+  } finally {
+    repo.cleanup();
+  }
 });
 
 test("drift: a root Procfile or a second Render blueprint", () => {

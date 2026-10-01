@@ -25,6 +25,7 @@
         "tests/supabase_staging_security_foundation_validation.ts",
         "tests/release_tools/architecture_truth_gate.test.cjs",
         "tests/release_tools/repo_scan_policy.test.cjs",
+        "tests/canonical_sql_invariants_validation.ts",
         "scripts/architecture_truth_gate.cjs",
         "scripts/ci_change_classifier.cjs",
         "scripts/lib/repo_scan_policy.cjs",
@@ -48,7 +49,6 @@
         "render.yaml",
         "src/migrations/",
         "tests/legacy_runtime_isolation_validation.ts",
-        "tests/canonical_sql_invariants_validation.ts",
         "tests/mall_runtime_validation.ts",
         "tests/mall_hidden_by_default_validation.ts",
         "tests/mall_read_model_validation.ts",
@@ -81,5 +81,5 @@
       ]
     }
   ],
-  "sequencing_note": "Written 2026-10-01 after D3-A (PR #157) squash-merged as 49b810c; starts only once Render web + worker are live on 49b810c (owner rule). open_branches is empty. Codex cross-provider review unavailable (quota exhausted 2026-09-30); merges on the independent senior review plus green CI."
+  "sequencing_note": "tests/canonical_sql_invariants_validation.ts moved from forbidden to allowed after the independent review asked for the literal 24-field lock of PUBLIC_MALL_DEAL_FIELDS that the deleted Base44 contract test used to provide. Written 2026-10-01 after D3-A (PR #157) squash-merged as 49b810c; starts only once Render web + worker are live on 49b810c (owner rule). open_branches is empty. Codex cross-provider review unavailable (quota exhausted 2026-09-30); merges on the independent senior review plus green CI."
 }
