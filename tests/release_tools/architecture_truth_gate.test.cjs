@@ -72,9 +72,9 @@ test("gate: the blueprint parser reads both canonical services with their env en
   const services = gate.parseBlueprintServices(fs.readFileSync(path.join(ROOT, "render.yaml"), "utf8"));
   assert.deepEqual(services.map((s) => [s.type, s.name]), [["web", gate.CANONICAL_WEB], ["worker", gate.CANONICAL_WORKER]]);
   const web = services[0];
-  assert.deepEqual(web.env.find((e) => e.key === "DATABASE_URL"), { key: "DATABASE_URL", sync: "false" });
-  assert.deepEqual(web.env.find((e) => e.key === "RUNTIME_ROLE"), { key: "RUNTIME_ROLE", value: "web" });
-  assert.deepEqual(web.env.find((e) => e.key === "ADMIN_API_KEY"), { key: "ADMIN_API_KEY", generateValue: "true" });
+  assert.deepEqual(web.$env.find((e) => e.key === "DATABASE_URL"), { key: "DATABASE_URL", sync: "false" });
+  assert.deepEqual(web.$env.find((e) => e.key === "RUNTIME_ROLE"), { key: "RUNTIME_ROLE", value: "web" });
+  assert.deepEqual(web.$env.find((e) => e.key === "ADMIN_API_KEY"), { key: "ADMIN_API_KEY", generateValue: "true" });
 });
 
 // ── Render topology ───────────────────────────────────────────────────────
@@ -105,6 +105,17 @@ test("drift: a second top-level block (a Render-managed database)", () => {
 
 test("drift: the worker scaled to several instances", () => {
   expectFail((repo) => repo.edit("render.yaml", "    dockerCommand: node .demo_dist/src/worker.js\n", "    dockerCommand: node .demo_dist/src/worker.js\n    numInstances: 3\n"), /must stay a single instance/);
+});
+
+test("drift: a second envVars block or Render's legacy env: alias", () => {
+  expectFail((repo) => repo.edit("render.yaml", "      - key: SENTRY_DSN\n        sync: false\n\n", "      - key: SENTRY_DSN\n        sync: false\n    envVars:\n      - key: FOO\n        value: bar\n\n"), /duplicate envVars block/);
+  expectFail((repo) => repo.edit("render.yaml", "    runtime: docker\n", "    env: docker\n"), /legacy env: alias is not accepted/);
+});
+
+test("drift: real payouts switched on through the blueprint", () => {
+  expectFail((repo) => repo.edit("render.yaml", "      - key: PAYOUT_PROVIDER\n        value: internal-ledger\n", "      - key: PAYOUT_PROVIDER\n        value: internal-ledger\n      - key: PAYOUT_PROVIDER_MODE\n        value: provider-live\n"), /PAYOUT_PROVIDER_MODE/);
+  expectFail((repo) => repo.edit("render.yaml", "      - key: PAYOUT_PROVIDER\n        value: internal-ledger\n", "      - key: PAYOUT_PROVIDER\n        value: internal-ledger\n      - key: PAYOUT_PROVIDER_API_KEY\n        sync: false\n"), /must not carry PAYOUT_PROVIDER_API_KEY/);
+  expectFail((repo) => repo.edit("render.yaml", "      - key: PAYOUT_PROVIDER\n        value: internal-ledger\n", "      - key: PAYOUT_PROVIDER\n        value: grow-payouts\n"), /PAYOUT_PROVIDER=internal-ledger/);
 });
 
 test("drift: the web service renamed", () => {

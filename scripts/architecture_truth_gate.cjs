@@ -113,15 +113,24 @@ function parseBlueprintServices(text) {
     if (/^\S/.test(line)) fail(`${where}: the blueprint may declare only the services: block (found ${line.trim()})`);
     assert(inServices, `${where}: content before the services: block`);
     if ((m = /^  - type:\s*(\S+)\s*$/.exec(line))) {
-      service = { type: unquote(m[1]), env: [], envKeys: new Set() };
+      // The env list and bookkeeping live under names no YAML key can
+      // collide with (`\w+` never matches a `$`).
+      service = { type: unquote(m[1]), $env: [], $envKeys: new Set(), $sawEnvVars: false };
       services.push(service);
       env = null;
       continue;
     }
     assert(service, `${where}: a service must start with \`  - type:\` (found ${line.trim()})`);
     if ((m = /^    (\w+):\s*(.*?)\s*$/.exec(line))) {
-      assert(!(m[1] in service) || m[1] === "env", `${where}: duplicate service key ${m[1]}`);
-      if (m[1] === "envVars") { env = service.env; continue; }
+      if (m[1] === "envVars") {
+        assert(!service.$sawEnvVars, `${where}: duplicate envVars block on ${service.type} ${service.name || ""}`);
+        assert(m[2] === "", `${where}: envVars must be a plain block (found envVars: ${m[2]})`);
+        service.$sawEnvVars = true;
+        env = service.$env;
+        continue;
+      }
+      assert(!Object.prototype.hasOwnProperty.call(service, m[1]), `${where}: duplicate service key ${m[1]}`);
+      assert(m[1] !== "env", `${where}: the legacy env: alias is not accepted; declare runtime: docker`);
       env = null;
       assert(m[2] !== "", `${where}: service key ${m[1]} without an inline value is not a blueprint shape this gate accepts`);
       service[m[1]] = unquote(m[2]);
@@ -129,8 +138,8 @@ function parseBlueprintServices(text) {
     }
     if (env && (m = /^      - key:\s*(\S+)\s*$/.exec(line))) {
       const key = unquote(m[1]);
-      assert(!service.envKeys.has(key), `${where}: duplicate env key ${key} on ${service.type} ${service.name || ""}`);
-      service.envKeys.add(key);
+      assert(!service.$envKeys.has(key), `${where}: duplicate env key ${key} on ${service.type} ${service.name || ""}`);
+      service.$envKeys.add(key);
       env.push({ key });
       continue;
     }
@@ -147,7 +156,7 @@ function parseBlueprintServices(text) {
 }
 
 function envOf(service, key) {
-  return service.env.find((entry) => entry.key === key) || null;
+  return service.$env.find((entry) => entry.key === key) || null;
 }
 
 function runArchitectureGate(root = process.cwd()) {
@@ -201,7 +210,7 @@ function runArchitectureGate(root = process.cwd()) {
     assert(deploymentMode && /^(staging|production)$/.test(deploymentMode.value || ""), `${label} must declare a hosted APP_DEPLOYMENT_MODE (staging|production), never demo`);
     const databaseUrl = envOf(service, "DATABASE_URL");
     assert(databaseUrl && databaseUrl.sync === "false" && databaseUrl.value === undefined, `${label} DATABASE_URL must be an external secret (sync: false, no inline value)`);
-    for (const entry of service.env) {
+    for (const entry of service.$env) {
       if (!SECRET_KEY.test(entry.key)) continue;
       assert(entry.value === undefined && (entry.sync === "false" || entry.generateValue === "true"), `${label} must never carry ${entry.key} inline: secrets are sync: false or generateValue: true`);
     }
@@ -209,6 +218,11 @@ function runArchitectureGate(root = process.cwd()) {
     assert(paymentEnvironment && paymentEnvironment.value === "demo", `${label} must keep PAYMENT_ENVIRONMENT=demo in the checked-in blueprint (found ${paymentEnvironment && paymentEnvironment.value}); real-money activation is a separate governed change, never a blueprint edit`);
     const paymentProvider = envOf(service, "PAYMENT_PROVIDER");
     assert(paymentProvider && paymentProvider.value === "mockpay", `${label} must keep the mock payment provider in the checked-in blueprint`);
+    const payoutProvider = envOf(service, "PAYOUT_PROVIDER");
+    assert(payoutProvider && payoutProvider.value === "internal-ledger", `${label} must keep PAYOUT_PROVIDER=internal-ledger in the checked-in blueprint`);
+    const payoutMode = envOf(service, "PAYOUT_PROVIDER_MODE");
+    assert(!payoutMode || payoutMode.value === "internal-truth-only", `${label} must not switch payouts to a real provider through the blueprint (PAYOUT_PROVIDER_MODE); activation is a separate governed change`);
+    for (const payoutKey of ["PAYOUT_PROVIDER_BASE_URL", "PAYOUT_PROVIDER_API_KEY"]) assert(!envOf(service, payoutKey), `${label} must not carry ${payoutKey}: the checked-in blueprint never addresses a real payout provider`);
   }
   // Role separation: the web service answers HTTP and never runs the outbox
   // worker; the worker runs it and nothing else.
