@@ -9,7 +9,7 @@
 // charged-state outcomes (mockpay). Everything it creates is clearly marked synthetic.
 //
 // Usage:
-//   node scripts/r6_staging_showcase_seed.cjs --base-url=https://siton-staging-web.onrender.com \
+//   node scripts/archive/r6_staging_showcase_seed.cjs --base-url=https://siton-staging-web.onrender.com \
 //     --seller-email=... --seller-password=...
 //
 // The seller credential must already exist as a Supabase auth user bound to a

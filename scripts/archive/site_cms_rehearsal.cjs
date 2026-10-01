@@ -1,7 +1,7 @@
 // SITE CMS — end-to-end rehearsal against a RUNNING service (local stack or staging).
 //
-//   node scripts/site_cms_rehearsal.cjs --base-url=http://127.0.0.1:3210 --admin-cookie=<siton_admin_session>
-//   node scripts/site_cms_rehearsal.cjs --base-url=http://127.0.0.1:3210 --local-admin   (mints a session via DATABASE_URL)
+//   node scripts/archive/site_cms_rehearsal.cjs --base-url=http://127.0.0.1:3210 --admin-cookie=<siton_admin_session>
+//   node scripts/archive/site_cms_rehearsal.cjs --base-url=http://127.0.0.1:3210 --local-admin   (mints a session via DATABASE_URL)
 //
 // Non-sensitive test content only. Steps: read the public heading → save a draft
 // heading → confirm the public API and the public page are unchanged → confirm the

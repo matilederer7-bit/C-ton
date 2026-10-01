@@ -7,7 +7,7 @@
 //   S4  tab returns visible: a refresh request within 3s, then bounded cadence resumes
 //   S5  Draft buyer preview (optional --draft + seller credentials): zero activity/chat polling
 //
-// Usage: node scripts/p07c_polling_browser_proof.cjs --base-url=https://host --deal=<uuid> [--draft=<uuid> --seller-id=.. --seller-password=..] [--window=60000]
+// Usage: node scripts/archive/p07c_polling_browser_proof.cjs --base-url=https://host --deal=<uuid> [--draft=<uuid> --seller-id=.. --seller-password=..] [--window=60000]
 const { spawn } = require("node:child_process");
 const { existsSync } = require("node:fs");
 const { tmpdir } = require("node:os");

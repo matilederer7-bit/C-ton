@@ -45,6 +45,8 @@ archive_temp/
 .demo_dist/
 .mobile_dist/
 archive/
+# Lean Refactor D2: archived scripts are tracked (docs/LEAN_REFACTOR_MAP_2026-09-30.md §3.5)
+!scripts/archive/
 backups/
 
 .sixth/
