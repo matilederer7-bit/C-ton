@@ -23,7 +23,8 @@
         "tests/deal_images_validation.ts",
         "docs/PRODUCT_CATALOG.md",
         "docs/team-plans/2026-10-01-product-library-c2-schema-retirement.json",
-        "PROJECT_STATUS.md"
+        "PROJECT_STATUS.md",
+        "tests/release_tools/architecture_truth_gate.test.cjs"
       ],
       "forbidden": [
         "src/migrations/072_product_catalog_and_fulfillment_estimates.sql",
