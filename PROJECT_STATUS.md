@@ -365,7 +365,8 @@ Current invariants:
 - MERGED: batch 1 PR #163 squash-merged as `4101d97` (FULL CI green on `d7336ab`, run 36911753828; independent review MERGE after the scan-policy fix).
 - COMPLETED (batch 2, `chatgpt/lean-refactor-d5-docs-batch2`, built by ChatGPT stacked on batch 1, synced onto `4101d97`; the maps were rebased onto master's reviewed version): five more HISTORICAL Morning Handoff records (`ADVERSARIAL_HARDENING`, `BACKEND_PROFESSIONALIZATION`, `PREPROD_TORTURE_QA`, `REAL_INTEGRATIONS`, `ULTIMATE_PRELIVE_QA_RC`) moved to `docs/archive/`, blobs identical, each with the SUPERSEDED/HISTORICAL marker, zero consumers outside the maps.
 - COMPLETED (batch 3, `claude/lean-refactor-d5-docs-batch3`): the remaining five Morning Handoffs and the 36 DECISION / ISSUES / LOG companions of the handoff family (DEMO_*, REAL_*, FINAL_CANONICAL_AUDIT_*, FRONTEND_*, FULL_*, ADVERSARIAL_HARDENING_*, INTERNAL_MAXIMAL_CLOSURE_*, MASTER_PRODUCT_DEEP_MAP_*, PREPROD_*, ULTIMATE_*, REMAINING_*, BACKEND_*_DECISION/AUDIT) — 41 files, zero consumers on the extension-less stem outside the maps and `docs/archive/`, all byte-identical, all carry the historical marker.
-- OPEN: batch 2 and 3 review, CI, merge; remaining ARCHIVE batches (census: 110 zero-consumer, 50 linked only from other docs, 15 read by code/tests/plans — those stay in place unless the consumer is updated); `PROJECT_STATUS.md` trim.
+- MERGED: batch 2 PR #173 squash-merged as `3ad69e5` (CI green on the synced head `d6c9daa`, independent review MERGE).
+- OPEN: batch 3 review, CI, merge; remaining ARCHIVE batches (census: 110 zero-consumer, 50 linked only from other docs, 15 read by code/tests/plans — those stay in place unless the consumer is updated); `PROJECT_STATUS.md` trim.
 - PERCENT: D5 in progress (batches 1–2).
 - NEXT: batch 2 → CI → merge → zero-consumer family batches.
 
