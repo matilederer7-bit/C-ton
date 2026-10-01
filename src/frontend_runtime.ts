@@ -29,8 +29,6 @@ import {
   SELLER_SESSION_SECRET
 } from "./runtime_config.js";
 import {
-  DEFAULT_AFFILIATE_CODE,
-  DEFAULT_AFFILIATE_NAME,
   DEFAULT_SELLER_ID,
   ensureRemainingProductSurfaceTables,
   isChargedMoneyState,
@@ -104,7 +102,6 @@ import {
   buildOtpProvider,
   ensureOtpRailTables,
   ensureJoinOtpVerified,
-  generateOtpCode,
   hashDestination,
   OtpValidationError,
   requestOtpChallenge,
@@ -126,7 +123,7 @@ import {
   sellerAuthFailurePayload,
   serializeExpiredSellerSessionCookie,
   serializeSellerSessionCookie,
-  verifySellerAccessSecret, verifySellerAccessSecretAsync, sellerLoginDummyHash } from "./seller_auth.js";
+  verifySellerAccessSecretAsync, sellerLoginDummyHash } from "./seller_auth.js";
 import {
   BUYER_SESSION_TTL_SECONDS,
   buyerSessionConfigured,
@@ -187,7 +184,6 @@ import {
   hasRecentMfa,
   hashAdminOtp,
   hashAdminSessionToken,
-  hashAdminPassword,
   issueAdminSession,
   resolveAdminIdentity,
   safeAdminId,
@@ -197,8 +193,6 @@ import {
 import {
   ensureParticipantTrackingTables,
   extractTrackingToken,
-  issueParticipantTrackingToken,
-  trackingMode,
   verifyParticipantTrackingAccess
 } from "./participant_tracking_security.js";
 import {
@@ -238,7 +232,7 @@ import {
   sellerOrderProjection,
   SELLER_NOT_READY_COPY
 } from "./physical_fulfillment.js";
-import { LEGAL_NAV_LABEL_KEYS, LEGAL_PAGE_ORDER, LEGAL_PAGES, resolveLegalPage, type LegalPageSlug } from "./legal_pages.js";
+import { LEGAL_NAV_LABEL_KEYS, LEGAL_PAGES, resolveLegalPage, type LegalPageSlug } from "./legal_pages.js";
 import { htmlAttrs, localeFromRequest, ogLocale, ts, type Locale } from "./server_i18n.js";
 import { isBuyerVerificationRequired, buyerVerificationPolicySummary } from "./buyer_verification_policy.js";
 import { buildSupabaseVerifier } from "./supabase_auth.js";
@@ -1010,10 +1004,6 @@ function mapDealListRow(row: DealListRow) {
 }
 
 function receiptEligible(dealState: DealState, moneyState: string) {
-  return dealState === "Completed" && isChargedMoneyState(moneyState);
-}
-
-function deliveryEligible(dealState: DealState, moneyState: string) {
   return dealState === "Completed" && isChargedMoneyState(moneyState);
 }
 
@@ -7400,7 +7390,6 @@ export function registerFrontendExperience(
     await ensureAdminControlPlane();
     await ensureAdminIdentity();
     const adminActionId = String(req.params.adminActionId || "").trim();
-    const context = adminRequestContext(req);
     return deps.withTx(async (c) => {
       const identity = await requireAdminAuthContext(req, reply, c, { permission: "admin_actions.approve", sessionRequired: true });
       if (!identity) return reply;
@@ -7435,7 +7424,6 @@ export function registerFrontendExperience(
     await ensureAdminControlPlane();
     await ensureAdminIdentity();
     const adminActionId = String(req.params.adminActionId || "").trim();
-    const context = adminRequestContext(req);
     return deps.withTx(async (c) => {
       const identity = await requireAdminAuthContext(req, reply, c, { permission: "admin_actions.approve", sessionRequired: true });
       if (!identity) return reply;
