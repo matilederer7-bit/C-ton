@@ -95,7 +95,7 @@ const MUTATIONS = [
     from: "href=\"/legal/affiliates\"",
     to: "href=\"/legal/partners\"",
     all: true,
-    expect: /missing policy link: \/legal\/affiliates/
+    expect: /missing compatibility policy link: \/legal\/affiliates/
   },
   {
     name: "the distribution-link terms compatibility page is removed",
@@ -114,7 +114,7 @@ const MUTATIONS = [
   {
     name: "the legal page stops saying that Siton has no distributor business role",
     file: "src/legal_pages.ts",
-    from: "בסיטון אין משתמש או תפקיד עסקי בשם \"מפיץ\".",
+    from: "אין בסיטון משתמש או תפקיד עסקי בשם \"מפיץ\".",
     to: "מפיץ הוא משתמש עסקי במערכת.",
     expect: /no distributor business role/
   },
