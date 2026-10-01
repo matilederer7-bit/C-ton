@@ -57,7 +57,7 @@ test("codex model availability is reported per routed tier without downgrading",
     },
   });
   assert.equal(openai.valid, true);
-  assert.equal(openai.models["gpt-5.6-sol"], "available");
+  assert.equal(openai.models["gpt-6.1-sol"], "available");
   assert.match(openai.models["gpt-6-astra"], /unavailable/);
 
   const report = buildReport({
@@ -83,15 +83,16 @@ test("an unreachable routed tier blocks READY instead of warning", () => {
     repository: "o/r",
   };
   const models = (missing) => Object.fromEntries(
-    ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra"].map((model) => [model, model === missing ? "unavailable (HTTP 404)" : "available"]),
+    ["gpt-6-luna", "gpt-6.1-sol", "gpt-6-astra"].map((model) => [model, model === missing ? "unavailable (HTTP 404)" : "available"]),
   );
   // Every routed tier reaches the manager's own model-access gate, so calling
   // the account READY while one of them is unreachable would be a false verdict.
-  for (const missing of ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"]) {
+  for (const missing of ["gpt-6-luna", "gpt-6.1-sol"]) {
     const report = buildReport({ ...base, openai: { present: true, valid: true, detail: "ok", models: models(missing) } });
     assert.equal(report.ready, false, `${missing} must block`);
     assert.ok(report.blockers.some((blocker) => blocker.includes(missing)));
     assert.match(renderMarkdown(report), /Overall: BLOCKED/);
+    if (missing === "gpt-6.1-sol") assert.match(renderMarkdown(report), /standard \+ senior \(Sol\)/);
   }
   const astra = buildReport({ ...base, openai: { present: true, valid: true, detail: "ok", models: models("gpt-6-astra") } });
   assert.equal(astra.ready, true);
