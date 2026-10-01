@@ -1432,7 +1432,7 @@ export const EN: Record<string, string> = {
   "landing.open_seller_account": "Open a seller account",
   "landing.seller_sign": "Seller sign in",
   "landing.to_my_dashboard": "To my personal area →",
-  "legal.nav.affiliates": "Sharing policy",
+  "legal.nav.affiliates": "Distribution link terms",
   "legal.nav.demo": "Demonstration environment",
   "legal.nav.payments": "Payments policy",
   "legal.nav.privacy": "Privacy policy",
