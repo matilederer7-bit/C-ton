@@ -1,6 +1,6 @@
 # Siton Current Architecture — 2026-09-30
 
-Status: **BINDING architecture source of truth.** Supersedes `docs/CANONICAL_ARCHITECTURE_V1.md`
+Status: **BINDING architecture source of truth.** Supersedes `docs/archive/CANONICAL_ARCHITECTURE_V1.md`
 (Base44-era, now historical) and every older document that names Base44 as the
 production or canonical runtime.
 
