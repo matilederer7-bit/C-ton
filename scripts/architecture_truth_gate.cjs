@@ -64,8 +64,10 @@ const LEGACY_SDK_PATTERNS = [
 // call and is deliberately NOT matched.
 const LEGACY_SDK_TREES = ["src", "frontend", "scripts", "tests", "web", ".github"];
 const LEGACY_TOKEN_TREES = ["src", "frontend", "scripts", "web", ".github"];
-const LEGACY_TOKEN_ROOT_FILES = ["package.json", "Dockerfile", "docker-compose.yml", "docker-compose.release-lab.yml", ".dockerignore"];
-const CODE_FILE = /\.(?:cjs|mjs|js|jsx|ts|tsx|mts|cts|json|jsonc|ya?ml|html|sh|ps1|toml)$/;
+const LEGACY_TOKEN_ROOT_FILES = ["package.json", "Dockerfile", "docker-compose.yml", "docker-compose.release-lab.yml", ".dockerignore", ".env.example", ".env.demo.example"];
+// Text surfaces only (code, config, markup, styles, manifests, shell); never a
+// binary asset.
+const CODE_FILE = /\.(?:cjs|mjs|js|jsx|ts|tsx|mts|cts|json|jsonc|ya?ml|html|sh|ps1|toml|css|svg|webmanifest|env|txt)$/;
 const SCAN_SKIP_DIRS = new Set(["node_modules", ".git", ".tmp_test_dist", ".demo_dist", ".mobile_dist", "dist", "build", "coverage"]);
 const SELF_RELATIVE = "scripts/architecture_truth_gate.cjs";
 
