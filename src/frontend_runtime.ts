@@ -11420,7 +11420,7 @@ export function registerFrontendExperience(
         const originType = String(row.origin_type || "");
         const humanName = String(row.internal_name || "").trim();
         const label =
-          originType === "distributor" ? `מפיץ: ${String(row.affiliate_name || humanName || row.source_code || "")}`
+          originType === "distributor" ? `מקור הפצה: ${String(row.affiliate_name || humanName || row.source_code || "")}`
           : originType === "seller" ? (humanName || "קישור המוכר")
           : originType === "campaign" ? (humanName || `קמפיין: ${String(row.source_code || "")}`)
           : originType === "participant" ? `שיתוף של ${maskName(row.origin_buyer_name)}`
