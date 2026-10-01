@@ -368,9 +368,11 @@ Current invariants:
 - MERGED: batch 2 PR #173 squash-merged as `3ad69e5` (CI green on the synced head `d6c9daa`, independent review MERGE).
 - MERGED: batch 3 PR #177 squash-merged as `fce4bb7` (CI green on `37dca13`, independent review MERGE).
 - COMPLETED (batch 4, `claude/lean-refactor-d5-docs-batch4`): 24 delivery / closure / audit reports moved, including the eight root `*_DELIVERY_REPORT.md` files (`DEAL_TYPES_E2E_DELIVERY_REPORT` moves with its only consumer, `DEAL_TYPES_E2E_HANDOFF`); zero consumers on the extension-less stem outside `docs/archive/` and the maps, byte-identical, all carry a historical marker.
-- OPEN: batch 4 review, CI, merge; remaining ARCHIVE batches (census: 110 zero-consumer, 50 linked only from other docs, 15 read by code/tests/plans — those stay in place unless the consumer is updated); `PROJECT_STATUS.md` trim.
-- PERCENT: D5 in progress (batches 1–3 merged).
-- NEXT: batch 4 → CI → merge → batches 5–6.
+- MERGED: batch 4 PR #178 squash-merged as `172a8a9` (CI green on the synced head `8ea3b2d`, independent review MERGE).
+- COMPLETED (batch 5, `claude/lean-refactor-d5-docs-batch5`): the 32 remaining zero-consumer records (PASS2–6, STAGE*, R9A/R9C, red-team and payment-plan records, LAUNCH_POLISH_SPRINT_1/2, decisions; `SECURITY_HARDENING_GATE` once its only consumer moved in batch 4). All 107 zero-consumer ARCHIVE documents are now in `docs/archive/`.
+- OPEN: batch 5 review, CI, merge; the ARCHIVE documents linked from active documents or read by code (census: 110 zero-consumer, 50 linked only from other docs, 15 read by code/tests/plans — those stay in place unless the consumer is updated); `PROJECT_STATUS.md` trim.
+- PERCENT: D5 in progress (batches 1–4 merged).
+- NEXT: batch 5 → CI → merge → batch 6.
 
 ### Claude Code latest milestone — Product Library C2 (2026-10-01): migration 082 retires the Product Library schema (staging only)
 
