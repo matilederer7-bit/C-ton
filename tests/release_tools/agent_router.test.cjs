@@ -22,10 +22,11 @@ test("router keeps cheap read-heavy work economical", () => {
   assert.deepEqual(route.lanes, ["tests"]);
 });
 
-test("standard work uses the balanced model instead of the senior model", () => {
+test("standard work uses GPT-6.1 Sol at the standard reasoning tier, not Senior effort", () => {
   const route = routeTask({ taskType: "backend", risk: "normal", tier: "auto" });
   assert.equal(route.tier, "standard");
   assert.equal(route.codexModel, "gpt-6.1-sol");
+  assert.equal(route.builderEffort, "medium");
 });
 
 test("router prefers separate ecosystems and degrades honestly", () => {
