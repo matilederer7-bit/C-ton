@@ -372,7 +372,7 @@ Current invariants:
 - TESTED: locally on the D1 head — classifier run on the branch diff (FULL, 66 × unclassified/critical + the classifier file, as the map predicted), `tests/release_tools/ci_change_classifier.test.cjs` 52/0, `test:release-tools` all pass (10 environment skips), `web` `tsc -b && vite build` PASS (proves nothing under `web/src` imported the snapshot), lint, secret/PII scan (0 fail), repository hygiene 6/0, `gate:i18n` (2414 keys, 0 unreferenced). Codex cross-provider review is unavailable (quota exhausted 2026-09-30 17:37Z); per the owner's instruction the PR merges on an independent senior review plus green CI.
 - OPEN: none on this step once merged.
 - PERCENT: Lean Refactor removal order D1 100% on merge; D2–D6 open (D2 scripts next, D3 Base44 cluster, D4 waits for the owner's schema decision, D5 docs batches, D6 owner decision).
-- NEXT: D2 (delete `bounded_load_test.cjs`, move the ARCHIVE scripts under `scripts/retired/` with their relative requires rewritten and each moved script run once, runbook steps updated) as its own FULL-profile PR; then D3.
+- NEXT: D2 (delete `bounded_load_test.cjs`, move the ARCHIVE scripts under `scripts/archive/` with their relative requires rewritten and each moved script run once, runbook steps updated) as its own FULL-profile PR; then D3.
 
 ### Claude Code latest milestone — Product alignment + infra cleanup + Lean Refactor start (2026-09-30), track E: legacy `/app` Mall hidden behind `PUBLIC_MALL_ENABLED`
 

@@ -21,7 +21,7 @@ consumer) · **DELETE CANDIDATE** (no consumer and no history value).
 | repository | 1,388 | — |
 | `docs/` markdown | 273 (+14 root reports) | tiered in `docs/DOCUMENTATION_MAP.md` |
 | `tests/` | 364 | CORE evidence; auto-discovered by `scripts/run_test_group.cjs`; not a deletion target |
-| `scripts/` | 139 → 138 | D2 done: 1 deleted, 12 moved to `scripts/retired/`, rest SUPPORT/CORE (§3.5) |
+| `scripts/` | 139 (138 + `retired/README.md`) | D2 done: 1 deleted, 12 moved to `scripts/retired/` (still inside `scripts/`), rest SUPPORT/CORE (§3.5) |
 | `src/` | 161 | CORE |
 | `web/` | 100 | CORE |
 | `.i18n-regen/` | 66 → 0 | DELETED by D1 (§3.4) |
