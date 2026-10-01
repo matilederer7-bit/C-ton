@@ -304,6 +304,49 @@ const MUTATIONS = [
     to: "\n// המפיץ שלך הביא 3 הצטרפויות\n",
     expect: /distributor-role wording returned[^\n]*src\/notification_templates\.ts:/
   },
+  // Third independent review pass (P2 findings on head 9caf45d).
+  {
+    name: "the fee becomes 'as otherwise determined' between C-ton and the seller",
+    file: "src/legal_pages.ts",
+    from: "עבור שירותי הפלטפורמה, C-ton גובה עמלה קבועה בשיעור 8%.",
+    to: "עבור שירותי הפלטפורמה, C-ton גובה עמלה קבועה בשיעור 8%, או כפי שנקבע אחרת בין C-ton למוכר.",
+    expect: /fixed 8% Siton fee overridable[^\n]*src\/legal_pages\.ts:/
+  },
+  {
+    name: "an override hides behind the lawful-exception wording",
+    file: "src/legal_pages.ts",
+    from: "עבור שירותי הפלטפורמה, C-ton גובה עמלה קבועה בשיעור 8%.",
+    to: "עבור שירותי הפלטפורמה, C-ton גובה עמלה קבועה בשיעור 8%, אלא אם הדבר נדרש לפי דין או שנקבע אחרת בין הצדדים.",
+    expect: /fixed 8% Siton fee overridable[^\n]*src\/legal_pages\.ts:/
+  },
+  {
+    name: "buyer copy outside the legal documents adds an exception to 'no actual charge before success'",
+    file: "frontend/index.html",
+    from: "</body>",
+    to: "<p>לא מתבצע חיוב בפועל עד סגירת העסקה בהצלחה, אלא אם צוין אחרת בעמוד העסקה.</p></body>",
+    expect: /authorization-hold-only rule[^\n]*frontend\/index\.html:/
+  },
+  {
+    name: "a plural commission to link owners is promised",
+    file: "docs/PRIVACY_POLICY_HE.md",
+    from: "## למה המידע נאסף",
+    to: "C-ton משלמת עמלות לבעלי לינקי הפצה.\n\n## למה המידע נאסף",
+    expect: /positive external-distribution money statement[^\n]*docs\/PRIVACY_POLICY_HE\.md:/
+  },
+  {
+    name: "an unrelated earlier negation hides a positive commission after 'אך'",
+    file: "docs/PRIVACY_POLICY_HE.md",
+    from: "## למה המידע נאסף",
+    to: "C-ton אינה מנפיקה חשבונית, אך מחשבת עמלה לגורם חיצוני בגין הפצה.\n\n## למה המידע נאסף",
+    expect: /positive external-distribution money statement[^\n]*docs\/PRIVACY_POLICY_HE\.md:/
+  },
+  {
+    name: "the verb 'distribute the link' is paired with a reward",
+    file: "frontend/app.js",
+    from: "ומפיצים לינק ישיר לקונים</h1>",
+    to: "ומפיצים לינק ישיר לקונים ומקבלים עמלה</h1>",
+    expect: /distribution wording tied to a fee[^\n]*frontend\/app\.js:/
+  },
   {
     name: "the legacy shell HTML links to Distributor terms",
     file: "frontend/index.html",
@@ -318,7 +361,14 @@ const MUTATIONS = [
 for (const control of [
   { name: "the negation written with Hebrew gershayim", file: "docs/DISTRIBUTOR_TERMS_HE.md", from: "אין בסיטון משתמש או תפקיד עסקי בשם \"מפיץ\"", to: "אין בסיטון משתמש או תפקיד עסקי בשם ״מפיץ״" },
   { name: "the verb 'distribute the link' with an object marker", file: "frontend/app.js", from: "ומפיצים לינק ישיר לקונים</h1>", to: "ומפיצים את הלינק בוואטסאפ</h1>" },
-  { name: "an exception required by law next to the fee", file: "docs/SELLER_TERMS_HE.md", from: "אין שיעור עמלה שונה לעסקה.", to: "אין שיעור עמלה שונה לעסקה, אלא אם הדבר נדרש לפי דין." }
+  { name: "an exception required by law next to the fee", file: "docs/SELLER_TERMS_HE.md", from: "אין שיעור עמלה שונה לעסקה.", to: "אין שיעור עמלה שונה לעסקה, אלא אם הדבר נדרש לפי דין." },
+  { name: "buyers who came through a link pay as usual", file: "docs/PRIVACY_POLICY_HE.md", from: "## למה המידע נאסף", to: "קונים שהגיעו דרך לינק הפצה מבצעים תשלום רגיל.\n\n## למה המידע נאסף" },
+  { name: "'8% fixed for every deal'", file: "docs/SELLER_TERMS_HE.md", from: "אין שיעור עמלה שונה לעסקה.", to: "אין שיעור עמלה שונה לעסקה. העמלה היא 8% קבוע לכל עסקה." },
+  { name: "'the fee rate will not change'", file: "docs/SELLER_TERMS_HE.md", from: "אין שיעור עמלה שונה לעסקה.", to: "אין שיעור עמלה שונה לעסקה. שיעור העמלה לא ישתנה." },
+  { name: "'the fee is not adjusted per seller'", file: "docs/SELLER_TERMS_HE.md", from: "אין שיעור עמלה שונה לעסקה.", to: "אין שיעור עמלה שונה לעסקה. העמלה אינה מותאמת לפי מוכר." },
+  { name: "'the fee is computed from the price after the discount'", file: "docs/SELLER_TERMS_HE.md", from: "אין שיעור עמלה שונה לעסקה.", to: "אין שיעור עמלה שונה לעסקה. העמלה מחושבת מהמחיר לאחר ההנחה." },
+  { name: "'who distribute a link' with the ש prefix", file: "frontend/app.js", from: "ומפיצים לינק ישיר לקונים</h1>", to: "שמפיצים קישור ישיר לקונים</h1>" },
+  { name: "the verb next to the 8% fee in a hero line", file: "frontend/app.js", from: "ומפיצים לינק ישיר לקונים</h1>", to: "ומפיצים לינק, ו־C-ton גובה 8% רק מעסקה מוצלחת</h1>" }
 ]) {
   test("legal gate still passes on legitimate copy: " + control.name, () => {
     const fixture = createFixtureRepo(FIXTURE_FILES);

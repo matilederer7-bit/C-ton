@@ -214,27 +214,43 @@ for (const term of ["commission", "balance", "withdrawal", "affiliate_fee", "dis
   // the verb is matched without a definite article (המפיצים = "the
   // distributors") and never on a line that also talks about a fee.
   const ROLE_NEGATION = /(?:אין בסיטון|אינה יוצרת בסיטון) משתמש או תפקיד עסקי בשם "?מפיץ"?/g;
-  const DISTRIBUTE_VERB = /(?<![֐-׿])ו?מפיצים (?:את )?ה?לינק(?:ים)?(?![֐-׿])/g;
+  const DISTRIBUTE_VERB = /(?<![֐-׿])[וש]?מפיצים (?:את )?ה?(?:לינק(?:ים)?|קישור(?:ים)?|עסקה|עסקאות)(?![֐-׿])/g;
+  // A reward for distributing ("you distribute the link and receive a
+  // commission") is the external commission coming back through the verb.
+  const DISTRIBUTION_REWARD = /מקבל|זכאי|תגמול|בונוס|עמלת הפצה|עמלה למ/;
   const HEBREW_FEE = /עמל|8%|8 אחוז/;
   // The authorization hold ("תפיסת (ה)מסגרת") anchors the hold-only rule; a
   // bare "חיוב" is too broad (seller-side lock clauses legitimately qualify
   // themselves near the word).
-  const FEE_OR_HOLD = /עמל|8%|8 אחוז|תפיסת (?:ה)?מסגרת/;
+  const FEE_OR_HOLD = /עמל|8%|8 אחוז|תפיסת (?:ה)?מסגרת|מסגרת (?:ה)?אשראי|יתפוס מסגרת|חיוב בפועל/;
   // An exception clause that would let the fixed fee or the hold-only rule
   // vary: found within WINDOW lines (before or after) of a fee / hold mention
   // in a legal document, or on the same line anywhere else.
   const HEBREW_EXCEPTION = /אלא אם|ככל שלא|בכפוף להסכמה|הסכמה אחרת|סוכם|יוסכם|הוסכם|שיוסכם|בכתב|הסכם/;
-  // Rate-variation wording: a finding on any line that names the fee.
-  const RATE_VARIATION = /שיעור אחר|שיעור (?:ה)?עמלה (?:ה)?שונה(?! לעסקה)|מופחת|הנחה|ייקבע|יקבע|יוגדר|תיקבע|תוגדר|ישתנה|יכול להשתנות|מותאם|לפי עסקה|לכל עסקה|לכל מוכר|לפי מוכר/;
+  // Rate-variation wording: a finding on any line that names the fee, unless
+  // a negation or "fixed" governs it ("8% קבוע לכל עסקה", "לא ישתנה" and
+  // "אינה מותאמת לפי מוכר" affirm the rule).
+  const RATE_VARIATION = /שיעור אחר|שיעור (?:ה)?עמלה (?:ה)?שונה(?! לעסקה)|עמלה מופחתת|שיעור מופחת|הנחה ב?עמלה|אחרת|נקבע|ייקבע|יקבע|יוגדר|תיקבע|תוגדר|ישתנה|יכול להשתנות|מותאמ|לפי עסקה|לכל עסקה|לכל מוכר|לפי מוכר|למעט אם|למעט במקרים/g;
+  const GOVERNED = /(?:^|[\s,])(?:ו?(?:לא|אין|אינה|אינו|ללא)|קבועה?)\s+(?:[^\s]+\s+)?$/;
+  const hasUngovernedVariation = (text) => {
+    for (const match of text.matchAll(RATE_VARIATION)) {
+      if (match[0] === "שיעור עמלה שונה" || match[0] === "שיעור העמלה שונה") { if (/^ לעסקה/.test(text.slice(match.index + match[0].length))) continue; }
+      if (!GOVERNED.test(text.slice(Math.max(0, match.index - 24), match.index))) return true;
+    }
+    return false;
+  };
   const LAWFUL_EXCEPTION = /אלא אם (?:הדבר )?נדרש(?:ת)? (?:לפי|על פי) (?:ה)?דין/g;
   const ENGLISH_ROLE = /\b(?:distributors?|affiliates?)\b/i;
   const ENGLISH_FEE = /8\s?%|\bfee\b|commission/i;
   const ENGLISH_EXCEPTION = /\bunless\b|otherwise agreed|written (?:agreement|contract)|negotiat|discounted|custom rate|per[- ]deal rate|different rate/i;
   const isEnglishCopySurface = (rel) => /(?:^web\/src\/i18n\/dictionaries\/en\.ts|^scripts\/i18n\/en\.json|\.md|\.html)$/.test(rel) || rel === "src/legal_pages.ts";
-  // A positive external-money statement: fee / payment / balance for an
-  // external party or for distribution, with no negation in the sentence.
-  const EXTERNAL_MONEY = /(?:עמלה|תשלום|יתרה|payout)/;
-  const EXTERNAL_PARTY = /(?:גורם חיצוני|בגין הפצה|לינק הפצה|לינקי הפצה|למפיץ|מקור הפצה)/;
+  // A positive external-money statement: a fee / payment / balance / reward
+  // whose RECIPIENT is an external party or the distribution itself, in a
+  // clause whose negation (if any) does not precede the money term. Money
+  // that buyers who came through a link pay as usual names no recipient and
+  // is not a finding.
+  const EXTERNAL_MONEY = /עמל|תשלומ|תשלום|משלמ|יתר[הת]|תגמול|זיכוי|בונוס|payout/;
+  const EXTERNAL_PARTY = /גורמ(?:ים)? חיצוני|לגורם|בעל(?:י)? (?:ה)?(?:לינק|קישור)|בגין (?:ה)?הפצה|למפיצ|למפיץ|עבורו|למקור(?:ות)? (?:ה)?הפצה/;
   const NEGATION = /(?:^|[\s,("])ו?(?:אינה|אינו|אין|אינם|אינן|לא|ללא)(?=[\s,.)"])/;
   const WINDOW = 3;
   for (const [rel, text] of surfaces) {
@@ -245,7 +261,7 @@ for (const term of ["commission", "balance", "withdrawal", "affiliate_fee", "dis
       const around = lines.slice(Math.max(0, index - WINDOW), index + WINDOW + 1).join("\n");
       let stripped = line.replace(ROLE_NEGATION, "");
       const verbStripped = stripped.replace(DISTRIBUTE_VERB, "");
-      if (verbStripped !== stripped && HEBREW_FEE.test(line)) failures.push("distribution wording tied to a fee (no external distribution commission exists): " + where);
+      if (verbStripped !== stripped && DISTRIBUTION_REWARD.test(line)) failures.push("distribution wording tied to a fee (no external distribution commission exists): " + where);
       stripped = verbStripped;
       if (/מפיצ|מפיץ/.test(stripped)) failures.push("distributor-role wording returned (no distributor business role exists; say לינק הפצה / מקור הפצה or use the canonical negation): " + where);
       if (/^(?:web\/src\/i18n\/dictionaries\/en\.ts|scripts\/i18n\/en\.json)$/.test(rel)) {
@@ -256,13 +272,13 @@ for (const term of ["commission", "balance", "withdrawal", "affiliate_fee", "dis
       // fee or charge mention, before or after it.
       const lawful = line.replace(LAWFUL_EXCEPTION, "");
       if ((HEBREW_EXCEPTION.test(lawful) && (isLegalDoc ? FEE_OR_HOLD.test(around) : FEE_OR_HOLD.test(line)))
-          || (RATE_VARIATION.test(lawful) && HEBREW_FEE.test(line))) {
+          || (HEBREW_FEE.test(line) && hasUngovernedVariation(lawful))) {
         failures.push("legal copy makes the fixed 8% Siton fee overridable or adds an exception to the authorization-hold-only rule: " + where);
       }
       if (isEnglishCopySurface(rel) && ENGLISH_EXCEPTION.test(line) && ENGLISH_FEE.test(around)) {
         failures.push("English copy makes the fixed 8% Siton fee overridable: " + where);
       }
-      for (const sentence of line.split(/[.!?;]/)) {
+      for (const sentence of line.split(/[.!?;]|\s(?:אך|אבל|אולם|ואילו)\s/)) {
         // The negation must govern the money term: it has to come BEFORE it
         // ("C-ton computes a commission …, and does not issue an invoice" is
         // positive even though the sentence contains a negation).
