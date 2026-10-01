@@ -73,7 +73,7 @@ See [DOCKER_READINESS.md](DOCKER_READINESS.md). The shortest path is `docker com
 
 ### Alternative non-AWS shapes (functionally equivalent)
 
-- **Legacy Render evidence** is quarantined under `legacy/render/` and is not a production option. This AWS document is a supporting portability/scale reference only; the canonical runtime is Render web + worker + Supabase (`docs/CURRENT_ARCHITECTURE_2026-09-30.md`).
+- **Legacy Render evidence** (the pre-R3 blueprint under `legacy/render/`) was deleted by Lean Refactor D3-B on 2026-10-01; it was never a production option. This AWS document is a supporting portability/scale reference only; the canonical runtime is Render web + worker + Supabase (`docs/CURRENT_ARCHITECTURE_2026-09-30.md`).
 - **Railway** — Docker service + managed Postgres.
 - **Fly.io** — Docker app + Fly Postgres.
 - **Managed VPS** (Hetzner, OVH, DO) — single Docker host + managed Postgres add-on.
