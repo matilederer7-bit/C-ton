@@ -23,8 +23,8 @@ Utility / reference:
 - `init_db.sql`:
   legacy bootstrap reference only, not the canonical live schema source of truth
 
-Archived (no automated caller; moved by Lean Refactor D2, still runnable from the
-repository root): see `scripts/archive/README.md`.
+Retired (no automated caller; moved by Lean Refactor D2, still runnable from the
+repository root): see `scripts/retired/README.md`.
 
 Historical one-off scripts from the 2026-03-30 hygiene pass were removed from the
-repository (`archive/` is git-ignored); `scripts/archive/` is the only tracked archive.
+repository (`archive/` is git-ignored); `scripts/retired/` is the only tracked archive.

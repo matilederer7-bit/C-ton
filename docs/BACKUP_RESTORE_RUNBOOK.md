@@ -85,7 +85,7 @@ Final line: `DB_BACKUP_RESTORE_REHEARSAL_PASS` (exit 0), `DB_BACKUP_RESTORE_REHE
 
 To exercise `7h` locally, create the runtime roles once in the local cluster: `psql "$DATABASE_URL" -c "CREATE ROLE siton_web_runtime NOLOGIN NOINHERIT; CREATE ROLE siton_worker_runtime NOLOGIN NOINHERIT; CREATE ROLE service_role NOLOGIN; CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN;"` (ignore "already exists").
 
-Older tool: `scripts/archive/dr_backup_restore_drill.cjs` (kept, archived under `scripts/archive/` by Lean Refactor D2 and still runnable from the repository root; guarded by `scripts/lib/destructive_target_guard.cjs`, which refuses `APP_DEPLOYMENT_MODE=staging|production|live`, `PAYMENT_ENVIRONMENT=live|production`, and any non-local host unless named in `SITON_DESTRUCTIVE_ALLOWED_HOSTS` — never set that for a hosted database). Superseded by the rehearsal for release purposes.
+Older tool: `scripts/retired/dr_backup_restore_drill.cjs` (kept, archived under `scripts/retired/` by Lean Refactor D2 and still runnable from the repository root; guarded by `scripts/lib/destructive_target_guard.cjs`, which refuses `APP_DEPLOYMENT_MODE=staging|production|live`, `PAYMENT_ENVIRONMENT=live|production`, and any non-local host unless named in `SITON_DESTRUCTIVE_ALLOWED_HOSTS` — never set that for a hosted database). Superseded by the rehearsal for release purposes.
 
 ## 5. Drill cadence
 

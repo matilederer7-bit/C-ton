@@ -4,7 +4,7 @@
 // mobile RTL, and no-horizontal-overflow checks. Saves screenshots when
 // --shots=<dir> is provided.
 //
-// Usage: node scripts/archive/r6_hosted_browser_proof.cjs --base-url=https://... [--shots=out]
+// Usage: node scripts/retired/r6_hosted_browser_proof.cjs --base-url=https://... [--shots=out]
 // Optional seller closure proof: set SEED_SELLER_EMAIL + SEED_SELLER_PASSWORD
 // out of band. Credentials are never printed or persisted by this script.
 

@@ -1,5 +1,5 @@
 {
-  "task": "Lean Refactor D2: delete the one zero-reference script (bounded_load_test.cjs) and move the ARCHIVE-classified scripts of docs/LEAN_REFACTOR_MAP_2026-09-30.md §3.5 under scripts/archive/ with their relative requires and root derivations rewritten, each moved script run once, the runbook steps that name them and scripts/README.md rewritten; no SUPPORT/CORE script, test, gate, workflow or runtime behaviour changes; extract_base44_inventory_sql.ps1 stays in place for D3",
+  "task": "Lean Refactor D2: delete the one zero-reference script (bounded_load_test.cjs) and move the ARCHIVE-classified scripts of docs/LEAN_REFACTOR_MAP_2026-09-30.md §3.5 under scripts/retired/ with their relative requires and root derivations rewritten, each moved script run once, the runbook steps that name them and scripts/README.md rewritten; no SUPPORT/CORE script, test, gate, workflow or runtime behaviour changes; extract_base44_inventory_sql.ps1 stays in place for D3",
   "lead": "claude-lead",
   "base": "origin/master",
   "open_branches": [],
@@ -9,10 +9,10 @@
       "agent": "claude-lead",
       "role": "builder",
       "tier": "senior",
-      "scope": "git rm bounded_load_test.cjs; git mv the 12 ARCHIVE scripts into scripts/archive/ (browser proofs p06a/p07/p07c/r6_hosted, site_cms_rehearsal, migrate_showcase_images_to_supabase, dr_backup_restore_drill, r6_staging_showcase_seed, review_baseline_candidates, review_r9c_migration_independent_proof, run_outbox_select, i18n/extract); rewrite their relative requires / ROOT derivations / usage comments; .gitignore re-include for scripts/archive/; scripts/archive/README.md and scripts/README.md; runbook path rewrites; map D2 row and PROJECT_STATUS.md",
+      "scope": "git rm bounded_load_test.cjs; git mv the 12 ARCHIVE scripts into scripts/retired/ (browser proofs p06a/p07/p07c/r6_hosted, site_cms_rehearsal, migrate_showcase_images_to_supabase, dr_backup_restore_drill, r6_staging_showcase_seed, review_baseline_candidates, review_r9c_migration_independent_proof, run_outbox_select, i18n/extract); rewrite their relative requires / ROOT derivations / usage comments; .gitignore re-include for scripts/retired/; scripts/retired/README.md and scripts/README.md; runbook path rewrites; map D2 row and PROJECT_STATUS.md",
       "allowed": [
         "scripts/bounded_load_test.cjs",
-        "scripts/archive/",
+        "scripts/retired/",
         "scripts/p06a_geolocation_browser_proof.cjs",
         "scripts/p07_owner_acceptance_proof.cjs",
         "scripts/p07c_polling_browser_proof.cjs",
@@ -68,7 +68,7 @@
       "role": "reviewer",
       "senior": true,
       "tier": "senior",
-      "scope": "independent senior review: each moved script's requires and root derivations resolve from scripts/archive/; no SUPPORT/CORE script moved; the runbook rewrites keep every prescribed procedure runnable; the browser proofs and recovery tooling are moved, never deleted; .gitignore re-include is correct",
+      "scope": "independent senior review: each moved script's requires and root derivations resolve from scripts/retired/; no SUPPORT/CORE script moved; the runbook rewrites keep every prescribed procedure runnable; the browser proofs and recovery tooling are moved, never deleted; .gitignore re-include is correct",
       "reviews": [
         "B1"
       ],

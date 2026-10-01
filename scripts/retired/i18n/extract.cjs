@@ -9,8 +9,8 @@
  * It is deliberately conservative: anything it cannot rewrite with certainty
  * is reported as a leftover for a human to handle, never guessed at.
  *
- *   node scripts/archive/i18n/extract.cjs --apply      rewrite sources + dictionary
- *   node scripts/archive/i18n/extract.cjs              dry run (report only)
+ *   node scripts/retired/i18n/extract.cjs --apply      rewrite sources + dictionary
+ *   node scripts/retired/i18n/extract.cjs              dry run (report only)
  */
 const fs = require("fs");
 const path = require("path");

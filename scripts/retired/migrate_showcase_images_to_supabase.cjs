@@ -11,7 +11,7 @@
 // through MCP, not a local connection). Uploads are canonical; no direct
 // storage.objects insertion.
 //
-// Usage: KEYFILE=<broker_key.json> node scripts/archive/migrate_showcase_images_to_supabase.cjs '<rows-json>'
+// Usage: KEYFILE=<broker_key.json> node scripts/retired/migrate_showcase_images_to_supabase.cjs '<rows-json>'
 const fs = require("node:fs");
 const zlib = require("node:zlib");
 const crypto = require("node:crypto");

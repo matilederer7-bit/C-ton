@@ -1,10 +1,10 @@
-# Archived scripts
+# Retired scripts
 
-Moved here by Lean Refactor D2 (`docs/LEAN_REFACTOR_MAP_2026-09-30.md` §3.5, §4 row D2).
+Moved here by Lean Refactor D2 (the directory is `retired`, not `archive`, because `scripts/lib/repo_scan_policy.cjs` excludes any directory named `archive` from lint, the secret/PII scan, the compliance scan and the no-real-money proof; these files stay scanned) (`docs/LEAN_REFACTOR_MAP_2026-09-30.md` §3.5, §4 row D2).
 Nothing in `package.json`, a workflow, a preflight gate, a compose file or another script
 calls these; they are kept because they carry browser-level assertions no automated test
 repeats, recovery value, or a procedure a document still describes. Every one of them runs
-from the repository root exactly as before, with the `scripts/archive/` prefix:
+from the repository root exactly as before, with the `scripts/retired/` prefix:
 
 | Script | Why it is kept | Rule |
 |---|---|---|

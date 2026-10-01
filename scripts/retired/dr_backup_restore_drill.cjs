@@ -13,7 +13,7 @@
 //      representative records survive, and constitutional invariants hold
 //      (zero commission columns, 8% fee rate, charged-only money truth).
 //
-// Usage: node scripts/archive/dr_backup_restore_drill.cjs
+// Usage: node scripts/retired/dr_backup_restore_drill.cjs
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
