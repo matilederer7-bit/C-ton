@@ -948,29 +948,24 @@ Prior rounds (retained for history — the fields below describe earlier milesto
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
 
 <!-- AGENT_STATUS:chatgpt:START -->
-### ChatGPT latest milestone — legal/distribution-link reconciliation (PR #159)
+### ChatGPT latest milestone — CMS homepage video upload / storage-broker drift
 
 - UPDATED: 2026-10-01
 - COMPLETED:
-  - Reconciled user-facing and legal terminology with the binding product decision: Siton has no distributor/affiliate business role; seller-created distribution links remain attribution/measurement tools.
-  - Kept the legacy `/legal/affiliates` URL and internal `affiliate_*` / `distributor` compatibility identifiers unchanged so this terminology cleanup does not become an API/DB migration.
-  - Rewrote the distribution-link legal terms to state aggregate-only/read-only external visibility, no buyer personal data, and no Siton-managed external commission/balance/payment.
-  - Removed the old legal exception that allowed a written-contract override to the Siton fee. Legal copy now pins the system rule: fixed 8% on the collected purchase amount including delivery/purchase components, excluding the customer VAT component; no per-deal rate override.
-  - Legal join copy now states authorization-hold-only before the deal closes/locks; no pre-success charge exception.
-  - Updated visible legacy shell/export/i18n labels from a distributor role to distribution-link/source terminology while preserving compatibility keys.
-  - Strengthened `scripts/legal_compliance_gate.cjs` and mutation tests so the old distributor-role title, a distributor business role, or an overridable 8% fee fail CI.
-  - Two CI-discovered test/gate mismatches were fixed without weakening gates: generated i18n sources were updated at their JSON source, and the no-distributor/no-PII legal wording was normalized to the exact canonical form.
-- TESTED / CHECKED:
-  - Earlier current-branch runs proved the distributor attribution-only gate, i18n gate, seven-day-cap contract, operational repair gate, TypeScript, architecture, payment compliance, migration preflight, Docker/web runtime and the broad product test lanes.
-  - Earlier full runs correctly failed on stale legal mutation assertions, an under-explicit no-PII phrase, and one stale no-role regex in the legal gate; all three findings are fixed without weakening the gate.
-  - Mobile gate and full CI are running again on the final-content head; they are not yet claimed green.
+  - Root cause verified against repository code and the live Supabase staging Edge Function: the CMS client/server accept admin MP4/WebM hero video up to 10 MB, but the deployed `storage-broker` is stale and accepts image MIME types only with a 2 MB ceiling.
+  - Fix branch is rebuilt from current master `4101d97`; no overlap with the active Lean Refactor R1/R2 or D5 batch 2 scopes.
+  - Broker policy is aligned to the existing application contract: JPEG/PNG/WebP up to 5 MB; MP4/WebM up to 10 MB. Existing key scoping, checksum, no-overwrite and broker authentication stay unchanged.
+  - Added regression coverage that pins client, server and broker video limits together so this deployment-contract drift is caught by CI.
+- TESTED:
+  - Repository diff reviewed: only `supabase/functions/storage-broker/index.ts`, the focused storage-readiness regression test, and this status block are in scope.
+  - Live staging diagnosis verified through Supabase function metadata/content: deployed `storage-broker` version 1 is image-only and materially behind repository master.
+  - Current-head CI and independent review are still pending; no green claim yet.
 - OPEN:
-  - Current-head CI must finish green.
-  - Independent review is still required; Codex code-review quota is exhausted, so a separate reviewer must review the final head before merge.
-  - After merge: master CI + Render web/worker staging verification.
-  - Product Library runtime decoupling is separate PR #161 and is deliberately not merged or mixed into this PR.
-- PERCENTAGE: 85%. Code/gates are implemented; CI, independent review, merge and staging verification remain.
-- NEXT: finish CI on the final head, obtain independent review, merge only on green, then verify staging. After #159 is closed, update #161's PROJECT_STATUS from the new master to avoid a status-file conflict.
+  - Open PR, obtain independent review, and require green CI on the exact final head.
+  - Merge, then deploy the merged `storage-broker` function to Supabase staging only and verify the deployed function content/version.
+  - A successful authenticated CMS upload still requires a real admin-session proof after deployment; do not call the user flow verified before that proof.
+- PERCENT: 60%. Root cause and code fix are complete; CI, review, merge, staging deployment and live upload proof remain.
+- NEXT: PR -> independent review -> current-head CI -> merge -> staging Edge Function deploy -> authenticated CMS retry/proof.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 
