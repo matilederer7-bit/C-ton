@@ -10,7 +10,8 @@
 //     / idempotency / outbox / audit / seller row (only the two Product
 //     columns disappear),
 //   * a rerun of the runner and a second execution of the file are no-ops,
-//   * a database that still holds a Product image row is refused atomically,
+//   * Product data is refused without the per-database disposition flag and
+//     Product image rows are refused always (nothing dropped, ledger failed),
 //   * migration 072 is byte-identical to the file staging applied.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -69,6 +70,11 @@ async function fingerprints(client: pg.Client) {
     outbox: await table(`SELECT md5(coalesce(string_agg(to_jsonb(o)::text, '|' ORDER BY to_jsonb(o)::text), '')) AS fp FROM siton.outbox_events o`),
     audit: await table(`SELECT md5(coalesce(string_agg(to_jsonb(a)::text, '|' ORDER BY to_jsonb(a)::text), '')) AS fp FROM siton.audit_log a`),
     sellers: await table(`SELECT md5(coalesce(string_agg(to_jsonb(s)::text, '|' ORDER BY s.seller_id), '')) AS fp FROM siton.seller_accounts s`),
+    payments: await table(`SELECT md5(coalesce(string_agg(to_jsonb(x)::text, '|' ORDER BY to_jsonb(x)::text), '')) AS fp FROM siton.payment_attempts x`),
+    bindings: await table(`SELECT md5(coalesce(string_agg(to_jsonb(x)::text, '|' ORDER BY to_jsonb(x)::text), '')) AS fp FROM siton.payment_authorization_bindings x`),
+    fees: await table(`SELECT md5(coalesce(string_agg(to_jsonb(x)::text, '|' ORDER BY to_jsonb(x)::text), '')) AS fp FROM siton.platform_fee_money_events x`),
+    fulfillment: await table(`SELECT md5(coalesce(string_agg(to_jsonb(x)::text, '|' ORDER BY to_jsonb(x)::text), '')) AS fp FROM siton.fulfillment_units x`),
+    dealImages: await table(`SELECT md5(coalesce(string_agg(to_jsonb(x)::text, '|' ORDER BY to_jsonb(x)::text), '')) AS fp FROM siton.deal_images x`),
     counts: (await client.query(`SELECT (SELECT count(*) FROM siton.deals)::int AS deals, (SELECT count(*) FROM siton.participants)::int AS participants,
       (SELECT count(*) FROM siton.participants WHERE money_state='AuthHeld')::int AS auth_held, (SELECT count(*) FROM siton.deal_delivery_options)::int AS delivery,
       (SELECT count(*) FROM siton.idempotency_log)::int AS idempotency, (SELECT count(*) FROM siton.outbox_events)::int AS outbox,
@@ -96,6 +102,9 @@ await run("082 is a forward-only drop of the Product Library schema: no CASCADE,
     "TABLE siton.products"
   ], "082 drops exactly the Product Library objects, each IF EXISTS");
   assert.equal((body.match(/\bDROP\b/gi) || []).length, drops.length, "every DROP is IF EXISTS and listed");
+  assert.match(body, /SET LOCAL lock_timeout = '5s';\s*LOCK TABLE siton\.deals IN ACCESS EXCLUSIVE MODE;/, "bounded lock on deals, taken before the guard");
+  assert.ok(body.indexOf("LOCK TABLE siton.deals") < body.indexOf("$c2_guard$") && body.indexOf("$c2_guard$") < body.indexOf("DROP TRIGGER"), "lock, then guard, then drops");
+  assert.match(body, /current_setting\('siton\.product_library_c2_disposition', true\)/, "Product data needs the per-database disposition flag");
   const m072 = fs.readFileSync("src/migrations/072_product_catalog_and_fulfillment_estimates.sql");
   assert.equal(createHash("sha256").update(m072).digest("hex"), "00a78699eec995c623fb40d5215bec8d5314fd865a857b9d9b77dc6cfe6f0cdc", "migration 072 is never edited");
 });
@@ -153,6 +162,13 @@ await run("upgrade 081 -> 082 with a Product-backed Deal, an AuthHeld participan
     const fingerprintBefore = await fingerprints(client);
     assert.equal(fingerprintBefore.counts.auth_held, 1);
 
+    // Without the disposition flag the database with Product data is refused.
+    await assert.rejects(() => quietly(() => runMigrations(db.url)), /holds Product rows or Product-backed Deals/);
+    assert.equal((await probe(client)).products, true, "a refused run drops nothing");
+    await client.query(`DELETE FROM siton.migration_ledger WHERE migration_id='082' AND status='failed'`);
+    // The owner-approved disposition for THIS database (new sessions inherit it).
+    await client.query(`ALTER DATABASE ${isolation.quoteIdentifier(db.name)} SET siton.product_library_c2_disposition = 'accepted'`);
+
     const upgrade = await quietly(() => runMigrations(db.url));
     assert.equal(upgrade.newly_applied, 1, "the upgrade applies exactly 082");
     assert.deepEqual(await probe(client), { products: false, productImages: false, productColumns: [], snapshotFunction: false, snapshotTrigger: false, estimateColumns: 2, estimateChecks: 3 });
@@ -171,7 +187,7 @@ await run("upgrade 081 -> 082 with a Product-backed Deal, an AuthHeld participan
 
     const rerun = await quietly(() => runMigrations(db.url));
     assert.equal(rerun.newly_applied, 0, "a rerun of the runner is a no-op");
-    await client.query(migrationSql);
+    await client.query(`BEGIN;\n${migrationSql}\nCOMMIT;`);
     assert.deepEqual(await fingerprints(client), fingerprintBefore, "a second execution of 082 is a no-op");
     const ledger = await client.query(`SELECT status FROM siton.migration_ledger WHERE migration_id='082'`);
     assert.deepEqual(ledger.rows, [{ status: "succeeded" }]);
@@ -181,28 +197,58 @@ await run("upgrade 081 -> 082 with a Product-backed Deal, an AuthHeld participan
   }
 });
 
-await run("a database that still holds a Product image row is refused atomically (blob disposition first)", async () => {
-  const db = await isolation.createIsolatedDatabase({ baseUrl, purpose: "c2guard" });
+async function guardCase(purpose: string, seed: (client: pg.Client) => Promise<void>, flag: boolean, expected: RegExp | null) {
+  const db = await isolation.createIsolatedDatabase({ baseUrl, purpose });
   const client = new pg.Client({ connectionString: db.url });
   try {
     await quietly(() => runMigrations(db.url, { migrations: preC2 }));
     await client.connect();
     await client.query(`INSERT INTO siton.seller_accounts (seller_id, display_name, business_name, support_email) VALUES ('seller-c2g', 'Seller', 'G Ltd', 'g@example.invalid')`);
-    const product = await client.query(`INSERT INTO siton.products (seller_id, name, product_type) VALUES ('seller-c2g', 'P', 'physical_product') RETURNING product_id`);
-    await client.query(
-      `INSERT INTO siton.product_images (product_id, storage_provider, storage_key, mime_type, size_bytes) VALUES ($1,'local','product/blob.png','image/png',10)`,
-      [product.rows[0].product_id]
-    );
-    await assert.rejects(() => quietly(() => runMigrations(db.url)), /dispose of the Product image blobs/);
-    const state = await probe(client);
-    assert.equal(state.products && state.productImages && state.snapshotFunction && state.snapshotTrigger, true, "nothing was dropped");
-    assert.deepEqual(state.productColumns, ["product_id", "product_snapshot_jsonb"]);
-    const ledger = await client.query(`SELECT status FROM siton.migration_ledger WHERE migration_id='082'`);
-    assert.deepEqual(ledger.rows, [{ status: "failed" }]);
+    await seed(client);
+    if (flag) await client.query(`ALTER DATABASE ${isolation.quoteIdentifier(db.name)} SET siton.product_library_c2_disposition = 'accepted'`);
+    if (expected) {
+      await assert.rejects(() => quietly(() => runMigrations(db.url)), expected);
+      const state = await probe(client);
+      assert.equal(state.products && state.productImages && state.snapshotFunction && state.snapshotTrigger, true, "a refused run drops nothing");
+      assert.deepEqual(state.productColumns, ["product_id", "product_snapshot_jsonb"]);
+      assert.deepEqual((await client.query(`SELECT status FROM siton.migration_ledger WHERE migration_id='082'`)).rows, [{ status: "failed" }]);
+    } else {
+      const result = await quietly(() => runMigrations(db.url));
+      assert.equal(result.newly_applied, 1);
+      assert.equal((await probe(client)).products, false);
+    }
   } finally {
     await client.end().catch(() => undefined);
     await db.drop();
   }
+}
+const seedProduct = async (client: pg.Client) => {
+  const product = await client.query(`INSERT INTO siton.products (seller_id, name, product_type) VALUES ('seller-c2g', 'P', 'physical_product') RETURNING product_id`);
+  return product.rows[0].product_id;
+};
+
+await run("the guard refuses a database with a Product row and no disposition flag", async () => {
+  await guardCase("c2guardprod", async (client) => { await seedProduct(client); }, false, /holds Product rows or Product-backed Deals/);
+});
+
+await run("the guard refuses a database with a snapshot-only Product-backed Deal and no disposition flag", async () => {
+  await guardCase("c2guardsnap", async (client) => {
+    await client.query(
+      `INSERT INTO siton.deals (deal_id, seller_id, title, state, price_per_unit, min_units, max_units, threshold_units, deadline, created_at, updated_at, product_snapshot_jsonb)
+       VALUES ('c2000000-0000-4000-8000-0000000000b1','seller-c2g','Snapshot deal','Draft',10,1,5,1,now()+interval '3 days',now(),now(),'{"name":"P"}'::jsonb)`
+    );
+  }, false, /holds Product rows or Product-backed Deals/);
+});
+
+await run("the guard always refuses Product image rows, even with the disposition flag (blob disposition first)", async () => {
+  await guardCase("c2guardimg", async (client) => {
+    const productId = await seedProduct(client);
+    await client.query(`INSERT INTO siton.product_images (product_id, storage_provider, storage_key, mime_type, size_bytes) VALUES ($1,'local','product/blob.png','image/png',10)`, [productId]);
+  }, true, /dispose of the Product image blobs/);
+});
+
+await run("with the disposition flag a database holding a Product row is retired", async () => {
+  await guardCase("c2guardok", async (client) => { await seedProduct(client); }, true, null);
 });
 
 console.log("PASS Product Library C2: migration 082 retires the Product Library schema without touching Deals, money, outbox, audit or delivery estimates");

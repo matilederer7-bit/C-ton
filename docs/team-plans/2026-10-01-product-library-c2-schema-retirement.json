@@ -44,7 +44,8 @@
         "081->082 upgrade fingerprint proof and rerun no-op PASS",
         "S5b legacy replay passes with the columns gone",
         "independent senior review (data loss, idempotency, dependencies, money history, delivery estimates, operational risk) and green FULL CI before merge",
-        "staging: apply 082 + ledger row in one transaction after merge, post-migration census equals baseline except the dropped objects, Render web + worker live on the merge SHA, /readiness 200, clean logs"
+        "guard: Product rows / Product-backed Deals need the per-database disposition flag; Product image rows refused always; empty / fresh databases pass",
+        "staging, schema first: after review MERGE + green FULL CI on the frozen head, export the Product row + snapshots, apply 082 + SET LOCAL disposition flag + ledger row in one transaction BEFORE the merge; post-migration census equals baseline except the dropped objects; then merge, master CI, Render web + worker live on the merge SHA, /readiness 200, clean logs"
       ]
     },
     {

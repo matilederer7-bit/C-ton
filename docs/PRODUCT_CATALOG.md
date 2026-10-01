@@ -39,8 +39,14 @@ Product Library schema only: the trigger `trg_deals_product_snapshot_immutable` 
 `deals_product_snapshot_shape_check`, the index `idx_deals_product_id`, the columns
 `deals.product_id` / `deals.product_snapshot_jsonb`, and the tables `siton.product_images` and
 `siton.products` (with their own indexes, constraints, RLS policies and grants). No `CASCADE`;
-every statement is `IF EXISTS` (a rerun is a no-op). It refuses to run while
-`siton.product_images` holds any row (a pointer to a stored blob needs an explicit disposition).
+every statement is `IF EXISTS` (a rerun is a no-op); it takes its locks up front with a 5 s
+`lock_timeout`. Guard, per database: it always refuses while `siton.product_images` holds any row
+(a pointer to a stored blob needs an explicit disposition); it refuses while `siton.products` holds
+a row or a Deal carries `product_id` / `product_snapshot_jsonb`, unless the applying transaction
+sets `SET LOCAL siton.product_library_c2_disposition = 'accepted'` (only after a census and an
+owner-approved data disposition for that database); an empty or fresh database passes.
+Apply order: **schema first** — on staging 082 is applied from the reviewed head before the
+merge, because the new build's readiness requires 082 and the previous build runs on it.
 The staging grant file `supabase/staging/025_product_catalog_grants.sql` is retired with it.
 
 Kept: the delivery-estimate columns 072 also added
