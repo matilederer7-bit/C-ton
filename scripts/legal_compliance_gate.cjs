@@ -57,7 +57,8 @@ const privacy = norm(read("docs/PRIVACY_POLICY_HE.md"));
 const sellerTerms = norm(read("docs/SELLER_TERMS_HE.md"));
 const sellerKyc = norm(read("docs/SELLER_KYC_POLICY.md"));
 const refundPolicy = norm(read("docs/CANCELLATION_REFUND_POLICY_HE.md"));
-const distributorTerms = norm(read("docs/DISTRIBUTOR_TERMS_HE.md"));
+const distributionTerms = norm(read("docs/DISTRIBUTOR_TERMS_HE.md"));
+const legalPages = norm(read("src/legal_pages.ts"));
 const combinedProduct = app + "\n" + runtime + "\n" + server;
 const combinedProductNoComments = ast.stripComments(app, "app.js") + "\n" + ast.stripComments(runtime, "frontend_runtime.ts") + "\n" + ast.stripComments(server, "app.ts");
 
@@ -77,13 +78,14 @@ for (const link of ["/app/terms", "/app/privacy", "/app/refunds", "/app/accessib
   if (!app.includes(link) && !runtime.includes(link)) failures.push("missing policy link: " + link);
 }
 
-// Distributor terms: the legal page (src/legal_pages.ts slug "affiliates",
-// served at /legal/affiliates) must exist and stay linked from the product.
-// There is no distributor SPA shell any more; the link is the legal page itself.
+// Distribution-link terms keep the legacy /legal/affiliates compatibility path,
+// but the product must not reintroduce a distributor/affiliate business role.
 {
-  const legalPages = read("src/legal_pages.ts");
-  if (!/slug:\s*"affiliates"/.test(legalPages)) failures.push("distributor terms legal page (slug \"affiliates\") is missing from src/legal_pages.ts");
-  if (!app.includes("/legal/affiliates")) failures.push("missing policy link: /legal/affiliates");
+  if (!/slug:\s*"affiliates"/.test(legalPages)) failures.push("distribution-link legal page compatibility slug \"affiliates\" is missing from src/legal_pages.ts");
+  if (!/title:\s*"תנאי לינקי הפצה"/.test(legalPages)) failures.push("distribution-link legal page must be titled תנאי לינקי הפצה");
+  if (/title:\s*"תנאי מפיצים"/.test(legalPages)) failures.push("obsolete distributor-role title returned to the legal page");
+  if (!/אין משתמש או תפקיד עסקי בשם "מפיץ"/.test(legalPages)) failures.push("legal page must explicitly state that Siton has no distributor business role");
+  if (!app.includes("/legal/affiliates")) failures.push("missing compatibility policy link: /legal/affiliates");
 }
 
 for (const requiredCopy of ["מחיר ליחידה", "כמות", "משלוח", "סך הכול", "תפיסת מסגרת בלבד"]) {
@@ -134,25 +136,42 @@ if (!buyerTerms.includes("C-ton אינה שולחת הודעות שיווקיו�
   for (const entry of scan.unusedAllowListEntries) failures.push("stale raw-card allow-list entry: " + entry.file + " " + entry.identifier);
 }
 
-const distributorModule = runtime + "\n" + app;
+const distributionModule = runtime + "\n" + app;
 for (const term of ["commission", "balance", "withdrawal", "affiliate_fee", "distributor_commission"]) {
   const re = new RegExp("affiliate[^\\n]{0,80}" + term + "|distributor[^\\n]{0,80}" + term, "i");
-  if (re.test(distributorModule)) failures.push("distributor module contains forbidden money term: " + term);
+  if (re.test(distributionModule)) failures.push("distribution-link module contains forbidden external-money term: " + term);
 }
-if (!/(אינו מקבל מידע אישי|לא יקבל מידע אישי)/.test(distributorTerms) || !distributorTerms.includes("אין עמלה")) failures.push("distributor terms do not pin attribution-only/no-PII/no-commission posture");
+if (!/אינו מקבל מידע אישי|אינה כוללת.*מידע אישי|אין גישה.*מידע אישי/.test(distributionTerms)
+    || !/אינה מחשבת.*עמלה|אין.*עמלה/.test(distributionTerms)
+    || !/אין בסיטון משתמש או תפקיד עסקי בשם "מפיץ"/.test(distributionTerms)) {
+  failures.push("distribution-link terms do not pin no-role / aggregate-only / no-commission posture");
+}
 
 {
   // The only remaining affiliate route is the anonymous visit recorder. It
   // measures clicks/entries by source code and must never touch buyer PII.
   const routeStart = runtime.indexOf('app.post("/api/affiliate/links/visit"');
-  if (routeStart < 0) failures.push("affiliate visit route not found in src/frontend_runtime.ts (cannot verify distributor PII boundary)");
+  if (routeStart < 0) failures.push("legacy affiliate visit route not found in src/frontend_runtime.ts (cannot verify distribution-link PII boundary)");
   else {
     const routeEnd = runtime.indexOf("\n  });\n", routeStart);
     const affiliateBlock = runtime.slice(routeStart, routeEnd > routeStart ? routeEnd : routeStart + 4000);
     for (const pii of ["buyer_id", "buyer_phone", "buyer_email", "buyer_name", "delivery_address"]) {
-      if (affiliateBlock.includes(pii)) failures.push("buyer PII appears in distributor API block: " + pii);
+      if (affiliateBlock.includes(pii)) failures.push("buyer PII appears in distribution-link API block: " + pii);
     }
   }
+}
+
+// Canonical money rule: Siton's fee is a system constant. Legal copy may
+// explain it, but may never create a per-deal or contract override.
+if (/8%[^\n]{0,220}(אלא אם נקבע אחרת|ככל שלא נקבע אחרת|הסכם כתוב)/.test(legalPages)) {
+  failures.push("legal copy makes the fixed 8% Siton fee overridable");
+}
+if (!/8%[^\n]{0,260}למעט רכיב המע״מ של הלקוח/.test(legalPages)
+    || !/8%[^\n]{0,260}למעט רכיב המע"מ של הלקוח/.test(sellerTerms)) {
+  failures.push("legal copy does not pin the 8% fee base to collected amount excluding the customer's VAT component");
+}
+if (/תנאי מפיצים|לינקי הפצה ומפיצים/.test(app)) {
+  failures.push("obsolete distributor-role wording remains visible in the product");
 }
 
 if (!app.includes("sellerPublishCriticalTermsAccepted") || !app.includes("sellerPublishThresholdAccepted")) failures.push("seller publish operational confirmations are missing");
