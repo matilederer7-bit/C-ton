@@ -13,7 +13,7 @@
 //   S8  (optional, --seller-id/--seller-password) seller command center shows the inquiry, reply persists
 //
 // Synthetic identities only (siton.test domain). Nothing here touches money.
-// Usage: node scripts/p07_owner_acceptance_proof.cjs --base-url=https://host --deal=<uuid> [--shots=dir] [--seller-id=.. --seller-password=..]
+// Usage: node scripts/retired/p07_owner_acceptance_proof.cjs --base-url=https://host --deal=<uuid> [--shots=dir] [--seller-id=.. --seller-password=..]
 const { spawn } = require("node:child_process");
 const { existsSync, mkdirSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");

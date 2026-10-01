@@ -181,7 +181,7 @@ Pass = `/readiness` 200 AND `runtime_commit_sha` equals the merge SHA AND `payme
 | Proof | Target | Note |
 |---|---|---|
 | `scripts/r7r8_browser_proof.cjs --base-url=https://…` | hosted | images render from Supabase Storage, RTL, admin login screen |
-| `scripts/r6_hosted_browser_proof.cjs` | hosted | assumes Mall ON and old selectors — returned 1/5 on 2026-09-10; do not treat its failures as regressions (`docs/STAGING_ACCEPTANCE_2026-09-10.md:78`) |
+| `scripts/retired/r6_hosted_browser_proof.cjs` | hosted (archived, not prescribed) | assumes Mall ON and old selectors — returned 1/5 on 2026-09-10; do not treat its failures as regressions (`docs/STAGING_ACCEPTANCE_2026-09-10.md:82`). Moved under `scripts/retired/` by Lean Refactor D2; the hosted browser proof this stage prescribes is `r7r8_browser_proof.cjs` above |
 | `scripts/launch_polish_browser_proof.cjs`, `buyer_polish_browser_proof.cjs`, `pickup_fulfillment_browser_proof.cjs`, `p0_browser_proof.cjs` | LOCAL demo-preview runtime only (headless Edge CDP; need raised `RATE_LIMIT_*`) | run on the merge SHA before the hosted pass |
 
 Manual minimum on the hosted preview at 390 and 1440: landing renders (no horizontal overflow), one public deal opens, seller login gate, hidden admin gate (two taps). OPEN: hosted authenticated seller/admin screens are proven only by API, not browser (same doc, `:80`).

@@ -13,7 +13,7 @@
 //      representative records survive, and constitutional invariants hold
 //      (zero commission columns, 8% fee rate, charged-only money truth).
 //
-// Usage: node scripts/dr_backup_restore_drill.cjs
+// Usage: node scripts/retired/dr_backup_restore_drill.cjs
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
@@ -22,7 +22,7 @@ const { Client } = require("pg");
 const PG_BIN = process.env.PG_BIN || "C:/Program Files/PostgreSQL/18/bin";
 const BASE = process.env.DR_BASE_URL || "postgresql://postgres:postgres@localhost:5432";
 // Creates and drops scratch databases: local/lab hosts only.
-require("./lib/destructive_target_guard.cjs").assertDestructiveTargetAllowed(BASE + "/postgres", { action: "dr_backup_restore_drill" });
+require("../lib/destructive_target_guard.cjs").assertDestructiveTargetAllowed(BASE + "/postgres", { action: "dr_backup_restore_drill" });
 const SUFFIX = `${process.pid}_${Date.now()}`;
 const SOURCE = `siton_dr_source_${SUFFIX}`;
 const RESTORE = `siton_dr_restore_${SUFFIX}`;

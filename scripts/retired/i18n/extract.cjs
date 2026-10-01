@@ -9,15 +9,15 @@
  * It is deliberately conservative: anything it cannot rewrite with certainty
  * is reported as a leftover for a human to handle, never guessed at.
  *
- *   node scripts/i18n/extract.cjs --apply      rewrite sources + dictionary
- *   node scripts/i18n/extract.cjs              dry run (report only)
+ *   node scripts/retired/i18n/extract.cjs --apply      rewrite sources + dictionary
+ *   node scripts/retired/i18n/extract.cjs              dry run (report only)
  */
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const ts = require("typescript");
 
-const ROOT = path.resolve(__dirname, "..", "..");
+const ROOT = path.resolve(__dirname, "..", "..", "..");
 const SRC_ARG = process.argv.find((a) => a.startsWith("--src="));
 const WEB_SRC = SRC_ARG ? path.resolve(ROOT, SRC_ARG.slice(6)) : path.join(ROOT, "web", "src");
 const HEB = /[֐-׿]/;

@@ -11,7 +11,7 @@
 // through MCP, not a local connection). Uploads are canonical; no direct
 // storage.objects insertion.
 //
-// Usage: KEYFILE=<broker_key.json> node scripts/migrate_showcase_images_to_supabase.cjs '<rows-json>'
+// Usage: KEYFILE=<broker_key.json> node scripts/retired/migrate_showcase_images_to_supabase.cjs '<rows-json>'
 const fs = require("node:fs");
 const zlib = require("node:zlib");
 const crypto = require("node:crypto");
@@ -47,7 +47,7 @@ function makePng(width, height, palette, seed) {
 const PALETTES = [[[87,108,60],[166,187,100],[222,231,176]],[[178,106,20],[235,172,60],[250,227,160]],[[16,84,116],[42,158,180],[176,226,232]],[[110,26,74],[196,64,128],[244,190,216]],[[62,40,24],[140,94,60],[218,190,160]],[[190,84,12],[240,150,40],[252,220,130]],[[30,40,70],[80,110,200],[190,210,250]],[[40,90,80],[120,180,160],[220,240,230]]];
 
 (async () => {
-  const { saveDealImage } = await import("../src/product_image_storage.ts");
+  const { saveDealImage } = await import("../../src/product_image_storage.ts");
   const rows = JSON.parse(process.argv[2]);
   const out = [];
   // deal-stable palette + seed derived from deal_id so each deal keeps a

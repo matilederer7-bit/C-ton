@@ -38,7 +38,7 @@ evaluate the seller experience).
 - The password is an out-of-band, rotatable staging secret. It must never be
   committed, pasted into logs, or embedded in the browser bundle.
 - This staging-only identity (mock money) owns the showcase catalog seeded by
-  `scripts/r6_staging_showcase_seed.cjs`.
+  `scripts/retired/r6_staging_showcase_seed.cjs` (archived by Lean Refactor D2, still runnable).
 
 ## What the seed creates (all through the real hosted APIs)
 
@@ -54,7 +54,7 @@ evaluate the seller experience).
 Re-run the seed any time:
 
 ```
-node scripts/r6_staging_showcase_seed.cjs \
+node scripts/retired/r6_staging_showcase_seed.cjs \
   --base-url=https://siton-staging-web.onrender.com \
   --seller-email=r6-showcase-seller@siton-staging.dev \
   --seller-password="$SEED_SELLER_PASSWORD"

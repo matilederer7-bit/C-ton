@@ -38,8 +38,8 @@ const { randomUUID } = require("node:crypto");
 const { Client } = require("pg");
 require("dotenv").config({ quiet: true });
 
-const { runMigrations, checksum } = require("./run_migrations.cjs");
-const { MIGRATIONS, MIGRATIONS_DIR } = require("./migration_manifest.cjs");
+const { runMigrations, checksum } = require("../run_migrations.cjs");
+const { MIGRATIONS, MIGRATIONS_DIR } = require("../migration_manifest.cjs");
 
 const LANDED_MASTER_COUNT = 59; // through 066_receipt_trust_content.sql (landed master)
 const NEW_MIGRATIONS = ["067", "068"];

@@ -37,4 +37,4 @@ npm run db:backup-restore-rehearsal        # local proof for this checkout
 node scripts/migrations_doctor.cjs --database <restored-db-url>   # after ANY real restore: verdict must be HEALTHY or HEALTHY_WITH_EOL_VARIANTS
 ```
 
-Cross-references: `docs/DATABASE_INCIDENT_RUNBOOK.md` (bad restore), `docs/ROLLBACK_RUNBOOK.md` (schema compatibility), the older `scripts/dr_backup_restore_drill.cjs` (kept; superseded by this rehearsal for release purposes).
+Cross-references: `docs/DATABASE_INCIDENT_RUNBOOK.md` (bad restore), `docs/ROLLBACK_RUNBOOK.md` (schema compatibility), the older `scripts/retired/dr_backup_restore_drill.cjs` (kept under `scripts/retired/` since Lean Refactor D2; superseded by this rehearsal for release purposes).

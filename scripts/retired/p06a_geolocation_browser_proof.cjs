@@ -17,7 +17,7 @@
 // Page.addScriptToEvaluateOnNewDocument (the component under test is the real
 // bundle; only the browser's provider is replaced). Nothing here touches money.
 //
-// Usage: node scripts/p06a_geolocation_browser_proof.cjs --base-url=http://127.0.0.1:3210 [--shots=dir]
+// Usage: node scripts/retired/p06a_geolocation_browser_proof.cjs --base-url=http://127.0.0.1:3210 [--shots=dir]
 const { spawn } = require("node:child_process");
 const { existsSync, mkdirSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");

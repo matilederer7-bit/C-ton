@@ -1,0 +1,84 @@
+{
+  "task": "Lean Refactor D2: delete the one zero-reference script (bounded_load_test.cjs) and move the ARCHIVE-classified scripts of docs/LEAN_REFACTOR_MAP_2026-09-30.md §3.5 under scripts/retired/ with their relative requires and root derivations rewritten, each moved script run once, the runbook steps that name them and scripts/README.md rewritten; no SUPPORT/CORE script, test, gate, workflow or runtime behaviour changes; extract_base44_inventory_sql.ps1 stays in place for D3",
+  "lead": "claude-lead",
+  "base": "origin/master",
+  "open_branches": [],
+  "assignments": [
+    {
+      "id": "B1",
+      "agent": "claude-lead",
+      "role": "builder",
+      "tier": "senior",
+      "scope": "git rm bounded_load_test.cjs; git mv the 12 ARCHIVE scripts into scripts/retired/ (browser proofs p06a/p07/p07c/r6_hosted, site_cms_rehearsal, migrate_showcase_images_to_supabase, dr_backup_restore_drill, r6_staging_showcase_seed, review_baseline_candidates, review_r9c_migration_independent_proof, run_outbox_select, i18n/extract); rewrite their relative requires / ROOT derivations / usage comments; .gitignore re-include for scripts/retired/; scripts/retired/README.md and scripts/README.md; runbook path rewrites; map D2 row and PROJECT_STATUS.md",
+      "allowed": [
+        "scripts/bounded_load_test.cjs",
+        "scripts/retired/",
+        "scripts/p06a_geolocation_browser_proof.cjs",
+        "scripts/p07_owner_acceptance_proof.cjs",
+        "scripts/p07c_polling_browser_proof.cjs",
+        "scripts/r6_hosted_browser_proof.cjs",
+        "scripts/site_cms_rehearsal.cjs",
+        "scripts/migrate_showcase_images_to_supabase.cjs",
+        "scripts/dr_backup_restore_drill.cjs",
+        "scripts/r6_staging_showcase_seed.cjs",
+        "scripts/review_baseline_candidates.cjs",
+        "scripts/review_r9c_migration_independent_proof.cjs",
+        "scripts/run_outbox_select.cjs",
+        "scripts/i18n/extract.cjs",
+        "scripts/README.md",
+        ".gitignore",
+        "docs/DEPLOYMENT_RUNBOOK.md",
+        "docs/BACKUP_RESTORE_RUNBOOK.md",
+        "docs/SECURITY_INCIDENT_RUNBOOK.md",
+        "docs/DB_BACKUP_RESTORE_REHEARSAL.md",
+        "docs/R6_STAGING_SHOWCASE.md",
+        "docs/CODEX_BASELINE_REVIEW.md",
+        "docs/LEAN_REFACTOR_MAP_2026-09-30.md",
+        "docs/team-plans/2026-10-01-lean-refactor-d2.json",
+        "PROJECT_STATUS.md"
+      ],
+      "forbidden": [
+        "src/",
+        "web/",
+        "tests/",
+        ".github/",
+        "supabase/",
+        "package.json",
+        "scripts/run_pg_query.cjs",
+        "scripts/r3_hosted_proof.cjs",
+        "scripts/r7r8_browser_proof.cjs",
+        "scripts/p0_browser_proof.cjs",
+        "scripts/pickup_fulfillment_browser_proof.cjs",
+        "scripts/launch_polish_browser_proof.cjs",
+        "scripts/buyer_polish_browser_proof.cjs",
+        "scripts/extract_base44_inventory_sql.ps1",
+        "scripts/lib/"
+      ],
+      "depends_on": [],
+      "dod": [
+        "reference grep re-run per moved file; every live-doc mention rewritten to the new path",
+        "every moved script executed once from the repository root after the move: no MODULE_NOT_FOUND, correct repository root",
+        "release-tools tests, lint, secret/PII scan, repository hygiene, architecture gate PASS",
+        "CI FULL profile green on the final head"
+      ]
+    },
+    {
+      "id": "R1",
+      "agent": "claude-subagent",
+      "role": "reviewer",
+      "senior": true,
+      "tier": "senior",
+      "scope": "independent senior review: each moved script's requires and root derivations resolve from scripts/retired/; no SUPPORT/CORE script moved; the runbook rewrites keep every prescribed procedure runnable; the browser proofs and recovery tooling are moved, never deleted; .gitignore re-include is correct",
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "verdict with concrete failure scenarios"
+      ]
+    }
+  ],
+  "sequencing_note": "Written 2026-10-01 after D1 (PR #154) squash-merged as 7bb2709; no open task branches, so open_branches is empty. Codex cross-provider review is unavailable (quota exhausted 2026-09-30); per the owner's instruction the PR merges on the independent senior review plus green CI."
+}
