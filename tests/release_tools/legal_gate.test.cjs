@@ -418,6 +418,70 @@ const MUTATIONS = [
     to: "C-ton מחשבת עמלה לכל הצטרפות שהגיעה מלינק הפצה.\n\n## למה המידע נאסף",
     expect: /positive external-distribution money statement[^\n]*docs\/PRIVACY_POLICY_HE\.md:/
   },
+  // Fifth review pass (P2 findings on head eb7c2b4).
+  {
+    name: "the seller terms describe a fee rate that is 'not the same for every deal'",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. שיעור העמלה אינו זהה לכל עסקה.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the seller terms describe a fee that is 'not uniform per seller'",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. העמלה אינה אחידה לכל מוכר.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the seller terms describe an exception for premium deals",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. שיעורי העמלה לא ישתנו, למעט בעסקאות פרימיום.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the seller terms describe a minimum fee ('not less than 8%')",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. עמלת C-ton לא תפחת מ-8%.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the seller terms describe a minimum fee ('at least 8%')",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. עמלת C-ton היא לפחות 8%.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the seller terms describe a minimum fee ('8% and above')",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. עמלת C-ton היא 8% ומעלה.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the seller terms describe an 18% premium fee (a VAT-like rate that is not VAT)",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. עמלת C-ton בעסקאות פרימיום היא 18%.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the seller terms describe a fee that varies by deal type",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. עמלת C-ton משתנה בהתאם לסוג העסקה.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the legal page qualifies 'actual charge only after lock' with an exception",
+    file: "src/legal_pages.ts",
+    from: "חיוב בפועל אינו מתבצע לפני שהעסקה נסגרת להצטרפות וננעלת",
+    to: "חיוב בפועל יתבצע רק לאחר שהעסקה ננעלה, אלא אם צוין אחרת בדף העסקה. חיוב בפועל אינו מתבצע לפני שהעסקה נסגרת להצטרפות וננעלת",
+    expect: /authorization-hold-only rule[^\n]*src\/legal_pages\.ts:/
+  },
   {
     name: "the legacy shell HTML links to Distributor terms",
     file: "frontend/index.html",
@@ -444,7 +508,13 @@ for (const control of [
   { name: "'C-ton charges no fee other than 8%'", file: "docs/SELLER_TERMS_HE.md", from: "אין שיעור עמלה שונה לעסקה.", to: "אין שיעור עמלה שונה לעסקה. C-ton אינה גובה עמלה אחרת מלבד 8%." },
   { name: "'buyers get a group price' next to the verb", file: "frontend/app.js", from: "ומפיצים לינק ישיר לקונים</h1>", to: "ומפיצים לינק, והקונים מקבלים מחיר קבוצתי</h1>" },
   { name: "payment details passed to the clearing party", file: "docs/PRIVACY_POLICY_HE.md", from: "## למה המידע נאסף", to: "פרטי התשלום מועברים לגורם הסליקה.\n\n## למה המידע נאסף" },
-  { name: "a refund condition next to 'actual charge'", file: "docs/CANCELLATION_REFUND_POLICY_HE.md", from: "\n", to: "\nהחזר יבוצע תוך 14 יום מחיוב בפועל, אלא אם המוצר כבר סופק.\n" }
+  { name: "a refund condition next to 'actual charge'", file: "docs/CANCELLATION_REFUND_POLICY_HE.md", from: "\n", to: "\nהחזר יבוצע תוך 14 יום מחיוב בפועל, אלא אם המוצר כבר סופק.\n" },
+  { name: "a fixed fee 'that cannot be changed' (ש-prefixed negation)", file: "docs/SELLER_TERMS_HE.md", from: "אין שיעור עמלה שונה לעסקה.", to: "אין שיעור עמלה שונה לעסקה. עמלה קבועה שלא ניתן לשנות." },
+  { name: "'a fee rate that does not change'", file: "docs/SELLER_TERMS_HE.md", from: "אין שיעור עמלה שונה לעסקה.", to: "אין שיעור עמלה שונה לעסקה. שיעור עמלה שאינו משתנה." },
+  { name: "'the fee is computed according to the amount actually collected'", file: "docs/SELLER_TERMS_HE.md", from: "אין שיעור עמלה שונה לעסקה.", to: "אין שיעור עמלה שונה לעסקה. עמלת C-ton מחושבת בהתאם לסכום שנגבה בפועל." },
+  { name: "'the fee AMOUNT varies with participants; the rate is fixed 8%'", file: "docs/SELLER_TERMS_HE.md", from: "אין שיעור עמלה שונה לעסקה.", to: "אין שיעור עמלה שונה לעסקה. סכום העמלה בשקלים משתנה לפי מספר המשתתפים; השיעור קבוע 8%." },
+  { name: "VAT at 18% on the fee", file: "docs/SELLER_TERMS_HE.md", from: "אין שיעור עמלה שונה לעסקה.", to: "אין שיעור עמלה שונה לעסקה. על עמלת C-ton יחול מע״מ בשיעור 18%." },
+  { name: "Siton's own fee is also collected on link-sourced joins", file: "docs/PRIVACY_POLICY_HE.md", from: "## למה המידע נאסף", to: "עמלת C-ton נגבית גם על הצטרפויות שהגיעו מלינק הפצה.\n\n## למה המידע נאסף" }
 ]) {
   test("legal gate still passes on legitimate copy: " + control.name, () => {
     const fixture = createFixtureRepo(FIXTURE_FILES);

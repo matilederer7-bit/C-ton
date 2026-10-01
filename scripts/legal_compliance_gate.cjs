@@ -226,7 +226,10 @@ for (const term of ["commission", "balance", "withdrawal", "affiliate_fee", "dis
   // same-line only (refund / cancellation conditions near "חיוב בפועל" are
   // legitimate).
   // "חיוב בפועל" anchors only in its "no actual charge before / until" sense.
-  const HOLD_ANCHOR = /תפיסת (?:ה)?מסגרת|מסגרת (?:ה)?אשראי|יתפוס מסגרת|חיוב בפועל[^.]{0,40}(?:לפני|עד)|(?:לפני|עד)[^.]{0,40}חיוב בפועל|(?:לא|אין) (?:מתבצע|יתבצע|יבוצע|נעשה) חיוב/;
+  const HOLD_ANCHOR = /תפיסת (?:ה)?מסגרת|מסגרת (?:ה)?אשראי|יתפוס מסגרת|חיוב בפועל[^.]{0,40}(?:לפני|עד|רק|לאחר)|(?:לפני|עד|רק|לאחר)[^.]{0,40}חיוב בפועל|(?:לא|אין) (?:מתבצע|יתבצע|יבוצע|נעשה) חיוב/;
+  // In legal documents the authorization-hold term itself also anchors within
+  // the ±WINDOW, like the fee.
+  const HOLD_WINDOW_ANCHOR = /תפיסת (?:ה)?מסגרת/;
   // An exception clause that would let the fixed fee or the hold-only rule
   // vary: found within WINDOW lines (before or after) of a fee / hold mention
   // in a legal document, or on the same line anywhere else.
@@ -234,20 +237,41 @@ for (const term of ["commission", "balance", "withdrawal", "affiliate_fee", "dis
   // Rate-variation wording: a finding on any line that names the fee, unless
   // a negation or "fixed" governs it ("8% קבוע לכל עסקה", "לא ישתנה" and
   // "אינה מותאמת לפי מוכר" affirm the rule).
-  const RATE_VARIATION = /שיעור אחר|שיעור (?:ה)?עמלה (?:ה)?שונה(?! לעסקה)|עמל\S*\s+(?:\S+\s+){0,2}מופחת|שיעור מופחת|הנחה\s+(?:\S+\s+){0,3}(?:על\s+|ב)ה?עמל|אחרת|ייקבע|יקבע|יוגדר|תיקבע|תוגדר|ישתנה|משתנה|להשתנות|לשנות|לעדכן|בהתאם ל|תלוי|אינ[הו] קבוע|עד 8%|מותאמ|לפי עסקה|לכל עסקה|לכל מוכר|לפי מוכר|למעט אם|למעט במקרים/g;
+  const RATE_VARIATION = /שיעור אחר|שיעור (?:ה)?עמלה (?:ה)?שונה(?! לעסקה)|עמל\S*\s+(?:\S+\s+){0,2}מופחת|שיעור מופחת|הנחה\s+(?:\S+\s+){0,3}(?:על\s+|ב)ה?עמל|אחרת|ייקבע|יקבע|יוגדר|תיקבע|תוגדר|ישתנה|ישתנו|להשתנות|לשנות|לעדכן|אינ[הו] (?:קבוע|אחיד|זהה)|עד 8%|לפחות 8%|(?:לא|ולא) (?:תפחת|יפחת|פחות) מ-?8%|8% ומעלה|מותאמ|לפי עסקה|לכל עסקה|לכל מוכר|לפי מוכר|למעט (?:אם|במקרים|ב|עבור|לגבי)/g;
+  // Words that vary an AMOUNT legitimately ("the fee amount varies with the
+  // number of participants; the rate is a fixed 8%") count only when the
+  // subject on the line is the RATE.
+  const RATE_SUBJECT_VARIATION = /שיעור[^.]{0,40}?(?<!(?:לא|אינו|אינה|אין) )(?:משתנה|בהתאם ל|תלוי)|(?<!סכום )(?:עמלת \S+|העמלה)\s+(?:\S+\s+)?(?<!(?:לא|אינו|אינה|אין) )(?:משתנה|תלויה?)/;
   // A negation directly before a variation word (at most two words between,
   // never a hedge such as "בהכרח / תמיד / רק") affirms the fixed rule.
   // "קבוע(ה)" governs only "לכל עסקה / לכל מוכר" — a "fixed rate per deal"
   // or a "fixed different rate" is still a variation.
-  const GOVERNOR = /(?:^|[\s,])(קבועה?|ו?(?:לא|אין|אינה|אינו|ללא))\s+((?:\S+\s+){0,2})$/;
+  // The words allowed between a negation and the variation word are modal
+  // fillers only ("לא ניתן לשנות", "אינה גובה עמלה אחרת"); a content word
+  // such as "זהה / אחיד" between them reverses the sense and never governs.
+  // Fillers: modal words, the fee itself, or another (negated) variation
+  // word ("אינה מותאמת לפי מוכר").
+  const GOVERNOR_FILLER = /^(?:(?:ניתן|יכול|יכולה|רשאי|רשאית|עשוי|עשויה|תהיה|יהיה|את|גובה|עמלה|C-ton|סיטון|מותאמ\S*|משתנה|שונה)\s+){0,2}$/;
   const HEDGE = /(?:^|\s)(?:בהכרח|תמיד|רק|בדרך כלל|לרוב)\s/;
   const hasUngovernedVariation = (text) => {
     for (const match of text.matchAll(RATE_VARIATION)) {
       if (/^אינ[הו] קבוע/.test(match[0])) return true;
-      const governor = GOVERNOR.exec(text.slice(Math.max(0, match.index - 40), match.index));
-      if (governor && !HEDGE.test(" " + governor[2])) {
-        if (!/^קבוע/.test(governor[1]) || /^לכל (?:עסקה|מוכר)$/.test(match[0])) continue;
+      // The CLOSEST governing word wins ("עמלה קבועה שלא ניתן לשנות" is
+      // governed by "שלא", not by "קבועה").
+      const words = text.slice(Math.max(0, match.index - 60), match.index).trim().split(/\s+/).filter(Boolean);
+      let governed = false;
+      for (let k = 0; k <= 2 && k < words.length; k++) {
+        const word = words[words.length - 1 - k].replace(/[,(]/g, "");
+        const middle = words.slice(words.length - k).join(" ");
+        const isNegation = /^[וש]?(?:לא|אין|אינה|אינו|ללא)$/.test(word);
+        const isFixed = /^קבועה?$/.test(word);
+        if (!isNegation && !isFixed) continue;
+        if (HEDGE.test(" " + middle + " ")) break;
+        if (isFixed) governed = /^לכל (?:עסקה|מוכר)$/.test(match[0]);
+        else governed = GOVERNOR_FILLER.test(middle ? middle + " " : "");
+        break;
       }
+      if (governed) continue;
       return true;
     }
     return false;
@@ -256,8 +280,12 @@ for (const term of ["commission", "balance", "withdrawal", "affiliate_fee", "dis
   // the fixed 8%, the 90% completion rule, 100% or a VAT rate is a different
   // fee rate (closes the long tail no word list can: "עד 5%", "5%–8%" ...).
   const OTHER_PERCENT = /(?<![\d.])(\d+(?:\.\d+)?)\s?%/g;
-  const ALLOWED_PERCENT = new Set(["8", "90", "100", "17", "18"]);
-  const hasOtherPercent = (text) => [...text.matchAll(OTHER_PERCENT)].some((m) => !ALLOWED_PERCENT.has(m[1]));
+  const ALLOWED_PERCENT = new Set(["8", "90", "100"]);
+  const VAT_PERCENT = new Set(["17", "18"]);
+  // A VAT rate is allowed only right after the VAT term ("מע״מ בשיעור 18%").
+  const hasOtherPercent = (text) => [...text.matchAll(OTHER_PERCENT)].some((m) =>
+    !ALLOWED_PERCENT.has(m[1])
+    && !(VAT_PERCENT.has(m[1]) && /(?:מע"מ|מע״מ|VAT)[^.%]{0,25}$/i.test(text.slice(Math.max(0, m.index - 40), m.index))));
   const LAWFUL_EXCEPTION = /אלא אם (?:הדבר )?נדרש(?:ת)? (?:לפי|על פי) (?:ה)?דין/g;
   const ENGLISH_ROLE = /\b(?:distributors?|affiliates?)\b/i;
   const ENGLISH_FEE = /8\s?%|\bfee\b|commission/i;
@@ -273,7 +301,7 @@ for (const term of ["commission", "balance", "withdrawal", "affiliate_fee", "dis
   // A commission / reward computed for a distribution link or source needs no
   // explicit recipient ("עמלה לכל הצטרפות שהגיעה מלינק הפצה"); plain buyer
   // payments through a link do.
-  const REWARD_MONEY = /עמל|תגמול|בונוס/;
+  const REWARD_MONEY = /(?:^|[^\u0590-\u05FF])(?!עמלת (?:C-ton|סיטון|הפלטפורמה))(?:ה|ו)?(?:עמל|תגמול|בונוס)/;
   const DISTRIBUTION_SOURCE = /לינק(?:י)? (?:ה)?הפצה|מקור(?:ות)? (?:ה)?הפצה/;
   const NEGATION = /(?:^|[\s,("])ו?(?:אינה|אינו|אין|אינם|אינן|לא|ללא)(?=[\s,.)"])/;
   const WINDOW = 3;
@@ -295,8 +323,8 @@ for (const term of ["commission", "balance", "withdrawal", "affiliate_fee", "dis
       // Fee / hold exceptions: the qualifier anywhere within WINDOW lines of a
       // fee or charge mention, before or after it.
       const lawful = line.replace(LAWFUL_EXCEPTION, "");
-      if ((HEBREW_EXCEPTION.test(lawful) && ((isLegalDoc ? HEBREW_FEE.test(around) : HEBREW_FEE.test(line)) || HOLD_ANCHOR.test(line)))
-          || (HEBREW_FEE.test(line) && (hasUngovernedVariation(lawful) || hasOtherPercent(line)))) {
+      if ((HEBREW_EXCEPTION.test(lawful) && ((isLegalDoc ? (HEBREW_FEE.test(around) || HOLD_WINDOW_ANCHOR.test(around)) : HEBREW_FEE.test(line)) || HOLD_ANCHOR.test(line)))
+          || (HEBREW_FEE.test(line) && (hasUngovernedVariation(lawful) || hasOtherPercent(line) || RATE_SUBJECT_VARIATION.test(lawful)))) {
         failures.push("legal copy makes the fixed 8% Siton fee overridable or adds an exception to the authorization-hold-only rule: " + where);
       }
       if (isEnglishCopySurface(rel) && ENGLISH_EXCEPTION.test(line) && ENGLISH_FEE.test(around)) {
