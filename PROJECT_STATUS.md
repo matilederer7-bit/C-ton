@@ -358,6 +358,17 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
+### Claude Code latest milestone — Lean Refactor post-D5 census + R1–R5 (2026-10-01)
+
+- COMPLETED (merged): D5 moves and R1–R5 below. IN THIS PR (#182, open until review / CI / merge): a fresh census of the repository after D1–D5 (three independent read-only passes, re-proved with `git grep -w`, `tsc --noUnusedLocals` and the runner's discovery), recorded in `docs/LEAN_REFACTOR_MAP_2026-09-30.md` §7 with CORE / SUPPORT / ARCHIVE / DELETE / REFACTOR classes. Five refactor PRs, each one concern, builder ≠ reviewer, CI green on the head synced with the then-current master, merged, master CI green: R1 #171 (`e48b73c`) removed the unused `zod` and `vitest` (−57 lockfile packages, 0 version changes); R2 #172 (`4fa7976`) dead code in non-money runtime modules (in-file payment mock, duplicate `ensureLegalAcceptanceTables`, 15 zero-reference exports, 21 unused imports — money / auth / payment files untouched); R3 #175 (`5b9e794`) dead web code (`vtree.tsx` + 21 i18n keys + 17 CSS rules, 4 exports); R4 #176 (`f0f1c98`) four redundant npm scripts, the Base44 `.gitignore` rule, `DOCKER_READINESS` CMD drift; R5 #179 (`d23032b`) the buyer-tracking builders moved verbatim to `src/tracking_projection.ts`.
+- TESTED: per PR — tsc app + tests, build:demo, gates, focused suites for every touched module; Siton CI on the synced head (FULL where classified). Staging (runtime PRs R2 / R3 / R5): Render web + worker live on `5b9e794`, `4fa7976`, `d23032b` (health check `/readiness`), worker `worker_ready` with the merge SHA, no error / fatal log.
+- D6: classified, no change — the five cloud-agent workflows KEEP; `stripe-sandbox-proof.yml` KEEP (dormant), not a delete candidate (Stripe is still a selectable adapter in code).
+- BRANCHES (census only, nothing deleted): 184 remote branches at census time; master was re-rooted at #75, 118 branches share no history with master, no tags. 79 merged (tip = merged PR head) and 28 superseded (tip = closed PR head) are safe deletion candidates (commits survive in `refs/pull`); 5 carry commits after their PR and 63 have no PR — the only copy of their commits; keep or archive-tag before any deletion.
+- METRICS (`9744b06` → `e9c0c2e`): 195 files changed, +587 / −2147 lines; code (src / web / frontend / scripts / tests / package.json) +347 / −823 incl. the 270-line verbatim move; root `.md` 14 → 4; `docs/archive` 0 → 146; Markdown files under `docs/` outside `docs/archive/` (nested included) 274 → 138; dependencies 19 → 18, devDependencies 8 → 7, lockfile packages 500 → 443; npm scripts 161 → 157; `src/frontend_runtime.ts` 12 520 → 12 256 lines.
+- OPEN: REFACTOR CANDIDATES in §7.2 (route-group splits of `frontend_runtime.ts` / `app.ts`, money / auth helper duplicates — out of scope by rule, `frontend/app.js` dead renderers behind test retargeting, ~50 single-file npm test shortcuts, config flags (§7.2; `DISABLE_OUTBOX_WORKER` is a live boot invariant), shared CDP harness, PowerShell tooling); DELETE CANDIDATES in §7.2b (owner decisions); `PROJECT_STATUS.md` trim (waits for #174).
+- PERCENT: D5 moves and R1–R5 100% (merged, master CI green, staging verified for the runtime PRs); census + D6 classification + branch census in PR #182 (open); `PROJECT_STATUS.md` trim not started (waits for #174).
+- NEXT: owner direction on §7.2 / §7.2b; status trim once #174 closes.
+
 ### Claude Code latest milestone — Lean Refactor D5 (2026-10-01): ARCHIVE docs move into `docs/archive/` in consumer-proven batches
 
 - COMPLETED: batch 1 (PR #163, built by ChatGPT, synced with `master` `9744b06` by a merge commit): five HISTORICAL Morning Handoff records (`DEMO_DEPLOYMENT_EXECUTION`, `DEMO_PREVIEW_DEPLOYMENT`, `FINAL_CANONICAL_AUDIT`, `FRONTEND_EXECUTION`, `FULL_SYSTEM_QA`) moved to `docs/archive/`, blobs byte-identical; `DOCUMENTATION_MAP` paths updated; `LEAN_REFACTOR_MAP` D5 IN PROGRESS. Topology: `chatgpt/lean-refactor-d5-docs-batch2` is stacked on batch 1 (its 12 batch-1 commits plus five more handoffs) and ships as the next PR after #163, not as a parallel branch.
@@ -373,9 +384,10 @@ Current invariants:
 - MERGED: batch 5 PR #180 squash-merged as `f1acfc5` (CI green on `dc4ea37`, independent review MERGE).
 - COMPLETED (batch 6, `claude/lean-refactor-d5-docs-batch6`): 39 ARCHIVE records linked only from other documents moved (incl. the two root reports `BLACK_SKY_FINAL_REPORT.md` / `RED_TEAM_FINAL_REPORT.md`); the 12 active documents citing them were repointed to `docs/archive/` (this also fixed `INCIDENT_RESPONSE_RUNBOOK`, which already pointed at a non-existent `docs/RED_TEAM_FINAL_REPORT.md`). 29 ARCHIVE documents stay in place on purpose (code / test / config / team-plan consumer, or the D2 keep-path decision).
 - CENSUS (reconciled): 175 ARCHIVE documents. 110 had no consumer by full file name; the stricter extension-less stem check found a consumer for 5 of them, 2 of which moved once their only consumer moved, so batches 1–5 archived 107; batch 6 archived 39 linked only from documents; 29 stay outside `docs/archive/` (code / test / config / team-plan consumer, linked from such a record, or the D2 keep-path decision). Total archived: 146.
-- OPEN: batch 6 review, CI, merge; `PROJECT_STATUS.md` trim after the concurrent status-owning PR (#174, ChatGPT) closes.
-- PERCENT: D5 in progress (batches 1–5 merged; batch 6 open).
-- NEXT: batch 6 → CI → merge → post-refactor census section → `PROJECT_STATUS.md` trim.
+- MERGED: batch 6 PR #181 squash-merged as `e9c0c2e` (CI green on `38b1454`, independent review MERGE; the map-prose path P3s are fixed in the census PR).
+- OPEN: `PROJECT_STATUS.md` trim — waits for the concurrent status-owning PR #174 (ChatGPT, CI red, open) to close, per the owner rule.
+- PERCENT: D5 moves 100% (146 of 175 ARCHIVE archived, 29 kept in place on purpose); D5 overall not 100% until the status trim lands.
+- NEXT: status trim after #174 closes.
 
 ### Claude Code latest milestone — Product Library C2 (2026-10-01): migration 082 retires the Product Library schema (staging only)
 
