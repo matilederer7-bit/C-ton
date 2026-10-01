@@ -208,6 +208,20 @@ test("drift: the inventory repository bridging to an external HTTP service", () 
   expectFail((repo) => repo.write("src/inventory_repository.ts", repo.read("src/inventory_repository.ts") + "\nconst bridge = fetch(\"https://bridge.example.base44.app/inventory\");\n"), /external bridge/);
 });
 
+test("drift: a Base44 SDK call or token coming back in a code tree", () => {
+  // The planted strings are assembled at runtime so this test file itself
+  // never contains them.
+  const sdkCall = ["create", "Client", "FromRequest"].join("");
+  const entityCall = ["base44", ".entities.", "Deal", ".filter("].join("");
+  const token = ["Base", "44"].join("");
+  expectFail((repo) => repo.write("frontend/planted.js", `const client = ${sdkCall}(req);\n`), /Base44 SDK usage in frontend\/planted\.js/);
+  expectFail((repo) => repo.write("scripts/planted_tool.cjs", `module.exports = async () => ${entityCall}{ id: 1 });\n`), /Base44 SDK usage in scripts\/planted_tool\.cjs/);
+  expectFail((repo) => repo.write("tests/planted_validation.ts", `const rows = await ${entityCall}{});\n`), /Base44 SDK usage in tests\/planted_validation\.ts/);
+  expectFail((repo) => repo.write("web/src/planted.ts", `export const runtime = "${token}";\n`), /Base44 reference in web\/src\/planted\.ts/);
+  expectFail((repo) => repo.write(".github/workflows/planted.yml", `name: ${token} sync\non: push\n`), /Base44 reference in \.github\/workflows\/planted\.yml/);
+  expectFail((repo) => repo.write("src/planted.ts", `export const BRIDGE = "${token.toLowerCase()}-bridge";\n`), /Base44 reference in src\/planted\.ts/);
+});
+
 test("drift: a root Procfile or a second Render blueprint", () => {
   expectFail((repo) => repo.write("Procfile", "web: npm start\n"), /Procfile/);
   expectFail((repo) => repo.write("render.legacy.yaml", "services: []\n"), /Render artifacts left at repository root/);

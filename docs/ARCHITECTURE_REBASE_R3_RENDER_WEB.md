@@ -77,7 +77,7 @@ Forbidden runtime identities (`postgres`, database owner, `service_role`,
 The architecture gate (`scripts/architecture_truth_gate.cjs`) now asserts the
 blueprint exists, health-checks `/readiness`, embeds no credential, enables the
 canonical runtime, contains no Base44 reference and contains no Worker service.
-Legacy Render artifacts stay quarantined under `legacy/render/`.
+Legacy Render artifacts were quarantined under `legacy/render/` until Lean Refactor D3-B deleted them (2026-10-01); the root `render.yaml` is the only Render blueprint.
 
 ## /api namespace normalization
 

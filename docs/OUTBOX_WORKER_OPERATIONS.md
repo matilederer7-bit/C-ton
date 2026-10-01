@@ -147,7 +147,7 @@ ambiguity stays quarantined. No live Base44 adapter is configured.
     npm run test:workers
     npm run test:operational-repair
     npm run test:failure
-    npm run gate:base44-canonical-integrity
+    npm run gate:architecture
 
 All tests must use disposable databases and fake/log-only handlers. Do not use
 live records to prove recovery behavior.

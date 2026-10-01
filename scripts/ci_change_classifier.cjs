@@ -75,7 +75,6 @@ const PATH_RULES = [
   { level: "critical", id: "money-or-security-tooling", test: (p) => /^(scripts|tests\/release_tools)\/[^/]*(money|payment|refund|payout|secret|real_money|route_auth|protected_route|security|compliance|legal|tax|destructive|runtime_env|startup)[^/]*$/i.test(p) },
   { level: "critical", id: "policy-config", test: (p) => /^config\//.test(p) },
   { level: "critical", id: "native-security-config", test: (p) => /^(android|ios|mobile|mobile-plugins)\/.*(AndroidManifest\.xml|network_security_config[^/]*\.xml|\.entitlements|Info\.plist|\.gradle(\.kts)?|Package\.swift|Podfile|\.pbxproj|proguard[^/]*|capacitor\.config\.[a-z]+|file_paths\.xml|\.xcprivacy|data_extraction_rules\.xml|backup_rules\.xml)$/i.test(p) },
-  { level: "critical", id: "legacy-excluded-surfaces", test: (p) => /^(base44|legacy)\//.test(p) },
   { level: "critical", id: "high-risk-family", test: (p) => riskFamilies([p]).length > 0 },
 
   // --- normal: copy sources of the bilingual dictionaries (before the
