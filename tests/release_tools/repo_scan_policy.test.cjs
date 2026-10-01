@@ -73,7 +73,7 @@ test("isCanonicalSourcePath agrees on both separators", () => {
   assert.equal(policy.isCanonicalSourcePath("tests/lab/oracle.ts"), true);
   assert.equal(policy.isCanonicalSourcePath("src/.tmp_probe/app.ts"), false);
   assert.equal(policy.isCanonicalSourcePath("src/review-run.log"), false);
-  assert.equal(policy.isCanonicalSourcePath("legacy/render/render_config_gate.legacy.cjs"), true);
+  assert.equal(policy.isCanonicalSourcePath("scripts/retired/run_outbox_select.cjs"), true);
   assert.equal(policy.isCanonicalSourcePath("supabase/functions/storage-broker/index.ts"), true);
 });
 

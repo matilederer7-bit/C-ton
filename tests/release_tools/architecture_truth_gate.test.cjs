@@ -68,6 +68,13 @@ test("gate: passes on the repository and names the real runtime", () => {
   assert.doesNotMatch(banner, /base44/i);
 });
 
+test("gate: the active shell pages and PowerShell tooling are inside the Base44 scan surface", () => {
+  const scanned = gate.listBase44ScanFiles(ROOT).map((file) => path.relative(ROOT, file).replace(/\\/g, "/"));
+  for (const live of ["frontend/index.html", "frontend/offline.html", "scripts/restart_server_clean.ps1", "scripts/restart_server_tsnode_clean.ps1", "web/index.html", "web/vite.config.ts", "package.json", "Dockerfile", ".github/workflows/ci.yml"]) {
+    assert.ok(scanned.includes(live), `${live} must be scanned for the Base44 token`);
+  }
+});
+
 test("gate: the blueprint parser reads both canonical services with their env entries", () => {
   const services = gate.parseBlueprintServices(fs.readFileSync(path.join(ROOT, "render.yaml"), "utf8"));
   assert.deepEqual(services.map((s) => [s.type, s.name]), [["web", gate.CANONICAL_WEB], ["worker", gate.CANONICAL_WORKER]]);
@@ -206,6 +213,46 @@ test("drift: the blueprint referencing Base44", () => {
 
 test("drift: the inventory repository bridging to an external HTTP service", () => {
   expectFail((repo) => repo.write("src/inventory_repository.ts", repo.read("src/inventory_repository.ts") + "\nconst bridge = fetch(\"https://bridge.example.base44.app/inventory\");\n"), /external bridge/);
+});
+
+test("drift: a Base44 SDK call or token coming back in a code tree", () => {
+  // The planted strings are assembled at runtime so this test file itself
+  // never contains them.
+  const sdkCall = ["create", "Client", "FromRequest"].join("");
+  const entityCall = ["base44", ".entities.", "Deal", ".filter("].join("");
+  const token = ["Base", "44"].join("");
+  expectFail((repo) => repo.write("frontend/planted.js", `const client = ${sdkCall}(req);\n`), /Base44 SDK usage in frontend\/planted\.js/);
+  expectFail((repo) => repo.write("scripts/planted_tool.cjs", `module.exports = async () => ${entityCall}{ id: 1 });\n`), /Base44 SDK usage in scripts\/planted_tool\.cjs/);
+  expectFail((repo) => repo.write("tests/planted_validation.ts", `const rows = await ${entityCall}{});\n`), /Base44 SDK usage in tests\/planted_validation\.ts/);
+  expectFail((repo) => repo.write("web/src/planted.ts", `export const runtime = "${token}";\n`), /Base44 reference in web\/src\/planted\.ts/);
+  expectFail((repo) => repo.write(".github/workflows/planted.yml", `name: ${token} sync\non: push\n`), /Base44 reference in \.github\/workflows\/planted\.yml/);
+  expectFail((repo) => repo.write("src/planted.ts", `export const BRIDGE = "${token.toLowerCase()}-bridge";\n`), /Base44 reference in src\/planted\.ts/);
+  expectFail((repo) => repo.write("web/vite.config.ts", `import plugin from "@${token.toLowerCase()}/vite-plugin";\n`), /Base44 SDK usage in web\/vite\.config\.ts/);
+  expectFail((repo) => repo.write("web/index.html", `<script src="https://cdn.${token.toLowerCase()}.app/sdk.js"></script>\n`), /Base44 reference in web\/index\.html/);
+  expectFail((repo) => repo.write("frontend/planted.html", `<meta name="runtime" content="${token}">\n`), /Base44 reference in frontend\/planted\.html/);
+  expectFail((repo) => repo.write("scripts/planted.sh", `#!/bin/sh\necho deploying to ${token}\n`), /Base44 reference in scripts\/planted\.sh/);
+  expectFail((repo) => repo.write("scripts/planted_restart.ps1", `# restart helper\n$runtime = "${token}"\nStart-Process node\n`), /Base44 reference in scripts\/planted_restart\.ps1/);
+  expectFail((repo) => repo.write("frontend/manifest.webmanifest", `{ "start_url": "https://app.${token.toLowerCase()}.app/" }\n`), /Base44 reference in frontend\/manifest\.webmanifest/);
+  expectFail((repo) => repo.write("frontend/planted.css", `.hero { background: url("https://cdn.${token.toLowerCase()}.app/hero.png"); }\n`), /Base44 reference in frontend\/planted\.css/);
+  expectFail((repo) => repo.write(".env.example", `${token.toUpperCase()}_APP_ID=abc\n`), /Base44 reference in \.env\.example/);
+  expectFail((repo) => repo.write("frontend/offline.html", `<!doctype html><title>offline</title><script src="https://cdn.${token.toLowerCase()}.app/sdk.js"></script>\n`), /Base44 reference in frontend\/offline\.html/);
+  expectFail((repo) => repo.write("tests/planted_entity_validation.ts", `const row = await client${[".entities[", "\"Deal\"", "]"].join("")}.get("x");\n`), /Base44 SDK usage in tests\/planted_entity_validation\.ts/);
+  expectFail((repo) => repo.write("tests/planted_get_validation.ts", `const row = await client${[".entities.", "Deal", ".get("].join("")}"x");\n`), /Base44 SDK usage in tests\/planted_get_validation\.ts/);
+  expectFail((repo) => {
+    const pkg = JSON.parse(repo.read("package.json"));
+    pkg.scripts["deploy:legacy"] = `${token.toLowerCase()} deploy`;
+    repo.write("package.json", JSON.stringify(pkg));
+  }, /Base44 reference in package\.json/);
+});
+
+test("control: the canonical Supabase Edge Function call is not mistaken for the legacy SDK", () => {
+  const repo = scratchRepo();
+  try {
+    repo.write("web/src/broker.ts", "export const call = () => supabase.functions.invoke(\"storage-broker\", { body: {} });\n");
+    assert.doesNotThrow(() => gate.runArchitectureGate(repo.dir));
+  } finally {
+    repo.cleanup();
+  }
 });
 
 test("drift: a root Procfile or a second Render blueprint", () => {

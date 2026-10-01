@@ -288,8 +288,7 @@ Rollback is compensating, never destructive:
 
 Focused commands:
 
-    npm run gate:base44-canonical-integrity
-    npm run test:base44-canonical-integrity
+    npm run gate:architecture   # the Base44 integrity gate was retired by Lean Refactor D3-B (2026-10-01)
     npm run test:operational-repair
     npm run test:workers
     npm run test:concurrency

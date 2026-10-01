@@ -30,7 +30,17 @@ assert.doesNotMatch(migration, /(?:buyer_email|buyer_phone|ip_address|user_agent
 // serves (src/mall_read_model.ts) and it must stay free of these names.
 const publicFields = new Set<string>(PUBLIC_MALL_DEAL_FIELDS as readonly string[]);
 assert.ok(publicFields.size > 0, "PUBLIC_MALL_DEAL_FIELDS is non-empty");
-for (const forbidden of ["buyer_email", "buyer_phone", "ip_address", "user_agent", "payment_reference", "source_deal_record_id", "source_image_record_id", "published_sort_key", "commission_rate", "payout_amount", "charge_amount", "seller_id", "owner_user_id"]) {
+// The allowlist is locked literally (the deleted Base44 contract test locked it
+// against the projection schema): adding a field to the public Mall payload is
+// a reviewed change of this test, never a side effect.
+assert.deepEqual([...PUBLIC_MALL_DEAL_FIELDS], [
+  "deal_id", "title", "description_excerpt", "deal_type", "canonical_state", "mall_status",
+  "price_per_unit", "list_price_per_unit", "seller_business_name", "primary_image_url",
+  "primary_thumbnail_url", "joined_units", "participants_count", "threshold_units", "max_units",
+  "remaining_units", "is_joinable", "has_delivery", "deadline", "published_at", "terminal_at",
+  "source_updated_at", "projection_version", "visibility"
+], "PUBLIC_MALL_DEAL_FIELDS is exactly the 24 reviewed public fields");
+for (const forbidden of ["buyer_email", "buyer_phone", "buyer_name", "delivery_address", "ip_address", "user_agent", "payment_reference", "source_deal_record_id", "source_image_record_id", "published_sort_key", "commission_rate", "payout_amount", "charge_amount", "seller_id", "seller_user_id", "owner_user_id"]) {
   assert.equal(publicFields.has(forbidden), false, `PUBLIC_MALL_DEAL_FIELDS must not expose ${forbidden}`);
 }
 

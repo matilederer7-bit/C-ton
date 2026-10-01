@@ -16,15 +16,6 @@ const auth = await readFile("supabase/staging/002_auth_identity_foundation.sql",
 const security = await readFile("supabase/staging/003_browser_fail_closed.sql", "utf8");
 const storage = await readFile("supabase/staging/004_deal_images_bucket.sql", "utf8");
 const verification = await readFile("supabase/staging/verify_r1_foundation.sql", "utf8");
-const extractor = await readFile("scripts/extract_base44_inventory_sql.ps1", "utf8");
-
-await run("inventory_source_is_git_reconstructable", async () => {
-  assert.match(extractor, /supabase-schema-admin\/entry\.ts/);
-  assert.match(extractor, /supabase-inventory-rpc-admin\/entry\.ts/);
-  assert.match(extractor, /SCHEMA_SQL/);
-  assert.match(extractor, /RPC_SQL/);
-  assert.match(extractor, /HARDENING_SQL/);
-});
 
 await run("inventory_schema_contains_exact_five_tables", async () => {
   const tables = [...inventory.matchAll(/CREATE TABLE IF NOT EXISTS siton_inventory\.([a-z_]+)/g)].map((match) => match[1]);

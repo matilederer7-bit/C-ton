@@ -110,7 +110,10 @@ credential or payment reference in an operational report.
 4. Confirm the current generation has only one owner.
 5. For outcome-unknown external work, reconcile through the provider's stable
    idempotency key before retry. Never replay money blindly.
-6. Run the Canonical Integrity Gate.
+6. Re-read the status endpoint once more: stale leases 0, stuck candidates 0,
+   DLQ count stable, a fresh heartbeat. (The retired Base44 "Canonical Integrity
+   Gate" snapshot checks were superseded by these live counters; Lean Refactor
+   D3-B, 2026-10-01.)
 
 ## Manual intervention
 
@@ -147,7 +150,7 @@ ambiguity stays quarantined. No live Base44 adapter is configured.
     npm run test:workers
     npm run test:operational-repair
     npm run test:failure
-    npm run gate:base44-canonical-integrity
+    npm run gate:architecture
 
 All tests must use disposable databases and fake/log-only handlers. Do not use
 live records to prove recovery behavior.
