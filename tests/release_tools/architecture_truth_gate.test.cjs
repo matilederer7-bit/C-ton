@@ -116,6 +116,9 @@ test("drift: real payouts switched on through the blueprint", () => {
   expectFail((repo) => repo.edit("render.yaml", "      - key: PAYOUT_PROVIDER\n        value: internal-ledger\n", "      - key: PAYOUT_PROVIDER\n        value: internal-ledger\n      - key: PAYOUT_PROVIDER_MODE\n        value: provider-live\n"), /PAYOUT_PROVIDER_MODE/);
   expectFail((repo) => repo.edit("render.yaml", "      - key: PAYOUT_PROVIDER\n        value: internal-ledger\n", "      - key: PAYOUT_PROVIDER\n        value: internal-ledger\n      - key: PAYOUT_PROVIDER_API_KEY\n        sync: false\n"), /must not carry PAYOUT_PROVIDER_API_KEY/);
   expectFail((repo) => repo.edit("render.yaml", "      - key: PAYOUT_PROVIDER\n        value: internal-ledger\n", "      - key: PAYOUT_PROVIDER\n        value: grow-payouts\n"), /PAYOUT_PROVIDER=internal-ledger/);
+  expectFail((repo) => repo.edit("render.yaml", "      - key: PAYOUT_PROVIDER\n        value: internal-ledger\n", ""), /PAYOUT_PROVIDER=internal-ledger/);
+  expectFail((repo) => repo.edit("render.yaml", "      - key: PAYOUT_PROVIDER\n        value: internal-ledger\n", "      - key: PAYOUT_PROVIDER\n        value: internal-ledger\n      - key: PAYOUT_PROVIDER_MODE\n        value: adapter-ready\n"), /PAYOUT_PROVIDER_MODE/);
+  expectFail((repo) => repo.edit("render.yaml", "      - key: PAYOUT_PROVIDER\n        value: internal-ledger\n", "      - key: PAYOUT_PROVIDER\n        value: internal-ledger\n      - key: PAYOUT_PROVIDER_BASE_URL\n        value: https://payouts.example.test\n"), /must not carry PAYOUT_PROVIDER_BASE_URL/);
 });
 
 test("drift: the web service renamed", () => {

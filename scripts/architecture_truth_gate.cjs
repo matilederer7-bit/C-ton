@@ -29,7 +29,11 @@
 // branch / trigger / image on both, single instance each, role separation (web
 // disables the outbox worker, worker runs it), secrets never inline in the
 // blueprint, the mock provider and PAYMENT_ENVIRONMENT=demo pinned in the
-// blueprint (a fail-closed parser rejects every shape it does not know), the worker LOGIN
+// blueprint, the internal-ledger payout provider pinned and no real payout
+// mode / endpoint / key through the blueprint (a fail-closed parser rejects
+// every shape it does not know: another indentation, flow style, a second
+// top-level block, a second envVars block, the legacy env: alias, an env
+// source other than value / sync / generateValue, a duplicated key), the worker LOGIN
 // provisioning, the Dockerfile/package entrypoint parity, the migration
 // manifest ⇄ schema contract parity, and the architecture SoT naming the real
 // runtime and not Base44.
