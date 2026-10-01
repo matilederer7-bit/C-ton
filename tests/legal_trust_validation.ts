@@ -31,11 +31,11 @@ await run("legal_seller_publish_terms_ack_validation", async () => {
   assert.match(app, /seller_publish_terms/);
 });
 
-await run("legal_distributor_no_commission_copy_validation", async () => {
-  // No commission, balance, or payout for distributors anywhere in the runtime
+await run("legal_distribution_link_no_commission_copy_validation", async () => {
+  // No commission, balance, or payout for an external distribution source anywhere in the runtime
   assert.doesNotMatch(runtime, /distributor.*commission/i);
   assert.doesNotMatch(runtime, /affiliate.*commission/i);
-  // Ordinary sharing survives the distributor-identity removal: the visit
+  // Ordinary sharing survives the distributor-role removal: the legacy-named visit
   // route is measurement only (no money, no identity).
   assert.match(runtime, /\/api\/affiliate\/links\/visit/);
   assert.doesNotMatch(runtime, /\/api\/affiliate\/overview/);
@@ -43,7 +43,7 @@ await run("legal_distributor_no_commission_copy_validation", async () => {
 
 await run("legal_footer_links_validation", async () => {
   // P0.3-12: the visible legal footer/nav is trimmed to the core buyer
-  // documents + support; sellers/affiliates pages stay ROUTED (LEGAL_PAGES)
+  // documents + support; seller terms and the legacy /legal/affiliates compatibility path stay ROUTED (LEGAL_PAGES)
   // and linked from their own flows, not from the buyer footer.
   assert.match(runtime, /\/legal\/terms/);
   assert.match(runtime, /\/legal\/privacy/);
@@ -53,6 +53,9 @@ await run("legal_footer_links_validation", async () => {
   const legalPages = await readFile("src/legal_pages.ts", "utf8");
   assert.match(legalPages, /sellers/);
   assert.match(legalPages, /affiliates/);
+  assert.match(legalPages, /title:\s*"תנאי לינקי הפצה"/);
+  assert.doesNotMatch(legalPages, /title:\s*"תנאי מפיצים"/);
+  assert.match(legalPages, /אין משתמש או תפקיד עסקי בשם "מפיץ"/);
 });
 
 await run("legal_recovery_copy_validation", async () => {
