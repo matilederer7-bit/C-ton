@@ -28,14 +28,20 @@ runtime surface that this document once described as current behaviour:
 
 Migration `072` is applied and stays untouched (applied migrations are never edited). The
 tables `siton.products`, `siton.product_images` and the columns `deals.product_id`,
-`deals.product_snapshot_jsonb` therefore still exist, and `product_images` stays in the runtime
-schema contract because the storage-cleanup worker and the deal-image delete paths still consult
-it so a blob shared with a retained legacy row is never deleted. A later forward migration (PR C,
-Lean Refactor step D4) drops the table set together with those reference checks — only after the
-staging census (2026-09-30: 40 deals, 2 with product columns, both `PendingTarget` smoke deals of
-2026-09-17, 1 product, 0 product images), an owner decision on those two rows, and for production
-either ledger proof that 072 was never applied there or a production census with an explicit data
-disposition and owner confirmation.
+`deals.product_snapshot_jsonb` therefore still exist until PR C2.
+
+PR C1 deliberately removes the **runtime dependency** first: storage cleanup and Deal-image
+delete paths no longer query `siton.product_images`, and readiness no longer requires that table.
+The legacy Product-backed create request hash/replay compatibility remains because old
+`siton.idempotency_log` rows may still contain a Product id in their request hash. Delivery
+estimate columns from migration 072 remain current product functionality.
+
+The verified staging census on 2026-10-01 found 1 Product, 0 Product images and exactly 2
+Product-backed Deals; both are explicit `Smoke 20260917` fixtures with snapshots. One of those
+Deals has a participant in `JoinedAuthorized/AuthHeld`, so PR C never deletes either Deal,
+participant, authorization/money state, outbox row or audit history. PR C2 is a separate forward
+migration that retires only the Product Library schema objects. Production execution remains
+blocked pending a fresh production census, explicit data disposition and owner confirmation.
 
 ## Data model created by migration 072 (historical reference)
 
