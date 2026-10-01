@@ -927,7 +927,7 @@ Agent slots are intentionally independent. Each coding agent may replace only it
   - Two CI-discovered test/gate mismatches were fixed without weakening gates: generated i18n sources were updated at their JSON source, and the no-distributor/no-PII legal wording was normalized to the exact canonical form.
 - TESTED / CHECKED:
   - Earlier current-branch runs proved the distributor attribution-only gate, i18n gate, seven-day-cap contract, operational repair gate, TypeScript, architecture, payment compliance, migration preflight, Docker/web runtime and the broad product test lanes.
-  - The first full run correctly failed on stale legal mutation assertions and an under-explicit no-PII phrase; both findings are now fixed on head `d811b0b`.
+  - Earlier full runs correctly failed on stale legal mutation assertions, an under-explicit no-PII phrase, and one stale no-role regex in the legal gate; all three findings are fixed without weakening the gate.
   - Mobile gate and full CI are running again on the final-content head; they are not yet claimed green.
 - OPEN:
   - Current-head CI must finish green.
