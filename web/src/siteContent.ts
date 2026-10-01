@@ -75,7 +75,6 @@ export function pageOf(content: Json | null | undefined, key: string): PageConte
   return localizedPage(normalizePage(content?.[key], contractFor(key)), getLocale());
 }
 
-/** The page exactly as STORED, both languages intact — for the content editor. */
 /**
  * Does a CMS document page (`#/content/<key>`) actually have something to read?
  *
