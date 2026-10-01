@@ -30,10 +30,17 @@ function scratchRepo() {
     dir,
     read: (relative) => fs.readFileSync(path.join(dir, relative), "utf8"),
     write: (relative, content) => { fs.mkdirSync(path.dirname(path.join(dir, relative)), { recursive: true }); fs.writeFileSync(path.join(dir, relative), content); },
+    // `edit` rewrites the FIRST occurrence (one service block of two);
+    // `editAll` rewrites every occurrence, for phrases a document may repeat.
     edit: (relative, from, to) => {
       const before = fs.readFileSync(path.join(dir, relative), "utf8");
       assert.ok(before.includes(from), `fixture ${relative} does not contain ${JSON.stringify(from)}`);
       fs.writeFileSync(path.join(dir, relative), before.replace(from, to));
+    },
+    editAll: (relative, from, to) => {
+      const before = fs.readFileSync(path.join(dir, relative), "utf8");
+      assert.ok(before.includes(from), `fixture ${relative} does not contain ${JSON.stringify(from)}`);
+      fs.writeFileSync(path.join(dir, relative), before.split(from).join(to));
     },
     remove: (relative) => fs.rmSync(path.join(dir, relative), { recursive: true, force: true }),
     cleanup: () => fs.rmSync(dir, { recursive: true, force: true })
@@ -49,7 +56,7 @@ function expectFail(mutate, reason) {
       assert.match(error.message, /^ARCHITECTURE_GATE_FAIL /);
       assert.match(error.message, reason);
       return true;
-    });
+    }, `the gate must reject the mutation (expected reason ${reason})`);
   } finally {
     repo.cleanup();
   }
@@ -159,11 +166,11 @@ test("drift: a root Procfile or a second Render blueprint", () => {
 });
 
 test("drift: the architecture SoT certifying Base44 as the production runtime", () => {
-  expectFail((repo) => repo.edit("docs/CURRENT_ARCHITECTURE_2026-09-30.md", "**Base44** is historical.", "**Base44** is the production_runtime: base44 authority."), /never certify Base44|Base44 is historical/);
+  expectFail((repo) => repo.editAll("docs/CURRENT_ARCHITECTURE_2026-09-30.md", "**Base44** is historical.", "**Base44** is the production_runtime: base44 authority."), /never certify Base44|Base44 is historical/);
 });
 
 test("drift: the architecture SoT no longer naming the real runtime", () => {
-  expectFail((repo) => repo.edit("docs/CURRENT_ARCHITECTURE_2026-09-30.md", "Render web + Render worker + Supabase PostgreSQL", "Render web + Supabase PostgreSQL"), /Render web \+ Render worker \+ Supabase PostgreSQL/);
+  expectFail((repo) => repo.editAll("docs/CURRENT_ARCHITECTURE_2026-09-30.md", "Render web + Render worker + Supabase PostgreSQL", "Render web + Supabase PostgreSQL"), /Render web \+ Render worker \+ Supabase PostgreSQL/);
 });
 
 // ── Image / package / src role separation ─────────────────────────────────
