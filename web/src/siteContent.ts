@@ -76,10 +76,6 @@ export function pageOf(content: Json | null | undefined, key: string): PageConte
 }
 
 /** The page exactly as STORED, both languages intact — for the content editor. */
-export function rawPageOf(content: Json | null | undefined, key: string): PageContent {
-  return normalizePage(content?.[key], contractFor(key));
-}
-
 /**
  * Does a CMS document page (`#/content/<key>`) actually have something to read?
  *
