@@ -13,6 +13,9 @@ async function run(name: string, fn: () => Promise<void>) {
 
 const adapter = await readFile("src/storage_adapter.ts", "utf8");
 const productImage = await readFile("src/product_image_storage.ts", "utf8");
+const contentMedia = await readFile("src/content_media.ts", "utf8");
+const contentAssets = await readFile("web/src/contentAssets.ts", "utf8");
+const storageBroker = await readFile("supabase/functions/storage-broker/index.ts", "utf8");
 const mission = await readFile("src/admin_mission_control.ts", "utf8");
 const runtime = await readFile("src/frontend_runtime.ts", "utf8");
 const migration = await readFile("src/migrations/037_admin_intervention_and_storage.sql", "utf8");
@@ -49,6 +52,18 @@ await run("upload_size_limit_validation", async () => {
   // accepts up to 50MB input and compresses before upload).
   assert.match(productImage, /DEAL_IMAGE_MAX_BYTES = 5 \* 1024 \* 1024/);
   assert.match(productImage, /image_too_large/);
+});
+
+await run("cms_video_storage_broker_contract_validation", async () => {
+  assert.match(contentMedia, /CONTENT_VIDEO_MAX_BYTES = 10 \* 1024 \* 1024/);
+  assert.match(contentAssets, /VIDEO_MAX_BYTES = 10 \* 1024 \* 1024/);
+  assert.match(storageBroker, /\["image\/jpeg", 5 \* 1024 \* 1024\]/);
+  assert.match(storageBroker, /\["image\/png", 5 \* 1024 \* 1024\]/);
+  assert.match(storageBroker, /\["image\/webp", 5 \* 1024 \* 1024\]/);
+  assert.match(storageBroker, /\["video\/mp4", 10 \* 1024 \* 1024\]/);
+  assert.match(storageBroker, /\["video\/webm", 10 \* 1024 \* 1024\]/);
+  assert.match(storageBroker, /const maxBytes = MAX_BYTES_BY_CONTENT_TYPE\.get\(contentType\)/);
+  assert.match(storageBroker, /bytes\.length > maxBytes/);
 });
 
 await run("upload_path_traversal_validation", async () => {
