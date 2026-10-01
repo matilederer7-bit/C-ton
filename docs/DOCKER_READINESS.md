@@ -22,7 +22,7 @@ The image is built from [`Dockerfile`](../Dockerfile) on top of `node:22-bookwor
 4. `npm run build:demo` — produces `.demo_dist/` (the runtime bundle).
 5. Non-root `appuser` is created and used.
 6. `HEALTHCHECK` probes `GET /health` every 30s.
-7. `CMD ["npm", "run", "start:demo:prod"]` — runs `npm run bootstrap:demo-db` (idempotent migration replay) then launches the bundled app.
+7. `CMD ["node", ".demo_dist/src/app.js"]` — launches the bundled web app only. Schema migrations are a separate step, never part of web boot: the compose `migrate` service runs `npm run db:migrate` before `web` and `worker` start (`docker-compose.yml`); the worker image command is `node .demo_dist/src/worker.js`. `npm run start:demo:prod` (bootstrap + app) remains a local convenience, not the image entrypoint.
 
 ## What the image does NOT contain
 

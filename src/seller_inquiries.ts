@@ -14,7 +14,6 @@ import { enqueueNotification } from "./notification_dispatch.js";
 
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
-export const INQUIRY_BRAND = "C-ton";
 export const INQUIRY_NAME_MAX = 120;
 export const INQUIRY_EMAIL_MAX = 200;
 export const INQUIRY_MESSAGE_MIN = 3;

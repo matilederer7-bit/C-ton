@@ -1,4 +1,3 @@
-import { assertRequiredTables } from "./schema_contract.js";
 import { readMoneyAmount, MONEY_EPSILON } from "./money_input.js";
 import { deliveryOptionLabel, pickupOptionsMissingLocation } from "./pickup_location.js";
 import Fastify from "fastify";
@@ -27,7 +26,7 @@ import {
   type DispatchState as PaymentDispatchState,
   type ArmDealGate
 } from "./payment_attempt_helpers.js";
-import { buildPaymentProvider, getPaymentProviderSummary, providerAmbiguityPolicy, type PaymentExecutionResult, type PaymentStatusResult } from "./payment_provider.js";
+import { buildPaymentProvider, providerAmbiguityPolicy, type PaymentExecutionResult, type PaymentStatusResult } from "./payment_provider.js";
 import { buildPaymentAuthorizationBindings, PaymentBindingError } from "./payment_binding.js";
 import { assessAuthorizationUsability, isAuthorizationUnusableResult, reauthorizationIdentity } from "./authorization_lifecycle.js";
 import { computeCustomerChargeVat } from "./vat_authority.js";
@@ -50,13 +49,10 @@ import {
 import {
   enqueueInvoiceDocument,
   enqueuePendingInvoiceDocumentOutboxEvents,
-  ensureInvoiceRailTables,
   processInvoiceDocumentById,
   reconcileInvoiceDocumentById,
   buildInvoiceProvider,
   getInvoiceProviderSummary,
-  isEligibleForChargeReceipt,
-  isEligibleForRefundReceipt,
   reclaimStuckInvoiceDocuments
 } from "./invoice_dispatch.js";
 import { registerFrontendExperience } from "./frontend_runtime.js";
@@ -66,9 +62,9 @@ import { rateLimitClientKey } from "./public_write_caps.js";
 import { countHttpStatus } from "./runtime_counters.js";
 import { assertProductionRuntimeGuards } from "./production_guards.js";
 import { rewriteCanonicalApiAlias } from "./api_route_aliases.js";
-import { ensureJoinOtpVerified, ensureOtpRailTables, OtpValidationError } from "./otp_rail.js";
+import { ensureJoinOtpVerified, OtpValidationError } from "./otp_rail.js";
 import { isBuyerVerificationRequired } from "./buyer_verification_policy.js";
-import { buildSupabaseVerifier, AuthTokenError } from "./supabase_auth.js";
+import { buildSupabaseVerifier } from "./supabase_auth.js";
 import { resolveSupabaseCapabilities, bearerToken } from "./actor_resolver.js";
 import { hitTestFault } from "./fault_injection.js";
 import {
@@ -91,7 +87,6 @@ import {
 } from "./seller_enforcement.js";
 import {
   PAYMENT_DISCLOSURE_VERSION,
-  REFUND_POLICY_VERSION,
   SELLER_TERMS_VERSION,
   TERMS_VERSION,
   type LegalAcceptanceType
@@ -103,7 +98,6 @@ import {
   upsertVoucherTerms,
   upsertTicketTerms,
   issueFulfillmentUnitsForParticipant,
-  decideFulfillmentIssuance,
   type DealType
 } from "./deal_types.js";
 import { normalizeDeliveryEstimate } from "./delivery_estimate.js";
@@ -118,7 +112,7 @@ import {
 import { assertSellerDealImageQuota, base64DecodedLength } from "./seller_upload_quota.js";
 import type { StorageProviderCode } from "./storage_adapter.js";
 import { buildPayoutProvider } from "./payout_provider.js";
-import { buildPayoutRail, ensurePayoutRailTables } from "./payout_rail.js";
+import { buildPayoutRail } from "./payout_rail.js";
 import {
   SELLER_SESSION_COOKIE,
   hasSellerSessionCookie,
@@ -178,7 +172,6 @@ const DESCRIPTION_SHORT_MAX = 200;
 const DESCRIPTION_LONG_MAX = 4000;
 
 // Per spec: Siton's platform commission is a fixed 8% — not per-deal configurable.
-const MOCK_SEED = process.env.MOCK_SEED ? Number(process.env.MOCK_SEED) : null;
 const DEBUG_SURFACES_HEADER = "x-debug-access-key";
 const APP_DEPLOYMENT_MODE = process.env.APP_DEPLOYMENT_MODE || "demo-preview";
 const IS_DEMO_PREVIEW = APP_DEPLOYMENT_MODE === "demo-preview";
@@ -239,10 +232,6 @@ function normalizeJoinAcquisition(body: Record<string, unknown>): {
     throw err;
   }
   return { requestedSource: "mall", mallSessionId };
-}
-
-async function ensureLegalAcceptanceTables(withTxFn: <T>(fn: (c: PoolClient) => Promise<T>) => Promise<T>) {
-  await withTxFn(async c=>assertRequiredTables(c,["legal_acceptances"]));
 }
 
 async function recordLegalAcceptance(args: {
@@ -956,50 +945,6 @@ async function atomicTransition(args: {
     ...(args.insideTx ? { insideTx: args.insideTx } : {}),
     ...(args.serializeOnEntity ? { serializeOnEntity: true } : {})
   });
-}
-
-type PaymentResultClass = "success" | "permanent_fail" | "temporary_fail";
-
-function hashToUint32(s: string) {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
-function lcgNext(x: number) {
-  return (Math.imul(1664525, x) + 1013904223) >>> 0;
-}
-
-function rand01Deterministic(key: string) {
-  if (MOCK_SEED === null) return Math.random();
-  let x = (MOCK_SEED ^ hashToUint32(key)) >>> 0;
-  x = lcgNext(x);
-  return (x >>> 0) / 0x100000000;
-}
-
-async function paymentCaptureMock(key: string): Promise<PaymentResultClass> {
-  const r = rand01Deterministic(key);
-  if (r < 0.75) return "success";
-  if (r < 0.9) return "temporary_fail";
-  return "permanent_fail";
-}
-
-async function paymentRecoveryMock(key: string, withinWindow: boolean): Promise<PaymentResultClass> {
-  if (!withinWindow) return "permanent_fail";
-  const r = rand01Deterministic(key);
-  if (r < 0.5) return "success";
-  if (r < 0.8) return "temporary_fail";
-  return "permanent_fail";
-}
-
-async function refundMock(key: string): Promise<PaymentResultClass> {
-  const r = rand01Deterministic(key);
-  if (r < 0.8) return "success";
-  if (r < 0.95) return "temporary_fail";
-  return "permanent_fail";
 }
 
 function paymentMinorAmount(args: { qty: number; pricePerUnit: number; deliveryCost: number }) {
@@ -5498,8 +5443,6 @@ export async function closeWorkerDatabase() {
   readinessProbe.reset();
   await pool.end();
 }
-// Run the stuck-event reclaim every N poll cycles to amortise its cost.
-const RECLAIM_EVERY_N_POLLS = 10;
 
 
 // Query-string parameters that carry a CREDENTIAL rather than a filter. Fastify
@@ -7345,7 +7288,6 @@ app.post("/deals/:id/publish", SELLER_AUTHORITY_ROUTE, async (req: any) => {
   const dealId = String(req.params.id);
   const body = req.body || {};
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`;
-  const correlationId = req.headers["x-correlation-id"] ? String(req.headers["x-correlation-id"]) : requestId;
   const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `publish:${dealId}`;
 
   let publishSellerId = "";

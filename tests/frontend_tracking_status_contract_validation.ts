@@ -1,7 +1,7 @@
 // OVERNIGHT HARDENING — source-static drift guard between the runtime's
 // tracking projection and the canonical React tracking page.
 //
-// buildTrackingPersonalStatus (src/frontend_runtime.ts) emits
+// buildTrackingPersonalStatus (src/tracking_projection.ts) emits
 //   { action_required, status, title, detail, cta: { label, href } | null }
 // The React page used to read `personal_status.headline` / `.body` — keys the
 // server never produced — so the "payment method update required" instruction
@@ -12,7 +12,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const runtime = readFileSync("src/frontend_runtime.ts", "utf8");
+// buildTrackingPersonalStatus lives in src/tracking_projection.ts (moved out of
+// src/frontend_runtime.ts verbatim by Lean Refactor R5).
+const runtime = readFileSync("src/tracking_projection.ts", "utf8");
 const track = readFileSync("web/src/pages/track.tsx", "utf8");
 const deal = readFileSync("web/src/pages/deal.tsx", "utf8");
 

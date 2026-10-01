@@ -79,7 +79,6 @@ export function buildOperationalReadinessSummary(args: {
   const payment = args.payment;
   const payout = args.payout;
   const invoice = args.invoice;
-  const notifications = args.notifications;
   const paymentStatus =
     payment.mode === "mock-backed"
       ? "mock"
