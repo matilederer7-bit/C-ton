@@ -7,7 +7,6 @@ import { assertRequiredTables } from "./schema_contract.js";
 // workers as gating predicates. They do NOT mutate deal state, buyer state,
 // money state, or amounts. They never move money. They never delete content.
 
-
 export const ADMIN_FLAG_TYPES = [
   "pause_joining_emergency",
   "pause_charging_emergency",
@@ -246,4 +245,3 @@ export async function expireDueAdminControlFlags(c: Queryable): Promise<number> 
   }
   return result.rowCount ?? 0;
 }
-
