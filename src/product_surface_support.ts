@@ -5,10 +5,6 @@ import { SITON_PLATFORM_FEE_RATE } from "./platform_fee_money.js";
 import { SITON_PLATFORM_FEE_VAT_RATE } from "./runtime_config.js";
 
 export const DEFAULT_SELLER_ID = "seller-default";
-export const DEFAULT_AFFILIATE_CODE = "affiliate-demo";
-export const DEFAULT_AFFILIATE_NAME = "Affiliate Demo";
-
-let ensurePromise: Promise<void> | null = null;
 
 export function isChargedMoneyState(moneyState: string | null | undefined) {
   return moneyState === "ChargedSuccess" || moneyState === "RecoveredCharge";

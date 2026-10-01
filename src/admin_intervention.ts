@@ -7,8 +7,6 @@ import { assertRequiredTables } from "./schema_contract.js";
 // workers as gating predicates. They do NOT mutate deal state, buyer state,
 // money state, or amounts. They never move money. They never delete content.
 
-import { randomUUID } from "crypto";
-
 export const ADMIN_FLAG_TYPES = [
   "pause_joining_emergency",
   "pause_charging_emergency",
@@ -63,8 +61,6 @@ export function isAdminFlagType(value: unknown): value is AdminFlagType {
 export function isAdminFlagScopeType(value: unknown): value is AdminFlagScopeType {
   return (ADMIN_FLAG_SCOPE_TYPES as readonly string[]).includes(String(value || ""));
 }
-
-let ensurePromise: Promise<void> | null = null;
 
 export async function ensureAdminInterventionTables(withTx: WithTx) {
   await withTx(async c=>assertRequiredTables(c,["admin_control_flags","admin_control_flag_events","storage_orphan_reports"]));
@@ -248,46 +244,4 @@ export async function expireDueAdminControlFlags(c: Queryable): Promise<number> 
     ).catch(() => undefined);
   }
   return result.rowCount ?? 0;
-}
-
-export async function getAdminControlFlagsSummary(c: Queryable) {
-  await expireDueAdminControlFlags(c).catch(() => undefined);
-  const counts = await c.query(
-    `SELECT flag_type, COUNT(*)::int AS active_count
-     FROM siton.admin_control_flags
-     WHERE status='active' AND (expires_at IS NULL OR expires_at > now())
-     GROUP BY flag_type`
-  );
-  const summary: Record<AdminFlagType, number> = {
-    pause_joining_emergency: 0,
-    pause_charging_emergency: 0,
-    payout_freeze: 0,
-    content_takedown: 0
-  };
-  for (const row of counts.rows) {
-    const flagType = String(row.flag_type || "");
-    if (isAdminFlagType(flagType)) {
-      summary[flagType as AdminFlagType] = Number(row.active_count) || 0;
-    }
-  }
-  const expiringSoon = await c.query(
-    `SELECT flag_id, flag_type, scope_type, scope_id, expires_at
-     FROM siton.admin_control_flags
-     WHERE status='active' AND expires_at IS NOT NULL
-       AND expires_at > now() AND expires_at <= now() + interval '24 hours'
-     ORDER BY expires_at ASC LIMIT 20`
-  );
-  return {
-    active_counts: summary,
-    expiring_within_24h: expiringSoon.rows,
-    payout_freeze_active: summary.payout_freeze > 0,
-    pause_joining_active: summary.pause_joining_emergency > 0,
-    pause_charging_active: summary.pause_charging_emergency > 0,
-    content_takedown_active: summary.content_takedown > 0
-  };
-}
-
-export function adminControlFlagIdempotencyKey(input: { admin_action_id?: string | null; flag_type: string; scope_type: string; scope_id: string }): string {
-  if (input.admin_action_id) return String(input.admin_action_id);
-  return `${input.flag_type}:${input.scope_type}:${input.scope_id}:${randomUUID()}`;
 }
