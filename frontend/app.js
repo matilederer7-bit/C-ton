@@ -6078,7 +6078,7 @@ function renderAdminPage() {
           </div>
           <div class="field">
             <label>מזהה תחום</label>
-            <input name="supportScopeKey" type="text" placeholder="מזהה עסקה, משתתף, מפיץ, מוכר או system" />
+            <input name="supportScopeKey" type="text" placeholder="מזהה עסקה, משתתף, מקור הפצה, מוכר או system" />
           </div>
         </div>
         <div class="field"><label>כותרת פנייה</label><input name="supportTitle" type="text" placeholder="סיכום קצר לפנייה" /></div>
