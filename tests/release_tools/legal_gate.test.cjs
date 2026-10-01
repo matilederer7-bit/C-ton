@@ -347,6 +347,77 @@ const MUTATIONS = [
     to: "ומפיצים לינק ישיר לקונים ומקבלים עמלה</h1>",
     expect: /distribution wording tied to a fee[^\n]*frontend\/app\.js:/
   },
+  // Fourth independent review pass (P1 + P2 findings on head d88a3da).
+  {
+    name: "the seller terms describe a 'fixed rate per deal' (fixed does not excuse a per-deal rate)",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. עמלת C-ton: שיעור קבוע לפי עסקה, כפי שמופיע בדף העסקה.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the seller terms describe a 'fixed fee per seller'",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. העמלה קבועה לפי מוכר.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the seller terms describe a hedged negation ('not necessarily for every deal')",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. העמלה היא 8%, ולא בהכרח לכל עסקה.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the seller terms describe a reduced C-ton fee for selected sellers",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. עמלת C-ton מופחתת ל-5% למוכרים נבחרים.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the seller terms describe a discount on the fee",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. C-ton מעניקה הנחה של 2% על העמלה.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the seller terms describe a fee that varies by deal type",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. עמלת C-ton משתנה בהתאם לסוג העסקה.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the seller terms describe an 'up to 8%' fee",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. עמלת C-ton היא עד 8%.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the seller terms describe a fee range",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. עמלה של 5%–8%.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "the seller terms describe a fee declared not fixed",
+    file: "docs/SELLER_TERMS_HE.md",
+    from: "אין שיעור עמלה שונה לעסקה.",
+    to: "אין שיעור עמלה שונה לעסקה. שיעור העמלה אינו קבוע.",
+    expect: /fixed 8% Siton fee overridable[^\n]*docs\/SELLER_TERMS_HE\.md:/
+  },
+  {
+    name: "a commission per join that came through a distribution link",
+    file: "docs/PRIVACY_POLICY_HE.md",
+    from: "## למה המידע נאסף",
+    to: "C-ton מחשבת עמלה לכל הצטרפות שהגיעה מלינק הפצה.\n\n## למה המידע נאסף",
+    expect: /positive external-distribution money statement[^\n]*docs\/PRIVACY_POLICY_HE\.md:/
+  },
   {
     name: "the legacy shell HTML links to Distributor terms",
     file: "frontend/index.html",
@@ -368,7 +439,12 @@ for (const control of [
   { name: "'the fee is not adjusted per seller'", file: "docs/SELLER_TERMS_HE.md", from: "אין שיעור עמלה שונה לעסקה.", to: "אין שיעור עמלה שונה לעסקה. העמלה אינה מותאמת לפי מוכר." },
   { name: "'the fee is computed from the price after the discount'", file: "docs/SELLER_TERMS_HE.md", from: "אין שיעור עמלה שונה לעסקה.", to: "אין שיעור עמלה שונה לעסקה. העמלה מחושבת מהמחיר לאחר ההנחה." },
   { name: "'who distribute a link' with the ש prefix", file: "frontend/app.js", from: "ומפיצים לינק ישיר לקונים</h1>", to: "שמפיצים קישור ישיר לקונים</h1>" },
-  { name: "the verb next to the 8% fee in a hero line", file: "frontend/app.js", from: "ומפיצים לינק ישיר לקונים</h1>", to: "ומפיצים לינק, ו־C-ton גובה 8% רק מעסקה מוצלחת</h1>" }
+  { name: "the verb next to the 8% fee in a hero line", file: "frontend/app.js", from: "ומפיצים לינק ישיר לקונים</h1>", to: "ומפיצים לינק, ו־C-ton גובה 8% רק מעסקה מוצלחת</h1>" },
+  { name: "'the fee rate is set by the system rules and does not change'", file: "docs/SELLER_TERMS_HE.md", from: "אין שיעור עמלה שונה לעסקה.", to: "אין שיעור עמלה שונה לעסקה. שיעור העמלה נקבע בחוקת המערכת ואינו משתנה." },
+  { name: "'C-ton charges no fee other than 8%'", file: "docs/SELLER_TERMS_HE.md", from: "אין שיעור עמלה שונה לעסקה.", to: "אין שיעור עמלה שונה לעסקה. C-ton אינה גובה עמלה אחרת מלבד 8%." },
+  { name: "'buyers get a group price' next to the verb", file: "frontend/app.js", from: "ומפיצים לינק ישיר לקונים</h1>", to: "ומפיצים לינק, והקונים מקבלים מחיר קבוצתי</h1>" },
+  { name: "payment details passed to the clearing party", file: "docs/PRIVACY_POLICY_HE.md", from: "## למה המידע נאסף", to: "פרטי התשלום מועברים לגורם הסליקה.\n\n## למה המידע נאסף" },
+  { name: "a refund condition next to 'actual charge'", file: "docs/CANCELLATION_REFUND_POLICY_HE.md", from: "\n", to: "\nהחזר יבוצע תוך 14 יום מחיוב בפועל, אלא אם המוצר כבר סופק.\n" }
 ]) {
   test("legal gate still passes on legitimate copy: " + control.name, () => {
     const fixture = createFixtureRepo(FIXTURE_FILES);
