@@ -102,9 +102,9 @@ Required order:
 
 The following documents describe earlier Stripe-first readiness work and remain useful as adapter/history references, but they do **not** override this source of truth:
 
-- `docs/PAYMENT_PROVIDER_SANDBOX_READINESS.md`
-- `docs/BUYER_PAYMENT_PROVIDER_PRODUCTION_READINESS.md`
-- `docs/STRIPE_SANDBOX_EXTERNAL_VERIFICATION.md`
+- `docs/archive/PAYMENT_PROVIDER_SANDBOX_READINESS.md`
+- `docs/archive/BUYER_PAYMENT_PROVIDER_PRODUCTION_READINESS.md`
+- `docs/archive/STRIPE_SANDBOX_EXTERNAL_VERIFICATION.md`
 
 Their Stripe-specific statements should be read as historical scope for the Stripe adapter, not as the current provider-selection decision.
 

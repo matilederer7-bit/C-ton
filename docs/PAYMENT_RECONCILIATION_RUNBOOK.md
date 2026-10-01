@@ -18,7 +18,7 @@ Legend: **IMPLEMENTED** (cited file), **EXPECTED** (designed, unobserved live), 
 
 ## 1. The fee rule you reconcile against
 
-Binding (`AGENTS.md`, `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md`, `docs/PLATFORM_FEE_PAYMENTS_8_PERCENT.md`; verified in code by the red team, `RED_TEAM_FINAL_REPORT.md` B1):
+Binding (`AGENTS.md`, `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md`, `docs/PLATFORM_FEE_PAYMENTS_8_PERCENT.md`; verified in code by the red team, `docs/archive/RED_TEAM_FINAL_REPORT.md` B1):
 
 - Siton's fee is **8% of the amount actually collected** from the buyer, **including shipping/delivery and every other purchase component collected through Siton**, **excluding the customer VAT component** from the fee base.
 - VAT is then added on Siton's fee only (`platform_fee_vat_amount`, rate `SITON_PLATFORM_FEE_VAT_RATE` default 0.18); `platform_fee_total_amount = platform_fee_base_amount + platform_fee_vat_amount`; `seller_net_amount = gross_amount - platform_fee_total_amount`.

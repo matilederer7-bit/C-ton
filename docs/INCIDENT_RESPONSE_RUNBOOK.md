@@ -15,7 +15,7 @@ Companions: `docs/DISASTER_RECOVERY_RUNBOOK.md` (total loss), `docs/DATABASE_INC
 5. Never paste a secret value, `DATABASE_URL`, `x-admin-key`, OTP, token, or raw provider payload into chat, tickets, commits or `PROJECT_STATUS.md`.
 6. Never restore a hosted database in place, and never without the `docs/DISASTER_RECOVERY_RUNBOOK.md` freeze.
 7. Never run test/preflight/rehearsal/cleanup scripts with a hosted `DATABASE_URL` in the shell.
-8. Never "fix" a 429 storm by setting `RATE_LIMIT_MAX=0` or `TRUST_PROXY_HOPS` higher than the real proxy depth (that re-opens X-Forwarded-For spoofing; `docs/RED_TEAM_FINAL_REPORT.md` A2).
+8. Never "fix" a 429 storm by setting `RATE_LIMIT_MAX=0` or `TRUST_PROXY_HOPS` higher than the real proxy depth (that re-opens X-Forwarded-For spoofing; `docs/archive/RED_TEAM_FINAL_REPORT.md` A2).
 9. Never declare an incident "resolved" or "no impact" in a postmortem without the verification command output that supports it.
 
 ## 1. Severity matrix
