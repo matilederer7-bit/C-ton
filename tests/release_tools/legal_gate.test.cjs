@@ -87,10 +87,10 @@ const MUTATIONS = [
     file: "src/frontend_runtime.ts",
     from: "app.post(\"/api/affiliate/links/visit\"",
     to: "app.post(\"/api/affiliate/links/visit\" /* buyer_phone */",
-    expect: /buyer PII appears in distributor API block/
+    expect: /buyer PII appears in distribution-link API block/
   },
   {
-    name: "the distributor terms legal page link disappears from the frontend",
+    name: "the distribution-link terms compatibility link disappears from the frontend",
     file: "frontend/app.js",
     from: "href=\"/legal/affiliates\"",
     to: "href=\"/legal/partners\"",
@@ -98,11 +98,32 @@ const MUTATIONS = [
     expect: /missing policy link: \/legal\/affiliates/
   },
   {
-    name: "the distributor terms legal page is removed",
+    name: "the distribution-link terms compatibility page is removed",
     file: "src/legal_pages.ts",
     from: "slug: \"affiliates\"",
     to: "slug: \"affiliates_removed\"",
-    expect: /distributor terms legal page/
+    expect: /distribution-link legal page compatibility slug/
+  },
+  {
+    name: "the obsolete distributor-role title returns",
+    file: "src/legal_pages.ts",
+    from: "title: \"תנאי לינקי הפצה\"",
+    to: "title: \"תנאי מפיצים\"",
+    expect: /obsolete distributor-role title/
+  },
+  {
+    name: "the legal page stops saying that Siton has no distributor business role",
+    file: "src/legal_pages.ts",
+    from: "בסיטון אין משתמש או תפקיד עסקי בשם \"מפיץ\".",
+    to: "מפיץ הוא משתמש עסקי במערכת.",
+    expect: /no distributor business role/
+  },
+  {
+    name: "the fixed 8 percent fee becomes contract-overridable again",
+    file: "src/legal_pages.ts",
+    from: "עבור שירותי הפלטפורמה, C-ton גובה עמלה קבועה בשיעור 8%.",
+    to: "עבור שירותי הפלטפורמה, C-ton גובה עמלה קבועה בשיעור 8%, אלא אם נקבע אחרת בהסכם כתוב.",
+    expect: /fixed 8% Siton fee overridable/
   }
 ];
 
