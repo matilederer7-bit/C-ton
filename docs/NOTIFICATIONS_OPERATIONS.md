@@ -141,7 +141,7 @@ Default `max_attempts` is 3. After the third failure the row becomes `failed` pe
 
 No real SMS / e-mail adapter is implemented. Every runtime uses the log provider
 (`NOTIFICATION_PROVIDER=log-only`): messages are logged with masked recipients and
-`provider_message_id` starts with `log-`. Requesting real delivery
+`provider_message_id` starts with `log_`. Requesting real delivery
 (`NOTIFICATION_PROVIDER_MODE=real`) fails closed at boot (`src/production_guards.ts`,
 `buildNotificationProvider` in `src/notification_dispatch.ts`); an unknown
 `NOTIFICATION_PROVIDER` in a non-real mode logs

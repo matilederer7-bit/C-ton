@@ -219,7 +219,7 @@ Full notifications queue metrics by status and channel. Includes `provider` bloc
 ```json
 "provider": { "code": "log-only", "mode": "log-only", "external_delivery": false }
 ```
-`external_delivery: true` means real SMS is active (Twilio credentials set).
+`external_delivery` is always `false` today: no real SMS / e-mail adapter exists (`getNotificationProviderSummary` in `src/notification_dispatch.ts`), so the block reports `log-only`.
 See `docs/NOTIFICATIONS_OPERATIONS.md` for field meanings.
 
 ---
