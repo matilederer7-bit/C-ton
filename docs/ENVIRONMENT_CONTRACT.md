@@ -78,10 +78,7 @@ Legend:
 | `INVOICE_PROVIDER_API_KEY` | ⬜ | ⚠ | ⚠ | 🔒 | — | |
 | `INVOICE_PROVIDER_BEARER_TOKEN` | ⬜ | ⚠ | ⚠ | 🔒 | — | |
 | `INVOICE_WEBHOOK_SECRET` | ⬜ | ⚠ | ⚠ | 🔒 | — | |
-| `NOTIFICATION_PROVIDER` | ✅ | ✅ | ✅ | 📄 | `log-only` | `twilio` / similar require their own envs. |
-| `TWILIO_ACCOUNT_SID` | ⬜ | ⚠ if Twilio | ⚠ if Twilio | 🔒 | — | |
-| `TWILIO_AUTH_TOKEN` | ⬜ | ⚠ if Twilio | ⚠ if Twilio | 🔒 | — | |
-| `TWILIO_FROM` | ⬜ | ⚠ if Twilio | ⚠ if Twilio | 📄 | — | E.164 sender. |
+| `NOTIFICATION_PROVIDER` | ✅ | ✅ | ✅ | 📄 | `log-only` | No real adapter exists; `NOTIFICATION_PROVIDER_MODE=real` fails closed. A real provider brings its own envs. |
 | `NOTIFICATION_MAX_ATTEMPTS` | ⬜ | ⬜ | ⬜ | 📄 | `3` | |
 | `SELLER_SESSION_SECRET` | ⬜ (demo skips) | ⚠ | ⚠ | 🔒 | — | Required for non-demo seller sessions. |
 | `OTP_TOKEN_SECRET` | ⬜ (local-only fallback) | ⚠ | ✅ | 🔒 | — | Black-Sky E10: signs buyer OTP proofs. Production boot requires ≥32 chars, not a placeholder, and distinct from `SELLER_SESSION_SECRET` and `OTP_HASH_SALT`. |

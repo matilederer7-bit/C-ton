@@ -181,7 +181,7 @@ await run("H4 — /api/admin/invoice-status includes provider mode", async () =>
   assert.ok(typeof p.mode === "string",            "provider.mode must be a string");
   assert.ok(typeof p.external_issuance === "boolean", "provider.external_issuance must be a boolean");
 
-  // In demo/dev with no Twilio-equivalent set, mode must be "log-only"
+  // In demo/dev with no real invoice adapter, mode must be "log-only"
   assert.equal(p.mode, "log-only", `expected log-only mode, got ${p.mode}`);
   assert.equal(p.external_issuance, false, "log-only should have external_issuance=false");
 
@@ -203,7 +203,7 @@ await run("H5 — /api/admin/notifications-status includes provider mode", async
   assert.ok(typeof p.mode === "string",            "provider.mode must be a string");
   assert.ok(typeof p.external_delivery === "boolean", "provider.external_delivery must be a boolean");
 
-  // Without Twilio credentials, mode must be "log-only"
+  // No real notification adapter exists, so mode must be "log-only"
   assert.equal(p.mode, "log-only", `expected log-only mode, got ${p.mode}`);
   assert.equal(p.external_delivery, false, "log-only should have external_delivery=false");
 

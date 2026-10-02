@@ -94,6 +94,8 @@ PAYMENT_PROVIDER_API_KEY=<sandbox first, then live>
 PAYMENT_WEBHOOK_SECRET=<provider-issued>
 INVOICE_PROVIDER=morning                  # only after sandbox gate
 INVOICE_PROVIDER_API_KEY=<sandbox first>
+# Illustrative only: no SMS / e-mail adapter exists yet (docs/NOTIFICATIONS_OPERATIONS.md); the variables below are read by
+# nothing today, and NOTIFICATION_PROVIDER_MODE=real fails closed until an adapter passes the communications gate.
 NOTIFICATION_PROVIDER=twilio              # or sendgrid — only after sandbox gate
 TWILIO_ACCOUNT_SID=<sandbox first>
 TWILIO_AUTH_TOKEN=<sandbox first>

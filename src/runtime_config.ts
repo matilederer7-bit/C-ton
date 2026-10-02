@@ -109,10 +109,6 @@ export const PAYOUT_PROVIDER_RECONCILE_PATH = process.env.PAYOUT_PROVIDER_RECONC
 export const PAYOUT_PROVIDER_TIMEOUT_MS = readNumberEnv("PAYOUT_PROVIDER_TIMEOUT_MS", 8000);
 export const SITON_PLATFORM_FEE_VAT_RATE = readNumberEnv("SITON_PLATFORM_FEE_VAT_RATE", 0.18);
 export const NOTIFICATION_PROVIDER = process.env.NOTIFICATION_PROVIDER || "log-only";
-// Twilio SMS — all three must be set to activate real SMS delivery
-export const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || "";
-export const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || "";
-export const TWILIO_FROM = process.env.TWILIO_FROM || ""; // E.164 format, e.g. +972501234567
 export const NOTIFICATION_MAX_ATTEMPTS = readNumberEnv("NOTIFICATION_MAX_ATTEMPTS", 3);
 export const APP_DEPLOYMENT_MODE = process.env.APP_DEPLOYMENT_MODE || "demo-preview";
 export const IS_DEMO_PREVIEW = APP_DEPLOYMENT_MODE === "demo-preview";

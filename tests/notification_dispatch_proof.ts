@@ -20,7 +20,7 @@
  *
  *   P1 — log-only provider returns a message ID
  *   P2 — log-only provider mode is "log-only"
- *   P3 — Twilio provider activates when all three env vars are set
+ *   P3 — requesting REAL delivery fails closed; non-real unknown providers fall back to log
  */
 
 import { strict as assert } from "node:assert";
