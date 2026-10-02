@@ -542,9 +542,8 @@
   "content_admin.there_unsaved_changes_current_page": "יש שינויים שלא נשמרו בעמוד הנוכחי. לעבור בלי לשמור?",
   "content_admin.uploading": "מעלים…",
   "content_assets.reading_file_failed": "קריאת הקובץ נכשלה",
-  "content_assets.that_video_type_supported_mp4": "סוג הוידאו אינו נתמך — רק MP4 או WebM",
+  "content_assets.that_video_type_supported_mp4": "הקובץ שנבחר אינו וידאו",
   "content_assets.the_file_empty": "הקובץ ריק",
-  "content_assets.the_video_larger_than_10mb": "הוידאו גדול מ-10MB — דחסו גרסה קצרה וקלה יותר (ללא קול)",
   "countdown.days_days_hours_hours_minutes": "נותרו {days} ימים, {hours} שעות, {minutes} דקות ו-{seconds} שניות",
   "countdown.joining_ended": "ההצטרפות הסתיימה",
   "deal.a_bit_payment_request_sent": "בקשת תשלום ב-bit תישלח למספר הנייד שהזנתם דרך סביבת הסליקה המאובטחת, רק אם העסקה תיסגר בהצלחה. לא מתבצע חיוב עכשיו.",
@@ -1770,5 +1769,10 @@
   "admin_mfa.unavailable": "אימות דו־שלבי אינו זמין בסביבה הזו.",
   "admin_mfa.verify": "אימות והמשך",
   "admin_mfa.cancel": "ביטול",
-  "admin_mfa.other_factor": "לחשבון שלך כבר מוגדרת שיטת אימות אחרת. בקשו ממנהל-על לאפס את האימות הדו־שלבי, ואז הגדירו אפליקציית אימות."
+  "admin_mfa.other_factor": "לחשבון שלך כבר מוגדרת שיטת אימות אחרת. בקשו ממנהל-על לאפס את האימות הדו־שלבי, ואז הגדירו אפליקציית אימות.",
+  "content_admin.preparing_video": "מכינים את הווידאו… {percent}%",
+  "content_assets.video_too_long_to_convert": "הסרטון ארוך מדקה — קצרו אותו לדקה לכל היותר ונסו שוב",
+  "content_assets.video_cannot_be_read_here": "הדפדפן הזה לא מצליח לקרוא את הסרטון — נסו מדפדפן אחר (Safari באייפון או Chrome)",
+  "content_assets.browser_cannot_convert_video": "הדפדפן הזה לא יכול להכין את הווידאו — נסו מ-Chrome או מ-Safari מעודכן",
+  "content_assets.video_conversion_failed": "הכנת הווידאו נכשלה — נסו שוב או בחרו סרטון קצר יותר"
 }
