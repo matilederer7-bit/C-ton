@@ -17,15 +17,10 @@
 // Android (Chrome, Brave, …) pause a muted video they consider invisible, which
 // froze the first version mid-way (owner test on staging, 2026-10-02: stuck at 17%).
 import { heroVideoBitrate, pickRecorderType, scaledVideoSize, sniffVideoContainer } from "./videoPrep";
+import { VideoConvertError, browserLabel, type VideoConvertErrorCode } from "./videoErrors";
+import { transcodeWithWebCodecs } from "./videoTranscode";
 
-export type VideoConvertErrorCode =
-  | "unsupported_browser" | "unreadable" | "blocked" | "interrupted" | "stalled" | "too_long" | "too_large" | "failed";
-
-export class VideoConvertError extends Error {
-  /** Diagnostic snapshot (stage, playback position, ready state, format); no file content, no personal data. */
-  detail = "";
-  constructor(readonly code: VideoConvertErrorCode) { super(code); this.name = "VideoConvertError"; }
-}
+export { VideoConvertError, type VideoConvertErrorCode } from "./videoErrors";
 
 /** Seconds without playback progress before the conversion is declared stuck. */
 export const STALL_LIMIT_SECONDS = 8;
@@ -60,17 +55,33 @@ async function knownDuration(video: HTMLVideoElement): Promise<number> {
   return video.duration;
 }
 
-/** Coarse browser identity for diagnostics (brand + version, platform, mobile); never anything personal. */
-function browserLabel(): string {
-  const data = (navigator as Navigator & { userAgentData?: { brands?: { brand: string; version: string }[]; platform?: string; mobile?: boolean } }).userAgentData;
-  if (data?.brands?.length) {
-    const brands = data.brands.filter((b) => !/not.?a.?brand/i.test(b.brand)).map((b) => `${b.brand}/${b.version}`).join(",");
-    return `${brands};${data.platform || "?"};${data.mobile ? "mobile" : "desktop"}`.slice(0, 120);
+/**
+ * Convert a hero video: WebCodecs first (frame by frame, never stuck on a slow
+ * device); the real-time canvas + MediaRecorder path only where the browser
+ * has no usable WebCodecs H.264 encoder.
+ */
+export async function convertVideoForHero(
+  file: Blob,
+  opts: { maxBytes: number; onProgress?: (fraction: number) => void }
+): Promise<{ blob: Blob; mime: "video/mp4" | "video/webm" }> {
+  let skipped = "";
+  try {
+    return await transcodeWithWebCodecs(file, opts);
+  } catch (err) {
+    if (!(err instanceof VideoConvertError) || err.code !== "unsupported_browser") throw err;
+    skipped = err.detail;
   }
-  return String(navigator.userAgent || "?").slice(0, 120);
+  try {
+    return await convertRealtime(file, opts);
+  } catch (err) {
+    // Keep why WebCodecs was skipped next to the fallback's own failure.
+    if (err instanceof VideoConvertError && skipped) err.detail = `${err.detail} | webcodecs_skipped: ${skipped}`.slice(0, 900);
+    throw err;
+  }
 }
 
-export async function convertVideoForHero(
+/** The real-time fallback engine (exported for its browser test). */
+export async function convertRealtime(
   file: Blob,
   opts: { maxBytes: number; onProgress?: (fraction: number) => void }
 ): Promise<{ blob: Blob; mime: "video/mp4" | "video/webm" }> {
@@ -197,7 +208,7 @@ export async function convertVideoForHero(
   } catch (err) {
     const failure = err instanceof VideoConvertError ? err : new VideoConvertError("failed");
     const d = Number.isFinite(video.duration) ? video.duration.toFixed(1) : String(video.duration);
-    failure.detail = `stage=${stage} t=${video.currentTime.toFixed(1)}/${d} ready=${video.readyState} net=${video.networkState}`
+    failure.detail = `engine=realtime stage=${stage} t=${video.currentTime.toFixed(1)}/${d} ready=${video.readyState} net=${video.networkState}`
       + ` paused=${video.paused} frame=${video.videoWidth}x${video.videoHeight} src=${(file.type || "?").slice(0, 40)}`
       + ` mb=${(file.size / 1048576).toFixed(1)} rec=${format.recorderType} browser=${browserLabel()}`
       + `${failure === err ? "" : ` cause=${String((err as Error)?.name || err).slice(0, 60)}`}`;
