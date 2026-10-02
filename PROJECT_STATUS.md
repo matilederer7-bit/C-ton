@@ -69,6 +69,16 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
+### Claude Code latest milestone — CMS hero video: WebCodecs transcoding instead of real-time recording (2026-10-02)
+
+- UPDATED: 2026-10-02
+- EVIDENCE (owner retry after #187, Sentry `c-ton/siton-staging`, 08:38:14Z): `hero_video_convert_stalled: stage=record t=4.6/27.5 ready=2 net=1 paused=false frame=1080x1920 src=video/mp4 mb=33.8 rec=video/mp4;codecs=avc1.42E01E browser=Chromium/154,Brave/154;Android;mobile`. The clip was not paused — the decoder starved (`ready=2`): the phone could not decode 1080x1920 and re-encode at playback speed at the same time. Two failures of the real-time approach (17% then 4.6 s) → approach changed, per the two-failure rule.
+- COMPLETED (branch `claude/cms-video-webcodecs`): `web/src/videoTranscode.ts` — demux → decode → re-encode frame by frame with WebCodecs via `mediabunny` 1.61.0 (MPL-2.0, unmodified dependency of `web/`, loaded on demand in a separate 739 KB chunk; never in the public bundle — pinned), so a slow device is slower, never stuck. H.264/MP4 first, VP8 or VP9/WebM where no H.264 encoder exists; explicit-bitrate `Quality({ bitrate })` probed with the same object the conversion uses; 30 s no-progress watchdog and an overall deadline; diagnostics (`engine=webcodecs codec stage progress duration frame src mb browser discarded cause`). `convertVideoForHero` tries WebCodecs first and falls back to the real-time engine only on `unsupported_browser`. Shared `web/src/videoErrors.ts`. Server, broker, bucket, auth and limits unchanged.
+- TESTED (real Chromium, 3/3): the WebCodecs engine converts a `video/quicktime`-labelled 1920x1080 clip on its own (VP8 WebM here — this open-source Chromium build has no WebCodecs H.264 encoder; Chrome/Brave on Android do, cf. the owner's `avc1` report) and the server validator accepts it; a portrait 1080x1920 MP4 built frame by frame converts to 720x1280, 3.00 s, in ~2 s with no real-time recording; too_large / unreadable; the real-time fallback tests unchanged; lint, app + web tsc, web build, i18n gate, repository gates, related suites.
+- NOT VERIFIED: the owner's Android/Brave retry.
+- PERCENT: code + tests 100%; user-flow proof 0% until the retry passes.
+- NEXT: review → CI → merge → deploy → owner retry.
+
 ### Claude Code latest milestone — CMS hero video: conversion stalled on Android at 17% → visible preview + stall watchdog + diagnostics (2026-10-02)
 
 - UPDATED: 2026-10-02

@@ -34,15 +34,19 @@ async function moduleSource(file: string): Promise<string> {
   const ts = require("typescript");
   const source = await readFile(join(repoRoot, "web", "src", file), "utf8");
   const out = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ES2020, target: ts.ScriptTarget.ES2020 } }).outputText as string;
-  return out.replace(/from "\.\/videoPrep"/g, 'from "./videoPrep.js"');
+  return out.replace(/from "\.\/(video\w+)"/g, 'from "./$1.js"').replace(/import\("mediabunny"\)/g, 'import("./mediabunny.js")');
 }
 
 async function serve(port: number): Promise<Server> {
   const files: Record<string, [string, string]> = {
     // every MediaRecorder the converter creates is tracked, so a failure path that leaves one recording is caught
-    "/": ["text/html", "<!doctype html><meta charset=utf-8><title>video convert</title><body><script>window.__recorders = []; const R = window.MediaRecorder; window.MediaRecorder = class extends R { constructor(...a) { super(...a); window.__recorders.push(this); } };</script><script type=module>import * as m from './videoConvert.js'; window.__convert = m;</script></body>"],
+    "/": ["text/html", "<!doctype html><meta charset=utf-8><title>video convert</title><body><script>window.__recorders = []; const R = window.MediaRecorder; window.MediaRecorder = class extends R { constructor(...a) { super(...a); window.__recorders.push(this); } };</script><script type=module>import * as m from './videoConvert.js'; import * as x from './videoTranscode.js'; window.__convert = m; window.__tx = x;</script></body>"],
     "/videoConvert.js": ["text/javascript", await moduleSource("videoConvert.ts")],
-    "/videoPrep.js": ["text/javascript", await moduleSource("videoPrep.ts")]
+    "/videoPrep.js": ["text/javascript", await moduleSource("videoPrep.ts")],
+    "/videoErrors.js": ["text/javascript", await moduleSource("videoErrors.ts")],
+    "/videoTranscode.js": ["text/javascript", await moduleSource("videoTranscode.ts")],
+    // the same library build the web bundle uses, served as one ES module
+    "/mediabunny.js": ["text/javascript", await readFile(join(repoRoot, "web", "node_modules", "mediabunny", "dist", "bundles", "mediabunny.min.mjs"), "utf8")]
   };
   const server = createServer((req, res) => {
     const hit = files[String(req.url || "/").split("?")[0] ?? "/"];
@@ -86,10 +90,16 @@ async function main() {
     const sourceBytes = await page.evaluate<number>(RECORD_SOURCE(4));
     assert.ok(sourceBytes > 0, "the source clip was not recorded");
 
+    await run("the WebCodecs engine handles the clip on its own (no fallback)", async () => {
+      const r = await page!.evaluate<any>(`window.__tx.transcodeWithWebCodecs(window.__source, { maxBytes: ${MAX} }).then((o) => ({ ok: true, size: o.blob.size }), (e) => ({ ok: false, code: e.code, detail: e.detail || String(e) }))`);
+      assert.equal(r.ok, true, `WebCodecs engine failed: ${JSON.stringify(r)}`);
+    });
+
     await run("an iPhone-style .MOV clip becomes a playable, bounded MP4/WebM the server accepts", async () => {
       const r = await page!.evaluate<any>(`(async () => {
-        const progress = [];
+        const progress = []; const recordersBefore = window.__recorders.length;
         const out = await window.__convert.convertVideoForHero(window.__source, { maxBytes: ${MAX}, onProgress: (f) => progress.push(f) });
+        const usedRecorder = window.__recorders.length !== recordersBefore;
         const url = URL.createObjectURL(out.blob); const v = document.createElement('video'); v.muted = true; v.src = url;
         await new Promise((res, rej) => { v.onloadedmetadata = res; v.onerror = () => rej(new Error('converted video does not load')); });
         // MediaRecorder output may report Infinity until seeked to the end
@@ -97,7 +107,7 @@ async function main() {
         const bytes = new Uint8Array(await out.blob.arrayBuffer());
         let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
         return { mime: out.mime, type: out.blob.type, size: out.blob.size, w: v.videoWidth, h: v.videoHeight, duration: v.duration,
-                 first: progress[0], last: progress[progress.length - 1], steps: progress.length, b64: btoa(bin) };
+                 first: progress[0], last: progress[progress.length - 1], steps: progress.length, b64: btoa(bin), usedRecorder };
       })()`);
       console.log(`converted ${r.mime} ${r.size} bytes ${r.w}x${r.h} ${r.duration.toFixed(2)}s (source ${sourceBytes} bytes)`);
       assert.ok(["video/mp4", "video/webm"].includes(r.mime), r.mime);
@@ -107,6 +117,44 @@ async function main() {
       assert.ok(Number.isFinite(r.duration) && r.duration > 2.5 && r.duration < 6, `converted duration ${r.duration}`);
       assert.ok(r.steps > 3 && r.first < 0.5 && r.last === 1, `progress ${JSON.stringify({ first: r.first, last: r.last, steps: r.steps })}`);
       assert.equal(validateVideoFile({ mimeType: r.mime, content: Buffer.from(r.b64, "base64") }), r.mime, "the server validator refused the converted video");
+      assert.equal(r.usedRecorder, false, "the WebCodecs engine must not fall back to real-time recording in Chromium");
+    });
+
+    await run("a portrait phone MP4 (1080x1920, like the owner's 27 s clip, shortened) converts with WebCodecs to 720x1280, frame by frame", async () => {
+      // The source MP4 is built frame by frame with the same library (H.264 where this
+      // browser can encode it, else VP9 in MP4) — no real-time recording involved.
+      const r = await page!.evaluate<any>(`(async () => {
+        const mb = await import('./mediabunny.js');
+        let srcCodec = null; for (const c of ['avc', 'vp9', 'av1']) { if (await mb.canEncodeVideo(c, { width: 1080, height: 1920, quality: new mb.Quality({ bitrate: 8000000 }) })) { srcCodec = c; break; } }
+        const c = document.createElement('canvas'); c.width = 1080; c.height = 1920; const g = c.getContext('2d');
+        const target = new mb.BufferTarget(); const out = new mb.Output({ format: new mb.Mp4OutputFormat({ fastStart: 'in-memory' }), target });
+        const vs = new mb.CanvasSource(c, { codec: srcCodec, quality: new mb.Quality({ bitrate: 8000000 }) });
+        out.addVideoTrack(vs, { frameRate: 30 }); await out.start();
+        for (let i = 0; i < 90; i += 1) { const t = i / 30;
+          g.fillStyle = 'hsl(' + Math.floor(t * 120) % 360 + ',70%,45%)'; g.fillRect(0, 0, 1080, 1920);
+          for (let k = 0; k < 30; k += 1) { g.fillStyle = 'hsl(' + (k * 41 + t * 160) % 360 + ',80%,60%)'; g.fillRect((k * 71 + t * 300) % 1080, (k * 113 + t * 200) % 1920, 140, 140); }
+          await vs.add(t, 1 / 30); }
+        await out.finalize();
+        const source = new File([target.buffer], 'VID_20261002.mp4', { type: 'video/mp4' });
+        const before = window.__recorders.length; const progress = []; const t0 = performance.now();
+        const res = await window.__convert.convertVideoForHero(source, { maxBytes: ${MAX}, onProgress: (f) => progress.push(f) });
+        const ms = Math.round(performance.now() - t0);
+        const v = document.createElement('video'); v.muted = true; v.src = URL.createObjectURL(res.blob);
+        await new Promise((ok, no) => { v.onloadedmetadata = ok; v.onerror = () => no(new Error('converted video does not load')); });
+        const head = new Uint8Array(await res.blob.slice(0, 12).arrayBuffer());
+        return { srcCodec, mime: res.mime, size: res.blob.size, w: v.videoWidth, h: v.videoHeight, duration: v.duration, sourceBytes: source.size,
+                 sig: head[0] === 0x1a ? 'ebml' : String.fromCharCode(head[4], head[5], head[6], head[7]), recorders: window.__recorders.length - before,
+                 steps: progress.length, last: progress[progress.length - 1], ms };
+      })()`);
+      console.log(`portrait ${r.srcCodec}/mp4 ${r.sourceBytes} -> ${r.mime} ${r.size} bytes ${r.w}x${r.h} ${Number(r.duration).toFixed(2)}s in ${r.ms} ms`);
+      assert.ok(r.srcCodec, "this browser could not build the source clip");
+      assert.equal(r.recorders, 0, "the conversion fell back to real-time recording");
+      assert.ok(["video/mp4", "video/webm"].includes(r.mime), r.mime);
+      assert.equal(r.sig, r.mime === "video/mp4" ? "ftyp" : "ebml", "container signature does not match the type");
+      assert.deepEqual([r.w, r.h], [720, 1280], "portrait orientation and the 1280 long edge");
+      assert.ok(r.duration > 2.5 && r.duration < 3.6, `duration ${r.duration}`);
+      assert.ok(r.size > 0 && r.size <= MAX, `size ${r.size}`);
+      assert.ok(r.steps > 1 && r.last === 1, `progress ${JSON.stringify({ steps: r.steps, last: r.last })}`);
     });
 
     await run("a ceiling the clip cannot fit fails with too_large, never an oversized upload", async () => {
@@ -121,7 +169,7 @@ async function main() {
 
     await run("leaving the page mid-conversion stops at once with interrupted, never a frozen clip", async () => {
       const code = await page!.evaluate<string>(`(async () => {
-        const p = window.__convert.convertVideoForHero(window.__source, { maxBytes: ${MAX} });
+        const p = window.__convert.convertRealtime(window.__source, { maxBytes: ${MAX} });
         await new Promise((r) => setTimeout(r, 1200));
         Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
         document.dispatchEvent(new Event('visibilitychange'));
@@ -132,7 +180,7 @@ async function main() {
 
     await run("the clip being prepared is a visible preview (Android browsers pause invisible muted video)", async () => {
       const seen = await page!.evaluate<any>(`(async () => {
-        const p = window.__convert.convertVideoForHero(window.__source, { maxBytes: ${MAX} });
+        const p = window.__convert.convertRealtime(window.__source, { maxBytes: ${MAX} });
         await new Promise((r) => setTimeout(r, 1200));
         const v = document.querySelector('[data-testid="hero-video-converting"]');
         const r = v ? v.getBoundingClientRect() : null; const cs = v ? getComputedStyle(v) : null;
@@ -148,7 +196,7 @@ async function main() {
 
     await run("a browser that pauses the clip mid-way is resumed and the conversion still completes", async () => {
       const r = await page!.evaluate<any>(`(async () => {
-        const p = window.__convert.convertVideoForHero(window.__source, { maxBytes: ${MAX} });
+        const p = window.__convert.convertRealtime(window.__source, { maxBytes: ${MAX} });
         await new Promise((r) => setTimeout(r, 1500));
         document.querySelector('[data-testid="hero-video-converting"]').pause();
         const out = await p; return { mime: out.mime, size: out.blob.size };
@@ -158,7 +206,7 @@ async function main() {
 
     await run("a clip that stops advancing fails with stalled and a diagnostic detail, not an endless spinner", async () => {
       const r = await page!.evaluate<any>(`(async () => {
-        const p = window.__convert.convertVideoForHero(window.__source, { maxBytes: ${MAX} });
+        const p = window.__convert.convertRealtime(window.__source, { maxBytes: ${MAX} });
         await new Promise((r) => setTimeout(r, 1500));
         document.querySelector('[data-testid="hero-video-converting"]').playbackRate = 0;
         const t0 = performance.now();
@@ -166,7 +214,7 @@ async function main() {
       })()`);
       assert.equal(r.code, "stalled", JSON.stringify(r));
       assert.ok(r.waited < 15000, `took ${r.waited} ms to give up`);
-      assert.match(r.detail, /^stage=record t=\d+\.\d\/\d+\.\d ready=\d net=\d paused=(true|false) frame=1920x1080 src=video\/quicktime mb=\d+\.\d rec=video\/\S+ browser=\S/);
+      assert.match(r.detail, /^engine=realtime stage=record t=\d+\.\d\/\d+\.\d ready=\d net=\d paused=(true|false) frame=1920x1080 src=video\/quicktime mb=\d+\.\d rec=video\/\S+ browser=\S/);
     });
 
     await run("no failure path leaves a recorder running or a hidden video behind", async () => {

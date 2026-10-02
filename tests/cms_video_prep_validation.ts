@@ -88,6 +88,15 @@ await run("the upload path converts instead of refusing, and the picker offers e
   // a conversion failure on the admin's device reaches error monitoring with its diagnostic detail
   assert.match(assets, /reportHandledError\(Object\.assign\(new Error\(`hero_video_convert_\$\{code\}: \$\{detail\}`\)/);
   assert.match(assets, /code === "stalled"\) return t\("content_assets\.video_conversion_stalled"\)/);
+  // WebCodecs first (frame by frame, no real-time playback); real-time recording only as the fallback
+  const convert = await readFile("web/src/videoConvert.ts", "utf8");
+  const transcode = await readFile("web/src/videoTranscode.ts", "utf8");
+  assert.match(convert, /return await transcodeWithWebCodecs\(file, opts\);[\s\S]*err\.code !== "unsupported_browser"\) throw err;[\s\S]*return convertRealtime\(file, opts\);/);
+  assert.match(transcode, /new mb\.Quality\(\{ bitrate \}\)/, "an explicit bitrate, never a quality factor");
+  assert.match(transcode, /await import\("mediabunny"\)/, "the transcoder library loads on demand");
+  for (const f of ["web/src/videoConvert.ts", "web/src/videoTranscode.ts", "web/src/contentAssets.ts", "web/src/pages/contentAdmin.tsx", "web/src/App.tsx", "web/src/main.tsx"]) {
+    assert.doesNotMatch(await readFile(f, "utf8"), /^import [^;]* from "mediabunny"/m, `${f} must not import mediabunny statically (public bundle size)`);
+  }
 });
 
 console.log("CMS_VIDEO_PREP_PASS");
