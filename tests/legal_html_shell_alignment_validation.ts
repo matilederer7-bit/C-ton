@@ -90,8 +90,8 @@ try {
     }
     // and the build-absent path (fallback <style>) caps images too — asserted at
     // the source, because with web/dist present the page links the real sheet.
-    const runtimeSource = readFileSync(join(process.cwd(), "src", "frontend_runtime.ts"), "utf8");
-    assert.match(runtimeSource, /const fallbackCss = "<style>img\{max-width:100%\}/,
+    const legalShellSource = readFileSync(join(process.cwd(), "src", "legal_html.ts"), "utf8");
+    assert.match(legalShellSource, /const fallbackCss = "<style>img\{max-width:100%\}/,
       "the fallback stylesheet must also cap image width, for the build-absent path");
   });
 
@@ -109,9 +109,11 @@ try {
   await run("the legal footer drops the About link while the About page has no body", async () => {
     const res = await app.inject({ method: "GET", url: "/legal/terms" });
     const runtime = readFileSync(join(process.cwd(), "src", "frontend_runtime.ts"), "utf8");
-    assert.match(runtime, /const aboutLink = aboutHasBody\s*\n?\s*\?/,
+    // the shell renderer lives in src/legal_html.ts; the per-request route stays in the runtime
+    const legalShell = readFileSync(join(process.cwd(), "src", "legal_html.ts"), "utf8");
+    assert.match(legalShell, /const aboutLink = aboutHasBody\s*\n?\s*\?/,
       "the About link must be conditional, never hard-coded");
-    assert.match(runtime, /renderLegalHtmlPage\(slug, \{ title: value\.title!, body: value\.body!, bodyLocale \}, contentPageHasBody\(content\["about"\]\), locale\)/,
+    assert.match(runtime, /renderLegalHtmlPage\(slug, \{ title: value\.title!, body: value\.body!, bodyLocale \}, contentPageHasBody\(content\["about"\]\), locale, previewDir\)/,
       "and the condition must be the live CMS content, read per request");
     assert.match(runtime, /const locale = localeFromRequest\(req\);/,
       "and the document is rendered in the language the visitor chose");

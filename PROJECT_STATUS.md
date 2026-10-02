@@ -69,6 +69,16 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
+### Claude Code latest milestone — Lean Refactor round 2, slice 1: legal HTML shell out of `frontend_runtime.ts` (2026-10-02)
+
+- UPDATED: 2026-10-02
+- COMPLETED: PR #190 (ChatGPT, alias `/api/admin/notifications/status` removed) reviewed → MERGE, squash-merged as `5c5221f`, master Siton CI green (run 37005103522); map rows updated. This PR: `escapeHtml`, `renderLegalMarkdown`, `LEGAL_HTML_NAV`, `contentPageHasBody`, `renderLegalHtmlPage` moved verbatim to the new `src/legal_html.ts` (only changes: `export`, and the startup-resolved `previewDir` passed as a trailing parameter); the `/legal/:slug` route stays in `frontend_runtime.ts` (12 255 → 12 145 lines). Two now-unused runtime imports dropped.
+- TESTS / GATES: the 38 consumers that read `frontend_runtime.ts` as text — 36 unchanged and passing; 2 (`legal_html_shell_alignment_validation`, `legal_trust_validation`) had pins on the moved code, retargeted to `src/legal_html.ts` with identical regexes (the route-call pin gains `, previewDir`). `scripts/legal_compliance_gate.cjs` now scans `src/legal_html.ts` as part of the product surface (and its fixture test copies it), and `security_hardening_validation`'s static scan list includes it (review finding), so the moved shell keeps full gate coverage. All 10 tests that serve `/legal/*` pass (incl. `frontend_browser_i18n_validation`); release tools 419/0; legal, money/tax, route-inventory, secret, hygiene, architecture and seven-day gates pass; app `tsc`, lint.
+- BEHAVIOUR: none intended — same route, same HTML (verified by the served-page tests), no auth / money / lifecycle touch. Runtime impact: Render redeploy of identical behaviour.
+- OPEN: independent review → CI → merge → master + Render check. Next slice: one `app.ts` concern (HTTP security).
+- PERCENT: round-2 slice 1 in review.
+- NEXT: review this PR.
+
 ### Claude Code latest milestone — CMS hero video: owner upload on staging PASSED (2026-10-02)
 
 - UPDATED: 2026-10-02

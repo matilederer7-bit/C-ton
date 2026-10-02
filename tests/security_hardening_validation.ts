@@ -25,7 +25,9 @@ const allSource = [
   sellerAuth,
   await readFile("src/webhook_ingestion.ts", "utf8"),
   await readFile("src/payment_provider.ts", "utf8"),
-  await readFile("src/platform_fee_money.ts", "utf8")
+  await readFile("src/platform_fee_money.ts", "utf8"),
+  // moved out of frontend_runtime.ts by the Lean Refactor; stays in the static scan
+  await readFile("src/legal_html.ts", "utf8")
 ].join("\n");
 
 await runTest("security_admin_auth_validation", async () => {
