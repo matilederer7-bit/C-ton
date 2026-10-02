@@ -132,7 +132,8 @@ export async function transcodeWithWebCodecs(
   } catch (err) {
     // A library that fails to load falls back to the real-time engine; a file
     // the demuxer cannot open is unreadable; anything else is a reported failure.
-    const failure = err instanceof VideoConvertError ? err
+    // A library that hangs while loading also falls back (and keeps its detail).
+    const failure = err instanceof VideoConvertError ? (stage === "load" && err.code === "stalled" ? new VideoConvertError("unsupported_browser") : err)
       : new VideoConvertError(stage === "load" ? "unsupported_browser" : stage === "open" ? "unreadable" : "failed");
     const d = Number.isFinite(duration) ? duration.toFixed(1) : String(duration);
     failure.detail = `engine=webcodecs codec=${codec} stage=${stage} progress=${progress.toFixed(2)} duration=${d} frame=${frame}`

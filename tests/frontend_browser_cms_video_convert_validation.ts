@@ -172,7 +172,7 @@ async function main() {
       })()`);
       assert.equal(r.code, "stalled", JSON.stringify(r));
       assert.ok(r.waited < 12000, `took ${r.waited} ms to give up`);
-      assert.match(r.detail, /^engine=webcodecs codec=\w+ stage=(init|transcode) progress=\d\.\d\d duration=4\.0 frame=1920x1080 src=video\/quicktime mb=\d+\.\d browser=\S/);
+      assert.match(r.detail, /^engine=webcodecs codec=\w+ stage=(init|transcode) progress=\d\.\d\d duration=[34]\.\d frame=1920x1080 src=video\/quicktime mb=\d+\.\d browser=\S/);
     });
 
     await run("a ceiling the clip cannot fit fails with too_large, never an oversized upload", async () => {

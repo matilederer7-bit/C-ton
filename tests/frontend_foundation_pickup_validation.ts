@@ -196,7 +196,10 @@ await run("web dependencies: an exact allow-list, every addition pinned exact (q
   assert.equal(pkg.dependencies.mediabunny, "1.61.0");
   // mediabunny carries no runtime code of other packages: its only dependencies are type packages
   const lock = JSON.parse(read("web/package-lock.json"));
-  const mbDeps = Object.keys(lock.packages["node_modules/mediabunny"]?.dependencies || {});
+  const mbEntry = lock.packages["node_modules/mediabunny"];
+  assert.ok(mbEntry, "mediabunny is missing from web/package-lock.json");
+  assert.equal(mbEntry.version, "1.61.0");
+  const mbDeps = Object.keys(mbEntry.dependencies || {});
   assert.ok(mbDeps.every((d) => d.startsWith("@types/")), `mediabunny pulls runtime dependencies: ${mbDeps.join(", ")}`);
 });
 
