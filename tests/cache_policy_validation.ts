@@ -13,8 +13,10 @@ async function runTest(name: string, fn: () => Promise<void>) {
 
 await runTest("dynamic /api responses are no-store", async () => {
   const appSource = await readFile("src/app.ts", "utf8");
-  assert.match(appSource, /function isDynamicNoStoreRoute/);
-  assert.match(appSource, /path\.startsWith\("\/api\/"\)/);
+  // the classifier moved to src/http_security_headers.ts (Lean Refactor); the hook that applies it stays in app.ts
+  const headersSource = await readFile("src/http_security_headers.ts", "utf8");
+  assert.match(headersSource, /function isDynamicNoStoreRoute/);
+  assert.match(headersSource, /path\.startsWith\("\/api\/"\)/);
   assert.match(appSource, /reply\.header\("cache-control", "no-store"\)/);
   assert.match(appSource, /reply\.header\("pragma", "no-cache"\)/);
   assert.match(appSource, /reply\.header\("expires", "0"\)/);
@@ -22,7 +24,8 @@ await runTest("dynamic /api responses are no-store", async () => {
 
 await runTest("webhook responses are no-store without requiring a successful side effect", async () => {
   const appSource = await readFile("src/app.ts", "utf8");
-  assert.match(appSource, /path\.startsWith\("\/webhooks\/"\)/);
+  const headersSource = await readFile("src/http_security_headers.ts", "utf8");
+  assert.match(headersSource, /path\.startsWith\("\/webhooks\/"\)/);
   assert.match(appSource, /reply\.header\("cache-control", "no-store"\)/);
 });
 

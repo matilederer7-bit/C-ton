@@ -15,6 +15,7 @@ const FIXTURE_FILES = [
   "src/frontend_runtime.ts",
   "src/legal_html.ts",
   "src/app.ts",
+  "src/http_security_headers.ts",
   "src/legal_pages.ts",
   "src/admin_mission_control.ts",
   "src/payment_provider.ts",

@@ -388,7 +388,8 @@ await run("every failure kind has copy + a stable test id, and the copy always p
 
 // ── wiring proof (source-static): the seller surface really uses the strategy ─
 const sellerTsx = await readFile("web/src/pages/seller.tsx", "utf8");
-const appTs = await readFile("src/app.ts", "utf8");
+// the permissions-policy header moved from app.ts to src/http_security_headers.ts (Lean Refactor)
+const appTs = await readFile("src/http_security_headers.ts", "utf8");
 
 await run("seller.tsx LocationCapture delegates to requestPickupLocation(browserGeoDeps()) and never calls the API elsewhere", () => {
   assert.match(sellerTsx, /requestPickupLocation\(browserGeoDeps\(\)/);
