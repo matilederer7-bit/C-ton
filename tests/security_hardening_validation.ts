@@ -27,7 +27,9 @@ const allSource = [
   await readFile("src/payment_provider.ts", "utf8"),
   await readFile("src/platform_fee_money.ts", "utf8"),
   // moved out of frontend_runtime.ts by the Lean Refactor; stays in the static scan
-  await readFile("src/legal_html.ts", "utf8")
+  await readFile("src/legal_html.ts", "utf8"),
+  // moved out of app.ts by the Lean Refactor; stays in the static scan
+  await readFile("src/http_security_headers.ts", "utf8")
 ].join("\n");
 
 await runTest("security_admin_auth_validation", async () => {
@@ -55,20 +57,26 @@ await runTest("security_no_secret_exposure_validation", async () => {
 });
 
 await runTest("security_headers_validation", async () => {
+  // The response headers live in src/http_security_headers.ts (moved out of app.ts
+  // by the Lean Refactor); app.ts applies them on every request (onRequest hook).
+  const headers = await readFile("src/http_security_headers.ts", "utf8");
+  assert.match(app, /applySecurityHeaders\(reply\);/);
   for (const header of ["x-content-type-options", "referrer-policy", "x-frame-options", "permissions-policy"]) {
-    assert.match(app, new RegExp(header));
+    assert.match(headers, new RegExp(header));
   }
-  assert.match(app, /nosniff/);
-  assert.match(app, /no-referrer/);
-  assert.match(app, /DENY/);
+  assert.match(headers, /nosniff/);
+  assert.match(headers, /no-referrer/);
+  assert.match(headers, /DENY/);
   // Red-team hardening (A6): HSTS is emitted on production-like hosts (only),
   // so a downgrade/SSL-strip cannot expose session cookies or payment traffic.
-  assert.match(app, /if \(isProductionLikeEnv\(\)\) \{\s*reply\.header\("strict-transport-security", "max-age=31536000; includeSubDomains"\);/);
+  assert.match(headers, /if \(isProductionLikeEnv\(\)\) \{\s*reply\.header\("strict-transport-security", "max-age=31536000; includeSubDomains"\);/);
 });
 
 await runTest("security_api_no_store_validation", async () => {
-  assert.match(app, /path\.startsWith\("\/api\/"\)/);
-  assert.match(app, /path\.startsWith\("\/webhooks\/"\)/);
+  // classifier in src/http_security_headers.ts; the no-store header is set by app.ts's onRequest hook
+  const headers = await readFile("src/http_security_headers.ts", "utf8");
+  assert.match(headers, /path\.startsWith\("\/api\/"\)/);
+  assert.match(headers, /path\.startsWith\("\/webhooks\/"\)/);
   assert.match(app, /reply\.header\("cache-control", "no-store"\)/);
 });
 

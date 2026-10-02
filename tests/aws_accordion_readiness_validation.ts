@@ -116,9 +116,10 @@ await runTest("cdn_policy_validation", async () => {
   const app = await readFile("src/app.ts", "utf8");
   const cachePolicy = await readFile("docs/CACHE_POLICY.md", "utf8");
 
-  // API + webhooks no-store
-  assert.match(app, /path\.startsWith\("\/api\/"\)/, "no-store rule must apply to /api/*");
-  assert.match(app, /path\.startsWith\("\/webhooks\/"\)/, "no-store rule must apply to /webhooks/*");
+  // API + webhooks no-store (the classifier lives in src/http_security_headers.ts since the Lean Refactor)
+  const headers = await readFile("src/http_security_headers.ts", "utf8");
+  assert.match(headers, /path\.startsWith\("\/api\/"\)/, "no-store rule must apply to /api/*");
+  assert.match(headers, /path\.startsWith\("\/webhooks\/"\)/, "no-store rule must apply to /webhooks/*");
 
   // Deal images immutable
   assert.match(app, /isImmutableDealImageRoute/, "deal images must have an immutable cache policy carve-out");

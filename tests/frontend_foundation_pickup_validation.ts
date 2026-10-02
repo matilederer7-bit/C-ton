@@ -181,7 +181,8 @@ await run("React source pins — seller scanner: camera only on tap, typed + sea
 });
 
 await run("camera policy: app.ts allows camera for our own page only (self), microphone/payment stay off", () => {
-  const appTs = read("src/app.ts");
+  // the permissions-policy header moved from app.ts to src/http_security_headers.ts (Lean Refactor)
+  const appTs = read("src/http_security_headers.ts");
   const header = appTs.match(/reply\.header\("permissions-policy", "([^"]+)"\)/)?.[1] || "";
   assert.match(header, /camera=\(self\)/);
   assert.match(header, /microphone=\(\)/);
