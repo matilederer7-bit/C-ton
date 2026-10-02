@@ -89,6 +89,18 @@ async function main() {
     assert.equal(await page.evaluate<boolean>("!!window.__convert"), true, "the converter module did not load");
     const sourceBytes = await page.evaluate<number>(RECORD_SOURCE(4));
     assert.ok(sourceBytes > 0, "the source clip was not recorded");
+    // A real-time recording on a loaded runner can come out shorter than asked
+    // (frames dropped, late start), so the assertions below compare against the
+    // source's MEASURED duration, never an assumed 4 s.
+    const sourceDuration = await page.evaluate<number>(`(async () => {
+      const v = document.createElement('video'); v.muted = true; v.src = URL.createObjectURL(window.__source);
+      await new Promise((res, rej) => { v.onloadedmetadata = res; v.onerror = () => rej(new Error('source does not load')); setTimeout(() => rej(new Error('source metadata timed out')), 10000); });
+      if (!Number.isFinite(v.duration)) { v.currentTime = 1e6; await new Promise((res) => { v.ondurationchange = res; setTimeout(res, 3000); }); }
+      return v.duration;
+    })()`);
+    // The real-time engine tests below act on the running conversion after fixed
+    // waits of up to 1.5 s, so the clip must outlast them with a margin.
+    assert.ok(Number.isFinite(sourceDuration) && sourceDuration > 2.5, `source clip too short for the real-time tests: ${sourceDuration}`);
 
     await run("the WebCodecs engine handles the clip on its own (no fallback)", async () => {
       const r = await page!.evaluate<any>(`window.__tx.transcodeWithWebCodecs(window.__source, { maxBytes: ${MAX} }).then((o) => ({ ok: true, size: o.blob.size }), (e) => ({ ok: false, code: e.code, detail: e.detail || String(e) }))`);
@@ -109,12 +121,12 @@ async function main() {
         return { mime: out.mime, type: out.blob.type, size: out.blob.size, w: v.videoWidth, h: v.videoHeight, duration: v.duration,
                  first: progress[0], last: progress[progress.length - 1], steps: progress.length, b64: btoa(bin), usedRecorder };
       })()`);
-      console.log(`converted ${r.mime} ${r.size} bytes ${r.w}x${r.h} ${r.duration.toFixed(2)}s (source ${sourceBytes} bytes)`);
+      console.log(`converted ${r.mime} ${r.size} bytes ${r.w}x${r.h} ${r.duration.toFixed(2)}s (source ${sourceBytes} bytes, ${sourceDuration.toFixed(2)}s)`);
       assert.ok(["video/mp4", "video/webm"].includes(r.mime), r.mime);
       assert.equal(r.type, r.mime);
       assert.ok(r.size > 0 && r.size <= MAX, `converted size ${r.size}`);
       assert.ok(r.w > 0 && r.w <= 1280 && r.h <= 720, `converted frame ${r.w}x${r.h}`);
-      assert.ok(Number.isFinite(r.duration) && r.duration > 2.5 && r.duration < 6, `converted duration ${r.duration}`);
+      assert.ok(Number.isFinite(r.duration) && Math.abs(r.duration - sourceDuration) < 0.5, `converted duration ${r.duration} vs source ${sourceDuration}`);
       assert.ok(r.steps > 3 && r.first < 0.5 && r.last === 1, `progress ${JSON.stringify({ first: r.first, last: r.last, steps: r.steps })}`);
       assert.equal(validateVideoFile({ mimeType: r.mime, content: Buffer.from(r.b64, "base64") }), r.mime, "the server validator refused the converted video");
       assert.equal(r.usedRecorder, false, "the WebCodecs engine must not fall back to real-time recording in Chromium");
@@ -172,7 +184,9 @@ async function main() {
       })()`);
       assert.equal(r.code, "stalled", JSON.stringify(r));
       assert.ok(r.waited < 12000, `took ${r.waited} ms to give up`);
-      assert.match(r.detail, /^engine=webcodecs codec=\w+ stage=(init|transcode) progress=\d\.\d\d duration=[34]\.\d frame=1920x1080 src=video\/quicktime mb=\d+\.\d browser=\S/);
+      assert.match(r.detail, /^engine=webcodecs codec=\w+ stage=(init|transcode) progress=\d\.\d\d duration=\d+\.\d frame=1920x1080 src=video\/quicktime mb=\d+\.\d browser=\S/);
+      const reported = Number(/duration=(\d+\.\d)/.exec(r.detail)?.[1]);
+      assert.ok(Math.abs(reported - sourceDuration) < 0.3, `reported duration ${reported} vs source ${sourceDuration}`);
     });
 
     await run("a ceiling the clip cannot fit fails with too_large, never an oversized upload", async () => {
