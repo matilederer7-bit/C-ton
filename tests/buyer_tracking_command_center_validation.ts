@@ -276,21 +276,82 @@ async function main() {
     assert.equal(normal.tracking.personal_status.action_required, false);
   });
 
-  await runTest("frontend tracking command center renders live, chart, activity, and no duplicate discovery", async () => {
-    const [appJs, stylesCss] = await Promise.all([
-      readFile("frontend/app.js", "utf8"),
-      readFile("frontend/styles.css", "utf8")
-    ]);
-    const trackingSlice = appJs.slice(appJs.indexOf("function renderTrackingPage"), appJs.indexOf("function renderHome()"));
-    assert.match(trackingSlice, /מרכז מעקב קונה חי/);
-    assert.match(trackingSlice, /renderTrackingProgressChart/);
-    assert.match(trackingSlice, /renderTrackingActivityFeed/);
-    assert.match(trackingSlice, /כרגע לא נדרשת ממך פעולה/);
-    assert.match(trackingSlice, /TRACKING_POLL_INTERVAL_MS/);
+  // RETARGET (lr2): this test used to slice renderTrackingPage..renderHome() (a
+  // legacy renderer with zero call sites). It now reads the surfaces that are
+  // actually served: /app renderCtonTrackingPage and the React product page
+  // web/src/pages/track.tsx (docs/CURRENT_ARCHITECTURE_2026-09-30.md).
+  function extractFunction(source: string, name: string): string {
+    const header = new RegExp(`(?:^|\\n)(?:async )?function ${name}\\(`, "g");
+    const matches = [...source.matchAll(header)];
+    assert.equal(matches.length, 1, `expected exactly one top-level function ${name} in frontend/app.js, found ${matches.length}`);
+    const first = matches[0]!;
+  const start = first.index as number;
+    const nextHeader = /\n(?:async )?function \w+\(/g;
+    nextHeader.lastIndex = start + first[0].length;
+    const next = nextHeader.exec(source);
+    const slice = source.slice(start, next ? next.index : source.length);
+    assert.ok(slice.length > 400, `${name} slice is suspiciously small (${slice.length} chars); the assertion would be vacuous`);
+    return slice;
+  }
+
+  const [appJs, stylesCss, trackTsx] = await Promise.all([
+    readFile("frontend/app.js", "utf8"),
+    readFile("frontend/styles.css", "utf8"),
+    readFile("web/src/pages/track.tsx", "utf8")
+  ]);
+  assert.match(appJs, /route\.name === "tracking"\) return renderCtonTrackingPage\(/);
+  assert.ok(trackTsx.length > 2000, "web/src/pages/track.tsx must be readable and non-empty");
+  const ctonTracking = extractFunction(appJs, "renderCtonTrackingPage");
+  const liveSurfaces = [["renderCtonTrackingPage", ctonTracking], ["web/src/pages/track.tsx", trackTsx]] as const;
+
+  await runTest("live tracking surfaces render live progress, activity, polling, and the action-required CTA", async () => {
+    // Requirement: live aggregate progress toward the deal target.
+    // /app live construct: renderCtonProgressCard (legacy: renderProgressBlock); React: GroupMeter.
+    assert.match(ctonTracking, /renderCtonProgressCard\(/);
+    assert.match(ctonTracking, /progress_to_minimum_pct/);
+    assert.match(trackTsx, /<GroupMeter/);
+    assert.match(trackTsx, /progress\?\.current_units/);
+    // Requirement: anonymous activity feed of real deal events. Delivered by React only
+    // (/app live renderCtonTrackingPage has no feed; legacy renderTrackingActivityFeed is dead).
+    assert.match(trackTsx, /tr\.activity_feed\.slice\(0, 10\)/);
+    assert.match(trackTsx, /track\.what_happened_deal/);
+    // Requirement: the personal-status CTA appears only when the server says action is required.
+    // React renders the CTA only when personal_status.cta carries href+label (server-gated);
+    // legacy copy "כרגע לא נדרשת ממך פעולה" is recorded in the GAP test below.
+    assert.match(trackTsx, /tr\.personal_status\?\.cta\?\.href && tr\.personal_status\?\.cta\?\.label \?/);
+    assert.match(trackTsx, /data-testid="track-personal-cta"/);
+    // Requirement: the tracking screen refreshes itself live.
+    // /app: the route poller uses TRACKING_POLL_INTERVAL_MS for tracking routes (same constant, set by the router, not the renderer).
+    assert.match(appJs, /const TRACKING_POLL_INTERVAL_MS = 6000;/);
+    assert.match(appJs, /startsWith\("tracking:"\)\s*\? TRACKING_POLL_INTERVAL_MS/);
+    // React: TrackPage polls every 6 s.
+    assert.match(trackTsx, /setInterval\(load, 6_000\)/);
+    // Negatives: no discovery / chat / money-distribution surface on live tracking.
+    for (const [label, slice] of liveSurfaces) {
+      assert.doesNotMatch(slice, /marketplace|catalog|public discovery|global feed|inbox|private chat/i, label);
+      assert.doesNotMatch(slice, /commission|payout/i, label);
+    }
+  });
+
+  // GAP records: requirements asserted by the legacy test that the LIVE product does not deliver.
+  // They are documented, not pinned to dead code. Each entry fails if a live surface starts
+  // delivering it, so the gap is retired deliberately (retarget the assertion) rather than silently.
+  await runTest("GAP record: legacy-only tracking requirements absent from the live product (owner decision)", async () => {
+    const gaps: Array<{ requirement: string; legacy: string; liveDelivers: RegExp; where: string }> = [
+      { requirement: "live-buyer-center headline eyebrow", legacy: "מרכז מעקב קונה חי", liveDelivers: /מרכז מעקב קונה חי/, where: "/app + React" },
+      { requirement: "cumulative progress CHART over time (chart_points)", legacy: "renderTrackingProgressChart", liveDelivers: /renderTrackingProgressChart|chart_points|tracking-chart/, where: "/app + React" },
+      { requirement: "anonymous activity feed on the /app shell", legacy: "renderTrackingActivityFeed", liveDelivers: /renderTrackingActivityFeed|activity_feed/, where: "/app renderCtonTrackingPage (React has it)" },
+      { requirement: "explicit 'no action needed now' text", legacy: "כרגע לא נדרשת ממך פעולה", liveDelivers: /כרגע לא נדרשת ממך פעולה/, where: "/app + React" }
+    ];
+    for (const gap of gaps) {
+      const scope = gap.where.startsWith("/app renderCtonTrackingPage") ? ctonTracking : `${ctonTracking}\n${trackTsx}`;
+      const delivered = gap.liveDelivers.test(scope);
+      console.log(`GAP legacy-only requirement not in live product: ${gap.requirement} [legacy: ${gap.legacy}; checked: ${gap.where}] — delivered by live: ${delivered}`);
+      assert.equal(delivered, false, `live surface now delivers "${gap.requirement}": retarget the legacy assertion to it and remove this GAP entry`);
+    }
+    // Legacy CSS for the dead chart/activity markup: retained until the renderer-deletion PR removes both together.
     assert.match(stylesCss, /\.tracking-chart/);
     assert.match(stylesCss, /\.tracking-activity-feed/);
-    assert.doesNotMatch(trackingSlice, /marketplace|catalog|public discovery|global feed|inbox|private chat/i);
-    assert.doesNotMatch(trackingSlice, /commission|payout/i);
   });
 }
 
