@@ -55,19 +55,19 @@ jobs:
       matrix:
         include:
           - lane: architecture
-            model: gpt-5.6-terra
+            model: gpt-6.1-sol
             effort: medium
             focus: "Architecture, state transitions, concurrency, boundaries and structural defects."
           - lane: security
-            model: gpt-5.6-sol
+            model: gpt-6.1-sol
             effort: high
             focus: "Authentication, authorization, secrets, input boundaries, money and abuse cases."
           - lane: tests
-            model: gpt-5.6-luna
+            model: gpt-6-luna
             effort: low
             focus: "Coverage gaps, weak assertions, flakes, CI topology and missing regression proof."
           - lane: source-of-truth
-            model: gpt-5.6-luna
+            model: gpt-6-luna
             effort: low
             focus: "Canonical documents, implementation drift, stale obligations and acceptance criteria."
     steps:
