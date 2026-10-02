@@ -51,6 +51,8 @@ for (const doc of requiredDocs) if (!exists(doc)) failures.push("missing require
 
 const app = read("frontend/app.js");
 const runtime = read("src/frontend_runtime.ts");
+// The server-rendered legal shell moved out of frontend_runtime.ts (Lean Refactor); it stays in the product surface.
+const legalShell = read("src/legal_html.ts");
 const server = read("src/app.ts");
 const buyerTerms = norm(read("docs/BUYER_TERMS_HE.md"));
 const privacy = norm(read("docs/PRIVACY_POLICY_HE.md"));
@@ -59,8 +61,8 @@ const sellerKyc = norm(read("docs/SELLER_KYC_POLICY.md"));
 const refundPolicy = norm(read("docs/CANCELLATION_REFUND_POLICY_HE.md"));
 const distributionTerms = norm(read("docs/DISTRIBUTOR_TERMS_HE.md"));
 const legalPages = norm(read("src/legal_pages.ts"));
-const combinedProduct = app + "\n" + runtime + "\n" + server;
-const combinedProductNoComments = ast.stripComments(app, "app.js") + "\n" + ast.stripComments(runtime, "frontend_runtime.ts") + "\n" + ast.stripComments(server, "app.ts");
+const combinedProduct = app + "\n" + runtime + "\n" + legalShell + "\n" + server;
+const combinedProductNoComments = ast.stripComments(app, "app.js") + "\n" + ast.stripComments(runtime, "frontend_runtime.ts") + "\n" + ast.stripComments(legalShell, "legal_html.ts") + "\n" + ast.stripComments(server, "app.ts");
 
 for (const forbidden of ["שלם עכשיו", "התשלום בוצע", "רכישה הושלמה"]) {
   if (app.includes(forbidden)) failures.push("forbidden auth-hold copy appears in frontend: " + forbidden);

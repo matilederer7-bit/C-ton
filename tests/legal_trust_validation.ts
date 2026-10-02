@@ -45,10 +45,13 @@ await run("legal_footer_links_validation", async () => {
   // P0.3-12: the visible legal footer/nav is trimmed to the core buyer
   // documents + support; seller terms and the legacy /legal/affiliates compatibility path stay ROUTED (LEGAL_PAGES)
   // and linked from their own flows, not from the buyer footer.
-  assert.match(runtime, /\/legal\/terms/);
-  assert.match(runtime, /\/legal\/privacy/);
-  assert.match(runtime, /\/legal\/refunds/);
-  assert.match(runtime, /\/preview\/#\/support/);
+  // The footer is rendered by the legal HTML shell (src/legal_html.ts, moved out
+  // of frontend_runtime.ts by the Lean Refactor); /app/contact stays a runtime route.
+  const legalShell = await readFile("src/legal_html.ts", "utf8");
+  assert.match(legalShell, /\/legal\/terms/);
+  assert.match(legalShell, /\/legal\/privacy/);
+  assert.match(legalShell, /\/legal\/refunds/);
+  assert.match(legalShell, /\/preview\/#\/support/);
   assert.match(runtime, /\/app\/contact/);
   const legalPages = await readFile("src/legal_pages.ts", "utf8");
   assert.match(legalPages, /sellers/);

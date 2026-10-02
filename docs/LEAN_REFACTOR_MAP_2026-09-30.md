@@ -304,7 +304,7 @@ read-only passes (src / web / frontend; scripts / dependencies / config / root; 
 
 | Item | Why not now |
 |---|---|
-| `src/frontend_runtime.ts` (≈12 300 lines) further splits: legal HTML render, admin ops / support / pilot route groups, `/app` shell routes | verbatim route-group moves are mechanical but each is large; one concern per PR, after R5 |
+| `src/frontend_runtime.ts` (≈12 300 lines) further splits: ~~legal HTML render~~ (DONE 2026-10-02 — `src/legal_html.ts`, PR "LR2-1"), admin ops / support / pilot route groups, `/app` shell routes | verbatim route-group moves are mechanical but each is large; one concern per PR. Note: 38 tests / scripts read `frontend_runtime.ts` as text — every move retargets its pins to the new file (never drops them) and adds the new file to any gate that scans the runtime surface |
 | `src/app.ts` (≈8 600 lines): `http_security`, ops routes, seller-deal routes | same; money / outbox / lifecycle code stays untouched |
 | Duplicated helpers: `paymentMinorAmount` + `parsePositiveIntegerQuantity` (app.ts / frontend_runtime.ts), five `roundMoney` copies | **money** — out of scope for a behaviour-free refactor; consolidate only in a reviewed money PR |
 | `sha256` hex ×3, `randomBytes(32).base64url` ×5, peppered token hash ×2, cookie parsers ×2 (not identical), `requireUuid` ×3 (messages differ) | **auth** — out of scope; cookie parsers and `requireUuid` differ in behaviour |
@@ -314,14 +314,14 @@ read-only passes (src / web / frontend; scripts / dependencies / config / root; 
 | `TWILIO_*` (no provider), `DEBUG_JOIN_LOGGING` (no reader); `DISABLE_OUTBOX_WORKER` switches no worker off any more (the web runs no in-process worker) but `src/production_guards.ts` **requires** it (`=1`) for the production web, so it is a live boot invariant, not a dead flag | config / runtime-policy / docs sweep together with `config/runtime-environment-policy.json`; any change to `DISABLE_OUTBOX_WORKER` must change the guard, the Render env and the policy together — never drop it alone |
 | Browser-proof scripts each carry their own CDP launcher (≈13 copies) | extract `scripts/lib/cdp.cjs`; proofs have no automated caller, so each must be re-run once after the change |
 | ts-node + `register-ts-node.mjs` + the two `restart_server*.ps1` (Windows / local paths) | `architecture_truth_gate.test.cjs` lists the `.ps1` files and `OPERATIONAL_RUNBOOK` documents them |
-| `/api/admin/notifications/status` duplicate alias of `/notifications-status` (0 consumers; no test pins it) | admin route — a one-line removal, but still a route change, so its own reviewed PR |
+| ~~`/api/admin/notifications/status` duplicate alias of `/notifications-status`~~ | **DONE 2026-10-02** — removed by PR #190 (`5c5221f`, ChatGPT; independent review MERGE; Siton CI green on the head and on master run 37005103522); `/api/admin/notifications-status` unchanged |
 
 ### 7.2b Remaining DELETE CANDIDATES (each needs its own owner-approved PR)
 
 | Item | Proof / blocker |
 |---|---|
 | `docs/archive/db-drift-resolution.md`, `docs/archive/runtime-contract-resolution.md` | unreadable encoding, zero consumers; archived meanwhile |
-| `/api/admin/notifications/status` | duplicate alias of `/notifications-status`, 0 consumers in web / frontend / tests / scripts; no test pins it; admin route — one-line removal in its own PR |
+| ~~`/api/admin/notifications/status`~~ | DONE — removed by PR #190 (`5c5221f`) |
 | superseded renderers in `frontend/app.js` | dead (no dispatcher reaches them), but four tests slice them by name — retarget first (§7.2) |
 | `src/stage10c_harden_deals.sql` | retired 3-line marker; only a comment in migration 022 names it (migrations are never edited, so it stays unless the owner accepts a dangling comment) |
 
