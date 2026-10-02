@@ -50,5 +50,8 @@ function videoConvertMessage(err: unknown): string {
   if (code === "too_long") return t("content_assets.video_too_long_to_convert");
   if (code === "unreadable") return t("content_assets.video_cannot_be_read_here");
   if (code === "unsupported_browser") return t("content_assets.browser_cannot_convert_video");
+  if (code === "blocked") return t("content_assets.video_playback_blocked");
+  if (code === "interrupted") return t("content_assets.video_conversion_interrupted");
+  if (code === "too_large") return t("content_assets.video_still_too_large");
   return t("content_assets.video_conversion_failed");
 }

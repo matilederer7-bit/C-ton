@@ -39,7 +39,8 @@ async function moduleSource(file: string): Promise<string> {
 
 async function serve(port: number): Promise<Server> {
   const files: Record<string, [string, string]> = {
-    "/": ["text/html", "<!doctype html><meta charset=utf-8><title>video convert</title><body><script type=module>import * as m from './videoConvert.js'; window.__convert = m;</script></body>"],
+    // every MediaRecorder the converter creates is tracked, so a failure path that leaves one recording is caught
+    "/": ["text/html", "<!doctype html><meta charset=utf-8><title>video convert</title><body><script>window.__recorders = []; const R = window.MediaRecorder; window.MediaRecorder = class extends R { constructor(...a) { super(...a); window.__recorders.push(this); } };</script><script type=module>import * as m from './videoConvert.js'; window.__convert = m;</script></body>"],
     "/videoConvert.js": ["text/javascript", await moduleSource("videoConvert.ts")],
     "/videoPrep.js": ["text/javascript", await moduleSource("videoPrep.ts")]
   };
@@ -116,6 +117,25 @@ async function main() {
     await run("a file that is not a playable video fails with unreadable", async () => {
       const code = await page!.evaluate<string>(`window.__convert.convertVideoForHero(new File([new Uint8Array(2048).fill(7)], 'x.mov', { type: 'video/quicktime' }), { maxBytes: ${MAX} }).then(() => 'resolved', (e) => e.code || String(e))`);
       assert.equal(code, "unreadable");
+    });
+
+    await run("leaving the page mid-conversion stops at once with interrupted, never a frozen clip", async () => {
+      const code = await page!.evaluate<string>(`(async () => {
+        const p = window.__convert.convertVideoForHero(window.__source, { maxBytes: ${MAX} });
+        await new Promise((r) => setTimeout(r, 1200));
+        Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+        document.dispatchEvent(new Event('visibilitychange'));
+        try { await p; return 'resolved'; } catch (e) { return e.code || String(e); } finally { delete document.hidden; }
+      })()`);
+      assert.equal(code, "interrupted");
+    });
+
+    await run("no failure path leaves a recorder running or a hidden video behind", async () => {
+      await new Promise((r) => setTimeout(r, 300));
+      const left = await page!.evaluate<any>(`({ recorders: window.__recorders.length, active: window.__recorders.filter((r) => r.state !== 'inactive').length, videos: document.querySelectorAll('video').length })`);
+      assert.ok(left.recorders >= 2, `expected the conversions above to create recorders: ${JSON.stringify(left)}`);
+      assert.equal(left.active, 0, `a recorder is still running: ${JSON.stringify(left)}`);
+      assert.equal(left.videos, 0, "a hidden <video> was left in the document");
     });
 
     const errors = page.errors().filter((e) => !/favicon/.test(e.text));

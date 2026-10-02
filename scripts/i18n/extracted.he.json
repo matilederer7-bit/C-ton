@@ -1770,9 +1770,12 @@
   "admin_mfa.verify": "אימות והמשך",
   "admin_mfa.cancel": "ביטול",
   "admin_mfa.other_factor": "לחשבון שלך כבר מוגדרת שיטת אימות אחרת. בקשו ממנהל-על לאפס את האימות הדו־שלבי, ואז הגדירו אפליקציית אימות.",
-  "content_admin.preparing_video": "מכינים את הווידאו… {percent}%",
+  "content_admin.preparing_video": "מכינים את הווידאו… {percent}% — השאירו את המסך פתוח",
   "content_assets.video_too_long_to_convert": "הסרטון ארוך מדקה — קצרו אותו לדקה לכל היותר ונסו שוב",
   "content_assets.video_cannot_be_read_here": "הדפדפן הזה לא מצליח לקרוא את הסרטון — נסו מדפדפן אחר (Safari באייפון או Chrome)",
   "content_assets.browser_cannot_convert_video": "הדפדפן הזה לא יכול להכין את הווידאו — נסו מ-Chrome או מ-Safari מעודכן",
-  "content_assets.video_conversion_failed": "הכנת הווידאו נכשלה — נסו שוב או בחרו סרטון קצר יותר"
+  "content_assets.video_conversion_failed": "הכנת הווידאו נכשלה — נסו שוב או בחרו סרטון קצר יותר",
+  "content_assets.video_playback_blocked": "הטלפון חסם את הכנת הווידאו (למשל במצב חיסכון בסוללה) — כבו את מצב החיסכון ונסו שוב",
+  "content_assets.video_conversion_interrupted": "הכנת הווידאו נעצרה כי המסך ננעל או שעברתם לאפליקציה אחרת — השאירו את המסך פתוח ונסו שוב",
+  "content_assets.video_still_too_large": "גם אחרי ההכנה הסרטון גדול מ-10MB — בחרו סרטון קצר יותר"
 }

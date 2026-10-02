@@ -6,17 +6,26 @@
 // stream at a bitrate planned to stay under the byte ceiling. It takes about
 // as long as the clip itself. No audio: the hero video always plays muted.
 // The policy (when to convert, sizes, bitrate, formats) lives in ./videoPrep.
+//
+// Failure is always bounded and clean: one deadline covers the whole pipeline,
+// a hidden page (screen locked, app switched) stops it at once, a recorder
+// error stops it, and the recorder, its stream and the <video> are released on
+// every path.
 import { heroVideoBitrate, pickRecorderType, scaledVideoSize, sniffVideoContainer } from "./videoPrep";
 
-export type VideoConvertErrorCode = "unsupported_browser" | "unreadable" | "too_long" | "too_large" | "failed";
+export type VideoConvertErrorCode =
+  | "unsupported_browser" | "unreadable" | "blocked" | "interrupted" | "too_long" | "too_large" | "failed";
 
 export class VideoConvertError extends Error {
   constructor(readonly code: VideoConvertErrorCode) { super(code); this.name = "VideoConvertError"; }
 }
 
-function once<T extends Event>(target: EventTarget, ok: string, fail?: string): Promise<T> {
+/** Time allowed to open the file and learn its duration, before the per-clip deadline applies. */
+const OPEN_DEADLINE_MS = 30_000;
+
+function once(target: EventTarget, ok: string, fail?: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const onOk = (e: Event) => { cleanup(); resolve(e as T); };
+    const onOk = () => { cleanup(); resolve(); };
     const onFail = () => { cleanup(); reject(new VideoConvertError("unreadable")); };
     const cleanup = () => { target.removeEventListener(ok, onOk); if (fail) target.removeEventListener(fail, onFail); };
     target.addEventListener(ok, onOk);
@@ -38,11 +47,7 @@ async function knownDuration(video: HTMLVideoElement): Promise<number> {
   const found = settle(video, "durationchange", 5000);
   video.currentTime = 1e7;
   await found;
-  const duration = video.duration;
-  const back = settle(video, "seeked", 5000);
-  video.currentTime = 0;
-  await back;
-  return duration;
+  return video.duration;
 }
 
 export async function convertVideoForHero(
@@ -66,15 +71,42 @@ export async function convertVideoForHero(
   // video) but invisible and out of the way.
   video.style.cssText = "position:fixed;right:0;bottom:0;width:2px;height:2px;opacity:0.01;pointer-events:none;z-index:-1";
   document.body.appendChild(video);
+
+  // Every failure source funnels into one rejection the pipeline races against.
+  let abort: (code: VideoConvertErrorCode) => void = () => undefined;
+  const aborted = new Promise<never>((_, reject) => { abort = (code) => reject(new VideoConvertError(code)); });
+  aborted.catch(() => undefined);
+  const guard = <T>(p: Promise<T>) => Promise.race([p, aborted]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const arm = (ms: number) => { clearTimeout(timer); timer = setTimeout(() => abort("failed"), ms); };
+  const onHidden = () => { if (document.hidden) abort("interrupted"); };
+  document.addEventListener("visibilitychange", onHidden);
+
   let raf = 0;
+  let recorder: MediaRecorder | undefined;
+  let stream: MediaStream | undefined;
   try {
+    arm(OPEN_DEADLINE_MS);
     const loaded = once(video, "loadeddata", "error");
     video.src = url;
-    await loaded;
-    const duration = await knownDuration(video);
+    // Called while still inside the file-picker gesture where the browser allows
+    // it: mobile Safari restricts play() outside a user gesture (e.g. in Low Power
+    // Mode), and an element that has played once may play again later.
+    let unlocking = true;
+    video.play().then(() => { if (unlocking) video.pause(); }, () => undefined);
+    await guard(loaded);
+    const duration = await guard(knownDuration(video));
     if (!Number.isFinite(duration) || duration <= 0 || !video.videoWidth || !video.videoHeight) throw new VideoConvertError("unreadable");
     const bitrate = heroVideoBitrate(duration, opts.maxBytes);
     if (!bitrate) throw new VideoConvertError("too_long");
+    arm((duration * 3 + 30) * 1000);
+    unlocking = false;
+    video.pause();
+    if (video.currentTime > 0) {
+      const rewound = settle(video, "seeked", 5000);
+      video.currentTime = 0;
+      await guard(rewound);
+    }
 
     const size = scaledVideoSize(video.videoWidth, video.videoHeight);
     const canvas = document.createElement("canvas");
@@ -85,28 +117,32 @@ export async function convertVideoForHero(
     const draw = () => { ctx.drawImage(video, 0, 0, size.width, size.height); };
     draw();
 
-    const stream = canvas.captureStream(30);
-    const recorder = new MediaRecorder(stream, { mimeType: format.recorderType, videoBitsPerSecond: bitrate });
-    const chunks: Blob[] = [];
-    recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-    const stopped = once(recorder, "stop");
+    const ended = once(video, "ended", "error");
+    try { await guard(video.play()); }
+    catch (err) {
+      if (err instanceof VideoConvertError) throw err;
+      throw new VideoConvertError((err as { name?: string })?.name === "NotAllowedError" ? "blocked" : "unreadable");
+    }
 
+    stream = canvas.captureStream(30);
+    const rec = new MediaRecorder(stream, { mimeType: format.recorderType, videoBitsPerSecond: bitrate });
+    recorder = rec;
+    const chunks: Blob[] = [];
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onerror = () => abort("failed");
+    const stopped = once(rec, "stop");
+    rec.start(1000);
     const tick = () => {
       draw();
       opts.onProgress?.(Math.min(0.99, video.currentTime / duration));
       if (!video.ended) raf = requestAnimationFrame(tick);
     };
-    const ended = once(video, "ended", "error");
-    recorder.start(1000);
-    await video.play().catch(() => { throw new VideoConvertError("unreadable"); });
     raf = requestAnimationFrame(tick);
-    // A stalled decoder must not hang the editor forever.
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new VideoConvertError("failed")), (duration * 3 + 30) * 1000); });
-    try { await Promise.race([ended, deadline]); }
-    finally { clearTimeout(timer); cancelAnimationFrame(raf); draw(); if (recorder.state !== "inactive") recorder.stop(); }
-    await stopped;
-    stream.getTracks().forEach((track) => track.stop());
+    await guard(ended);
+    cancelAnimationFrame(raf);
+    draw();
+    rec.stop();
+    await guard(stopped);
 
     const blob = new Blob(chunks, { type: format.uploadType });
     if (!blob.size) throw new VideoConvertError("failed");
@@ -116,7 +152,11 @@ export async function convertVideoForHero(
     opts.onProgress?.(1);
     return { blob: container === format.uploadType ? blob : new Blob([blob], { type: container }), mime: container };
   } finally {
+    clearTimeout(timer);
+    document.removeEventListener("visibilitychange", onHidden);
     cancelAnimationFrame(raf);
+    if (recorder && recorder.state !== "inactive") { try { recorder.stop(); } catch { /* already stopping */ } }
+    stream?.getTracks().forEach((track) => track.stop());
     video.pause();
     video.removeAttribute("src");
     video.load();
