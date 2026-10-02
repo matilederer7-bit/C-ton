@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cp, mkdir } from "node:fs/promises";
+import { cp, mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -24,6 +24,23 @@ async function runTest(name: string, fn: () => Promise<void> | void) {
     console.error(`FAIL ${name}`);
     throw error;
   }
+}
+
+// Slice ONE named top-level function out of frontend/app.js. Fails loudly when
+// the function is missing, duplicated, or suspiciously empty, so deleting or
+// renaming a renderer can never turn a slice assertion into a vacuous pass.
+function extractFunction(source: string, name: string): string {
+  const header = new RegExp(`(?:^|\\n)(?:async )?function ${name}\\(`, "g");
+  const matches = [...source.matchAll(header)];
+  assert.equal(matches.length, 1, `expected exactly one top-level function ${name} in frontend/app.js, found ${matches.length}`);
+  const first = matches[0]!;
+  const start = first.index as number;
+  const nextHeader = /\n(?:async )?function \w+\(/g;
+  nextHeader.lastIndex = start + first[0].length;
+  const next = nextHeader.exec(source);
+  const slice = source.slice(start, next ? next.index : source.length);
+  assert.ok(slice.length > 400, `${name} slice is suspiciously small (${slice.length} chars); the assertion would be vacuous`);
+  return slice;
 }
 
 async function ensureFrontendAssets() {
@@ -250,12 +267,25 @@ async function main() {
 
     assert.equal(response.statusCode, 200);
     const source = response.body;
-    const confirmationStart = source.indexOf("function renderConfirmationPage");
-    const trackingStart = source.indexOf("function renderTrackingPage");
-    const trackingEnd = source.indexOf("function renderHome", trackingStart);
-    const confirmationSnippet = source.slice(confirmationStart, trackingStart);
-    const trackingSnippet = source.slice(trackingStart, trackingEnd > trackingStart ? trackingEnd : undefined);
-    const buyerFlowSnippet = source.slice(source.indexOf("async function payAndJoin"), source.indexOf("async function createDeal"));
+    // RETARGET (lr2): these slices used to read renderConfirmationPage /
+    // renderTrackingPage (legacy renderers with zero call sites). They now read
+    // the renderers the /app dispatcher actually calls, plus the React product
+    // tracking page (docs/CURRENT_ARCHITECTURE_2026-09-30.md: web/ at /preview).
+    assert.match(source, /route\.name === "confirmation"\) return renderCtonConfirmationPage\(/);
+    assert.match(source, /route\.name === "tracking"\) return renderCtonTrackingPage\(/);
+    assert.match(source, /route\.name === "recovery"\) return renderRecoveryPage\(/);
+    const confirmationSnippet = extractFunction(source, "renderCtonConfirmationPage");
+    const trackingSnippet = extractFunction(source, "renderCtonTrackingPage");
+    // The old tracking slice (renderTrackingPage..renderHome) also spanned the
+    // live renderRecoveryPage, so its buyer-facing output stays under the same gates.
+    const recoverySnippet = extractFunction(source, "renderRecoveryPage");
+    const trackTsx = await readFile(join(repoRoot, "web", "src", "pages", "track.tsx"), "utf8");
+    assert.ok(trackTsx.length > 2000, "web/src/pages/track.tsx must be readable and non-empty");
+    const payStart = source.indexOf("async function payAndJoin");
+    const payEnd = source.indexOf("async function createDeal");
+    assert.ok(payStart >= 0 && payEnd > payStart, "payAndJoin..createDeal slice boundaries must exist");
+    const buyerFlowSnippet = source.slice(payStart, payEnd);
+    assert.ok(buyerFlowSnippet.length > 400, "payAndJoin slice must be non-empty");
 
     assert.match(source, /app\\\/deal/);
     assert.match(source, /app\\\/join\\\/\(\[\^\/\]\+\)\\\/otp/);
@@ -274,17 +304,44 @@ async function main() {
     assert.match(source, /הצטרפת בהצלחה/);
     assert.match(source, /REQUIRED_CHARGE_CONDITION/);
     assert.match(source, /REQUIRED_RELEASE_NOTICE/);
-    assert.match(trackingSnippet, /dealState\.label/);
-    assert.match(trackingSnippet, /buyerState\[0\]/);
-    assert.match(trackingSnippet, /moneyState\[0\]/);
-    assert.match(trackingSnippet, /renderShareActions/);
+    // Requirement: the tracking screen shows the deal-state label.
+    // /app: renderCtonTrackingPage names it dealCopy (legacy renderer: dealState).
+    assert.match(trackingSnippet, /dealCopy\.label/);
+    // React: <StatusPill state={tr.deal_state} /> renders the deal-state label.
+    assert.match(trackTsx, /<StatusPill state=\{tr\.deal_state\} \/>/);
+    // Requirement: the buyer's personal (participation) status is shown.
+    // The legacy-only buyerState[0] label has no /app counterpart; the live
+    // product delivers it as the server-derived personal_status panel in React.
+    assert.match(trackTsx, /personal_status\?\.title/);
+    assert.match(trackTsx, /personal_status\?\.detail/);
+    // LEGACY-ONLY, not in live /app: renderCtonTrackingPage has no buyerState[0] label.
+    // GAP record: fails if the live /app renderer starts showing a buyer-state label, so the gap is retired deliberately.
+    const buyerStateLabelDelivered = /buyerState|buyer_state|BUYER_STATE/.test(trackingSnippet);
+    console.log(`GAP legacy-only requirement not in live /app tracking: explicit buyerState[0] participation label (owner decision; React shows personal_status instead) — delivered by live: ${buyerStateLabelDelivered}`);
+    assert.equal(buyerStateLabelDelivered, false, "live /app renderCtonTrackingPage now shows a buyer-state label: retarget the legacy buyerState[0] assertion to it and remove this GAP entry");
+    // Requirement: the buyer sees the money state. /app live names it money[0]
+    // (legacy renderer: moneyState[0]); React shows the held-amount row + hold note.
+    assert.match(trackingSnippet, /money\[0\]/);
+    assert.match(trackTsx, /track\.amount_held_authorization/);
+    assert.match(trackTsx, /trackCopy\.holdNote/);
+    // Requirement: the buyer can share the deal from the tracking screen.
+    assert.match(trackingSnippet, /renderShareActions\(/);
+    assert.match(trackTsx, /<ShareActions[\s\S]*?dealId=\{tr\.deal_id\}/);
+    // Negative: the confirmation surfaces never print participant / authorization ids.
     assert.doesNotMatch(confirmationSnippet, /esc\(flow\.participantId\)/);
     assert.doesNotMatch(confirmationSnippet, /esc\(flow\.authorizationId/);
-    assert.doesNotMatch(trackingSnippet, /esc\(tracking\.participant_id\)/);
-    assert.doesNotMatch(trackingSnippet, /esc\(tracking\.buyer_id\)/);
+    // Negative: the tracking surfaces (/app renderCtonTrackingPage + renderRecoveryPage, React TrackPage)
+    // never print participant_id / buyer_id.
+    for (const [label, slice] of [["renderCtonTrackingPage", trackingSnippet], ["renderRecoveryPage", recoverySnippet]] as const) {
+      assert.doesNotMatch(slice, /esc\(tracking\.participant_id\)/, label);
+      assert.doesNotMatch(slice, /esc\(tracking\.buyer_id\)/, label);
+    }
+    assert.doesNotMatch(trackTsx, /\{\s*tr\.(participant_id|buyer_id)\s*\}/);
+    assert.doesNotMatch(trackTsx, /esc\(tr\.(participant_id|buyer_id)\)/);
     assert.doesNotMatch(buyerFlowSnippet, /capture|refund|void/i);
-    assert.doesNotMatch(`${confirmationSnippet}\n${trackingSnippet}\n${buyerFlowSnippet}`, /marketplace|catalog|search/i);
-    assert.doesNotMatch(`${confirmationSnippet}\n${trackingSnippet}\n${buyerFlowSnippet}`, /affiliate commission|affiliate payout|commission_amount|payout_status/i);
+    const liveBuyerSurfaces = `${confirmationSnippet}\n${trackingSnippet}\n${recoverySnippet}\n${buyerFlowSnippet}\n${trackTsx}`;
+    assert.doesNotMatch(liveBuyerSurfaces, /marketplace|catalog|search/i);
+    assert.doesNotMatch(liveBuyerSurfaces, /affiliate commission|affiliate payout|commission_amount|payout_status/i);
     assert.doesNotMatch(source, /raw_card|card_raw/i);
   });
 

@@ -309,7 +309,7 @@ read-only passes (src / web / frontend; scripts / dependencies / config / root; 
 | Duplicated helpers: `paymentMinorAmount` + `parsePositiveIntegerQuantity` (app.ts / frontend_runtime.ts), five `roundMoney` copies | **money** — out of scope for a behaviour-free refactor; consolidate only in a reviewed money PR |
 | `sha256` hex ×3, `randomBytes(32).base64url` ×5, peppered token hash ×2, cookie parsers ×2 (not identical), `requireUuid` ×3 (messages differ) | **auth** — out of scope; cookie parsers and `requireUuid` differ in behaviour |
 | Unused locals in money / auth / payment files (`admin_identity`, `grow_payment_adapter`, `invoice_dispatch`, `participant_tracking_security`, `payment_provider`, `payout_provider`, `payout_rail`, `webhook_ingestion`) | deliberately left out of R2 |
-| `frontend/app.js` superseded renderers (`renderHomeLegacy`, `renderDealPage`, `renderOtpPage`, `renderPaymentPage`, `renderConfirmationPage`, `renderTrackingPage`, `renderSellerPage`, `renderSellerDealPage`, …) | four tests slice the file by these names; they must be retargeted to the live `renderCton*` renderers first, without losing an assertion |
+| `frontend/app.js` superseded renderers (`renderHomeLegacy`, `renderDealPage`, `renderOtpPage`, `renderPaymentPage`, `renderConfirmationPage`, `renderTrackingPage`, `renderSellerPage`, `renderSellerDealPage`, …) | **retarget DONE 2026-10-02 (round-2 slice 4):** the three tests that sliced them (`frontend_flow_validation`, `buyer_document_visibility_validation`, `buyer_tracking_command_center_validation`) now read the live `/app` `renderCton*` slices and the React `web/src/pages/track.tsx` (fail loudly if a slice vanishes; dispatcher guards). Six requirements only the dead code delivered are recorded as GAP assertions (§8.2), not dropped. Renderer deletion is a separate PR and must first move the whole-file pins on the dead helpers (`buildTrackingDocumentVisibility`, `buildTrackingTimeline`, `.tracking-chart` CSS) |
 | ~50 single-file `npm run test:*` shortcuts | every `tests/*.ts` already runs in CI via `scripts/run_test_group.cjs`; 13 names are pinned by tests (`mvp_completion`, `refund_policy`, `deal_types`, `security_hardening`) and `docs/TEST_INVENTORY.md` lists them |
 | `TWILIO_*` (no provider), `DEBUG_JOIN_LOGGING` (no reader); `DISABLE_OUTBOX_WORKER` switches no worker off any more (the web runs no in-process worker) but `src/production_guards.ts` **requires** it (`=1`) for the production web, so it is a live boot invariant, not a dead flag | config / runtime-policy / docs sweep together with `config/runtime-environment-policy.json`; any change to `DISABLE_OUTBOX_WORKER` must change the guard, the Render env and the policy together — never drop it alone |
 | ~~Browser-proof scripts each carry their own CDP launcher (≈13 copies)~~ DONE 2026-10-02 (round-2 slice 3): the six identical operator-proof launchers (`authenticated_ui_acceptance`, `buyer_polish`, `launch_polish`, `p0`, `pickup_fulfillment`, `r7r8`) now call `scripts/lib/cdp.cjs` `launchCdpBrowser` (pinned by `tests/release_tools/cdp_launcher.test.cjs`); each proof keeps its own `cdpSession` (navigate via `about:blank` vs direct, viewport signature, `shot` vs `screenshot`, the acceptance harness's diagnostics capture). Deliberately NOT unified: `site_cms` / `receipt_content` (fixed debug port 38474 / 38473, repo-local `.tmp_*_browser_profile`, `--no-sandbox` on site_cms only, 200 ms poll, accept a page without checking `webSocketDebuggerUrl`), `ux_polish_round2` (port 39100-39499, own flag set), `tests/helpers/browser_cdp.ts` (TypeScript, OS-assigned port via `DevToolsActivePort`, `--no-sandbox` + crash-reporter flags, stderr capture, CI-aware timeout) and the five `scripts/retired/` copies (archived). Pre-existing, not caused by the move: `pickup_fulfillment_browser_proof` stops at its DB fixture (`invalid siton.action_name … test.pickup_proof_fixture`) on master too, and `p0` / `buyer` / `launch` / `r7r8` fail some checks in an offline container against a fresh local demo DB (stale selectors, no Supabase images, demo publish path) — run before and after the move, the PASS/FAIL sets are identical (p0 10/13, buyer 20/13, launch 3/11, r7r8 3/3, acceptance dry-fit DRYFIT_PASS 17/0) | behaviour-preserving: same flags (the pickup proof's media flags now sit before the debug-port flag; Chromium switch order is not significant), same port ranges, profile names, 80×250 ms poll, error messages and return fields |
@@ -322,7 +322,7 @@ read-only passes (src / web / frontend; scripts / dependencies / config / root; 
 |---|---|
 | `docs/archive/db-drift-resolution.md`, `docs/archive/runtime-contract-resolution.md` | unreadable encoding, zero consumers; archived meanwhile |
 | ~~`/api/admin/notifications/status`~~ | DONE — removed by PR #190 (`5c5221f`) |
-| superseded renderers in `frontend/app.js` | dead (no dispatcher reaches them), but four tests slice them by name — retarget first (§7.2) |
+| superseded renderers in `frontend/app.js` | dead (no dispatcher reaches them); slice tests retargeted (§7.2, round-2 slice 4). Deletion PR next, after the owner decides the §8.2 gaps (deleting removes the only implementation of e.g. buyer document visibility) |
 | `src/stage10c_harden_deals.sql` | retired 3-line marker; only a comment in migration 022 names it (migrations are never edited, so it stays unless the owner accepts a dangling comment) |
 
 ### 7.3 Kept on purpose (SUPPORT / CORE despite few or no callers)
@@ -363,3 +363,51 @@ recoverable after deletion; any other tip is the only copy of its commits.
 | No PR — the branch is the only copy | 63 | keep, or archive-tag / bundle before any deletion |
 
 The per-branch list is in the owner report of 2026-10-01.
+
+## 8. Round-2 census (2026-10-02, after #191, #193, #194, #195)
+
+### 8.1 Metrics (round start `f3c0aee` → master `872d45a`)
+
+| Metric | Before | After |
+|---|---|---|
+| `src/frontend_runtime.ts` | 12 256 | 12 144 (legal HTML → `src/legal_html.ts`, 123) |
+| `src/app.ts` | 8 637 | 8 587 (security headers → `src/http_security_headers.ts`, 56) |
+| `src/*.ts` files / lines | 87 / 51 106 | 89 / 51 123 (moves only: +2 module headers and imports) |
+| `frontend/app.js` | 9 337 | 9 337 (8 dead renderers still present; tests no longer pin them) |
+| CDP launcher copies (operator proofs) | 6 identical + 4 differing + 5 retired | 1 shared (`scripts/lib/cdp.cjs`) + 4 differing (documented) + 5 retired |
+| `scripts/*.cjs` / `scripts/lib` | 93 / 14 | 93 / 15 |
+| `tests/*.ts` / release-tool tests | 322 / 28 | 322 / 29 (+`cdp_launcher.test.cjs`) |
+| npm scripts | 157 | 157 |
+
+Module boundaries added: `legal_html.ts` (pure HTML render, no I/O beyond the preview CSS read), `http_security_headers.ts`
+(pure header and cache classification; the hooks stay in `app.ts`). Each moved file stays in every gate that covered it
+(legal gate, `security_hardening` static scan, `team_plan_check` HIGH_RISK family). No new runtime dependency.
+
+### 8.2 Legacy-only requirements absent from the live product (owner decision, recorded as GAP assertions)
+
+1. Buyer-facing **document visibility** on tracking (issued / pending_issue / issue_failed / not_expected, issued-at): the
+   server still emits `document_visibility`, but neither `/app` `renderCtonTrackingPage` nor React `track.tsx` shows it.
+2. The cumulative progress **chart** (`chart_points` is still emitted by `frontend_runtime.ts`; live surfaces show a meter).
+3. The explicit `buyerState[0]` participation label on `/app` (React shows the server's `personal_status` instead).
+4. The anonymous activity feed on the `/app` shell (React has it).
+5. The explicit "no action needed now" copy (React gates the CTA instead).
+6. The "live buyer center" eyebrow headline.
+
+Deleting the dead renderers deletes the only implementation of 1–2; decide "build it in React" or "drop the requirement"
+first. Each GAP assertion fails if a live surface starts delivering the item, so a gap is retired deliberately.
+
+### 8.3 Open candidates (in order)
+
+- `TWILIO_*`: dead exports in `runtime_config.ts`, no adapter → round-2 config slice. `DEBUG_JOIN_LOGGING`: PR #192
+  (ChatGPT), review asks to also remove the dead `runtime_config.ts` export and fix three docs. `DISABLE_OUTBOX_WORKER`
+  untouched (production boot invariant).
+- npm scripts: map; delete only aliases with zero consumers.
+- Further `frontend_runtime.ts` / `app.ts` route-group moves (admin ops, support, pilot, `/app` shell; ops and seller-deal
+  routes) — one concern per PR.
+- NOT mechanical (separate senior workstreams): `paymentMinorAmount`, `parsePositiveIntegerQuantity`, `roundMoney`,
+  `sha256`, token generation, peppered hash, cookie parsers, `requireUuid`.
+
+### 8.4 Branches
+
+See `docs/BRANCH_CENSUS_2026-10-02.md`: 204 branches; 101 merged branches are verified recoverable through
+`refs/pull/<n>/head` and listed for owner deletion (the session could not delete them: permission policy).
