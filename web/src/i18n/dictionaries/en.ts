@@ -885,6 +885,7 @@ export const EN: Record<string, string> = {
   "content_assets.video_cannot_be_read_here": "This browser cannot read the video — try another browser (Safari on iPhone, or Chrome)",
   "content_assets.video_conversion_failed": "Preparing the video failed — try again or pick a shorter clip",
   "content_assets.video_conversion_interrupted": "Preparing the video stopped because the screen locked or you switched apps — keep the screen open and try again",
+  "content_assets.video_conversion_stalled": "The browser stopped playing the video while preparing it — try again; if it happens again, try Chrome",
   "content_assets.video_playback_blocked": "The phone blocked preparing the video (for example in Low Power Mode) — turn it off and try again",
   "content_assets.video_still_too_large": "Even after preparing, the video is larger than 10MB — pick a shorter clip",
   "content_assets.video_too_long_to_convert": "The video is longer than one minute — trim it to one minute at most and try again",

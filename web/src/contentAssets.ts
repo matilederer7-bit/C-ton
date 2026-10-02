@@ -8,6 +8,7 @@ import { optimizeImageFile } from "./images";
 import { t } from "./i18n/index.js";
 import { planVideoUpload, videoTypeOf } from "./videoPrep";
 import { convertVideoForHero, VideoConvertError } from "./videoConvert";
+import { reportHandledError } from "./errorReporting";
 
 export const VIDEO_MAX_BYTES = 10 * 1024 * 1024;
 /** Any video: the phone picker must offer .MOV too; non-MP4/WebM is converted. */
@@ -39,7 +40,14 @@ export async function uploadVideoAsset(file: File, onProgress?: (fraction: numbe
   let mime = videoTypeOf(file);
   if (plan === "convert") {
     try { ({ blob, mime } = await convertVideoForHero(file, { maxBytes: VIDEO_MAX_BYTES, onProgress })); }
-    catch (err) { throw new Error(videoConvertMessage(err)); }
+    catch (err) {
+      // Conversion runs on the admin's own device, out of the server's sight:
+      // send the diagnostic snapshot to error monitoring so a failure can be fixed.
+      const code = err instanceof VideoConvertError ? err.code : "failed";
+      const detail = err instanceof VideoConvertError ? err.detail : String((err as Error)?.name || err).slice(0, 120);
+      reportHandledError(Object.assign(new Error(`hero_video_convert_${code}: ${detail}`), { name: "HeroVideoConvertError" }));
+      throw new Error(videoConvertMessage(err));
+    }
   }
   const base64_data = await fileToBase64(blob);
   return await request("/api/admin/content-assets", { method: "POST", body: JSON.stringify({ filename: file.name, mime_type: mime, base64_data }) }, "admin") as UploadedAsset;
@@ -52,6 +60,7 @@ function videoConvertMessage(err: unknown): string {
   if (code === "unsupported_browser") return t("content_assets.browser_cannot_convert_video");
   if (code === "blocked") return t("content_assets.video_playback_blocked");
   if (code === "interrupted") return t("content_assets.video_conversion_interrupted");
+  if (code === "stalled") return t("content_assets.video_conversion_stalled");
   if (code === "too_large") return t("content_assets.video_still_too_large");
   return t("content_assets.video_conversion_failed");
 }

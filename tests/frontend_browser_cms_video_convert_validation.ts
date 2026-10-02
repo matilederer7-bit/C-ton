@@ -130,6 +130,45 @@ async function main() {
       assert.equal(code, "interrupted");
     });
 
+    await run("the clip being prepared is a visible preview (Android browsers pause invisible muted video)", async () => {
+      const seen = await page!.evaluate<any>(`(async () => {
+        const p = window.__convert.convertVideoForHero(window.__source, { maxBytes: ${MAX} });
+        await new Promise((r) => setTimeout(r, 1200));
+        const v = document.querySelector('[data-testid="hero-video-converting"]');
+        const r = v ? v.getBoundingClientRect() : null; const cs = v ? getComputedStyle(v) : null;
+        const snap = v ? { w: r.width, h: r.height, inView: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight, opacity: cs.opacity, display: cs.display, visibility: cs.visibility, playing: !v.paused } : null;
+        await p; return snap;
+      })()`);
+      assert.ok(seen, "no preview element during conversion");
+      assert.ok(seen.w >= 100 && seen.h >= 40, `preview too small to count as visible: ${JSON.stringify(seen)}`);
+      assert.equal(seen.inView, true, "preview is outside the viewport");
+      assert.notEqual(seen.display, "none");
+      assert.deepEqual([seen.opacity, seen.visibility, seen.playing], ["1", "visible", true]);
+    });
+
+    await run("a browser that pauses the clip mid-way is resumed and the conversion still completes", async () => {
+      const r = await page!.evaluate<any>(`(async () => {
+        const p = window.__convert.convertVideoForHero(window.__source, { maxBytes: ${MAX} });
+        await new Promise((r) => setTimeout(r, 1500));
+        document.querySelector('[data-testid="hero-video-converting"]').pause();
+        const out = await p; return { mime: out.mime, size: out.blob.size };
+      })()`);
+      assert.ok(["video/mp4", "video/webm"].includes(r.mime) && r.size > 0, JSON.stringify(r));
+    });
+
+    await run("a clip that stops advancing fails with stalled and a diagnostic detail, not an endless spinner", async () => {
+      const r = await page!.evaluate<any>(`(async () => {
+        const p = window.__convert.convertVideoForHero(window.__source, { maxBytes: ${MAX} });
+        await new Promise((r) => setTimeout(r, 1500));
+        document.querySelector('[data-testid="hero-video-converting"]').playbackRate = 0;
+        const t0 = performance.now();
+        try { await p; return { code: 'resolved' }; } catch (e) { return { code: e.code, detail: e.detail, waited: performance.now() - t0 }; }
+      })()`);
+      assert.equal(r.code, "stalled", JSON.stringify(r));
+      assert.ok(r.waited < 15000, `took ${r.waited} ms to give up`);
+      assert.match(r.detail, /^stage=record t=\d+\.\d\/\d+\.\d ready=\d net=\d paused=(true|false) frame=1920x1080 src=video\/quicktime bytes=\d+ rec=video\//);
+    });
+
     await run("no failure path leaves a recorder running or a hidden video behind", async () => {
       await new Promise((r) => setTimeout(r, 300));
       const left = await page!.evaluate<any>(`({ recorders: window.__recorders.length, active: window.__recorders.filter((r) => r.state !== 'inactive').length, videos: document.querySelectorAll('video').length })`);
