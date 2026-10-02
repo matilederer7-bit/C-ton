@@ -971,26 +971,25 @@ Prior rounds (retained for history — the fields below describe earlier milesto
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
 
 <!-- AGENT_STATUS:chatgpt:START -->
-### ChatGPT latest milestone — CMS homepage video upload / storage-broker drift
+### ChatGPT latest milestone — CMS homepage video upload / staging storage verification
 
 - UPDATED: 2026-10-02
 - COMPLETED:
-  - Root cause verified against repository code and live Supabase staging: the CMS client/server accept admin MP4/WebM hero video up to 10 MB, while BOTH the deployed `storage-broker` and the `deal-images` bucket are image-only with a 2 MB ceiling.
-  - PR #174 is synced to current master `1b1ba93`; the Lean Refactor D5/R1-R5 work now on master is preserved and not mixed into this fix.
-  - Broker policy aligns to the existing application contract: JPEG/PNG/WebP up to 5 MB; MP4/WebM up to 10 MB. Existing key scoping, checksum, no-overwrite and broker authentication remain unchanged.
-  - Added `supabase/staging/029_content_media_bucket_policy.sql`: bucket ceiling 10 MB with image + MP4/WebM MIME allow-list; per-type image/video limits remain enforced by app + broker. The script does not change public-read state or client mutation policies.
-  - Added regression coverage pinning client, server, broker and staging-bucket media limits together.
+  - PR #174 merged to master as `73c04664e1217f148e1d7b4dc941b497cb5f861d` after exact-head CI success and independent Claude reviewer verdict MERGE on `f229c71f61e4346413a32c6331ba534c7999f481`.
+  - Applied the merged staging media bucket policy to Supabase project `hnptacfzuqebfgeshadq` only.
+  - Verified live `deal-images`: `public=true`, `file_size_limit=10485760`, MIME allow-list exactly JPEG/PNG/WebP/MP4/WebM.
+  - Verified `storage.objects` has no client mutation policies after the change.
+  - Deployed merged `storage-broker` with both `index.ts` and `scope.ts`; live function is ACTIVE version 2.
+  - Verified deployed source preserves broker-key auth, namespace/key scoping, checksum verification, no-overwrite and traversal protection, with 5 MiB image caps and 10 MiB MP4/WebM caps.
 - TESTED:
-  - Previous full CI on head `283147a` passed every lane except one E2E shard. The only failure was `frontend_browser_v11_validation.ts` startup with `EADDRINUSE` on its selected port; all other CI jobs, including DB preflight, security, payments, API, Docker and the other E2E shards, passed.
-  - That failed head was superseded rather than rerun because master advanced. The current synced head requires a fresh full CI run.
-  - Live staging diagnosis remains verified: deployed `storage-broker` version 1 and the `deal-images` bucket are still image-only / 2 MB until this PR is merged and staged.
+  - PR #174 exact-head Siton CI run 36958746110 completed SUCCESS after the failed E2E shard rerun; reviewer recorded 19 success / 1 skipped.
+  - Live Supabase bucket metadata and deployed Edge Function source/version were re-read after deployment.
 - OPEN:
-  - Full CI must finish green on the exact current synced head.
-  - Independent reviewer verdict is still required on the exact current head.
-  - After merge: apply the merged staging bucket policy and deploy the merged `storage-broker` Edge Function to Supabase staging only; verify both live configurations.
-  - Final proof is a real authenticated CMS video upload. Do not call the user flow fixed until that proof passes.
-- PERCENT: 70%. Root cause, code fix, regression coverage and master sync are complete; current-head CI, independent review, merge, staging apply/deploy and live upload proof remain.
-- NEXT: current-head CI -> independent review -> merge -> staging bucket apply + Edge Function deploy -> authenticated CMS upload proof.
+  - Real authenticated CMS video upload proof is still required: upload valid MP4/WebM, save, reload, confirm playback and no storage/500 error; also re-check an image upload.
+  - No post-merge master workflow run was returned by the GitHub PR-run endpoint for merge commit `73c04664`; do not claim a separate master-head CI run unless independently observed.
+  - Lean Refactor D5 PROJECT_STATUS trim remains separate closeout work after active status editors are clear.
+- PERCENT: 90%. Code, review, merge, staging bucket apply and broker deployment are complete; authenticated CMS proof and D5 status trim remain.
+- NEXT: authenticated CMS video upload proof -> image regression check -> trim PROJECT_STATUS when no concurrent editor exists -> CI/review/merge that closeout -> mark D5 complete.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 
