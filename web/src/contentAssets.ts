@@ -1,12 +1,17 @@
 // ── Admin/seller media upload (images through the canonical optimizer; a
 // bounded MP4/WebM video for the hero, admin only). The server re-validates
-// signature, size, MIME and ownership; this is only the transport.
+// signature, size, MIME and ownership; this is only the transport. A video
+// that is not already a small MP4/WebM (a phone .MOV, a clip over 10 MB) is
+// re-encoded in the browser first (./videoConvert, policy in ./videoPrep).
 import { productRequest as request } from "./api";
 import { optimizeImageFile } from "./images";
 import { t } from "./i18n/index.js";
+import { planVideoUpload, videoTypeOf } from "./videoPrep";
+import { convertVideoForHero, VideoConvertError } from "./videoConvert";
 
 export const VIDEO_MAX_BYTES = 10 * 1024 * 1024;
-export const VIDEO_ACCEPT = "video/mp4,video/webm";
+/** Any video: the phone picker must offer .MOV too; non-MP4/WebM is converted. */
+export const VIDEO_ACCEPT = "video/*";
 export const IMAGE_ACCEPT = "image/png,image/jpeg,image/webp";
 
 export interface UploadedAsset { asset_id: string; url: string; mime_type?: string }
@@ -26,11 +31,27 @@ export async function uploadImageAsset(file: File, scope: "seller" | "admin"): P
   finally { URL.revokeObjectURL(img.previewUrl); }
 }
 
-export async function uploadVideoAsset(file: File): Promise<UploadedAsset> {
-  const mime = String(file.type || "").toLowerCase();
-  if (mime !== "video/mp4" && mime !== "video/webm") throw new Error(t("content_assets.that_video_type_supported_mp4"));
-  if (file.size > VIDEO_MAX_BYTES) throw new Error(t("content_assets.the_video_larger_than_10mb"));
-  if (file.size <= 0) throw new Error(t("content_assets.the_file_empty"));
-  const base64_data = await fileToBase64(file);
+export async function uploadVideoAsset(file: File, onProgress?: (fraction: number) => void): Promise<UploadedAsset> {
+  const plan = planVideoUpload(file, VIDEO_MAX_BYTES);
+  if (plan === "empty") throw new Error(t("content_assets.the_file_empty"));
+  if (plan === "not_video") throw new Error(t("content_assets.that_video_type_supported_mp4"));
+  let blob: Blob = file;
+  let mime = videoTypeOf(file);
+  if (plan === "convert") {
+    try { ({ blob, mime } = await convertVideoForHero(file, { maxBytes: VIDEO_MAX_BYTES, onProgress })); }
+    catch (err) { throw new Error(videoConvertMessage(err)); }
+  }
+  const base64_data = await fileToBase64(blob);
   return await request("/api/admin/content-assets", { method: "POST", body: JSON.stringify({ filename: file.name, mime_type: mime, base64_data }) }, "admin") as UploadedAsset;
+}
+
+function videoConvertMessage(err: unknown): string {
+  const code = err instanceof VideoConvertError ? err.code : "failed";
+  if (code === "too_long") return t("content_assets.video_too_long_to_convert");
+  if (code === "unreadable") return t("content_assets.video_cannot_be_read_here");
+  if (code === "unsupported_browser") return t("content_assets.browser_cannot_convert_video");
+  if (code === "blocked") return t("content_assets.video_playback_blocked");
+  if (code === "interrupted") return t("content_assets.video_conversion_interrupted");
+  if (code === "too_large") return t("content_assets.video_still_too_large");
+  return t("content_assets.video_conversion_failed");
 }

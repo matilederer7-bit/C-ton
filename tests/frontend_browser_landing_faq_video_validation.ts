@@ -72,6 +72,8 @@ async function main() {
       await run(`@${viewport.width}: the FAQ is one closed brick that opens and closes, with ARIA`, async () => {
         await page!.setViewport(viewport);
         await page!.goto(`http://127.0.0.1:${plainPort}/preview/?v=${viewport.width}#/`, { waitMs: 900 });
+        // the landing renders after its content fetch; on a loaded runner that can take longer than the fixed wait
+        for (let i = 0; i < 50 && !(await page!.evaluate<boolean>(`!!document.querySelector('[data-testid="landing-faq-toggle"]')`)); i += 1) await wait(100);
         const closed = await page!.evaluate<any>(`(() => {
           const b = document.querySelector('[data-testid="landing-faq-toggle"]');
           const panel = document.getElementById(b.getAttribute('aria-controls'));

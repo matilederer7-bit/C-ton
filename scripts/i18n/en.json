@@ -820,9 +820,8 @@
   "content_admin.there_unsaved_changes_current_page": "There are unsaved changes on the current page. Move without saving?",
   "content_admin.uploading": "Uploading…",
   "content_assets.reading_file_failed": "Reading the file failed",
-  "content_assets.that_video_type_supported_mp4": "That video type is not supported — MP4 or WebM only",
+  "content_assets.that_video_type_supported_mp4": "The selected file is not a video",
   "content_assets.the_file_empty": "The file is empty",
-  "content_assets.the_video_larger_than_10mb": "The video is larger than 10MB — compress a shorter, lighter version (with no sound)",
   "countdown.countdown_units.label": "Days",
   "countdown.countdown_units.label_2": "Hours",
   "countdown.countdown_units.label_3": "Minutes",
@@ -2392,5 +2391,13 @@
   "admin_mfa.unavailable": "Two-step verification is not available in this environment.",
   "admin_mfa.verify": "Verify and continue",
   "admin_mfa.cancel": "Cancel",
-  "admin_mfa.other_factor": "Your account already uses a different verification method. Ask a SuperAdmin to reset your two-step verification, then set up an authenticator app."
+  "admin_mfa.other_factor": "Your account already uses a different verification method. Ask a SuperAdmin to reset your two-step verification, then set up an authenticator app.",
+  "content_admin.preparing_video": "Preparing the video… {percent}% — keep this screen open",
+  "content_assets.video_too_long_to_convert": "The video is longer than one minute — trim it to one minute at most and try again",
+  "content_assets.video_cannot_be_read_here": "This browser cannot read the video — try another browser (Safari on iPhone, or Chrome)",
+  "content_assets.browser_cannot_convert_video": "This browser cannot prepare the video — try an up-to-date Chrome or Safari",
+  "content_assets.video_conversion_failed": "Preparing the video failed — try again or pick a shorter clip",
+  "content_assets.video_playback_blocked": "The phone blocked preparing the video (for example in Low Power Mode) — turn it off and try again",
+  "content_assets.video_conversion_interrupted": "Preparing the video stopped because the screen locked or you switched apps — keep the screen open and try again",
+  "content_assets.video_still_too_large": "Even after preparing, the video is larger than 10MB — pick a shorter clip"
 }

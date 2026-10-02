@@ -327,6 +327,7 @@ function BlockCard({ block, index, locked, busy, contentLocale, canUp, canDown, 
 
 function Field({ id, def, value, fallback = "", busy, onChange, onMessage }: { id: string; def: FieldDef; value: string; fallback?: string; busy: boolean; onChange: (v: string) => void; onMessage: (text: string) => void }) {
   const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState<number | null>(null);
   // An English field left empty is not broken — it is a DECLARED fallback to
   // the Hebrew value. Say so in the editor, with the text that will actually
   // be shown, so nobody has to guess what an empty box means.
@@ -339,9 +340,10 @@ function Field({ id, def, value, fallback = "", busy, onChange, onMessage }: { i
     const pick = async (file: File | undefined) => {
       if (!file) return;
       setUploading(true);
-      try { const asset = isVideo ? await uploadVideoAsset(file) : await uploadImageAsset(file, "admin"); onChange(asset.url); }
+      setProgress(null);
+      try { const asset = isVideo ? await uploadVideoAsset(file, (f) => setProgress(f)) : await uploadImageAsset(file, "admin"); onChange(asset.url); }
       catch (err: any) { onMessage(err?.message || t("content_admin.the_upload_failed")); }
-      finally { setUploading(false); }
+      finally { setUploading(false); setProgress(null); }
     };
     return <div className="field cms-media" data-testid={id}>
       <label htmlFor={`${id}-file`}>{label}</label>
@@ -350,7 +352,7 @@ function Field({ id, def, value, fallback = "", busy, onChange, onMessage }: { i
       <div className="row">
         <input id={`${id}-file`} type="file" accept={isVideo ? VIDEO_ACCEPT : IMAGE_ACCEPT} disabled={busy || uploading} onChange={e => { void pick(e.target.files?.[0]); e.target.value = ""; }} />
         {value ? <button type="button" className="btn btn-ghost btn-sm" data-testid={`${id}-clear`} disabled={busy || uploading} onClick={() => onChange("")}>{t("content_admin.remove")}</button> : null}
-        {uploading ? <span className="muted small">{t("content_admin.uploading")}</span> : null}
+        {uploading ? <span className="muted small" data-testid={`${id}-uploading`}>{progress !== null && progress < 1 ? t("content_admin.preparing_video", { percent: Math.round(progress * 100) }) : t("content_admin.uploading")}</span> : null}
       </div>
     </div>;
   }
