@@ -310,13 +310,6 @@ export function renderNotification(
   return definition.render(payload);
 }
 
-export function supportedChannels(eventType: NotificationEventType | string): NotificationChannel[] {
-  const normalizedEvent = normalizeEventType(eventType);
-  if (!normalizedEvent) return [];
-  const definition = TEMPLATE_DEFINITIONS[templateKeyForEvent(normalizedEvent)];
-  return [...definition.compatibleChannels];
-}
-
 function normalizeEventType(value: string): NotificationEventType | null {
   if (isNotificationEventType(value)) return value;
   const legacy: Record<string, NotificationEventType> = {

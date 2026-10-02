@@ -58,7 +58,7 @@ The Hebrew footer links the four legal surfaces:
 
 - Tracking links are tokenized; the buyer is never told a bare link is private.
 - Recovery links do not include card data.
-- Logging hardening is documented in `docs/LOGGING_HARDENING.md`.
+- Logging hardening is documented in `docs/archive/LOGGING_HARDENING.md`.
 
 ## Validation
 

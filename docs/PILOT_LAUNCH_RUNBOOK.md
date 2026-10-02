@@ -6,7 +6,7 @@ real buyers, real deals — and **real money = 0**. Every join is an app-interna
 mock authorization; no card is charged, no provider is called. Sellers and
 buyers must be told this in plain words (see §2.4 and §5).
 
-Companion documents: `docs/LAUNCH_GAP_REPORT.md` (what blocks, what waits),
+Companion documents: `docs/archive/LAUNCH_GAP_REPORT.md` (what blocks, what waits),
 `docs/PILOT_DEAL_TEMPLATES.md` (five fillable deal structures),
 `docs/PILOT_METRICS.sql` (the pilot questions as SQL), and the two proof tools
 `scripts/pilot_readiness_proof.cjs` (API journey) and the admin console's
@@ -218,7 +218,7 @@ stopped, use §5. For anything beyond this table (DB down, worker alerts,
 |---|---|---|---|
 | Stop new joins temporarily | seller | deal screen → **השהיית ההצטרפות** | state `ClosedForJoining` (manual); buyers see "ההצטרפות הושהתה"; **פתיחה מחדש** reverses it while the deadline is ahead |
 | Remove a Draft or a live deal with **zero** joins | seller | deal screen → **מחיקת העסקה** | tombstoned; link shows "העסקה אינה זמינה" |
-| Abort a live deal that already has joins | owner (no seller UI yet) | Admin console has no cancel button on master. Today: pause it from the seller side and let the deadline fail it (holds released, buyers notified on their tracking page). The server route `POST /deals/:id/cancel` exists for the seller session and is listed as after-launch work (`LAUNCH_GAP_REPORT.md` A-1). | |
+| Abort a live deal that already has joins | owner (no seller UI yet) | Admin console has no cancel button on master. Today: pause it from the seller side and let the deadline fail it (holds released, buyers notified on their tracking page). The server route `POST /deals/:id/cancel` exists for the seller session and is listed as after-launch work (`docs/archive/LAUNCH_GAP_REPORT.md` A-1). | |
 | Take the whole product offline | owner | Render → suspend the web service (buyers get the Render "service unavailable" page) | use only for a real incident |
 
 ---

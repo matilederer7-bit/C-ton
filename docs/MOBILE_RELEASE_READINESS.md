@@ -29,7 +29,7 @@ Hosted preview: https://siton-staging-web.onrender.com/preview/ (this branch is 
 - Added native-only API fetch/XHR mapping, canonical public share/auth-email origins, native Share forwarding, validated cold/warm links including public `/d/` deals. Web origin behavior remains unchanged.
 - Added foreground location metadata while preserving all canonical geolocation semantics; disabled Android backup and explicit release debugging; narrowed FileProvider external paths.
 - Added deliberate unhosted Android/Apple association templates and mobile CI. Updated existing CI mobile step to install/build/sync the canonical frontend before verification.
-- Completed [technical inventory](MOBILE_TECHNICAL_INVENTORY.md), [data inventory](MOBILE_DATA_INVENTORY.md), [store payment matrix](MOBILE_STORE_PAYMENT_POLICY_MATRIX.md) and this acceptance runbook.
+- Completed [technical inventory](archive/MOBILE_TECHNICAL_INVENTORY.md), [data inventory](MOBILE_DATA_INVENTORY.md), [store payment matrix](MOBILE_STORE_PAYMENT_POLICY_MATRIX.md) and this acceptance runbook.
 - Proved 12 restored negative controls: missing config, missing bundle, wrong source, stale source, stale local/native assets, release debugging, cleartext, Android/iOS location metadata, camera description, version.
 
 ## Executed validation / limitations

@@ -23,7 +23,6 @@ export interface HowItWorksContent { title: string; buyers: HowItWorksTrack; sel
 
 export type HowItWorksAudience = "buyers" | "sellers";
 export const HOW_IT_WORKS_AUDIENCES: readonly HowItWorksAudience[] = ["buyers", "sellers"];
-export const HOW_IT_WORKS_STEP_COUNT = 4;
 export const HOW_IT_WORKS_STEP_NUMBERS = [1, 2, 3, 4] as const;
 
 /** The id of the infographic block on the home page (locked: always present, right after the hero). */

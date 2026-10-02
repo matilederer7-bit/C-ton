@@ -24,17 +24,6 @@ export const ADMIN_SAFE_ACTION_TYPES = [
   "resolve_payout_dispatch_unknown"
 ] as const;
 
-export const ADMIN_ACTION_STATUSES = [
-  "Requested",
-  "AwaitingSecondApproval",
-  "Approved",
-  "Rejected",
-  "Executing",
-  "Completed",
-  "Failed",
-  "Cancelled"
-] as const;
-
 export const ADMIN_ACTION_TARGET_TYPES = [
   "deal",
   "participant",
@@ -87,8 +76,6 @@ function adminRequeueCeiling(eventType: string, rowMaxAttempts: unknown) {
 type Queryable = {
   query: (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number }>;
 };
-
-let ensurePromise: Promise<void> | null = null;
 
 export function safeHeaderId(raw: unknown, prefix: string) {
   const text = String(raw || "").trim();

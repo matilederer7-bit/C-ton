@@ -48,7 +48,7 @@ Supabase staging (`siton-staging`, hnptacfzuqebfgeshadq): **080** (admin team) +
 | PR-27 | Render worker start command `node .demo_dist/src/worker.js` (SIGTERM drain) | DONE (live on the worker service) | — |
 | PR-28 | Production image without the dev toolchain (`npm prune --omit=dev`) | DONE (Dockerfile; docker-release-lab green) | — |
 
-This list reconciles every open item of `scripts/release_checklist.cjs`; its per-release gates (Docker lab green and all workflows green for the exact launch SHA) are checked at the Launch Gate itself. Detail per item: `BLACK_SKY_FINAL_REPORT.md` §7–§8, `docs/BACKUP_RESTORE_RUNBOOK.md`, `docs/CREDENTIAL_COMPROMISE_RUNBOOK.md`, `docs/CONFIG_INVENTORY.md`. Next step: the owner works the REAL MONEY LAUNCH BLOCKERs, then the Launch Gate.
+This list reconciles every open item of `scripts/release_checklist.cjs`; its per-release gates (Docker lab green and all workflows green for the exact launch SHA) are checked at the Launch Gate itself. Detail per item: `docs/archive/BLACK_SKY_FINAL_REPORT.md` §7–§8, `docs/BACKUP_RESTORE_RUNBOOK.md`, `docs/CREDENTIAL_COMPROMISE_RUNBOOK.md`, `docs/CONFIG_INVENTORY.md`. Next step: the owner works the REAL MONEY LAUNCH BLOCKERs, then the Launch Gate.
 
 ## CURRENT SNAPSHOT
 
@@ -358,13 +358,36 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
+### Claude Code latest milestone — Lean Refactor post-D5 census + R1–R5 (2026-10-01)
+
+- COMPLETED (merged): D5 moves and R1–R5 below. IN THIS PR (#182, open until review / CI / merge): a fresh census of the repository after D1–D5 (three independent read-only passes, re-proved with `git grep -w`, `tsc --noUnusedLocals` and the runner's discovery), recorded in `docs/LEAN_REFACTOR_MAP_2026-09-30.md` §7 with CORE / SUPPORT / ARCHIVE / DELETE / REFACTOR classes. Five refactor PRs, each one concern, builder ≠ reviewer, CI green on the head synced with the then-current master, merged, master CI green: R1 #171 (`e48b73c`) removed the unused `zod` and `vitest` (−57 lockfile packages, 0 version changes); R2 #172 (`4fa7976`) dead code in non-money runtime modules (in-file payment mock, duplicate `ensureLegalAcceptanceTables`, 15 zero-reference exports, 21 unused imports — money / auth / payment files untouched); R3 #175 (`5b9e794`) dead web code (`vtree.tsx` + 21 i18n keys + 17 CSS rules, 4 exports); R4 #176 (`f0f1c98`) four redundant npm scripts, the Base44 `.gitignore` rule, `DOCKER_READINESS` CMD drift; R5 #179 (`d23032b`) the buyer-tracking builders moved verbatim to `src/tracking_projection.ts`.
+- TESTED: per PR — tsc app + tests, build:demo, gates, focused suites for every touched module; Siton CI on the synced head (FULL where classified). Staging (runtime PRs R2 / R3 / R5): Render web + worker live on `5b9e794`, `4fa7976`, `d23032b` (health check `/readiness`), worker `worker_ready` with the merge SHA, no error / fatal log.
+- D6: classified, no change — the five cloud-agent workflows KEEP; `stripe-sandbox-proof.yml` KEEP (dormant), not a delete candidate (Stripe is still a selectable adapter in code).
+- BRANCHES (census only, nothing deleted): 184 remote branches at census time; master was re-rooted at #75, 118 branches share no history with master, no tags. 79 merged (tip = merged PR head) and 28 superseded (tip = closed PR head) are safe deletion candidates (commits survive in `refs/pull`); 5 carry commits after their PR and 63 have no PR — the only copy of their commits; keep or archive-tag before any deletion.
+- METRICS (`9744b06` → `e9c0c2e`): 195 files changed, +587 / −2147 lines; code (src / web / frontend / scripts / tests / package.json) +347 / −823 incl. the 270-line verbatim move; root `.md` 14 → 4; `docs/archive` 0 → 146; Markdown files under `docs/` outside `docs/archive/` (nested included) 274 → 138; dependencies 19 → 18, devDependencies 8 → 7, lockfile packages 500 → 443; npm scripts 161 → 157; `src/frontend_runtime.ts` 12 520 → 12 256 lines.
+- OPEN: REFACTOR CANDIDATES in §7.2 (route-group splits of `frontend_runtime.ts` / `app.ts`, money / auth helper duplicates — out of scope by rule, `frontend/app.js` dead renderers behind test retargeting, ~50 single-file npm test shortcuts, config flags (§7.2; `DISABLE_OUTBOX_WORKER` is a live boot invariant), shared CDP harness, PowerShell tooling); DELETE CANDIDATES in §7.2b (owner decisions); `PROJECT_STATUS.md` trim (waits for #174).
+- PERCENT: D5 moves and R1–R5 100% (merged, master CI green, staging verified for the runtime PRs); census + D6 classification + branch census in PR #182 (open); `PROJECT_STATUS.md` trim not started (waits for #174).
+- NEXT: owner direction on §7.2 / §7.2b; status trim once #174 closes.
+
 ### Claude Code latest milestone — Lean Refactor D5 (2026-10-01): ARCHIVE docs move into `docs/archive/` in consumer-proven batches
 
 - COMPLETED: batch 1 (PR #163, built by ChatGPT, synced with `master` `9744b06` by a merge commit): five HISTORICAL Morning Handoff records (`DEMO_DEPLOYMENT_EXECUTION`, `DEMO_PREVIEW_DEPLOYMENT`, `FINAL_CANONICAL_AUDIT`, `FRONTEND_EXECUTION`, `FULL_SYSTEM_QA`) moved to `docs/archive/`, blobs byte-identical; `DOCUMENTATION_MAP` paths updated; `LEAN_REFACTOR_MAP` D5 IN PROGRESS. Topology: `chatgpt/lean-refactor-d5-docs-batch2` is stacked on batch 1 (its 12 batch-1 commits plus five more handoffs) and ships as the next PR after #163, not as a parallel branch.
 - TESTED: per file, exact-stem search over the repository outside `docs/archive/` and the map: no consumer (code, test, gate, script, workflow, config, active doc). Directory consumers checked: `legal_compliance_gate` reads only top-level `docs/*_HE.md` (no `_HE` file moves); `secret_pii_scan` and `seven_day_cap_sweep` walk the whole tree through `scripts/lib/repo_scan_policy.cjs`, which skipped every `archive` directory — independent review (DO NOT MERGE, P2) found the move would have taken the documents out of both; fixed: the policy keeps `docs/archive` scanned (`INCLUDED_DIR_PATHS`, new test in `repo_scan_policy.test.cjs`; `secret_pii_scan` walks the five archived files again), `.gitignore` un-ignores `docs/archive/`, `scripts/README.md` and the map count (175) corrected. `secret_pii_scan`, `seven_day_cap_sweep`, `proof_no_real_money`, `repository_hygiene_check` PASS; release-tools 418/0; `mvp_completion_validation` (classifier focused test) PASS.
-- OPEN: independent review, CI on the synced head, merge; batch 2; remaining ARCHIVE batches; `PROJECT_STATUS.md` trim.
-- PERCENT: D5 in progress (batch 1 of several).
-- NEXT: #163 review → CI → merge → batch 2.
+- MERGED: batch 1 PR #163 squash-merged as `4101d97` (FULL CI green on `d7336ab`, run 36911753828; independent review MERGE after the scan-policy fix).
+- COMPLETED (batch 2, `chatgpt/lean-refactor-d5-docs-batch2`, built by ChatGPT stacked on batch 1, synced onto `4101d97`; the maps were rebased onto master's reviewed version): five more HISTORICAL Morning Handoff records (`ADVERSARIAL_HARDENING`, `BACKEND_PROFESSIONALIZATION`, `PREPROD_TORTURE_QA`, `REAL_INTEGRATIONS`, `ULTIMATE_PRELIVE_QA_RC`) moved to `docs/archive/`, blobs identical, each with the SUPERSEDED/HISTORICAL marker, zero consumers outside the maps.
+- COMPLETED (batch 3, `claude/lean-refactor-d5-docs-batch3`): the remaining five Morning Handoffs and the 36 DECISION / ISSUES / LOG companions of the handoff family (DEMO_*, REAL_*, FINAL_CANONICAL_AUDIT_*, FRONTEND_*, FULL_*, ADVERSARIAL_HARDENING_*, INTERNAL_MAXIMAL_CLOSURE_*, MASTER_PRODUCT_DEEP_MAP_*, PREPROD_*, ULTIMATE_*, REMAINING_*, BACKEND_*_DECISION/AUDIT) — 41 files, zero consumers on the extension-less stem outside the maps and `docs/archive/`, all byte-identical, all carry the historical marker.
+- MERGED: batch 2 PR #173 squash-merged as `3ad69e5` (CI green on the synced head `d6c9daa`, independent review MERGE).
+- MERGED: batch 3 PR #177 squash-merged as `fce4bb7` (CI green on `37dca13`, independent review MERGE).
+- COMPLETED (batch 4, `claude/lean-refactor-d5-docs-batch4`): 24 delivery / closure / audit reports moved, including the eight root `*_DELIVERY_REPORT.md` files (`DEAL_TYPES_E2E_DELIVERY_REPORT` moves with its only consumer, `DEAL_TYPES_E2E_HANDOFF`); zero consumers on the extension-less stem outside `docs/archive/` and the maps, byte-identical, all carry a historical marker.
+- MERGED: batch 4 PR #178 squash-merged as `172a8a9` (CI green on the synced head `8ea3b2d`, independent review MERGE).
+- COMPLETED (batch 5, `claude/lean-refactor-d5-docs-batch5`): the 32 remaining zero-consumer records (PASS2–6, STAGE*, R9A/R9C, red-team and payment-plan records, LAUNCH_POLISH_SPRINT_1/2, decisions; `SECURITY_HARDENING_GATE` once its only consumer moved in batch 4). All 107 zero-consumer ARCHIVE documents are now in `docs/archive/`.
+- MERGED: batch 5 PR #180 squash-merged as `f1acfc5` (CI green on `dc4ea37`, independent review MERGE).
+- COMPLETED (batch 6, `claude/lean-refactor-d5-docs-batch6`): 39 ARCHIVE records linked only from other documents moved (incl. the two root reports `BLACK_SKY_FINAL_REPORT.md` / `RED_TEAM_FINAL_REPORT.md`); the 12 active documents citing them were repointed to `docs/archive/` (this also fixed `INCIDENT_RESPONSE_RUNBOOK`, which already pointed at a non-existent `docs/RED_TEAM_FINAL_REPORT.md`). 29 ARCHIVE documents stay in place on purpose (code / test / config / team-plan consumer, or the D2 keep-path decision).
+- CENSUS (reconciled): 175 ARCHIVE documents. 110 had no consumer by full file name; the stricter extension-less stem check found a consumer for 5 of them, 2 of which moved once their only consumer moved, so batches 1–5 archived 107; batch 6 archived 39 linked only from documents; 29 stay outside `docs/archive/` (code / test / config / team-plan consumer, linked from such a record, or the D2 keep-path decision). Total archived: 146.
+- MERGED: batch 6 PR #181 squash-merged as `e9c0c2e` (CI green on `38b1454`, independent review MERGE; the map-prose path P3s are fixed in the census PR).
+- OPEN: `PROJECT_STATUS.md` trim — waits for the concurrent status-owning PR #174 (ChatGPT, CI red, open) to close, per the owner rule.
+- PERCENT: D5 moves 100% (146 of 175 ARCHIVE archived, 29 kept in place on purpose); D5 overall not 100% until the status trim lands.
+- NEXT: status trim after #174 closes.
 
 ### Claude Code latest milestone — Product Library C2 (2026-10-01): migration 082 retires the Product Library schema (staging only)
 
@@ -456,7 +479,7 @@ Sixth pass on `4746d43`: DO NOT MERGE — two cases `eb7c2b4` caught were lost (
 
 - UPDATED: 2026-09-30
 - BRANCH: `claude/product-constitution-sot` from master `d40c23f`. Docs-only (FAST profile). No code, no test, no gate changed.
-- COMPLETED (track A): `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md` (short, owner-readable, Hebrew summary on top; roles, core flow, 90% rule, authorization-before-charge, 8% fee, mandatory `max_units`, no 7-day cap, fixed 24h Completion Window, Mall hidden, no Product Library, distribution links analytics-only, no distributor economics, three deal types, real-money boundary) now sits above every older product document. `docs/CURRENT_ARCHITECTURE_2026-09-30.md` replaces `docs/CANONICAL_ARCHITECTURE_V1.md` as the runtime source of truth (Render web + worker + Supabase; Base44 historical). `docs/DOCUMENTATION_MAP.md` tiers the 288 documents under `docs/`, the root reports and the legacy README: CANONICAL 12 / REFERENCE 100 / ARCHIVE 176. Hierarchy updated in `AGENTS.md`, `CLAUDE.md`, `AI_WORKFLOW.md`, the 2026-04-18 foundation SoT. 14 Base44-era documents that still read as canonical got a SUPERSEDED banner (incl. `CANONICAL_ARCHITECTURE_V1`, `ARCHITECTURE_REBASE_R0/R1`, `BASE44_*`, `V1_1_*`, `STAGE32B_*`, `EXTERNAL_ACTIVATION_CHECKLIST`, `FINAL_ZERO`, `STAGE_32C/32D`); seven documents had their runtime sentence corrected in place; seven REFERENCE docs no longer describe a "distributor" as a role; `docs/PRODUCT_CATALOG.md` carries a removal banner.
+- COMPLETED (track A): `docs/SITON_PRODUCT_CONSTITUTION_2026-09-30.md` (short, owner-readable, Hebrew summary on top; roles, core flow, 90% rule, authorization-before-charge, 8% fee, mandatory `max_units`, no 7-day cap, fixed 24h Completion Window, Mall hidden, no Product Library, distribution links analytics-only, no distributor economics, three deal types, real-money boundary) now sits above every older product document. `docs/CURRENT_ARCHITECTURE_2026-09-30.md` replaces `docs/archive/CANONICAL_ARCHITECTURE_V1.md` as the runtime source of truth (Render web + worker + Supabase; Base44 historical). `docs/DOCUMENTATION_MAP.md` tiers the 288 documents under `docs/`, the root reports and the legacy README: CANONICAL 12 / REFERENCE 100 / ARCHIVE 176. Hierarchy updated in `AGENTS.md`, `CLAUDE.md`, `AI_WORKFLOW.md`, the 2026-04-18 foundation SoT. 14 Base44-era documents that still read as canonical got a SUPERSEDED banner (incl. `CANONICAL_ARCHITECTURE_V1`, `ARCHITECTURE_REBASE_R0/R1`, `BASE44_*`, `V1_1_*`, `STAGE32B_*`, `EXTERNAL_ACTIVATION_CHECKLIST`, `FINAL_ZERO`, `STAGE_32C/32D`); seven documents had their runtime sentence corrected in place; seven REFERENCE docs no longer describe a "distributor" as a role; `docs/PRODUCT_CATALOG.md` carries a removal banner.
 - CHECKED: `gate:architecture` PASS (its `production=base44` banner is a known stale string, recorded as open code drift), `gate:legal` PASS, `tests/release_tools/legal_gate.test.cjs` 8/8, `aws_accordion_readiness_validation`, `docker_readiness_validation`, `legal_trust_validation`, `refund_policy_validation` PASS, `gate:seven-day-cap` PASS, distributor attribution-only gate PASS, secret/PII scan PASS, repository hygiene PASS, `gate:i18n` PASS. Seven-day drift search: no document asserts a current cap (all remaining 7-day strings are provider windows, SLA values, template choices or marked-historical quotes); `src/deadline_policy.ts` has only the 20-year technical bound.
 - VERIFIED FACTS for the other tracks (evidence gathered, work not yet merged): Supabase staging census — 40 deals, 2 with `product_id`/`product_snapshot_jsonb` (both `PendingTarget`, created by the 2026-09-17 product-catalog smoke), 1 product, 0 product images; nothing in buyer, Mall, receipts, pickup, support or inquiry code reads the product columns. `siton.outbox_enqueue_evidence`: 1 row, RLS off, only `postgres` holds privileges; `anon`/`authenticated`/`service_role` have no schema USAGE and no table privilege; the runtime roles have USAGE but no table privilege (insert happens through the definer-rights trigger of migration 076). Render: 5 services confirmed; the three legacy ones (`siton-staging-web-atp1`, `siton-demo-preview-atp1`, `siton-demo-preview`) still track `master` with `autoDeployTrigger: commit`, and every deploy since at least 08:25Z today failed (non-zero exit, `server_failed` loops); no custom domain on any of them; the Render MCP connector has no delete, suspend or Blueprint operation, so the deletion is an owner dashboard action (exact steps in this slot's Render section once written).
 - OPEN (as of PR A; updated 2026-09-30 evening): all five PRs of the round are merged — #148 f517ad8, #150 13c4232, #149 abc0a12, #151 ba6bba4, #152 9b3be29; still open: track C (schema decision, owner), Render legacy-service deletion (owner, manual steps in the map §2), Lean Refactor D1+ (next PRs), the `/legal/affiliates` distributor-identity legal text (owner). **Product drift found by Codex on PR A:** the legacy `/app` home (`frontend/app.js`) renders the Mall unconditionally and `/api/mall/deals` does not check `PUBLIC_MALL_ENABLED`, so the Mall is reachable at `/app` although the launch policy hides it; the React app at `/preview/` honours the flag. Recorded as drift here and in `docs/MOBILE_APP_RELEASE_READINESS.md`; the gate/redirect is a separate small code PR. **Legal-text drift (Codex on PR A):** the live `/legal/affiliates` page (`docs/DISTRIBUTOR_TERMS_HE.md`, required verbatim by `scripts/legal_compliance_gate.cjs`) still defines a מפיץ identity although the constitution recognises no distributor business role; the legal text is deliberately unchanged (2026-09-16 amendment §5) and its reconciliation is a separate owner-approved legal-text change, not part of this documentation PR.
@@ -596,7 +619,7 @@ Sixth pass on `4746d43`: DO NOT MERGE — two cases `eb7c2b4` caught were lost (
 ### Claude Code latest milestone — Black Sky Engineering: 100% (closed) — #99, BSC-2 (#117) and BSC-3 (#116) merged, clean reviews, staging verified
 
 - UPDATED: 2026-09-27
-- BRANCH: `claude/festive-wright-kx4e5a` from master `d186153`; PR [#99](https://github.com/matilederer7-bit/C-ton/pull/99). Full ledger, combination scenarios, owner actions and "What can still kill Siton?": `BLACK_SKY_FINAL_REPORT.md`.
+- BRANCH: `claude/festive-wright-kx4e5a` from master `d186153`; PR [#99](https://github.com/matilederer7-bit/C-ton/pull/99). Full ledger, combination scenarios, owner actions and "What can still kill Siton?": `docs/archive/BLACK_SKY_FINAL_REPORT.md`.
 - COMPLETED (code + regression tests; failing-before observed for each):
   - **Money gates:** deadline/threshold enforced for paused deals (A-F1, new ClosedForJoining→Failed edge), no join/authorize after the deadline (A-F5), recovery window gate + locked finalize (A-F2), stale webhook reclaim (A-F3), payment-method ownership (A-F4), refund negates the charge row (A-F6), capture amount check (A-F8), refund only on a failed deal (A-F9), unknown-correlation webhooks can never move money (BSC-1, found by the chaos suite).
   - **Payout rail:** per-deal lock, forward-only status, unknown dispatch → lookup-only + case, operator attestation action (dual approval + MFA).
@@ -620,7 +643,7 @@ Sixth pass on `4746d43`: DO NOT MERGE — two cases `eb7c2b4` caught were lost (
 
 - UPDATED: 2026-09-27
 - BRANCH: `claude/festive-wright-kx4e5a` from master `1a641ad`. Owner instruction: nothing stays on the shelf — every item the red-team report left as "documented / owner decision" is implemented, tested and merged.
-- COMPLETED (code, all with regression + negative tests; full ledger in `RED_TEAM_FINAL_REPORT.md` §11):
+- COMPLETED (code, all with regression + negative tests; full ledger in `docs/archive/RED_TEAM_FINAL_REPORT.md` §11):
   - **A2** spoof-proof client IP: `trustProxy` = exact hop count (`TRUST_PROXY_HOPS`, default 1 = Render), boot guard rejects boolean/unbounded values, `/readiness` echoes `client_ip` + `trust_proxy_hops` for live confirmation.
   - **A3** admin password-login lockout: migration `075_admin_login_lockout.sql`; 10 failures / 15 min → 15-min self-healing lock enforced internally behind the same 401 body (no account-existence oracle); `/api/admin/auth` under the tight per-IP bucket.
   - **A5** untokenized participant tracking/recovery path RETIRED in every runtime (401 `tracking_token_required`); `TRACKING_LEGACY_COMPAT` reported as ignored; the recovery idempotency replay is served only after the credential is verified (Codex round 6).
@@ -642,7 +665,7 @@ Sixth pass on `4746d43`: DO NOT MERGE — two cases `eb7c2b4` caught were lost (
 
 - UPDATED: 2026-09-25
 - BRANCH: `claude/redteam-hardening-kx4e5a` from master `0a16515`. Owner: aggressive, systematic red team — find real failures and fix what is safe.
-- METHOD: 4 adversarial review tracks + a governance/source-of-truth map, then dynamic proof against a locally-booted copy of the exact app (web + worker) on a throwaway Postgres 16, plus the real DB-backed test harness. Full report: `RED_TEAM_FINAL_REPORT.md`.
+- METHOD: 4 adversarial review tracks + a governance/source-of-truth map, then dynamic proof against a locally-booted copy of the exact app (web + worker) on a throwaway Postgres 16, plus the real DB-backed test harness. Full report: `docs/archive/RED_TEAM_FINAL_REPORT.md`.
 - COMPLETED (found):
   - **No Critical/High in money, state machine, or DB integrity** — oversell and double-charge are closed at the DB layer (CHECK + FOR UPDATE + advisory lock + CAS transitions + partial-unique idempotency + settlement fence); proven, not assumed.
   - **A1 (High): admin MFA second factor had no attempt cap** — the 6-digit code was brute-forceable in its 10-minute window (amplified by trustProxy XFF spoofing + Math.random codes). FIXED.
@@ -665,7 +688,7 @@ Sixth pass on `4746d43`: DO NOT MERGE — two cases `eb7c2b4` caught were lost (
   - The A4 (CSPRNG), C1 (completion-window hard-lock) and A6 (HSTS) fixes are code-only and already active on staging (HSTS verified live).
 - OPEN: no Critical/High in code. Blocking for the track to reach 100%: apply pending migrations (through 074) to staging/production Supabase so A1 is active and the payment/admin paths are healthy. Owner decisions (documented, not blocking): A2 trustProxy hop count, A3 admin login lockout, distributor-subsystem removal (C2/C3), exceljs bump; DB hardening C-1/C-2.
 - PERCENTAGE: 95% — findings proven, safe fixes merged, CI green, code-only fixes (A4/C1/A6) verified live on staging; the A1 attempt-cap stays INACTIVE until migration 074 is applied to the staging/production Supabase DB, so the track is not 100% until that migration is applied and the MFA-verify path re-verified.
-- NEXT STEP: owner applies the pending migrations (through 074) to staging/production Supabase, then A1 is re-verified live; owner decides on A2/A3 + distributor cleanup. `RED_TEAM_FINAL_REPORT.md` holds the full findings-vs-fixes ledger.
+- NEXT STEP: owner applies the pending migrations (through 074) to staging/production Supabase, then A1 is re-verified live; owner decides on A2/A3 + distributor cleanup. `docs/archive/RED_TEAM_FINAL_REPORT.md` holds the full findings-vs-fixes ledger.
 
 ### Claude Code latest milestone — "Graphite Mint" brand rollout on every surface (UI only)
 
@@ -948,25 +971,29 @@ Prior rounds (retained for history — the fields below describe earlier milesto
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
 
 <!-- AGENT_STATUS:chatgpt:START -->
-### ChatGPT latest milestone — CMS homepage video upload / storage-broker drift
+### ChatGPT latest milestone — legal/distribution-link reconciliation (PR #159)
 
 - UPDATED: 2026-10-01
 - COMPLETED:
-  - Root cause verified against repository code and live Supabase staging: the CMS client/server accept admin MP4/WebM hero video up to 10 MB, while BOTH the deployed `storage-broker` and the `deal-images` bucket are image-only with a 2 MB ceiling.
-  - Fix branch is synced to current master `e48b73c`; no overlap with the active Lean Refactor R1/R2 or D5 batch 2 scopes.
-  - Broker policy is aligned to the existing application contract: JPEG/PNG/WebP up to 5 MB; MP4/WebM up to 10 MB. Existing key scoping, checksum, no-overwrite and broker authentication stay unchanged.
-  - Added `supabase/staging/029_content_media_bucket_policy.sql`: bucket ceiling 10 MB with image + MP4/WebM MIME allow-list; per-type image/video limits remain enforced by app + broker. The script does not change bucket public-read state or client mutation policies.
-  - Added regression coverage that pins client, server and broker video limits together so this deployment-contract drift is caught by CI.
-- TESTED:
-  - Repository diff reviewed: only `supabase/functions/storage-broker/index.ts`, the focused storage-readiness regression test, and this status block are in scope.
-  - Live staging diagnosis verified through Supabase function metadata/content and `storage.buckets`: deployed `storage-broker` version 1 is image-only and the `deal-images` bucket is `2097152` bytes with image-only MIME types.
-  - Current-head CI and independent review are still pending; no green claim yet.
+  - Reconciled user-facing and legal terminology with the binding product decision: Siton has no distributor/affiliate business role; seller-created distribution links remain attribution/measurement tools.
+  - Kept the legacy `/legal/affiliates` URL and internal `affiliate_*` / `distributor` compatibility identifiers unchanged so this terminology cleanup does not become an API/DB migration.
+  - Rewrote the distribution-link legal terms to state aggregate-only/read-only external visibility, no buyer personal data, and no Siton-managed external commission/balance/payment.
+  - Removed the old legal exception that allowed a written-contract override to the Siton fee. Legal copy now pins the system rule: fixed 8% on the collected purchase amount including delivery/purchase components, excluding the customer VAT component; no per-deal rate override.
+  - Legal join copy now states authorization-hold-only before the deal closes/locks; no pre-success charge exception.
+  - Updated visible legacy shell/export/i18n labels from a distributor role to distribution-link/source terminology while preserving compatibility keys.
+  - Strengthened `scripts/legal_compliance_gate.cjs` and mutation tests so the old distributor-role title, a distributor business role, or an overridable 8% fee fail CI.
+  - Two CI-discovered test/gate mismatches were fixed without weakening gates: generated i18n sources were updated at their JSON source, and the no-distributor/no-PII legal wording was normalized to the exact canonical form.
+- TESTED / CHECKED:
+  - Earlier current-branch runs proved the distributor attribution-only gate, i18n gate, seven-day-cap contract, operational repair gate, TypeScript, architecture, payment compliance, migration preflight, Docker/web runtime and the broad product test lanes.
+  - Earlier full runs correctly failed on stale legal mutation assertions, an under-explicit no-PII phrase, and one stale no-role regex in the legal gate; all three findings are fixed without weakening the gate.
+  - Mobile gate and full CI are running again on the final-content head; they are not yet claimed green.
 - OPEN:
-  - Open PR, obtain independent review, and require green CI on the exact final head.
-  - Merge, then apply the merged staging bucket policy and deploy the merged `storage-broker` function to Supabase staging only; verify both live configurations.
-  - A successful authenticated CMS upload still requires a real admin-session proof after deployment; do not call the user flow verified before that proof.
-- PERCENT: 65%. Both live blockers are mapped and repository fixes are complete; CI, review, merge, staging apply/deploy and live upload proof remain.
-- NEXT: PR -> independent review -> current-head CI -> merge -> staging Edge Function deploy -> authenticated CMS retry/proof.
+  - Current-head CI must finish green.
+  - Independent review is still required; Codex code-review quota is exhausted, so a separate reviewer must review the final head before merge.
+  - After merge: master CI + Render web/worker staging verification.
+  - Product Library runtime decoupling is separate PR #161 and is deliberately not merged or mixed into this PR.
+- PERCENTAGE: 85%. Code/gates are implemented; CI, independent review, merge and staging verification remain.
+- NEXT: finish CI on the final head, obtain independent review, merge only on green, then verify staging. After #159 is closed, update #161's PROJECT_STATUS from the new master to avoid a status-file conflict.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 
