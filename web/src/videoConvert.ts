@@ -64,12 +64,20 @@ export async function convertVideoForHero(
   file: Blob,
   opts: { maxBytes: number; onProgress?: (fraction: number) => void }
 ): Promise<{ blob: Blob; mime: "video/mp4" | "video/webm" }> {
+  let skipped = "";
   try {
     return await transcodeWithWebCodecs(file, opts);
   } catch (err) {
     if (!(err instanceof VideoConvertError) || err.code !== "unsupported_browser") throw err;
+    skipped = err.detail;
   }
-  return convertRealtime(file, opts);
+  try {
+    return await convertRealtime(file, opts);
+  } catch (err) {
+    // Keep why WebCodecs was skipped next to the fallback's own failure.
+    if (err instanceof VideoConvertError && skipped) err.detail = `${err.detail} | webcodecs_skipped: ${skipped}`.slice(0, 900);
+    throw err;
+  }
 }
 
 /** The real-time fallback engine (exported for its browser test). */

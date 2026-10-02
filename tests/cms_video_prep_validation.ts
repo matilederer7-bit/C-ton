@@ -91,9 +91,12 @@ await run("the upload path converts instead of refusing, and the picker offers e
   // WebCodecs first (frame by frame, no real-time playback); real-time recording only as the fallback
   const convert = await readFile("web/src/videoConvert.ts", "utf8");
   const transcode = await readFile("web/src/videoTranscode.ts", "utf8");
-  assert.match(convert, /return await transcodeWithWebCodecs\(file, opts\);[\s\S]*err\.code !== "unsupported_browser"\) throw err;[\s\S]*return convertRealtime\(file, opts\);/);
+  assert.match(convert, /return await transcodeWithWebCodecs\(file, opts\);[\s\S]*err\.code !== "unsupported_browser"\) throw err;[\s\S]*return await convertRealtime\(file, opts\);[\s\S]*webcodecs_skipped/);
+  // every await of the WebCodecs engine is bounded by one abort, including the conversion itself
+  assert.match(transcode, /await guard\(conv\.execute\(\)\)/);
+  assert.doesNotMatch(transcode, /await (?!guard\()(src|mb|conv|track|import)\b/, "an unguarded await in the WebCodecs engine");
   assert.match(transcode, /new mb\.Quality\(\{ bitrate \}\)/, "an explicit bitrate, never a quality factor");
-  assert.match(transcode, /await import\("mediabunny"\)/, "the transcoder library loads on demand");
+  assert.match(transcode, /await guard\(import\("mediabunny"\)\)/, "the transcoder library loads on demand (and its loading is bounded)");
   for (const f of ["web/src/videoConvert.ts", "web/src/videoTranscode.ts", "web/src/contentAssets.ts", "web/src/pages/contentAdmin.tsx", "web/src/App.tsx", "web/src/main.tsx"]) {
     assert.doesNotMatch(await readFile(f, "utf8"), /^import [^;]* from "mediabunny"/m, `${f} must not import mediabunny statically (public bundle size)`);
   }

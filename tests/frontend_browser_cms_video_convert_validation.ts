@@ -120,19 +120,20 @@ async function main() {
       assert.equal(r.usedRecorder, false, "the WebCodecs engine must not fall back to real-time recording in Chromium");
     });
 
-    await run("a portrait phone MP4 (1080x1920, like the owner's 27 s clip, shortened) converts with WebCodecs to 720x1280, frame by frame", async () => {
+    await run("a portrait phone MP4 (coded 1920x1080 + 90° rotation, like a phone recording) converts with WebCodecs to 720x1280 pixels, frame by frame", async () => {
       // The source MP4 is built frame by frame with the same library (H.264 where this
-      // browser can encode it, else VP9 in MP4) — no real-time recording involved.
+      // browser can encode it, else VP9 in MP4), stored the way phones store portrait
+      // video: landscape coded frames plus a 90° rotation in the container.
       const r = await page!.evaluate<any>(`(async () => {
         const mb = await import('./mediabunny.js');
-        let srcCodec = null; for (const c of ['avc', 'vp9', 'av1']) { if (await mb.canEncodeVideo(c, { width: 1080, height: 1920, quality: new mb.Quality({ bitrate: 8000000 }) })) { srcCodec = c; break; } }
-        const c = document.createElement('canvas'); c.width = 1080; c.height = 1920; const g = c.getContext('2d');
+        let srcCodec = null; for (const c of ['avc', 'vp9', 'av1']) { if (await mb.canEncodeVideo(c, { width: 1920, height: 1080, quality: new mb.Quality({ bitrate: 8000000 }) })) { srcCodec = c; break; } }
+        const c = document.createElement('canvas'); c.width = 1920; c.height = 1080; const g = c.getContext('2d');
         const target = new mb.BufferTarget(); const out = new mb.Output({ format: new mb.Mp4OutputFormat({ fastStart: 'in-memory' }), target });
         const vs = new mb.CanvasSource(c, { codec: srcCodec, quality: new mb.Quality({ bitrate: 8000000 }) });
-        out.addVideoTrack(vs, { frameRate: 30 }); await out.start();
+        out.addVideoTrack(vs, { frameRate: 30, rotation: 90 }); await out.start();
         for (let i = 0; i < 90; i += 1) { const t = i / 30;
-          g.fillStyle = 'hsl(' + Math.floor(t * 120) % 360 + ',70%,45%)'; g.fillRect(0, 0, 1080, 1920);
-          for (let k = 0; k < 30; k += 1) { g.fillStyle = 'hsl(' + (k * 41 + t * 160) % 360 + ',80%,60%)'; g.fillRect((k * 71 + t * 300) % 1080, (k * 113 + t * 200) % 1920, 140, 140); }
+          g.fillStyle = 'hsl(' + Math.floor(t * 120) % 360 + ',70%,45%)'; g.fillRect(0, 0, 1920, 1080);
+          for (let k = 0; k < 30; k += 1) { g.fillStyle = 'hsl(' + (k * 41 + t * 160) % 360 + ',80%,60%)'; g.fillRect((k * 113 + t * 300) % 1920, (k * 71 + t * 200) % 1080, 140, 140); }
           await vs.add(t, 1 / 30); }
         await out.finalize();
         const source = new File([target.buffer], 'VID_20261002.mp4', { type: 'video/mp4' });
@@ -151,10 +152,27 @@ async function main() {
       assert.equal(r.recorders, 0, "the conversion fell back to real-time recording");
       assert.ok(["video/mp4", "video/webm"].includes(r.mime), r.mime);
       assert.equal(r.sig, r.mime === "video/mp4" ? "ftyp" : "ebml", "container signature does not match the type");
-      assert.deepEqual([r.w, r.h], [720, 1280], "portrait orientation and the 1280 long edge");
+      assert.deepEqual([r.w, r.h], [720, 1280], "the rotation is applied: portrait 720x1280 pixels, 1280 long edge");
       assert.ok(r.duration > 2.5 && r.duration < 3.6, `duration ${r.duration}`);
       assert.ok(r.size > 0 && r.size <= MAX, `size ${r.size}`);
       assert.ok(r.steps > 1 && r.last === 1, `progress ${JSON.stringify({ steps: r.steps, last: r.last })}`);
+    });
+
+    await run("a decoder that silently stops producing frames ends in stalled with a detail, never an endless spinner", async () => {
+      const r = await page!.evaluate<any>(`(async () => {
+        // a hardware decoder that goes silent: it takes a few packets, then neither
+        // outputs frames nor errors, and its flush never completes
+        const original = VideoDecoder.prototype.decode; const originalFlush = VideoDecoder.prototype.flush; let fed = 0;
+        VideoDecoder.prototype.decode = function (chunk) { fed += 1; if (fed <= 5) return original.call(this, chunk); };
+        VideoDecoder.prototype.flush = function () { return new Promise(() => undefined); };
+        const t0 = performance.now();
+        try { await window.__tx.transcodeWithWebCodecs(window.__source, { maxBytes: ${MAX}, stallSeconds: 3 }); return { code: 'resolved' }; }
+        catch (e) { return { code: e.code, detail: e.detail, waited: performance.now() - t0 }; }
+        finally { VideoDecoder.prototype.decode = original; VideoDecoder.prototype.flush = originalFlush; }
+      })()`);
+      assert.equal(r.code, "stalled", JSON.stringify(r));
+      assert.ok(r.waited < 12000, `took ${r.waited} ms to give up`);
+      assert.match(r.detail, /^engine=webcodecs codec=\w+ stage=(init|transcode) progress=\d\.\d\d duration=4\.0 frame=1920x1080 src=video\/quicktime mb=\d+\.\d browser=\S/);
     });
 
     await run("a ceiling the clip cannot fit fails with too_large, never an oversized upload", async () => {

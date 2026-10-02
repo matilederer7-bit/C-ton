@@ -188,11 +188,16 @@ await run("camera policy: app.ts allows camera for our own page only (self), mic
   assert.match(header, /payment=\(\)/);
 });
 
-await run("web dependencies: exactly two additions, both zero-dependency, pinned exact (qrcode-generator, jsqr)", () => {
+await run("web dependencies: an exact allow-list, every addition pinned exact (qrcode-generator, jsqr; mediabunny for the admin hero-video transcoder, 2026-10-02)", () => {
   const pkg = JSON.parse(read("web/package.json"));
-  assert.deepEqual(Object.keys(pkg.dependencies).sort(), ["jsqr", "qrcode-generator", "react", "react-dom"]);
+  assert.deepEqual(Object.keys(pkg.dependencies).sort(), ["jsqr", "mediabunny", "qrcode-generator", "react", "react-dom"]);
   assert.equal(pkg.dependencies["qrcode-generator"], "2.0.4");
   assert.equal(pkg.dependencies.jsqr, "1.4.0");
+  assert.equal(pkg.dependencies.mediabunny, "1.61.0");
+  // mediabunny carries no runtime code of other packages: its only dependencies are type packages
+  const lock = JSON.parse(read("web/package-lock.json"));
+  const mbDeps = Object.keys(lock.packages["node_modules/mediabunny"]?.dependencies || {});
+  assert.ok(mbDeps.every((d) => d.startsWith("@types/")), `mediabunny pulls runtime dependencies: ${mbDeps.join(", ")}`);
 });
 
 console.log(`\nPICKUP_FRONTEND_FOUNDATION passed=${passed} failed=${failed}`);
