@@ -79,7 +79,8 @@ test("the operator proofs launch through scripts/lib/cdp.cjs instead of a privat
 const CHROMIUM = [process.env.SITON_ACCEPTANCE_BROWSER, "/opt/pw-browsers/chromium", "/opt/pw-browsers/chromium/chrome-linux/chrome", "/usr/bin/chromium", "/usr/bin/google-chrome", "/usr/bin/google-chrome-stable"].filter(Boolean).find(existsSync);
 
 test("launchCdpBrowser opens a real headless Chromium page target", { skip: !CHROMIUM && "no Chromium installed", timeout: 60_000 }, async () => {
-  const extraArgs = typeof process.getuid === "function" && process.getuid() === 0 ? ["--no-sandbox"] : [];
+  // CI runners and containers may block the Chromium sandbox; tests/helpers/browser_cdp.ts passes the same flag
+  const extraArgs = ["--no-sandbox"];
   const browser = await launchCdpBrowser({ executable: CHROMIUM, profilePrefix: "siton-cdp-launcher-smoke", portBase: 39_000, extraArgs });
   try {
     assert.match(browser.wsUrl, /^ws:\/\/127\.0\.0\.1:\d+\/devtools\/page\//);
