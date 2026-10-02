@@ -368,7 +368,6 @@ function requestUserAgent(req: any) {
   return String(req.headers?.["user-agent"] || "").trim().slice(0, 240);
 }
 
-
 function mapSellerProfile(profile: any, contextSource: string) {
   return {
     seller_id: String(profile.seller_id),

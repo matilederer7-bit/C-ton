@@ -304,7 +304,7 @@ read-only passes (src / web / frontend; scripts / dependencies / config / root; 
 
 | Item | Why not now |
 |---|---|
-| `src/frontend_runtime.ts` (≈12 300 lines) further splits: ~~legal HTML render~~ (DONE 2026-10-02 — `src/legal_html.ts`, PR "LR2-1"), admin ops / support / pilot route groups, `/app` shell routes | verbatim route-group moves are mechanical but each is large; one concern per PR. Note: 38 tests / scripts read `frontend_runtime.ts` as text — every move retargets its pins to the new file (never drops them) and adds the new file to any gate that scans the runtime surface |
+| `src/frontend_runtime.ts` (≈12 300 lines) further splits: ~~legal HTML render~~ (DONE 2026-10-02 — `src/legal_html.ts`, PR #191), admin ops / support / pilot route groups, `/app` shell routes | verbatim route-group moves are mechanical but each is large; one concern per PR. Note: 38 tests / scripts read `frontend_runtime.ts` as text (src/app.ts: 49) — every move retargets its pins to the new file (never drops them) and adds the new file to every gate or fixed-list scan that covered the moved code (#191: legal gate + `security_hardening_validation` static scan) |
 | `src/app.ts` (≈8 600 lines): `http_security`, ops routes, seller-deal routes | same; money / outbox / lifecycle code stays untouched |
 | Duplicated helpers: `paymentMinorAmount` + `parsePositiveIntegerQuantity` (app.ts / frontend_runtime.ts), five `roundMoney` copies | **money** — out of scope for a behaviour-free refactor; consolidate only in a reviewed money PR |
 | `sha256` hex ×3, `randomBytes(32).base64url` ×5, peppered token hash ×2, cookie parsers ×2 (not identical), `requireUuid` ×3 (messages differ) | **auth** — out of scope; cookie parsers and `requireUuid` differ in behaviour |
