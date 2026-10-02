@@ -295,24 +295,23 @@ Sixth pass on `4746d43`: DO NOT MERGE — two cases `eb7c2b4` caught were lost (
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
 
 <!-- AGENT_STATUS:chatgpt:START -->
-### ChatGPT latest milestone — Lean Refactor: remove duplicate admin notification-status alias
+### ChatGPT latest milestone — Lean Refactor: retire dead DEBUG_JOIN_LOGGING policy surface
 
 - UPDATED: 2026-10-02
 - COMPLETED:
-  - Re-verified current master `f3c0aee` and the post-refactor map before editing.
-  - D5 status trim is already merged and D5 is complete; CMS hero-video user-flow proof is also complete on staging.
-  - Reused the existing full-tree zero-consumer proof for `/api/admin/notifications/status` from the post-refactor census.
-  - Proved that from census baseline `1b1ba93` to current master no change touched `src/frontend_runtime.ts` or introduced an admin-notification consumer, so the proof remains current.
-  - Removed only the duplicate alias `/api/admin/notifications/status`; canonical `/api/admin/notifications-status` remains unchanged.
+  - PR #190 merged; master `5c5221f`; exact-head and master Siton CI verified green; canonical Render web/worker verified live on the merge SHA.
+  - Re-checked Lean Refactor §7.2 and current runtime/config surfaces before editing.
+  - `DEBUG_JOIN_LOGGING` has no runtime reader in `src/app.ts`, `src/frontend_runtime.ts`, production guards or runtime gate code; the post-refactor census already classified it as no-reader config.
+  - Removed only its demo env example and its runtime-policy guard entry; documentation now names only live `DEBUG_SQL_LOGGING`.
 - TESTED:
-  - Source-level assertion: duplicate alias absent, canonical route still present.
-  - Full Siton CI and independent review are required on the PR head before merge.
+  - Updated runtime policy parses as valid JSON.
+  - Full Siton CI and independent reviewer pass are required on this PR head before merge.
 - OPEN:
-  - CI / exact-head independent review / merge / master verification for this slice.
-  - Larger behaviour-sensitive refactors remain in `docs/LEAN_REFACTOR_MAP_2026-09-30.md` §7.2 and must stay split by concern.
-  - Three legacy Render services remain a manual cleanup because the connected Render tool has no delete/suspend operation.
-- PERCENT: 50%. Small refactor implemented; repository gates and independent review still pending.
-- NEXT: open PR -> CI -> Claude reviewer-only pass -> merge only if current-head green -> update refactor map after merge.
+  - CI / review / merge / master verification for this slice.
+  - `TWILIO_*` remains a separate provider/config decision; not changed here.
+  - PR #191 is concurrent Claude work on legal HTML extraction and must remain isolated.
+- PERCENT: 50%. Dead config surface removed on branch; repository gates/review still pending.
+- NEXT: open PR -> exact-head CI -> independent review -> sync if master advances -> merge only green.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 
