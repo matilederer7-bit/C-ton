@@ -69,6 +69,17 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
+### Claude Code latest milestone — CMS hero video: conversion stalled on Android at 17% → visible preview + stall watchdog + diagnostics (2026-10-02)
+
+- UPDATED: 2026-10-02
+- OWNER TEST (staging, after #186 `f133ec9` went live): Android phone, Brave browser — conversion progressed to 17% and then stopped; no error and no upload reached the server (Render logs: no `/api/client-errors`, no `/api/admin/content-assets`). Cause (most likely, not provable without the device): Chromium browsers on Android pause a muted video they consider invisible, and the converter played the clip in a 2 px, opacity-0.01 element.
+- COMPLETED (branch `claude/cms-video-stall-fix`): the clip now plays as a small fully visible preview in the corner while it is prepared; a watchdog resumes a paused clip and, if the position does not move for 8 s, stops with `stalled` and a clear message instead of an endless spinner; every conversion failure carries a diagnostic snapshot (stage, position, ready/network state, frame, source type, size, recorder format — no file content, no personal data) that is sent to error monitoring through the existing scrubbed `/api/client-errors` relay (`reportHandledError`). Server, broker, bucket, auth and limits unchanged.
+- TESTED: real Chromium, 3/3 runs: conversion still yields a playable bounded MP4 the server validator accepts; the preview is visible, in view and playing; a clip paused mid-way is resumed and completes; a clip that stops advancing fails with `stalled` in under 15 s with a matching detail; interrupted / too_large / unreadable paths and no leaked recorder or `<video>` unchanged. Policy test pins the reporting and the new message.
+- REVIEW: independent review of `97a859c` → MERGE with non-blocking notes; N1 (file size scrubbed by the 9-digit rule → now `mb=`), N2 (no browser identity → coarse `browser=` brand/version/platform/mobile), N3 (watchdog now runs from the first `play()`, recorder stop bounded to 10 s), N5 (draw failure keeps stage `draw`) fixed in the next commit. Not fixed: N4 (a decoder that advances time but hands `drawImage` stale frames would upload a frozen clip), N6 (relay tags handled reports as unhandled), N7 (reporting pinned by source match, not an end-to-end POST test).
+- NOT VERIFIED: the owner's Android/Brave retry — that is the proof. If it fails again, the error-monitoring report names the stage, state and browser.
+- PERCENT: code + tests 100%; user-flow proof 0% until the retry passes.
+- NEXT: review → CI → merge → deploy → owner retry.
+
 ### Claude Code latest milestone — CMS hero video: phone videos convert in the browser before upload (2026-10-02)
 
 - UPDATED: 2026-10-02

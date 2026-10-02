@@ -85,6 +85,9 @@ await run("the upload path converts instead of refusing, and the picker offers e
   assert.doesNotMatch(assets, /file\.size > VIDEO_MAX_BYTES\) throw/, "an oversize clip must be converted, not refused");
   assert.match(admin, /uploadVideoAsset\(file, \(f\) => setProgress\(f\)\)/);
   assert.match(admin, /content_admin\.preparing_video/);
+  // a conversion failure on the admin's device reaches error monitoring with its diagnostic detail
+  assert.match(assets, /reportHandledError\(Object\.assign\(new Error\(`hero_video_convert_\$\{code\}: \$\{detail\}`\)/);
+  assert.match(assets, /code === "stalled"\) return t\("content_assets\.video_conversion_stalled"\)/);
 });
 
 console.log("CMS_VIDEO_PREP_PASS");

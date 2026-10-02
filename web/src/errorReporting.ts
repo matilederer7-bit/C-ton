@@ -47,6 +47,11 @@ function report(error: unknown) {
   }
 }
 
+/** Report a handled failure worth diagnosing (same scrubbed relay, same per-page cap). */
+export function reportHandledError(error: unknown) {
+  report(error);
+}
+
 export function installErrorReporting() {
   window.addEventListener("error", (event) => report(event.error ?? event.message));
   window.addEventListener("unhandledrejection", (event) => report(event.reason));

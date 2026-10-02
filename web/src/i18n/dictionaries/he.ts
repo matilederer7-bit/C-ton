@@ -884,6 +884,7 @@ export const HE: Record<string, string> = {
   "content_assets.video_cannot_be_read_here": "הדפדפן הזה לא מצליח לקרוא את הסרטון — נסו מדפדפן אחר (Safari באייפון או Chrome)",
   "content_assets.video_conversion_failed": "הכנת הווידאו נכשלה — נסו שוב או בחרו סרטון קצר יותר",
   "content_assets.video_conversion_interrupted": "הכנת הווידאו נעצרה כי המסך ננעל או שעברתם לאפליקציה אחרת — השאירו את המסך פתוח ונסו שוב",
+  "content_assets.video_conversion_stalled": "הדפדפן הפסיק לנגן את הסרטון באמצע ההכנה — נסו שוב; אם זה חוזר, נסו מדפדפן Chrome",
   "content_assets.video_playback_blocked": "הטלפון חסם את הכנת הווידאו (למשל במצב חיסכון בסוללה) — כבו את מצב החיסכון ונסו שוב",
   "content_assets.video_still_too_large": "גם אחרי ההכנה הסרטון גדול מ-10MB — בחרו סרטון קצר יותר",
   "content_assets.video_too_long_to_convert": "הסרטון ארוך מדקה — קצרו אותו לדקה לכל היותר ונסו שוב",

@@ -9,16 +9,26 @@
 //
 // Failure is always bounded and clean: one deadline covers the whole pipeline,
 // a hidden page (screen locked, app switched) stops it at once, a recorder
-// error stops it, and the recorder, its stream and the <video> are released on
-// every path.
+// error stops it, a playback that stops advancing is resumed and, if it stays
+// stuck, stopped with "stalled", and the recorder, its stream and the <video>
+// are released on every path. Every failure carries a diagnostic `detail`.
+//
+// The clip plays as a small VISIBLE preview in the corner: Chromium browsers on
+// Android (Chrome, Brave, …) pause a muted video they consider invisible, which
+// froze the first version mid-way (owner test on staging, 2026-10-02: stuck at 17%).
 import { heroVideoBitrate, pickRecorderType, scaledVideoSize, sniffVideoContainer } from "./videoPrep";
 
 export type VideoConvertErrorCode =
-  | "unsupported_browser" | "unreadable" | "blocked" | "interrupted" | "too_long" | "too_large" | "failed";
+  | "unsupported_browser" | "unreadable" | "blocked" | "interrupted" | "stalled" | "too_long" | "too_large" | "failed";
 
 export class VideoConvertError extends Error {
+  /** Diagnostic snapshot (stage, playback position, ready state, format); no file content, no personal data. */
+  detail = "";
   constructor(readonly code: VideoConvertErrorCode) { super(code); this.name = "VideoConvertError"; }
 }
+
+/** Seconds without playback progress before the conversion is declared stuck. */
+export const STALL_LIMIT_SECONDS = 8;
 
 /** Time allowed to open the file and learn its duration, before the per-clip deadline applies. */
 const OPEN_DEADLINE_MS = 30_000;
@@ -50,6 +60,16 @@ async function knownDuration(video: HTMLVideoElement): Promise<number> {
   return video.duration;
 }
 
+/** Coarse browser identity for diagnostics (brand + version, platform, mobile); never anything personal. */
+function browserLabel(): string {
+  const data = (navigator as Navigator & { userAgentData?: { brands?: { brand: string; version: string }[]; platform?: string; mobile?: boolean } }).userAgentData;
+  if (data?.brands?.length) {
+    const brands = data.brands.filter((b) => !/not.?a.?brand/i.test(b.brand)).map((b) => `${b.brand}/${b.version}`).join(",");
+    return `${brands};${data.platform || "?"};${data.mobile ? "mobile" : "desktop"}`.slice(0, 120);
+  }
+  return String(navigator.userAgent || "?").slice(0, 120);
+}
+
 export async function convertVideoForHero(
   file: Blob,
   opts: { maxBytes: number; onProgress?: (fraction: number) => void }
@@ -67,10 +87,13 @@ export async function convertVideoForHero(
   video.setAttribute("playsinline", "");
   video.setAttribute("muted", "");
   video.preload = "auto";
-  // Kept in the document (mobile Safari does not decode detached or display:none
-  // video) but invisible and out of the way.
-  video.style.cssText = "position:fixed;right:0;bottom:0;width:2px;height:2px;opacity:0.01;pointer-events:none;z-index:-1";
+  // A small, fully visible preview in the corner while the clip is prepared (see
+  // the header: browsers pause or skip invisible muted video).
+  video.setAttribute("data-testid", "hero-video-converting");
+  video.style.cssText = "position:fixed;left:12px;bottom:12px;width:120px;height:auto;max-height:200px;border-radius:10px;"
+    + "box-shadow:0 4px 18px rgba(0,0,0,.28);background:#000;z-index:2147483000;pointer-events:none";
   document.body.appendChild(video);
+  let stage = "open";
 
   // Every failure source funnels into one rejection the pipeline races against.
   let abort: (code: VideoConvertErrorCode) => void = () => undefined;
@@ -83,6 +106,7 @@ export async function convertVideoForHero(
   document.addEventListener("visibilitychange", onHidden);
 
   let raf = 0;
+  let watchdog: ReturnType<typeof setInterval> | undefined;
   let recorder: MediaRecorder | undefined;
   let stream: MediaStream | undefined;
   try {
@@ -95,6 +119,7 @@ export async function convertVideoForHero(
     let unlocking = true;
     video.play().then(() => { if (unlocking) video.pause(); }, () => undefined);
     await guard(loaded);
+    stage = "duration";
     const duration = await guard(knownDuration(video));
     if (!Number.isFinite(duration) || duration <= 0 || !video.videoWidth || !video.videoHeight) throw new VideoConvertError("unreadable");
     const bitrate = heroVideoBitrate(duration, opts.maxBytes);
@@ -117,13 +142,27 @@ export async function convertVideoForHero(
     const draw = () => { ctx.drawImage(video, 0, 0, size.width, size.height); };
     draw();
 
+    stage = "play";
     const ended = once(video, "ended", "error");
+    // A browser may never start, pause, or starve the decoder mid-way: resume
+    // it, and give up with "stalled" if the position does not move for
+    // STALL_LIMIT_SECONDS — from the first play() on, not only once recording.
+    let lastTime = video.currentTime;
+    let stuckFor = 0;
+    watchdog = setInterval(() => {
+      if (video.ended) return;
+      if (video.currentTime > lastTime + 0.05) { lastTime = video.currentTime; stuckFor = 0; return; }
+      stuckFor += 1;
+      if (video.paused && stage !== "play") video.play().catch(() => undefined);
+      if (stuckFor >= STALL_LIMIT_SECONDS) abort("stalled");
+    }, 1000);
     try { await guard(video.play()); }
     catch (err) {
       if (err instanceof VideoConvertError) throw err;
       throw new VideoConvertError((err as { name?: string })?.name === "NotAllowedError" ? "blocked" : "unreadable");
     }
 
+    stage = "record";
     stream = canvas.captureStream(30);
     const rec = new MediaRecorder(stream, { mimeType: format.recorderType, videoBitsPerSecond: bitrate });
     recorder = rec;
@@ -133,7 +172,7 @@ export async function convertVideoForHero(
     const stopped = once(rec, "stop");
     rec.start(1000);
     const tick = () => {
-      draw();
+      try { draw(); } catch { stage = "draw"; abort("failed"); return; }
       opts.onProgress?.(Math.min(0.99, video.currentTime / duration));
       if (!video.ended) raf = requestAnimationFrame(tick);
     };
@@ -141,9 +180,13 @@ export async function convertVideoForHero(
     await guard(ended);
     cancelAnimationFrame(raf);
     draw();
+    stage = "stop";
     rec.stop();
-    await guard(stopped);
+    // The recorder must hand over its data promptly; never sit at 99%.
+    const stopTimer = setTimeout(() => abort("failed"), 10_000);
+    try { await guard(stopped); } finally { clearTimeout(stopTimer); }
 
+    stage = "finish";
     const blob = new Blob(chunks, { type: format.uploadType });
     if (!blob.size) throw new VideoConvertError("failed");
     if (blob.size > opts.maxBytes) throw new VideoConvertError("too_large");
@@ -151,8 +194,17 @@ export async function convertVideoForHero(
     if (!container) throw new VideoConvertError("failed");
     opts.onProgress?.(1);
     return { blob: container === format.uploadType ? blob : new Blob([blob], { type: container }), mime: container };
+  } catch (err) {
+    const failure = err instanceof VideoConvertError ? err : new VideoConvertError("failed");
+    const d = Number.isFinite(video.duration) ? video.duration.toFixed(1) : String(video.duration);
+    failure.detail = `stage=${stage} t=${video.currentTime.toFixed(1)}/${d} ready=${video.readyState} net=${video.networkState}`
+      + ` paused=${video.paused} frame=${video.videoWidth}x${video.videoHeight} src=${(file.type || "?").slice(0, 40)}`
+      + ` mb=${(file.size / 1048576).toFixed(1)} rec=${format.recorderType} browser=${browserLabel()}`
+      + `${failure === err ? "" : ` cause=${String((err as Error)?.name || err).slice(0, 60)}`}`;
+    throw failure;
   } finally {
     clearTimeout(timer);
+    clearInterval(watchdog);
     document.removeEventListener("visibilitychange", onHidden);
     cancelAnimationFrame(raf);
     if (recorder && recorder.state !== "inactive") { try { recorder.stop(); } catch { /* already stopping */ } }
