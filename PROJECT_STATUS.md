@@ -69,15 +69,15 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
-### Claude Code latest milestone — Lean Refactor round 2, slice 2: HTTP security headers out of `app.ts` (2026-10-02)
+### Claude Code latest milestone — Lean Refactor round 2, slice 3: shared CDP launcher `scripts/lib/cdp.cjs` (2026-10-02)
 
 - UPDATED: 2026-10-02
-- COMPLETED: slice 1 — PR #191 (legal HTML shell → `src/legal_html.ts`, `frontend_runtime.ts` 12 255 → 12 144 lines) reviewed MERGE, squash-merged as `f02a691`. Its first CI run was red only on the e2e CMS-video test assuming a 4 s source; fixed test-only in PR #193 (measure the source duration, 2.5 s floor, metadata timeout), reviewed MERGE, merged as `7cce657`, master Siton CI green (run 37010120579). #190 (alias removal) merged earlier as `5c5221f`.
-- THIS PR: `applySecurityHeaders`, `isImmutableDealImageRoute`, `isDynamicNoStoreRoute` moved verbatim from `src/app.ts` to the new `src/http_security_headers.ts` (only change: `export`); the `onRequest` / `onSend` hooks that call them stay in `app.ts` (8 637 → 8 587 lines).
-- TESTS / GATES: the 48 tests that read `app.ts` / `frontend_runtime.ts` / the moved files as text pass; pins on the moved code (`security_hardening_validation`, `cache_policy_validation`, `aws_accordion_readiness_validation`, geolocation + pickup permissions-policy pins) retargeted with identical regexes, the hook call sites still pinned in `app.ts`. The new file is in the legal gate's server scan (+ fixture), the `security_hardening` static scan, and `team_plan_check`'s security family so it keeps a senior review tier. Release tools 419/0; legal, money/tax, route-inventory, secret, hygiene, architecture gates; `tsc`; lint.
-- BEHAVIOUR: none intended — same headers, same cache classification, no route / auth / money / lifecycle touch. Runtime impact: Render redeploy of identical behaviour.
-- OPEN: independent review → CI → merge → master + Render header check. Next: CDP launcher extraction (`scripts/lib/cdp.cjs`).
-- PERCENT: round-2 slice 1 DONE, slice 2 in review.
+- COMPLETED: slice 1 #191 (legal HTML → `src/legal_html.ts`) merged `f02a691`; slice 2 #194 (`applySecurityHeaders` / `isImmutableDealImageRoute` / `isDynamicNoStoreRoute` → `src/http_security_headers.ts`, called from `app.ts`'s `onRequest` hook; CSP stays in `onSend`) reviewed MERGE, byte-identical move confirmed, merged `d549ab5`, master Siton CI green (run 37014231046), Render web + worker live on `d549ab5`, staging response headers identical before/after (`/readiness`, `/legal/*`). `frontend_runtime.ts` 12 255 → 12 144, `app.ts` 8 637 → 8 587 lines.
+- THIS PR: the six identical operator-proof `openBrowser` launchers (`authenticated_ui_acceptance`, `buyer_polish`, `launch_polish`, `p0`, `pickup_fulfillment`, `r7r8`) call the new `scripts/lib/cdp.cjs` `launchCdpBrowser`; each keeps its own `cdpSession` (semantics differ on purpose). Same flags (the pickup proof's two media flags now precede the debug-port flag; Chromium switch order is not significant), port ranges, profile names, poll, error messages, return fields. The differing launchers (`site_cms`, `receipt_content`, `ux_polish_round2`, `tests/helpers/browser_cdp.ts`, `scripts/retired/`) are documented in the map, not unified.
+- TESTS: new `tests/release_tools/cdp_launcher.test.cjs` (exact argv + return shape via a fake browser, kill + caller message on timeout, no private launcher copies left, real headless Chromium smoke). Every affected proof run on master and on this branch against the same local demo-preview server: identical PASS/FAIL sets (p0 10/13, buyer 20/13, launch 3/11, r7r8 3/3, acceptance `--local-dryfit` DRYFIT_PASS 17/0); pickup stops at a pre-existing DB-fixture error on both (logged in the map). `authenticated_ui_acceptance_harness_validation` 6/0; release tools.
+- BEHAVIOUR: none — operator scripts only, no runtime code.
+- OPEN: independent review → CI → merge. Next: census, then legacy-renderer test retarget (all 8 legacy renderers in `frontend/app.js` have zero call sites; 3 tests slice them).
+- PERCENT: round-2 slices 1–2 DONE, slice 3 in review.
 - NEXT: review this PR.
 
 ### Claude Code latest milestone — CMS hero video: owner upload on staging PASSED (2026-10-02)

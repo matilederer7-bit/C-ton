@@ -6,9 +6,8 @@
 // admin control-center login screen renders (not a broken shell).
 //
 // Usage: node scripts/r7r8_browser_proof.cjs --base-url=https://... [--shots=dir]
-const { spawn } = require("node:child_process");
+const { launchCdpBrowser } = require("./lib/cdp.cjs");
 const { existsSync, mkdirSync, writeFileSync } = require("node:fs");
-const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 
 const args = Object.fromEntries(process.argv.slice(2).map((a) => { const m = a.match(/^--([^=]+)=(.*)$/); return m ? [m[1], m[2]] : [a.replace(/^--/, ""), "1"]; }));
@@ -23,11 +22,8 @@ let passed = 0, failed = 0;
 async function run(name, fn) { try { await fn(); console.log(`PASS ${name}`); passed++; } catch (e) { console.error(`FAIL ${name}: ${e.message}`); failed++; } }
 
 async function openBrowser() {
-  const profileDir = join(tmpdir(), `siton-r7r8-proof-${Date.now()}`);
-  const port = 35_000 + Math.floor(Math.random() * 1000);
-  const browser = spawn(EDGE, ["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--lang=he", `--remote-debugging-port=${port}`, `--user-data-dir=${profileDir}`, "about:blank"], { stdio: "ignore", windowsHide: true });
-  for (let i = 0; i < 80; i++) { try { const res = await fetch(`http://127.0.0.1:${port}/json/list`); const pages = await res.json(); const page = pages.find((p) => p.type === "page"); if (page?.webSocketDebuggerUrl) return { browser, wsUrl: page.webSocketDebuggerUrl }; } catch { /* retry */ } await wait(250); }
-  browser.kill("SIGKILL"); throw new Error("CDP not available");
+  const { proc: browser, wsUrl } = await launchCdpBrowser({ executable: EDGE, profilePrefix: "siton-r7r8-proof", portBase: 35_000 });
+  return { browser, wsUrl };
 }
 function cdpSession(wsUrl) {
   const ws = new WebSocket(wsUrl); let seq = 0; const pending = new Map();

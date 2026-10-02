@@ -45,9 +45,8 @@
 //             1 = at least one FAIL (or an unexpected harness error).
 "use strict";
 
-const { spawn } = require("node:child_process");
+const { launchCdpBrowser } = require("./lib/cdp.cjs");
 const { existsSync, mkdirSync, writeFileSync, rmSync, appendFileSync } = require("node:fs");
-const { tmpdir } = require("node:os");
 const { join, resolve } = require("node:path");
 
 // ── credential boundary ─────────────────────────────────────────────────────
@@ -167,20 +166,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function openBrowser(tag) {
   if (!BROWSER) throw new Error("no Edge/Chrome executable found (set SITON_ACCEPTANCE_BROWSER)");
-  const profileDir = join(tmpdir(), `siton-auth-acceptance-${tag}-${Date.now()}`);
-  const port = 36_000 + Math.floor(Math.random() * 1000);
-  const proc = spawn(BROWSER, ["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--lang=he", ...BROWSER_FLAGS, `--remote-debugging-port=${port}`, `--user-data-dir=${profileDir}`, "about:blank"], { stdio: "ignore", windowsHide: true });
-  for (let i = 0; i < 80; i++) {
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/json/list`);
-      const pages = await res.json();
-      const page = pages.find((p) => p.type === "page");
-      if (page?.webSocketDebuggerUrl) return { proc, profileDir, wsUrl: page.webSocketDebuggerUrl };
-    } catch { /* retry */ }
-    await wait(250);
-  }
-  proc.kill("SIGKILL");
-  throw new Error("CDP endpoint not available");
+  return launchCdpBrowser({ executable: BROWSER, profilePrefix: `siton-auth-acceptance-${tag}`, portBase: 36_000, extraArgs: BROWSER_FLAGS, unavailableMessage: "CDP endpoint not available" });
 }
 
 function cdpSession(wsUrl, diag) {
