@@ -94,11 +94,13 @@ async function main() {
     // source's MEASURED duration, never an assumed 4 s.
     const sourceDuration = await page.evaluate<number>(`(async () => {
       const v = document.createElement('video'); v.muted = true; v.src = URL.createObjectURL(window.__source);
-      await new Promise((res, rej) => { v.onloadedmetadata = res; v.onerror = () => rej(new Error('source does not load')); });
+      await new Promise((res, rej) => { v.onloadedmetadata = res; v.onerror = () => rej(new Error('source does not load')); setTimeout(() => rej(new Error('source metadata timed out')), 10000); });
       if (!Number.isFinite(v.duration)) { v.currentTime = 1e6; await new Promise((res) => { v.ondurationchange = res; setTimeout(res, 3000); }); }
       return v.duration;
     })()`);
-    assert.ok(Number.isFinite(sourceDuration) && sourceDuration > 1.5, `source clip duration ${sourceDuration}`);
+    // The real-time engine tests below act on the running conversion after fixed
+    // waits of up to 1.5 s, so the clip must outlast them with a margin.
+    assert.ok(Number.isFinite(sourceDuration) && sourceDuration > 2.5, `source clip too short for the real-time tests: ${sourceDuration}`);
 
     await run("the WebCodecs engine handles the clip on its own (no fallback)", async () => {
       const r = await page!.evaluate<any>(`window.__tx.transcodeWithWebCodecs(window.__source, { maxBytes: ${MAX} }).then((o) => ({ ok: true, size: o.blob.size }), (e) => ({ ok: false, code: e.code, detail: e.detail || String(e) }))`);
