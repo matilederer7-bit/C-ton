@@ -77,7 +77,8 @@ Current invariants:
 - npm scripts: mapped (map §8.3) — no zero-consumer alias exists, nothing deleted.
 - TESTS: `tsc`; the 67 tests that read `runtime_config` / notification code 67/0; release tools 419/0; secret, hygiene, architecture gates; lint.
 - BEHAVIOUR: none (no reader existed). Runtime impact: Render redeploy of identical behaviour.
-- OPEN: independent review → CI → merge → Render check. Owner: #192 needs its review fixes; branch deletion (101 verified) and the 3 legacy Render services are owner actions.
+- MERGED: #197 as `8b4c809`. Master Siton CI run 37022260487 then failed in `preflight-database` on the new real-Chromium smoke in `tests/release_tools/cdp_launcher.test.cjs` (added by #195; it passed in the two earlier master preflights). Most likely cause: its random debug port (38-39k) sits inside Linux's ephemeral port range, which the parallel suite's connections can occupy. Fix PR: test ports below 32768, the browser_cdp.ts 60 s budget and flags for the smoke (new optional `pollAttempts`, default 80 = unchanged for the proofs, now pinned).
+- OPEN: hotfix PR → review → CI → merge → master green. Owner: #192 needs its review fixes; branch deletion (101 verified) and the 3 legacy Render services are owner actions.
 - PERCENT: round-2 slices 1–4 DONE, slice 5 in review.
 - NEXT: review this PR.
 

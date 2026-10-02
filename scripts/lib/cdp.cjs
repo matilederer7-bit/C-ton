@@ -15,11 +15,12 @@ const { join } = require("node:path");
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function launchCdpBrowser({ executable, profilePrefix, portBase, extraArgs = [], unavailableMessage = "CDP not available" }) {
+// pollAttempts × 250 ms is the startup budget; the operator proofs keep the default 80 (20 s).
+async function launchCdpBrowser({ executable, profilePrefix, portBase, extraArgs = [], unavailableMessage = "CDP not available", pollAttempts = 80 }) {
   const profileDir = join(tmpdir(), `${profilePrefix}-${Date.now()}`);
   const port = portBase + Math.floor(Math.random() * 1000);
   const proc = spawn(executable, ["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--lang=he", ...extraArgs, `--remote-debugging-port=${port}`, `--user-data-dir=${profileDir}`, "about:blank"], { stdio: "ignore", windowsHide: true });
-  for (let i = 0; i < 80; i++) {
+  for (let i = 0; i < pollAttempts; i++) {
     try {
       const res = await fetch(`http://127.0.0.1:${port}/json/list`);
       const pages = await res.json();
