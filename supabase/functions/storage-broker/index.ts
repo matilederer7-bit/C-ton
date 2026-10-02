@@ -20,8 +20,13 @@ import { parseAllowedNamespaces, scopedKey, scopedListPrefix } from "./scope.ts"
 
 const BUCKET = "deal-images";
 const BROKER_KEY_SHA256 = "747be04baee00a81abb4f17021e3ea55c9fc46f5d92dc9534687896708ce73ae";
-const MAX_BYTES = 2 * 1024 * 1024;
-const ALLOWED_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const MAX_BYTES_BY_CONTENT_TYPE = new Map<string, number>([
+  ["image/jpeg", 5 * 1024 * 1024],
+  ["image/png", 5 * 1024 * 1024],
+  ["image/webp", 5 * 1024 * 1024],
+  ["video/mp4", 10 * 1024 * 1024],
+  ["video/webm", 10 * 1024 * 1024]
+]);
 const MAX_LIST_KEYS = 1000;
 // Black-Sky E5: every op is confined to the canonical object-key shape inside
 // an allowed deployment namespace (see ./scope.ts). Configure the function
@@ -132,12 +137,13 @@ Deno.serve(async (req: Request) => {
       const key = validateKey(body.key);
       if (!key) return fail(400, "invalid_storage_key");
       const contentType = String(body.content_type ?? "").trim().toLowerCase();
-      if (!ALLOWED_CONTENT_TYPES.has(contentType)) return fail(400, "invalid_content_type");
+      const maxBytes = MAX_BYTES_BY_CONTENT_TYPE.get(contentType);
+      if (!maxBytes) return fail(400, "invalid_content_type");
       const raw = String(body.content_base64 ?? "");
-      if (!raw || raw.length > Math.ceil((MAX_BYTES + 3) * 4 / 3) + 8) return fail(400, "content_too_large");
+      if (!raw || raw.length > Math.ceil((maxBytes + 3) * 4 / 3) + 8) return fail(400, "content_too_large");
       const bytes = decodeBase64(raw);
       if (!bytes || bytes.length === 0) return fail(400, "invalid_content");
-      if (bytes.length > MAX_BYTES) return fail(400, "content_too_large");
+      if (bytes.length > maxBytes) return fail(400, "content_too_large");
       const expectedChecksum = String(body.checksum_sha256 ?? "").toLowerCase();
       if (!/^[0-9a-f]{64}$/.test(expectedChecksum)) return fail(400, "checksum_required");
       const actualChecksum = await sha256Hex(bytes);
