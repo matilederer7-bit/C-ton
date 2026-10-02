@@ -26,7 +26,7 @@ Operators: `present`, `absent`, `equal`, `not_equal`, `one_of`, `not_one_of`, `m
 - `STORAGE_ADAPTER` is `object` or `supabase` (no local disk)
 - secrets present and non-placeholder: `DATABASE_URL` (never superuser, never localhost), `ADMIN_API_KEY` (>= 24 chars), `SELLER_SESSION_SECRET` (>= 32), `BUYER_SESSION_SECRET`, `OTP_HASH_SALT`, `PAYMENT_WEBHOOK_SECRET` (web)
 - `SUPABASE_SERVICE_ROLE_KEY` ABSENT from every application runtime (it lives only inside the storage-broker Edge Function)
-- `PUBLIC_BASE_URL` https; `LOG_LEVEL` not debug/trace; `DEBUG_SQL_LOGGING` / `DEBUG_JOIN_LOGGING` off; rate limits not `0`
+- `PUBLIC_BASE_URL` https; `LOG_LEVEL` not debug/trace; `DEBUG_SQL_LOGGING` off; rate limits not `0`
 - `RUNTIME_ROLE` declared; web has `DISABLE_OUTBOX_WORKER=1`, worker does not
 - `SITON_VAT_MODE=explicit` with `SITON_VAT_RATE_PRODUCT` / `SITON_VAT_RATE_DELIVERY`
 - `STRIPE_ALLOW_SERVER_SIDE_CARD_TOKENIZATION` off
