@@ -4,9 +4,8 @@
 // Seeds a deal + a pending self-signup seller, then checks landing, seller dashboard, seller deal (Draft + live),
 // wizard, public deal, admin queue/overview/detail: 0 console errors, no horizontal overflow, journey strip,
 // cancel refusal with the pause alternative, pending queue, boot loader and the slow-load hint. Local only.
-const { spawn } = require("node:child_process");
+const { launchCdpBrowser } = require("./lib/cdp.cjs");
 const { existsSync, mkdirSync, writeFileSync } = require("node:fs");
-const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { randomUUID, randomBytes } = require("node:crypto");
 const { deflateSync } = require("node:zlib");
@@ -37,11 +36,8 @@ async function call(path, { method = "GET", body, headers = {} } = {}) {
 
 // ── CDP ───────────────────────────────────────────────────────────────────
 async function openBrowser() {
-  const profileDir = join(tmpdir(), `siton-polish-proof-${Date.now()}`);
-  const port = 37_000 + Math.floor(Math.random() * 1000);
-  const browser = spawn(EDGE, ["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--lang=he", `--remote-debugging-port=${port}`, `--user-data-dir=${profileDir}`, "about:blank"], { stdio: "ignore", windowsHide: true });
-  for (let i = 0; i < 80; i++) { try { const res = await fetch(`http://127.0.0.1:${port}/json/list`); const pages = await res.json(); const page = pages.find((p) => p.type === "page"); if (page?.webSocketDebuggerUrl) return { browser, wsUrl: page.webSocketDebuggerUrl }; } catch {} await wait(250); }
-  browser.kill("SIGKILL"); throw new Error("CDP not available");
+  const { proc: browser, wsUrl } = await launchCdpBrowser({ executable: EDGE, profilePrefix: "siton-polish-proof", portBase: 37_000 });
+  return { browser, wsUrl };
 }
 function cdpSession(wsUrl) {
   const ws = new WebSocket(wsUrl); let seq = 0; const pending = new Map(); const listeners = [];
