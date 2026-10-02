@@ -51,7 +51,7 @@ export function heroVideoBitrate(durationSec: number, maxBytes: number): number 
 export function scaledVideoSize(width: number, height: number, maxEdge = HERO_VIDEO_MAX_EDGE): { width: number; height: number } {
   if (!(width > 0) || !(height > 0)) return { width: 0, height: 0 };
   const scale = Math.min(1, maxEdge / Math.max(width, height));
-  const even = (n: number) => Math.max(2, Math.round((n * scale) / 2) * 2);
+  const even = (n: number) => Math.max(2, Math.floor((n * scale) / 2) * 2);
   return { width: even(width), height: even(height) };
 }
 
@@ -74,7 +74,7 @@ export function pickRecorderType(isTypeSupported: (type: string) => boolean): { 
 
 /** The container actually in the bytes — the same signatures the server checks (src/content_media.ts). */
 export function sniffVideoContainer(head: Uint8Array): "video/mp4" | "video/webm" | null {
-  if (head.length >= 12 && String.fromCharCode(head[4], head[5], head[6], head[7]) === "ftyp") return "video/mp4";
+  if (head.length >= 12 && String.fromCharCode(head[4] ?? 0, head[5] ?? 0, head[6] ?? 0, head[7] ?? 0) === "ftyp") return "video/mp4";
   if (head.length >= 4 && head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3) return "video/webm";
   return null;
 }

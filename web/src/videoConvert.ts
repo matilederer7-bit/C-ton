@@ -24,6 +24,27 @@ function once<T extends Event>(target: EventTarget, ok: string, fail?: string): 
   });
 }
 
+function settle(target: EventTarget, event: string, ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => { clearTimeout(timer); target.removeEventListener(event, done); resolve(); };
+    const timer = setTimeout(done, ms);
+    target.addEventListener(event, done);
+  });
+}
+
+/** Recorder-made WebM (screen or in-app recordings) reports no duration until its end is seeked. */
+async function knownDuration(video: HTMLVideoElement): Promise<number> {
+  if (Number.isFinite(video.duration) && video.duration > 0) return video.duration;
+  const found = settle(video, "durationchange", 5000);
+  video.currentTime = 1e7;
+  await found;
+  const duration = video.duration;
+  const back = settle(video, "seeked", 5000);
+  video.currentTime = 0;
+  await back;
+  return duration;
+}
+
 export async function convertVideoForHero(
   file: Blob,
   opts: { maxBytes: number; onProgress?: (fraction: number) => void }
@@ -50,7 +71,7 @@ export async function convertVideoForHero(
     const loaded = once(video, "loadeddata", "error");
     video.src = url;
     await loaded;
-    const duration = video.duration;
+    const duration = await knownDuration(video);
     if (!Number.isFinite(duration) || duration <= 0 || !video.videoWidth || !video.videoHeight) throw new VideoConvertError("unreadable");
     const bitrate = heroVideoBitrate(duration, opts.maxBytes);
     if (!bitrate) throw new VideoConvertError("too_long");
