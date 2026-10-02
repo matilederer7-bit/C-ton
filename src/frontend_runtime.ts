@@ -8014,7 +8014,6 @@ export function registerFrontendExperience(
     });
   };
   app.get("/api/admin/notifications-status", notificationStatusHandler);
-  app.get("/api/admin/notifications/status", notificationStatusHandler);
 
   // ── Invoice documents operational status ─────────────────────────────────
   // Returns per-status counts, oldest ages, unique document_key count, type breakdown.
