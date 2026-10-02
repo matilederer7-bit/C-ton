@@ -35,11 +35,11 @@ test("launchCdpBrowser spawns the shared flag set and returns { proc, profileDir
   const dir = mkdtempSync(join(tmpdir(), "cdp-launcher-"));
   try {
     const executable = fakeBrowser(dir, { serve: true });
-    const browser = await launchCdpBrowser({ executable, profilePrefix: "siton-test-proof", portBase: 38_000, extraArgs: ["--extra-a", "--extra-b"] });
+    const browser = await launchCdpBrowser({ executable, profilePrefix: "siton-test-proof", portBase: 28_000, extraArgs: ["--extra-a", "--extra-b"] });
     try {
       const argv = JSON.parse(readFileSync(join(dir, "argv.json"), "utf8"));
       const port = Number(argv.find((a) => a.startsWith("--remote-debugging-port=")).split("=")[1]);
-      assert.ok(port >= 38_000 && port < 39_000, `port ${port} within portBase..portBase+999`);
+      assert.ok(port >= 28_000 && port < 29_000, `port ${port} within portBase..portBase+999`);
       assert.match(browser.profileDir, /siton-test-proof-\d+$/);
       assert.ok(browser.profileDir.startsWith(tmpdir()), "profile lives under the OS temp dir");
       assert.deepEqual(argv, ["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--lang=he", "--extra-a", "--extra-b", `--remote-debugging-port=${port}`, `--user-data-dir=${browser.profileDir}`, "about:blank"]);
@@ -61,7 +61,11 @@ test("launchCdpBrowser kills the process and throws the caller's message when CD
     delete require.cache[require.resolve(join(root, "scripts", "lib", "cdp.cjs"))];
     const fresh = require(join(root, "scripts", "lib", "cdp.cjs"));
     childProcess.spawn = realSpawn;
-    await assert.rejects(fresh.launchCdpBrowser({ executable, profilePrefix: "siton-test-proof", portBase: 38_000, unavailableMessage: "CDP endpoint not available" }), /^Error: CDP endpoint not available$/);
+    const started = Date.now();
+    await assert.rejects(fresh.launchCdpBrowser({ executable, profilePrefix: "siton-test-proof", portBase: 28_000, unavailableMessage: "CDP endpoint not available" }), /^Error: CDP endpoint not available$/);
+    // the proofs' default budget stays 80 polls × 250 ms (≈ 20 s)
+    const elapsed = Date.now() - started;
+    assert.ok(elapsed >= 19_000 && elapsed < 40_000, `default startup budget ≈ 20 s, took ${elapsed} ms`);
     assert.ok(spawned, "a browser process was spawned");
     assert.equal(spawned.signalCode === "SIGKILL" || spawned.killed, true, "the stuck process is killed");
   } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -78,10 +82,13 @@ test("the operator proofs launch through scripts/lib/cdp.cjs instead of a privat
 
 const CHROMIUM = [process.env.SITON_ACCEPTANCE_BROWSER, "/opt/pw-browsers/chromium", "/opt/pw-browsers/chromium/chrome-linux/chrome", "/usr/bin/chromium", "/usr/bin/google-chrome", "/usr/bin/google-chrome-stable"].filter(Boolean).find(existsSync);
 
-test("launchCdpBrowser opens a real headless Chromium page target", { skip: !CHROMIUM && "no Chromium installed", timeout: 60_000 }, async () => {
-  // CI runners and containers may block the Chromium sandbox; tests/helpers/browser_cdp.ts passes the same flag
-  const extraArgs = ["--no-sandbox"];
-  const browser = await launchCdpBrowser({ executable: CHROMIUM, profilePrefix: "siton-cdp-launcher-smoke", portBase: 39_000, extraArgs });
+test("launchCdpBrowser opens a real headless Chromium page target", { skip: !CHROMIUM && "no Chromium installed", timeout: 120_000 }, async () => {
+  // Master run 37022260487 failed this smoke inside the release preflight, where the whole suite runs in
+  // parallel next to Postgres. The ports here sit below Linux's ephemeral range (32768-60999) so a busy
+  // outgoing connection cannot already hold the chosen debug port, and the startup budget matches
+  // tests/helpers/browser_cdp.ts (60 s in CI), with its flags.
+  const extraArgs = ["--no-sandbox", "--disable-dev-shm-usage"];
+  const browser = await launchCdpBrowser({ executable: CHROMIUM, profilePrefix: "siton-cdp-launcher-smoke", portBase: 29_000, extraArgs, pollAttempts: 240 });
   try {
     assert.match(browser.wsUrl, /^ws:\/\/127\.0\.0\.1:\d+\/devtools\/page\//);
   } finally {
