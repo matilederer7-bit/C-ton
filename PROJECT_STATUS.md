@@ -69,16 +69,16 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
-### Claude Code latest milestone — Lean Refactor round 2, slice 4: legacy-renderer tests retargeted + round-2 census (2026-10-02)
+### Claude Code latest milestone — Lean Refactor round 2, slice 5: dead `TWILIO_*` config removed (2026-10-02)
 
 - UPDATED: 2026-10-02
-- COMPLETED (merged, master Siton CI green): #191 legal HTML → `src/legal_html.ts` (`f02a691`); #193 CMS-video test fix (`7cce657`); #194 security headers → `src/http_security_headers.ts` (`d549ab5`, staging headers identical before/after); #195 shared CDP launcher `scripts/lib/cdp.cjs` (`872d45a`, every affected proof identical PASS/FAIL before/after). Each: independent review MERGE, CI green on the exact head.
-- THIS PR (tests + docs only): the three tests that sliced the dead `frontend/app.js` renderers (`renderTrackingPage`, `renderConfirmationPage`; zero call sites) now assert the live `/app` `renderCtonTrackingPage` / `renderCtonConfirmationPage` / `renderRecoveryPage` and the React `web/src/pages/track.tsx`, with fail-loud slice extraction and dispatcher guards; negatives (no id echo, no `RCT-` / `receipt_id`, no discovery / commission) now cover the live surfaces. Mutation-proven (rename / inject → the test fails). Six requirements only the dead code delivered (buyer document visibility, progress chart, `/app` buyer-state label, `/app` activity feed, "no action needed" copy, live-center eyebrow) are recorded as GAP assertions, not dropped — owner decision before the renderers are deleted.
-- CENSUS: `docs/LEAN_REFACTOR_MAP_2026-09-30.md` §8 (before/after metrics, gaps, open candidates); branch census `docs/BRANCH_CENSUS_2026-10-02.md` (204 branches; 101 merged branches verified recoverable via `refs/pull/<n>/head` — the session's deletion attempt was refused by the permission policy, so deletion is an owner action; nothing deleted).
-- REVIEWED: #192 (ChatGPT, `DEBUG_JOIN_LOGGING`) — asked to also remove the dead `runtime_config.ts` export and fix three docs before merge.
-- TESTS: the 3 retargeted tests 3/0.
-- OPEN: independent review → CI → merge. Next: `TWILIO_*` dead-config slice (prepared), npm-script alias map.
-- PERCENT: round-2 slices 1–3 DONE, slice 4 in review.
+- COMPLETED (merged, master Siton CI green, independent review MERGE, CI green on the exact head): #191 legal HTML (`f02a691`), #193 video-test fix (`7cce657`), #194 security headers (`d549ab5`, staging headers identical), #195 shared CDP launcher (`872d45a`), #196 legacy-renderer tests retargeted onto live `/app` `renderCton*` + React `track.tsx` and round-2 census (`b4779ba`; six legacy-only requirements recorded as GAP assertions — owner decision before the dead renderers are deleted).
+- THIS PR: `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_FROM` exports removed from `src/runtime_config.ts` (zero importers; no Twilio adapter; `NOTIFICATION_PROVIDER_MODE=real` fails closed). `NOTIFICATIONS_OPERATIONS.md` no longer describes a startup log line and activation path that never existed; `ENVIRONMENT_CONTRACT.md` / `CONFIG_INVENTORY.md` rows dropped. Kept: secret-scanner Twilio detectors, the credential-compromise runbook row, the AWS blueprint. Not in `config/runtime-environment-policy.json`, `render.yaml` or the startup matrix. `DISABLE_OUTBOX_WORKER` untouched.
+- npm scripts: mapped (map §8.3) — no zero-consumer alias exists, nothing deleted.
+- TESTS: `tsc`; the 67 tests that read `runtime_config` / notification code 67/0; release tools 419/0; secret, hygiene, architecture gates; lint.
+- BEHAVIOUR: none (no reader existed). Runtime impact: Render redeploy of identical behaviour.
+- OPEN: independent review → CI → merge → Render check. Owner: #192 needs its review fixes; branch deletion (101 verified) and the 3 legacy Render services are owner actions.
+- PERCENT: round-2 slices 1–4 DONE, slice 5 in review.
 - NEXT: review this PR.
 
 ### Claude Code latest milestone — CMS hero video: owner upload on staging PASSED (2026-10-02)
