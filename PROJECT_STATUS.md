@@ -69,6 +69,22 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
+### Claude Code latest milestone — CMS hero video: owner upload on staging PASSED (2026-10-02)
+
+- UPDATED: 2026-10-02
+- RESULT: the owner uploaded the 27.5 s, 33.8 MB portrait MP4 from an Android phone (Brave 154) through the CMS on staging, after #188 (`795c583`, WebCodecs transcoding) went live. **#174's user-flow proof: PASS.**
+- EVIDENCE (read back from production-of-record systems for staging, not inferred):
+  - Render web logs: `POST /api/admin/content-assets` 10:14:06Z → 200 (5.97 s); `PUT /api/admin/site-content/home/draft` 10:18:15Z → 200; `POST /api/admin/site-content/home/publish` 10:18:16Z → 200; the asset served as `GET /api/content-assets/:id` → 206 (range playback).
+  - Supabase staging `storage.objects` (`deal-images`): `staging/deals/<owner>/images/<uuid>.mp4`, `video/mp4`, 10,180,788 bytes (under the 10,485,760 ceiling), created 10:14:11Z — i.e. through app → `storage-broker` v2 → bucket policy 029.
+  - Owner confirmation in session ("הסרטון עלה").
+- OBSERVED, NOT BLOCKING (follow-ups):
+  - 10:13:21Z one attempt before the successful one failed at `stage=open` with `cause=TypeError: network error` (reading the picked file on the phone); the retry succeeded. Watch for recurrence; if it repeats, retry the read once before reporting `unreadable`.
+  - The converted file used 97% of the 10 MiB ceiling (encoder VBR overshoot above the 80% plan). Consider lowering the bitrate budget share (e.g. 0.7) so long clips keep a margin.
+  - Earlier review notes still open: frozen-frame detection (decoder advancing time with stale frames), the relay labelling handled reports as unhandled, an end-to-end test of the error-report POST.
+- CHAIN: #174 (broker + bucket contract) → #183 (status) → #186 (convert instead of refuse) → #187 (visible preview, watchdog, diagnostics) → #188 (WebCodecs; real-time approach dropped after two device failures, per the two-failure rule).
+- PERCENT: CMS hero video upload 100% on staging (owner-verified). Production untouched.
+- NEXT: optional hardening above; owner direction on the Lean Refactor §7.2 / §7.2b candidates.
+
 ### Claude Code latest milestone — CMS hero video: WebCodecs transcoding instead of real-time recording (2026-10-02)
 
 - UPDATED: 2026-10-02
