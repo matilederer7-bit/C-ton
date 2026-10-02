@@ -166,7 +166,7 @@ async function main() {
       })()`);
       assert.equal(r.code, "stalled", JSON.stringify(r));
       assert.ok(r.waited < 15000, `took ${r.waited} ms to give up`);
-      assert.match(r.detail, /^stage=record t=\d+\.\d\/\d+\.\d ready=\d net=\d paused=(true|false) frame=1920x1080 src=video\/quicktime bytes=\d+ rec=video\//);
+      assert.match(r.detail, /^stage=record t=\d+\.\d\/\d+\.\d ready=\d net=\d paused=(true|false) frame=1920x1080 src=video\/quicktime mb=\d+\.\d rec=video\/\S+ browser=\S/);
     });
 
     await run("no failure path leaves a recorder running or a hidden video behind", async () => {

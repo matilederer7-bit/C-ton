@@ -60,6 +60,16 @@ async function knownDuration(video: HTMLVideoElement): Promise<number> {
   return video.duration;
 }
 
+/** Coarse browser identity for diagnostics (brand + version, platform, mobile); never anything personal. */
+function browserLabel(): string {
+  const data = (navigator as Navigator & { userAgentData?: { brands?: { brand: string; version: string }[]; platform?: string; mobile?: boolean } }).userAgentData;
+  if (data?.brands?.length) {
+    const brands = data.brands.filter((b) => !/not.?a.?brand/i.test(b.brand)).map((b) => `${b.brand}/${b.version}`).join(",");
+    return `${brands};${data.platform || "?"};${data.mobile ? "mobile" : "desktop"}`.slice(0, 120);
+  }
+  return String(navigator.userAgent || "?").slice(0, 120);
+}
+
 export async function convertVideoForHero(
   file: Blob,
   opts: { maxBytes: number; onProgress?: (fraction: number) => void }
@@ -134,6 +144,18 @@ export async function convertVideoForHero(
 
     stage = "play";
     const ended = once(video, "ended", "error");
+    // A browser may never start, pause, or starve the decoder mid-way: resume
+    // it, and give up with "stalled" if the position does not move for
+    // STALL_LIMIT_SECONDS — from the first play() on, not only once recording.
+    let lastTime = video.currentTime;
+    let stuckFor = 0;
+    watchdog = setInterval(() => {
+      if (video.ended) return;
+      if (video.currentTime > lastTime + 0.05) { lastTime = video.currentTime; stuckFor = 0; return; }
+      stuckFor += 1;
+      if (video.paused && stage !== "play") video.play().catch(() => undefined);
+      if (stuckFor >= STALL_LIMIT_SECONDS) abort("stalled");
+    }, 1000);
     try { await guard(video.play()); }
     catch (err) {
       if (err instanceof VideoConvertError) throw err;
@@ -150,27 +172,19 @@ export async function convertVideoForHero(
     const stopped = once(rec, "stop");
     rec.start(1000);
     const tick = () => {
-      try { draw(); } catch { abort("failed"); return; }
+      try { draw(); } catch { stage = "draw"; abort("failed"); return; }
       opts.onProgress?.(Math.min(0.99, video.currentTime / duration));
       if (!video.ended) raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
-    // A browser may pause or starve the decoder mid-way: resume it, and give up
-    // with "stalled" if the position does not move for STALL_LIMIT_SECONDS.
-    let lastTime = video.currentTime;
-    let stuckFor = 0;
-    watchdog = setInterval(() => {
-      if (video.ended) return;
-      if (video.currentTime > lastTime + 0.05) { lastTime = video.currentTime; stuckFor = 0; return; }
-      stuckFor += 1;
-      if (video.paused) video.play().catch(() => undefined);
-      if (stuckFor >= STALL_LIMIT_SECONDS) abort("stalled");
-    }, 1000);
     await guard(ended);
     cancelAnimationFrame(raf);
     draw();
+    stage = "stop";
     rec.stop();
-    await guard(stopped);
+    // The recorder must hand over its data promptly; never sit at 99%.
+    const stopTimer = setTimeout(() => abort("failed"), 10_000);
+    try { await guard(stopped); } finally { clearTimeout(stopTimer); }
 
     stage = "finish";
     const blob = new Blob(chunks, { type: format.uploadType });
@@ -185,7 +199,8 @@ export async function convertVideoForHero(
     const d = Number.isFinite(video.duration) ? video.duration.toFixed(1) : String(video.duration);
     failure.detail = `stage=${stage} t=${video.currentTime.toFixed(1)}/${d} ready=${video.readyState} net=${video.networkState}`
       + ` paused=${video.paused} frame=${video.videoWidth}x${video.videoHeight} src=${(file.type || "?").slice(0, 40)}`
-      + ` bytes=${file.size} rec=${format.recorderType}${failure === err ? "" : ` cause=${String((err as Error)?.name || err).slice(0, 60)}`}`;
+      + ` mb=${(file.size / 1048576).toFixed(1)} rec=${format.recorderType} browser=${browserLabel()}`
+      + `${failure === err ? "" : ` cause=${String((err as Error)?.name || err).slice(0, 60)}`}`;
     throw failure;
   } finally {
     clearTimeout(timer);
