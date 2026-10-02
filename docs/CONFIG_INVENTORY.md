@@ -48,7 +48,7 @@ Render service settings (console, not env): **Auto-Deploy = "After CI checks pas
 
 ### Invoice and notification providers (not active)
 
-`INVOICE_PROVIDER*`, `INVOICE_WEBHOOK_SECRET`, `NOTIFICATION_PROVIDER*`, `NOTIFICATION_DELIVERY_ENABLED`, `TWILIO_*`, `PAYOUT_PROVIDER*` — owner O, rotated in the provider console. Guard: BOOT refuses `NOTIFICATION_PROVIDER_MODE=real` with any non-log provider and `NOTIFICATION_DELIVERY_ENABLED=1` without real mode; invoice/payout credentials are GATE-only. No real communications or invoice adapter is live.
+`INVOICE_PROVIDER*`, `INVOICE_WEBHOOK_SECRET`, `NOTIFICATION_PROVIDER*`, `NOTIFICATION_DELIVERY_ENABLED`, `PAYOUT_PROVIDER*` — owner O, rotated in the provider console. Guard: BOOT refuses `NOTIFICATION_PROVIDER_MODE=real` with any non-log provider and `NOTIFICATION_DELIVERY_ENABLED=1` without real mode; invoice/payout credentials are GATE-only. No real communications or invoice adapter is live.
 
 ## 2. Supabase (project `siton-staging`, eu-central-1)
 

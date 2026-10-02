@@ -139,15 +139,15 @@ Default `max_attempts` is 3. After the third failure the row becomes `failed` pe
 
 ## Provider Modes
 
-The system logs the active SMS provider on startup:
-
-| Log message | Meaning |
-|-------------|---------|
-| `[notification] Twilio SMS provider active` | Real SMS delivery — requires `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` |
-| *(no message)* | Log-only mode — messages are logged to console, `provider_message_id` starts with `log-` |
-
-To activate Twilio, set all three environment variables and restart. The mode is
-reflected in `provider_message_id` on sent rows (`log-xxx` vs. a real Twilio SID).
+No real SMS / e-mail adapter is implemented. Every runtime uses the log provider
+(`NOTIFICATION_PROVIDER=log-only`): messages are logged with masked recipients and
+`provider_message_id` starts with `log-`. Requesting real delivery
+(`NOTIFICATION_PROVIDER_MODE=real`) fails closed at boot (`src/production_guards.ts`,
+`buildNotificationProvider` in `src/notification_dispatch.ts`); an unknown
+`NOTIFICATION_PROVIDER` in a non-real mode logs
+`[notification] unsupported NOTIFICATION_PROVIDER in non-real mode; using log/dev provider`.
+The former `TWILIO_*` variables were never read by any adapter and were removed from
+`src/runtime_config.ts` (Lean Refactor); a real provider arrives with its own env contract.
 
 ---
 
