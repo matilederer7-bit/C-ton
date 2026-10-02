@@ -315,7 +315,10 @@ async function main() {
     assert.match(trackTsx, /personal_status\?\.title/);
     assert.match(trackTsx, /personal_status\?\.detail/);
     // LEGACY-ONLY, not in live /app: renderCtonTrackingPage has no buyerState[0] label.
-    console.log("GAP legacy-only requirement not in live /app tracking: explicit buyerState[0] participation label (owner decision; React shows personal_status instead)");
+    // GAP record: fails if the live /app renderer starts showing a buyer-state label, so the gap is retired deliberately.
+    const buyerStateLabelDelivered = /buyerState|buyer_state|BUYER_STATE/.test(trackingSnippet);
+    console.log(`GAP legacy-only requirement not in live /app tracking: explicit buyerState[0] participation label (owner decision; React shows personal_status instead) — delivered by live: ${buyerStateLabelDelivered}`);
+    assert.equal(buyerStateLabelDelivered, false, "live /app renderCtonTrackingPage now shows a buyer-state label: retarget the legacy buyerState[0] assertion to it and remove this GAP entry");
     // Requirement: the buyer sees the money state. /app live names it money[0]
     // (legacy renderer: moneyState[0]); React shows the held-amount row + hold note.
     assert.match(trackingSnippet, /money\[0\]/);

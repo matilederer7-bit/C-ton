@@ -299,10 +299,14 @@ async function main() {
     readFile("frontend/styles.css", "utf8"),
     readFile("web/src/pages/track.tsx", "utf8")
   ]);
+  // React copy reaches the page through t() keys, so React-side GAP checks also read the Hebrew dictionary.
+  const heDictionary = await readFile("web/src/i18n/dictionaries/he.ts", "utf8");
   assert.match(appJs, /route\.name === "tracking"\) return renderCtonTrackingPage\(/);
   assert.ok(trackTsx.length > 2000, "web/src/pages/track.tsx must be readable and non-empty");
   const ctonTracking = extractFunction(appJs, "renderCtonTrackingPage");
-  const liveSurfaces = [["renderCtonTrackingPage", ctonTracking], ["web/src/pages/track.tsx", trackTsx]] as const;
+  // The legacy slice (renderTrackingPage..renderHome()) also spanned the live renderRecoveryPage; it stays covered.
+  const recoveryPage = extractFunction(appJs, "renderRecoveryPage");
+  const liveSurfaces = [["renderCtonTrackingPage", ctonTracking], ["renderRecoveryPage", recoveryPage], ["web/src/pages/track.tsx", trackTsx]] as const;
 
   await runTest("live tracking surfaces render live progress, activity, polling, and the action-required CTA", async () => {
     // Requirement: live aggregate progress toward the deal target.
@@ -344,7 +348,7 @@ async function main() {
       { requirement: "explicit 'no action needed now' text", legacy: "כרגע לא נדרשת ממך פעולה", liveDelivers: /כרגע לא נדרשת ממך פעולה/, where: "/app + React" }
     ];
     for (const gap of gaps) {
-      const scope = gap.where.startsWith("/app renderCtonTrackingPage") ? ctonTracking : `${ctonTracking}\n${trackTsx}`;
+      const scope = gap.where.startsWith("/app renderCtonTrackingPage") ? ctonTracking : `${ctonTracking}\n${trackTsx}\n${heDictionary}`;
       const delivered = gap.liveDelivers.test(scope);
       console.log(`GAP legacy-only requirement not in live product: ${gap.requirement} [legacy: ${gap.legacy}; checked: ${gap.where}] — delivered by live: ${delivered}`);
       assert.equal(delivered, false, `live surface now delivers "${gap.requirement}": retarget the legacy assertion to it and remove this GAP entry`);
