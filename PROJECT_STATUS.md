@@ -69,15 +69,16 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
-### Claude Code latest milestone — Lean Refactor round 2, slice 3: shared CDP launcher `scripts/lib/cdp.cjs` (2026-10-02)
+### Claude Code latest milestone — Lean Refactor round 2, slice 4: legacy-renderer tests retargeted + round-2 census (2026-10-02)
 
 - UPDATED: 2026-10-02
-- COMPLETED: slice 1 #191 (legal HTML → `src/legal_html.ts`) merged `f02a691`; slice 2 #194 (`applySecurityHeaders` / `isImmutableDealImageRoute` / `isDynamicNoStoreRoute` → `src/http_security_headers.ts`, called from `app.ts`'s `onRequest` hook; CSP stays in `onSend`) reviewed MERGE, byte-identical move confirmed, merged `d549ab5`, master Siton CI green (run 37014231046), Render web + worker live on `d549ab5`, staging response headers identical before/after (`/readiness`, `/legal/*`). `frontend_runtime.ts` 12 255 → 12 144, `app.ts` 8 637 → 8 587 lines.
-- THIS PR: the six identical operator-proof `openBrowser` launchers (`authenticated_ui_acceptance`, `buyer_polish`, `launch_polish`, `p0`, `pickup_fulfillment`, `r7r8`) call the new `scripts/lib/cdp.cjs` `launchCdpBrowser`; each keeps its own `cdpSession` (semantics differ on purpose). Same flags (the pickup proof's two media flags now precede the debug-port flag; Chromium switch order is not significant), port ranges, profile names, poll, error messages, return fields. The differing launchers (`site_cms`, `receipt_content`, `ux_polish_round2`, `tests/helpers/browser_cdp.ts`, `scripts/retired/`) are documented in the map, not unified.
-- TESTS: new `tests/release_tools/cdp_launcher.test.cjs` (exact argv + return shape via a fake browser, kill + caller message on timeout, no private launcher copies left, real headless Chromium smoke). Every affected proof run on master and on this branch against the same local demo-preview server: identical PASS/FAIL sets (p0 10/13, buyer 20/13, launch 3/11, r7r8 3/3, acceptance `--local-dryfit` DRYFIT_PASS 17/0); pickup stops at a pre-existing DB-fixture error on both (logged in the map). `authenticated_ui_acceptance_harness_validation` 6/0; release tools.
-- BEHAVIOUR: none — operator scripts only, no runtime code.
-- OPEN: independent review → CI → merge. Next: census, then legacy-renderer test retarget (all 8 legacy renderers in `frontend/app.js` have zero call sites; 3 tests slice them).
-- PERCENT: round-2 slices 1–2 DONE, slice 3 in review.
+- COMPLETED (merged, master Siton CI green): #191 legal HTML → `src/legal_html.ts` (`f02a691`); #193 CMS-video test fix (`7cce657`); #194 security headers → `src/http_security_headers.ts` (`d549ab5`, staging headers identical before/after); #195 shared CDP launcher `scripts/lib/cdp.cjs` (`872d45a`, every affected proof identical PASS/FAIL before/after). Each: independent review MERGE, CI green on the exact head.
+- THIS PR (tests + docs only): the three tests that sliced the dead `frontend/app.js` renderers (`renderTrackingPage`, `renderConfirmationPage`; zero call sites) now assert the live `/app` `renderCtonTrackingPage` / `renderCtonConfirmationPage` / `renderRecoveryPage` and the React `web/src/pages/track.tsx`, with fail-loud slice extraction and dispatcher guards; negatives (no id echo, no `RCT-` / `receipt_id`, no discovery / commission) now cover the live surfaces. Mutation-proven (rename / inject → the test fails). Six requirements only the dead code delivered (buyer document visibility, progress chart, `/app` buyer-state label, `/app` activity feed, "no action needed" copy, live-center eyebrow) are recorded as GAP assertions, not dropped — owner decision before the renderers are deleted.
+- CENSUS: `docs/LEAN_REFACTOR_MAP_2026-09-30.md` §8 (before/after metrics, gaps, open candidates); branch census `docs/BRANCH_CENSUS_2026-10-02.md` (204 branches; 101 merged branches verified recoverable via `refs/pull/<n>/head` — the session's deletion attempt was refused by the permission policy, so deletion is an owner action; nothing deleted).
+- REVIEWED: #192 (ChatGPT, `DEBUG_JOIN_LOGGING`) — asked to also remove the dead `runtime_config.ts` export and fix three docs before merge.
+- TESTS: the 3 retargeted tests 3/0.
+- OPEN: independent review → CI → merge. Next: `TWILIO_*` dead-config slice (prepared), npm-script alias map.
+- PERCENT: round-2 slices 1–3 DONE, slice 4 in review.
 - NEXT: review this PR.
 
 ### Claude Code latest milestone — CMS hero video: owner upload on staging PASSED (2026-10-02)

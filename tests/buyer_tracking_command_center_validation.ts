@@ -285,7 +285,7 @@ async function main() {
     const matches = [...source.matchAll(header)];
     assert.equal(matches.length, 1, `expected exactly one top-level function ${name} in frontend/app.js, found ${matches.length}`);
     const first = matches[0]!;
-  const start = first.index as number;
+    const start = first.index as number;
     const nextHeader = /\n(?:async )?function \w+\(/g;
     nextHeader.lastIndex = start + first[0].length;
     const next = nextHeader.exec(source);
