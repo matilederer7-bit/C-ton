@@ -9,15 +9,17 @@
 // The live behaviour (status codes, headers, cache semantics) stays covered by
 // tests/readiness_http_validation.ts and tests/r3_render_web_runtime_validation.ts.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const SRC = join(process.cwd(), "src");
 const read = (file: string) => readFileSync(join(SRC, file), "utf8");
 const app = read("app.ts");
 const routes = read("operational_health_routes.ts");
+// Every route module is required; only the Mission Control module (PR #202, may land before or after this slice) is optional.
+const OPTIONAL_ROUTE_FILES = new Set(["admin_mission_control_routes.ts"]);
 const ROUTE_FILES = ["app.ts", "frontend_runtime.ts", "receipt_content_routes.ts", "distribution_hub.ts", "admin_mission_control_routes.ts", "operational_health_routes.ts"]
-  .filter((file) => { try { read(file); return true; } catch { return false; } });
+  .filter((file) => !OPTIONAL_ROUTE_FILES.has(file) || existsSync(join(SRC, file)));
 const HEALTH_ROUTES = ["/health", "/readiness"];
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -71,11 +73,22 @@ check("/readiness uses the injected probe and the injected trust-proxy resolver;
   assert.doesNotMatch(routes, /from "\.\/runtime_config\.js"|from "\.\/db\.js"|from "\.\/runtime_database_boundary\.js"/, "nothing resolved locally that app.ts injects");
   assert.match(routes, /^import type \{ ReadinessProbe \} from "\.\/readiness_probe\.js";$/m, "only the probe TYPE is imported");
   assert.match(routes, /const \{ readinessProbe, resolveTrustProxyHops \} = deps;/);
-  assert.match(routes, /const verdict = await readinessProbe\.probe\(\);/);
-  assert.match(routes, /reply\.header\("x-readiness-cache", verdict\.cached \? "hit" : "miss"\);/);
-  assert.match(routes, /reply\.header\("x-readiness-age-ms", String\(verdict\.age_ms\)\);/);
-  assert.match(routes, /if \(!verdict\.ok\) return reply\.code\(503\)\.send\(verdict\.body\);/);
-  assert.match(routes, /return \{ \.\.\.verdict\.body, client_ip: String\(req\.ip \|\| ""\), trust_proxy_hops: resolveTrustProxyHops\(\) \};/);
+  // the whole handler block, byte-for-byte (comments included): an extra header or statement slipped in between the lines fails
+  const readiness = routes.match(/app\.get\("\/readiness"[\s\S]*?\n  \}\);/);
+  assert.ok(readiness, "/readiness handler must be locatable");
+  assert.equal(readiness[0], [
+    'app.get("/readiness", async (req: any, reply: any) => {',
+    "    const verdict = await readinessProbe.probe();",
+    '    reply.header("x-readiness-cache", verdict.cached ? "hit" : "miss");',
+    '    reply.header("x-readiness-age-ms", String(verdict.age_ms));',
+    "    if (!verdict.ok) return reply.code(503).send(verdict.body);",
+    "    // Operational aid for the proxy hop configuration (A2): the address the",
+    "    // runtime attributes to THIS caller. Lets an operator confirm from a",
+    "    // browser that TRUST_PROXY_HOPS resolves their real address (not a proxy,",
+    "    // not a spoofed X-Forwarded-For prefix). It is the caller's own address.",
+    '    return { ...verdict.body, client_ip: String(req.ip || ""), trust_proxy_hops: resolveTrustProxyHops() };',
+    "  });"
+  ].join("\n"), "/readiness stays the byte-identical handler");
 });
 
 check("the probe stays in src/app.ts: created once, exported, with the canonical check and its logging", () => {
