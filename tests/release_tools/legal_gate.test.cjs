@@ -16,6 +16,7 @@ const FIXTURE_FILES = [
   "src/legal_html.ts",
   "src/app.ts",
   "src/http_security_headers.ts",
+  "src/operational_health_routes.ts",
   "src/legal_pages.ts",
   "src/admin_mission_control.ts",
   "src/payment_provider.ts",
@@ -65,7 +66,8 @@ test("legal gate passes on the real product, keeps the CVV disclosure sentence, 
 const MUTATIONS = [
   {
     name: "server code reads a CVV field from the request body",
-    file: "src/app.ts",
+    // /health lives in src/operational_health_routes.ts since the Lean Refactor; the module stays inside the server scan
+    file: "src/operational_health_routes.ts",
     from: "app.get(\"/health\", async () => ({ ok: true }));",
     to: "app.get(\"/health\", async (req: any) => ({ ok: true, cvv: req.body?.cvv }));",
     expect: /forbidden raw payment term cvv/

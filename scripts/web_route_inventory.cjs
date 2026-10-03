@@ -10,7 +10,7 @@ fs.mkdirSync(artifacts, { recursive: true });
 // report and the behavioural proof can never disagree about what is protected.
 const policy = require(path.join(root, "scripts", "protected_route_policy.cjs"));
 
-const sources = ["src/app.ts", "src/frontend_runtime.ts", "src/receipt_content_routes.ts", "src/distribution_hub.ts"];
+const sources = ["src/app.ts", "src/frontend_runtime.ts", "src/receipt_content_routes.ts", "src/distribution_hub.ts", "src/operational_health_routes.ts"];
 const routePattern = /\bapp\.(get|post|put|patch|delete|options|head)\(\s*["'`]([^"'`]+)["'`]/g;
 const frontendPattern = /\b(?:fetch|api)\(\s*([`"'])(\/[^`"']+)\1\s*(?:,\s*\{([\s\S]{0,500}?)\})?/g;
 
