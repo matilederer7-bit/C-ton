@@ -125,7 +125,7 @@ did not receive a notification or invoice document.
       "attempt_count": 1,
       "last_error": null,
       "sent_at": "...",
-      "provider_message_id": "log-xxx"
+      "provider_message_id": "log_xxx"
     }
   ],
   "invoice_documents": [
