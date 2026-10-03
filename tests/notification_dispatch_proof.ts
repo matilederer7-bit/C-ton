@@ -377,13 +377,13 @@ await run("P1 — log-only provider returns a message ID and records sent", asyn
   const provider = buildSmsProvider({}, console);
   const result = await provider.sendSms!("+972507777777", "Test message");
   assert.ok(result.messageId, "messageId should be set");
-  assert.ok(result.messageId.startsWith("log"), `messageId should start with 'log', got ${result.messageId}`);
+  assert.ok(result.messageId.startsWith("log_"), `messageId should start with 'log_', got ${result.messageId}`);
   console.log(`     messageId=${result.messageId}`);
 });
 
 await run("P2 — log SMS provider mode is non-real and providerCode is 'log'", async () => {
   const provider = buildSmsProvider({}, console);
-  assert.notEqual(provider.mode, "real", `mode should not be 'real' without Twilio env, got ${provider.mode}`);
+  assert.notEqual(provider.mode, "real", `log-only provider should not report real mode, got ${provider.mode}`);
   assert.equal(provider.providerCode, "log", `providerCode should be 'log', got ${provider.providerCode}`);
   console.log(`     mode=${provider.mode} code=${provider.providerCode}`);
 });
