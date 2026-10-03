@@ -5,7 +5,7 @@ Canonical branch: `master`
 Current merged baseline: `f065331` (PR #199, complete retirement of dead `DEBUG_JOIN_LOGGING`) on top of `72ecd0a` (PR #198, master preflight/CDP hotfix). PR #199 exact-head Siton CI run 37144335223 passed and Codex re-review on exact head `e3bec18` found no major issues. Black Sky Engineering remains **100% closed**; Production Readiness remains a separate owner-driven track and real money remains blocked.
 Render staging: canonical services remain `siton-staging-web` (`srv-daa5o9u7bikc73fgjskg`) and `siton-staging-worker` (`srv-daakn0tg1s2s73dfk3pg`), both on `master` with auto-deploy trigger `checksPass`. Three legacy services still exist and still auto-deploy on every commit: `siton-staging-web-atp1`, `siton-demo-preview-atp1`, `siton-demo-preview`. Post-#199 master deploy verification is pending the new master CI/deploy cycle.
 Supabase staging (`siton-staging`, `hnptacfzuqebfgeshadq`): migration ledger **75/75**, high-water `082` (re-read 2026-10-03); `deal-images` bucket `public=true`, `file_size_limit=10485760`, MIME exactly JPEG/PNG/WebP/MP4/WebM; `storage-broker` ACTIVE v2 (`verify_jwt=false`, broker-key auth).
-Agent-platform expansion is frozen until there is a concrete product-delivery need and live provider evidence. Stale/superseded agent or review PRs #70, #71, #78, #79, #95, #96, #127, #137 and #138 were closed with history preserved. Other open PRs besides this status closeout are Dependabot only. Product work remains in focused issues #140–#143 and should proceed as small direct slices rather than via the currently non-critical Cloud Agent Manager path.
+Agent-platform expansion is frozen until there is a concrete product-delivery need and live provider evidence. Stale/superseded agent or review PRs #70, #71, #78, #79, #95, #96, #127, #137, #138 and #201 were closed with history preserved. Active non-Dependabot PRs are #202 (Claude Mission Control route extraction), #203 (this status reconciliation) and #204 (ChatGPT log-only docs/tests cleanup); Dependabot #100/#107/#108 remain separate. Product work remains in focused issues #140–#143 and should proceed as small direct slices rather than via the currently non-critical Cloud Agent Manager path.
 
 History moved out of this file by the Lean Refactor D5 status trim (2026-10-02), verbatim: `docs/archive/PROJECT_STATUS_HISTORY_TO_2026-09-30.md` (former header lines, the 2026-09-22 agent-team snapshot, the 2026-09-18 night closeout and Claude Code milestones up to 2026-09-28).
 
@@ -315,17 +315,17 @@ Agent slots are intentionally independent. Each coding agent may replace only it
   - PR #199 merged as `f065331` after exact-head Siton CI run 37144335223 passed and Codex re-review on exact head `e3bec18` reported no major issues.
   - Re-read Supabase staging: migration ledger 75/75, high-water `082`; corrected the stale header value that said 78 rows.
   - Re-verified Render workspace `My Workspace`: canonical services are `siton-staging-web` + `siton-staging-worker`, both `checksPass`; the three legacy services still exist on commit-triggered auto-deploy.
-  - Opened PR #201 for the two non-blocking review leftovers: `log-xxx` sample -> `log_xxx`, stronger `log_` prefix assertion, stale Twilio assertion wording removed.
+  - Superseded stale-base PR #201 with current-master PR #204 for the two non-blocking review leftovers: `log-xxx` sample -> `log_xxx`, stronger `log_` prefix assertion, stale Twilio assertion wording removed.
 - TESTED:
   - #199 exact-head CI green and independent Codex review clean.
-  - #201 exact-head CI green on `e5fc1e7`; independent reviewer response still pending.
+  - #204 is rebuilt from current master `f065331`; CI and independent review are in progress on exact head `b6b61a3`.
 - OPEN:
   - Verify master CI + canonical Render deploy after #199.
-  - Merge #201 only after exact-head independent review is clean; re-check against current master before merge.
+  - Merge #204 only after exact-head CI and independent review are clean.
   - Three legacy Render services require dashboard deletion because the connected Render tool exposes no delete/suspend action.
   - Claude owns the next structural route-extraction workstream; ChatGPT owns status/verification and small no-behavior cleanup.
-- PERCENT: 80% for this coordination/status slice. Code is merged; post-merge CI/Render verification and #201 review/merge remain.
-- NEXT: master CI -> Render verification -> #201 review/merge -> close this status PR -> hand off next route extraction to Claude.
+- PERCENT: 80% for this coordination/status slice. Code is merged; post-merge CI/Render verification and #204 review/merge remain.
+- NEXT: master CI -> Render verification -> #204 review/merge -> close this status PR -> Claude syncs #202 onto current master.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 
