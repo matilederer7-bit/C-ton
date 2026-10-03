@@ -1,0 +1,79 @@
+{
+  "task": "Lean Refactor round 2: move the seven read-only Mission Control GET routes (/api/admin/mission-control, /anomalies, /deals/:dealId/trace, /participants/:participantId/trace, /correlation/:correlationId, /outbox/:eventId, /webhooks/:provider/:eventId) verbatim out of src/frontend_runtime.ts into src/admin_mission_control_routes.ts, wired by dependency injection with the runtime's own requireAdminRead, requireUuid, ensure* schema checks, payoutProvider and frontendDir; zero behaviour change (paths, methods, auth, validation, error codes, response shapes, SQL, limits, transaction boundaries, builders, money semantics, audit, action policy); source pins and gate scan lists retargeted with identical regexes; a structural regression test pins the move; PROJECT_STATUS.md and the Lean Refactor map stay untouched until ChatGPT's PR #199 merges (status coordination)",
+  "lead": "claude-lead",
+  "base": "origin/master",
+  "open_branches": [
+    "origin/chatgpt/remove-dead-debug-join-logging-v2",
+    "origin/chatgpt/fix-log-id-doc-test-drift"
+  ],
+  "interface_contract": {
+    "src/admin_mission_control_routes.ts": "export function registerAdminMissionControlRoutes(app: FastifyInstance, deps: AdminMissionControlRouteDeps): void — registers exactly the seven GET routes with the handler bodies byte-identical to the frontend_runtime.ts originals; deps carries withTx, requireAdminRead, requireUuid, the seven ensure* schema checks, frontendDir, payoutProvider, paymentProvider, deploymentMode, isDemoPreview, invoiceSummary, notificationSummary, debugSurfacesEnabled, getWorkerRunning"
+  },
+  "assignments": [
+    {
+      "id": "B1",
+      "agent": "claude-lead",
+      "role": "builder",
+      "tier": "senior",
+      "scope": "mechanical extraction of the seven Mission Control routes; runtime wiring and import cleanup; retarget of source-text pins (security_hardening, aws_accordion_readiness, legacy_runtime_isolation) and of the scan lists in web_route_inventory, legal_compliance_gate (+ legal_gate fixture list) and money_tax_invoice_gate so coverage is preserved; structural regression test",
+      "allowed": [
+        "src/admin_mission_control_routes.ts",
+        "src/frontend_runtime.ts",
+        "tests/admin_mission_control_routes_extraction_validation.ts",
+        "tests/security_hardening_validation.ts",
+        "tests/aws_accordion_readiness_validation.ts",
+        "tests/legacy_runtime_isolation_validation.ts",
+        "tests/release_tools/legal_gate.test.cjs",
+        "scripts/web_route_inventory.cjs",
+        "scripts/legal_compliance_gate.cjs",
+        "scripts/money_tax_invoice_gate.cjs",
+        "docs/team-plans/2026-10-03-lean-refactor-mission-control-routes.json"
+      ],
+      "forbidden": [
+        "PROJECT_STATUS.md",
+        "docs/LEAN_REFACTOR_MAP_2026-09-30.md",
+        "src/admin_mission_control.ts",
+        "src/admin_identity.ts",
+        "src/payment_provider.ts",
+        "src/payout_provider.ts",
+        "src/app.ts",
+        "src/migrations/",
+        "supabase/",
+        ".github/workflows/",
+        "config/",
+        "web/src/"
+      ],
+      "depends_on": [],
+      "dod": [
+        "the moved handler block is byte-identical before and after (diff of the extracted block is empty)",
+        "each of the seven routes is registered exactly once, as GET, in the new module; frontend_runtime.ts contains none of the handler bodies",
+        "no helper copied: requireAdminRead, requireUuid, ensure* checks, payoutProvider and frontendDir are injected from the runtime",
+        "tests/mission_control_validation.ts and tests/admin_mission_control_outbox_trace_validation.ts PASS on a migrated disposable database; the admin test group that covers the routes PASS",
+        "retargeted source pins and gates PASS with the same regexes; the new module is added to their scan lists",
+        "structural regression test PASS and fails under mutation (a duplicated registration, a dropped guard)",
+        "independent senior review of the diff and a clean Codex review on the exact head; Siton CI green on the exact head"
+      ]
+    },
+    {
+      "id": "R1",
+      "agent": "claude-subagent",
+      "role": "reviewer",
+      "senior": true,
+      "tier": "senior",
+      "scope": "independent senior review with the security-auditor posture: prove the move is behaviour-preserving for auth, validation, SQL, money summaries, audit and the read-only action policy; look for any drift in the wiring, in the dependency types and in the retargeted gates",
+      "reviews": ["B1"],
+      "depends_on": ["B1"],
+      "dod": ["verdict with concrete failure scenarios, or none found, recorded on the final head"]
+    },
+    {
+      "id": "R2",
+      "agent": "codex",
+      "role": "reviewer",
+      "tier": "senior",
+      "scope": "Codex review on the Pull Request head; every finding fixed or answered; a new push makes the previous review stale",
+      "reviews": ["B1"],
+      "depends_on": ["B1"],
+      "dod": ["clean review on the exact merge head"]
+    }
+  ]
+}
