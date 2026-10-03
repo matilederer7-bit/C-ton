@@ -98,13 +98,17 @@ await runTest("accordion_scaling_mission_control_validation", async () => {
 await runTest("readiness_contract_validation", async () => {
   const app = await readFile("src/app.ts", "utf8");
   const frontendRuntime = await readFile("src/frontend_runtime.ts", "utf8");
+  // /health + /readiness live in src/operational_health_routes.ts since the Lean Refactor, wired once from app.ts
+  const healthRoutes = await readFile("src/operational_health_routes.ts", "utf8");
 
   // /health must exist and be cheap
-  assert.match(app, /app\.get\("\/health"/, "/health endpoint must exist in app.ts");
-  assert.match(app, /app\.get\("\/health".*ok:\s*true/s, "/health must return a cheap ok response");
+  assert.match(healthRoutes, /app\.get\("\/health"/, "/health endpoint must exist in operational_health_routes.ts");
+  assert.match(healthRoutes, /app\.get\("\/health".*ok:\s*true/s, "/health must return a cheap ok response");
+  assert.doesNotMatch(app, /app\.get\("\/health"/, "/health must not be registered a second time in app.ts");
+  assert.match(app, /registerOperationalHealthRoutes\(app, \{ readinessProbe, resolveTrustProxyHops \}\)/, "/health + /readiness must be wired from app.ts");
 
   // /health must NOT touch DB or providers
-  const healthHandler = app.match(/app\.get\("\/health"[\s\S]{0,200}\}\)\);/);
+  const healthHandler = healthRoutes.match(/app\.get\("\/health"[\s\S]{0,200}\}\)\);/);
   assert.ok(healthHandler, "/health handler must be locatable");
   assert.doesNotMatch(healthHandler[0], /withTx|c\.query|provider/i, "/health must not query DB or providers");
 

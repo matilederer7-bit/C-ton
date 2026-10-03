@@ -29,7 +29,9 @@ const allSource = [
   // moved out of frontend_runtime.ts by the Lean Refactor; stays in the static scan
   await readFile("src/legal_html.ts", "utf8"),
   // moved out of app.ts by the Lean Refactor; stays in the static scan
-  await readFile("src/http_security_headers.ts", "utf8")
+  await readFile("src/http_security_headers.ts", "utf8"),
+  // /health + /readiness moved out of app.ts by the Lean Refactor; stay in the static scan
+  await readFile("src/operational_health_routes.ts", "utf8")
 ].join("\n");
 
 await runTest("security_admin_auth_validation", async () => {
