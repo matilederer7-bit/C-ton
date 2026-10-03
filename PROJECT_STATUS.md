@@ -1,10 +1,10 @@
 # SITON PROJECT STATUS
 
-Updated: 2026-10-02
+Updated: 2026-10-03
 Canonical branch: `master`
-Current merged baseline: `832c389` (PR #184, D5 status trim, docs only) on top of `9f81f32` (PR #183, status-only) and `73c0466` (PR #174, CMS video storage contract: `storage-broker` images 5 MiB / MP4-WebM 10 MiB; staging bucket policy `supabase/staging/029`). Siton CI push runs: 36963296658 on `73c0466`, 36966172597 on `9f81f32` and 36967823346 on `832c389`, all success. Black Sky Engineering remains **100% closed**; Production Readiness remains a separate owner-driven track and real money remains blocked.
-Render staging: web `srv-daa5o9u7bikc73fgjskg` and worker `srv-daakn0tg1s2s73dfk3pg` both **live on `832c389`** (deploys `dep-davjssdg1s2s73fooni0` / `dep-davjssdg1s2s73fooo00`; the runtime change `73c0466` went live as `dep-davj07uq1p3s73dbmu50` / `dep-davj086q1p3s73dbmuj0`; read 2026-10-02 from the Render API). The free-plan web instance hibernates ~15 min after its last request; agent containers are denied `*.onrender.com`, so liveness is read from Render deploy status and logs.
-Supabase staging (`siton-staging`, `hnptacfzuqebfgeshadq`): migration ledger 78 rows (read 2026-10-02); `deal-images` bucket `public=true`, `file_size_limit=10485760`, MIME exactly JPEG/PNG/WebP/MP4/WebM, no `storage` policies; `storage-broker` ACTIVE v2 (`verify_jwt=false`, broker-key auth), source byte-identical to `73c0466`.
+Current merged baseline: `f065331` (PR #199, complete retirement of dead `DEBUG_JOIN_LOGGING`) on top of `72ecd0a` (PR #198, master preflight/CDP hotfix). PR #199 exact-head Siton CI run 37144335223 passed and Codex re-review on exact head `e3bec18` found no major issues. Black Sky Engineering remains **100% closed**; Production Readiness remains a separate owner-driven track and real money remains blocked.
+Render staging: canonical services remain `siton-staging-web` (`srv-daa5o9u7bikc73fgjskg`) and `siton-staging-worker` (`srv-daakn0tg1s2s73dfk3pg`), both on `master` with auto-deploy trigger `checksPass`. Three legacy services still exist and still auto-deploy on every commit: `siton-staging-web-atp1`, `siton-demo-preview-atp1`, `siton-demo-preview`. Post-#199 master deploy verification is pending the new master CI/deploy cycle.
+Supabase staging (`siton-staging`, `hnptacfzuqebfgeshadq`): migration ledger **75/75**, high-water `082` (re-read 2026-10-03); `deal-images` bucket `public=true`, `file_size_limit=10485760`, MIME exactly JPEG/PNG/WebP/MP4/WebM; `storage-broker` ACTIVE v2 (`verify_jwt=false`, broker-key auth).
 Agent-platform expansion is frozen until there is a concrete product-delivery need and live provider evidence. Stale/superseded agent or review PRs #70, #71, #78, #79, #95, #96, #127, #137 and #138 were closed with history preserved. Other open PRs besides this status closeout are Dependabot only. Product work remains in focused issues #140–#143 and should proceed as small direct slices rather than via the currently non-critical Cloud Agent Manager path.
 
 History moved out of this file by the Lean Refactor D5 status trim (2026-10-02), verbatim: `docs/archive/PROJECT_STATUS_HISTORY_TO_2026-09-30.md` (former header lines, the 2026-09-22 agent-team snapshot, the 2026-09-18 night closeout and Claude Code milestones up to 2026-09-28).
@@ -308,22 +308,24 @@ Sixth pass on `4746d43`: DO NOT MERGE — two cases `eb7c2b4` caught were lost (
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
 
 <!-- AGENT_STATUS:chatgpt:START -->
-### ChatGPT latest milestone — Lean Refactor: retire dead DEBUG_JOIN_LOGGING config
+### ChatGPT latest milestone — Lean Refactor coordination + status reconciliation
 
 - UPDATED: 2026-10-03
 - COMPLETED:
-  - Rebuilt stale PR #192 from current master `72ecd0a` instead of merging its old base.
-  - Addressed Claude's blocking review: removed the dead `DEBUG_JOIN_LOGGING` export from `src/runtime_config.ts`, then removed its demo env entry and runtime-environment-policy guard.
-  - Corrected all live logging/security policy references identified by review.
-  - `DEBUG_SQL_LOGGING` and `DISABLE_OUTBOX_WORKER` remain unchanged.
+  - PR #199 merged as `f065331` after exact-head Siton CI run 37144335223 passed and Codex re-review on exact head `e3bec18` reported no major issues.
+  - Re-read Supabase staging: migration ledger 75/75, high-water `082`; corrected the stale header value that said 78 rows.
+  - Re-verified Render workspace `My Workspace`: canonical services are `siton-staging-web` + `siton-staging-worker`, both `checksPass`; the three legacy services still exist on commit-triggered auto-deploy.
+  - Opened PR #201 for the two non-blocking review leftovers: `log-xxx` sample -> `log_xxx`, stronger `log_` prefix assertion, stale Twilio assertion wording removed.
 - TESTED:
-  - `config/runtime-environment-policy.json` parses after the removal.
-  - Exact-head Siton CI and independent review remain required before merge.
+  - #199 exact-head CI green and independent Codex review clean.
+  - #201 exact-head CI green on `e5fc1e7`; independent reviewer response still pending.
 - OPEN:
-  - Replacement PR CI / review / merge / master verification.
-  - Legacy Render service deletion remains an owner-dashboard action.
-- PERCENT: 60%. Review findings fixed on a current-master branch; repository gates and independent review pending.
-- NEXT: replacement PR -> exact-head CI -> Claude reviewer-only pass -> merge only if green.
+  - Verify master CI + canonical Render deploy after #199.
+  - Merge #201 only after exact-head independent review is clean; re-check against current master before merge.
+  - Three legacy Render services require dashboard deletion because the connected Render tool exposes no delete/suspend action.
+  - Claude owns the next structural route-extraction workstream; ChatGPT owns status/verification and small no-behavior cleanup.
+- PERCENT: 80% for this coordination/status slice. Code is merged; post-merge CI/Render verification and #201 review/merge remain.
+- NEXT: master CI -> Render verification -> #201 review/merge -> close this status PR -> hand off next route extraction to Claude.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 
