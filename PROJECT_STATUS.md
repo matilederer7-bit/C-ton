@@ -308,24 +308,22 @@ Sixth pass on `4746d43`: DO NOT MERGE — two cases `eb7c2b4` caught were lost (
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
 
 <!-- AGENT_STATUS:chatgpt:START -->
-### ChatGPT latest milestone — Lean Refactor: remove duplicate admin notification-status alias
+### ChatGPT latest milestone — Lean Refactor: retire dead DEBUG_JOIN_LOGGING config
 
-- UPDATED: 2026-10-02
+- UPDATED: 2026-10-03
 - COMPLETED:
-  - Re-verified current master `f3c0aee` and the post-refactor map before editing.
-  - D5 status trim is already merged and D5 is complete; CMS hero-video user-flow proof is also complete on staging.
-  - Reused the existing full-tree zero-consumer proof for `/api/admin/notifications/status` from the post-refactor census.
-  - Proved that from census baseline `1b1ba93` to current master no change touched `src/frontend_runtime.ts` or introduced an admin-notification consumer, so the proof remains current.
-  - Removed only the duplicate alias `/api/admin/notifications/status`; canonical `/api/admin/notifications-status` remains unchanged.
+  - Rebuilt stale PR #192 from current master `72ecd0a` instead of merging its old base.
+  - Addressed Claude's blocking review: removed the dead `DEBUG_JOIN_LOGGING` export from `src/runtime_config.ts`, then removed its demo env entry and runtime-environment-policy guard.
+  - Corrected all live logging/security policy references identified by review.
+  - `DEBUG_SQL_LOGGING` and `DISABLE_OUTBOX_WORKER` remain unchanged.
 - TESTED:
-  - Source-level assertion: duplicate alias absent, canonical route still present.
-  - Full Siton CI and independent review are required on the PR head before merge.
+  - `config/runtime-environment-policy.json` parses after the removal.
+  - Exact-head Siton CI and independent review remain required before merge.
 - OPEN:
-  - CI / exact-head independent review / merge / master verification for this slice.
-  - Larger behaviour-sensitive refactors remain in `docs/LEAN_REFACTOR_MAP_2026-09-30.md` §7.2 and must stay split by concern.
-  - Three legacy Render services remain a manual cleanup because the connected Render tool has no delete/suspend operation.
-- PERCENT: 50%. Small refactor implemented; repository gates and independent review still pending.
-- NEXT: open PR -> CI -> Claude reviewer-only pass -> merge only if current-head green -> update refactor map after merge.
+  - Replacement PR CI / review / merge / master verification.
+  - Legacy Render service deletion remains an owner-dashboard action.
+- PERCENT: 60%. Review findings fixed on a current-master branch; repository gates and independent review pending.
+- NEXT: replacement PR -> exact-head CI -> Claude reviewer-only pass -> merge only if green.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 

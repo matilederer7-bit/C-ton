@@ -42,7 +42,6 @@ export const OUTBOX_MAX_ATTEMPTS = readNumberEnv("OUTBOX_MAX_ATTEMPTS", 4);
 export const MOCK_SEED = process.env.MOCK_SEED ? Number(process.env.MOCK_SEED) : null;
 
 export const DEBUG_SQL_LOGGING = process.env.DEBUG_SQL_LOGGING === "1";
-export const DEBUG_JOIN_LOGGING = process.env.DEBUG_JOIN_LOGGING === "1";
 export const DEBUG_SURFACES_ENABLED = process.env.DEBUG_SURFACES_ENABLED === "1";
 export const DEBUG_SURFACES_ACCESS_KEY = process.env.DEBUG_SURFACES_ACCESS_KEY || "";
 export const DEBUG_SURFACES_ACTIVE = DEBUG_SURFACES_ENABLED && Boolean(DEBUG_SURFACES_ACCESS_KEY.trim());
