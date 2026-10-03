@@ -32,7 +32,7 @@ Identifiers and states: `deal_id`, `participant_id`, `seller_id`, `affiliate_id`
 | Id | Where | Class | Status |
 |---|---|---|---|
 | LOG-1 | `src/notification_dispatch.ts:92` `LogNotificationProvider.send` logs `recipient_ref` raw (seller support email or buyer phone) | SENSITIVE unmasked | OPEN - documented; staging runs `NOTIFICATION_PROVIDER=log-only`, so recipient identifiers reach hosted logs. Suggested runtime change (not on this branch): log `maskDestination(channel, recipient_ref)` or a hash |
-| LOG-2 | `DEBUG_SQL_LOGGING`, `DEBUG_JOIN_LOGGING`, `LOG_LEVEL=debug/trace` | verbosity seams | refused for staging/production by `config/runtime-environment-policy.json` |
+| LOG-2 | `DEBUG_SQL_LOGGING`, `LOG_LEVEL=debug/trace` | verbosity seams | refused for staging/production by `config/runtime-environment-policy.json`; retired `DEBUG_JOIN_LOGGING` no longer exists in runtime config |
 | LOG-3 | hosted log retention and access (Render/Supabase dashboards) | platform | hosted - document only; see `docs/PRODUCTION_DATA_ACCESS_BOUNDARIES.md` |
 
 ## Rules for new code

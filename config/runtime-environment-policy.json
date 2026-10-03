@@ -696,13 +696,6 @@
           "reason": "parameter echo into logs"
         },
         {
-          "var": "DEBUG_JOIN_LOGGING",
-          "must": "absent_or_equal",
-          "value": "0",
-          "severity": "FAIL",
-          "reason": "buyer detail echo into logs"
-        },
-        {
           "var": "LOG_LEVEL",
           "must": "not_one_of",
           "value": [
