@@ -398,7 +398,6 @@ first. Each GAP assertion fails if a live surface starts delivering the item, so
 
 ### 8.3 Open candidates (in order)
 
-- ~~`TWILIO_*`~~: DONE (round-2 slice 5). ~~`DEBUG_JOIN_LOGGING`~~: replacement PR #199 (PR #192 superseded after review findings; dead `runtime_config.ts` export and live docs corrected). `DISABLE_OUTBOX_WORKER` untouched (production boot invariant).
 - npm scripts (157): mapped — the only identical pairs (`dev`/`start`, `lint`/`scan:backend`, `proof:no-real-money`/`gate:real-money`) all have consumers in docs, workflows or scripts; the 22 scripts without a textual consumer are developer entry points (CI group runners `test:unit|db|api|payments|e2e`, single-test shortcuts, `i18n:build`, `start:demo`), not aliases. Zero-consumer aliases: none, so nothing deleted.
 - Further `frontend_runtime.ts` / `app.ts` route-group moves (admin ops, support, pilot, `/app` shell; ops and seller-deal
   routes) — one concern per PR.
