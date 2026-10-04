@@ -1,5 +1,5 @@
 {
-  "task": "Lean Refactor: delete seven superseded frontend/app.js legacy renderers that have no dispatcher callers, while deliberately retaining renderTrackingPage because two tracking-only product requirements remain an explicit owner decision.",
+  "task": "Lean Refactor: delete only the four superseded frontend/app.js legacy renderers whose removal preserves every current product assertion; retain legacy Home, Deal, Tracking and SellerDeal renderers because CI/gap review proves they still carry requirements absent from the live renderCton* surfaces.",
   "lead": "chatgpt",
   "base": "origin/master@6f1791e916afbfbea6069e2e751d6d7031b70fa6",
   "open_branches": [
@@ -11,7 +11,7 @@
       "agent": "chatgpt",
       "role": "builder",
       "tier": "standard",
-      "scope": "delete only renderHomeLegacy, renderDealPage, renderOtpPage, renderPaymentPage, renderConfirmationPage, renderSellerPage, renderSellerDealPage; add regression guard; update Lean map/status",
+      "scope": "delete only renderOtpPage, renderPaymentPage, renderConfirmationPage and renderSellerPage; retain renderHomeLegacy, renderDealPage, renderTrackingPage and renderSellerDealPage until their uncovered requirements are handled separately; add regression guard; update Lean map/status",
       "allowed": [
         "frontend/app.js",
         "tests/frontend_dead_legacy_renderers_validation.ts",
@@ -29,8 +29,8 @@
       ],
       "depends_on": [],
       "dod": [
-        "exactly seven documented dead legacy renderers are removed",
-        "renderTrackingPage remains until the owner decides §8.2 document visibility/chart gaps",
+        "exactly four superseded legacy renderers are removed",
+        "renderHomeLegacy, renderDealPage, renderTrackingPage and renderSellerDealPage remain because deleting them currently removes asserted copy/features not yet delivered by the live surfaces",
         "all corresponding renderCton* live replacements remain",
         "no product behavior, route, money, auth, state-machine or provider change",
         "relevant frontend tests and Siton CI green on exact head",
