@@ -1,0 +1,61 @@
+{
+  "task": "Lean Refactor: delete seven superseded frontend/app.js legacy renderers with no dispatcher callers, port the completed-deal Excel export to the live renderCtonSellerDealPage, retarget stale hold-copy assertions to live renderers, and retain renderTrackingPage pending the owner decision on tracking gaps.",
+  "lead": "chatgpt",
+  "base": "origin/master@ec084934107b344d12879bd54b57c836b291ea4d",
+  "open_branches": [
+    "origin/chatgpt/verify-hosted-backup-posture"
+  ],
+  "assignments": [
+    {
+      "id": "B1",
+      "agent": "chatgpt",
+      "role": "builder",
+      "tier": "standard",
+      "scope": "delete renderHomeLegacy, renderDealPage, renderOtpPage, renderPaymentPage, renderConfirmationPage, renderSellerPage and renderSellerDealPage; preserve completed-deal Excel export on renderCtonSellerDealPage; retarget payment hold-copy checks to the live surface; keep renderTrackingPage",
+      "allowed": [
+        "frontend/app.js",
+        "tests/frontend_dead_legacy_renderers_validation.ts",
+        "docs/LEAN_REFACTOR_MAP_2026-09-30.md",
+        "docs/team-plans/2026-10-04-delete-dead-legacy-renderers.json",
+        "PROJECT_STATUS.md",
+        "tests/frontend_flow_validation.ts",
+        "tests/product_surfaces_refinement_validation.ts"
+      ],
+      "forbidden": [
+        "src/",
+        "supabase/",
+        ".github/workflows/",
+        "render.yaml",
+        "config/real-money-release-policy.json",
+        "frontend_runtime.ts"
+      ],
+      "depends_on": [],
+      "dod": [
+        "exactly seven superseded legacy renderers are removed",
+        "renderTrackingPage remains until the owner decides §8.2 document visibility/chart gaps",
+        "all corresponding renderCton* live replacements remain",
+        "completed deals expose seller Excel export on live renderCtonSellerDealPage and non-Completed states do not",
+        "payment hold-copy assertions target the live renderCtonPaymentPage rather than dead code",
+        "no route, money backend, auth, state-machine, DB, provider, Supabase or Render change",
+        "relevant frontend tests and Siton CI green on exact head",
+        "independent reviewer clean on exact final head"
+      ]
+    },
+    {
+      "id": "R1",
+      "agent": "codex",
+      "role": "reviewer",
+      "tier": "standard",
+      "scope": "independent diff review: verify deletion-only scope and no live renderer/helper accidentally removed",
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "clean review on exact final head or every finding resolved"
+      ]
+    }
+  ]
+}

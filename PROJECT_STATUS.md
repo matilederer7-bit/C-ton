@@ -333,28 +333,26 @@ Sixth pass on `4746d43`: DO NOT MERGE — two cases `eb7c2b4` caught were lost (
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
 
 <!-- AGENT_STATUS:chatgpt:START -->
-### ChatGPT latest milestone — Lean Refactor seller deal-image route extraction
+### ChatGPT active Lean Refactor — seller images merged, renderer deletion rebased
 
 - UPDATED: 2026-10-04
 - COMPLETED:
-  - Isolated branch `chatgpt/extract-seller-deal-image-routes` from master `6f1791e`; no overlapping PR was open at start.
-  - PR #215 extracts exactly three seller deal-image mutation routes from `src/app.ts` into `src/seller_deal_image_routes.ts`: upload, reorder/primary selection, and delete.
-  - `src/app.ts` drops from 8,579 to 8,260 lines (−319); shared seller-authority, transaction and cleanup helpers remain in `app.ts` and are injected.
-  - Route inventory, legal, security, legacy-isolation and team-plan risk scans were extended to keep the extracted module covered; the module remains HIGH_RISK/security-reviewed.
-  - Added `tests/seller_deal_image_routes_extraction_validation.ts` and a binding team plan.
+  - PR #215 merged to `master` as `ec084934107b344d12879bd54b57c836b291ea4d`: seller deal-image upload/reorder/delete routes extracted from `src/app.ts` into `src/seller_deal_image_routes.ts`. Exact PR-head CI #434 was green; Claude senior re-review was clean; merge commit records Codex clean on the final head.
+  - Renderer-deletion work rebuilt from exact new master on isolated branch `chatgpt/delete-dead-legacy-renderers-v2`, avoiding the status conflict of old PR #216.
+  - Seven no-dispatcher legacy renderers are removed from `frontend/app.js`; completed-deal Excel export is preserved on live `renderCtonSellerDealPage`; payment hold-copy assertions target live `renderCtonPaymentPage`; `renderTrackingPage` remains pending §8.2.
 - TESTED:
-  - First exact-head CI exposed three TypeScript implicit-any errors created by lost contextual typing after extraction; fixed with explicit `c: any` only, no logic change.
-  - Second exact-head CI is running after the fix; the previously failing Operational repair validation has passed on the new head.
-  - No local checkout/database is available in this chat environment, so no local-test claim is made.
+  - #215 PR head: Siton CI #434 SUCCESS and senior review clean.
+  - Renderer deletion: prior CI exposed two real gaps; both were fixed by preserving behavior/coverage, not by weakening gates. The rebased v2 still requires a fresh exact-head CI and review.
 - OPEN:
-  - Exact-head Siton CI must finish green.
-  - Independent senior review is still required; Codex re-review was requested automatically and Claude is assigned as an additional independent reviewer.
-  - Merge, master CI and exact-SHA staging verification remain open.
-- PERCENT: 80% for this slice. Code + source-pin/gate preservation are done; review/CI/merge/staging are not.
+  - #215 post-merge closeout: master CI on `ec084934` and canonical Render web/worker on the same SHA are not yet verified; do not call the slice 100% until both are true.
+  - Renderer deletion v2: PR, exact-head CI, independent review, merge, master CI and staging verification.
+  - Tracking document-visibility + cumulative-chart gaps remain an explicit owner/product decision.
+- PERCENT:
+  - #215 slice: 95% (merged; post-merge CI/deploy verification open).
+  - Renderer deletion v2: 80% (code/gap preservation/rebase done; final PR gates open).
 - NEXT:
-  - Independent review of PR #215 on the latest head.
-  - Merge only after review + exact-head green CI; then verify master CI and canonical Render web/worker on the merge SHA.
-  - After #215 closes, continue the next non-overlapping Lean Refactor slice in `src/frontend_runtime.ts`.
+  - Verify master CI + Render exact SHA for #215.
+  - Replace superseded #216 with the rebased v2 PR and require fresh exact-head review + CI before merge.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 
