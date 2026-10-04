@@ -2,10 +2,10 @@
 
 Updated: 2026-10-04
 Canonical branch: `master`
-Current merged baseline: `3534b30` (PR #204, log-only docs/tests contract alignment) on top of `f065331` (PR #199, complete retirement of dead `DEBUG_JOIN_LOGGING`). Master Siton CI run 37153756055 on `3534b30` completed successfully with no failed jobs. Black Sky Engineering remains **100% closed**; Production Readiness remains a separate owner-driven track and real money remains blocked.
-Render staging: canonical services `siton-staging-web` (`srv-daa5o9u7bikc73fgjskg`) and `siton-staging-worker` (`srv-daakn0tg1s2s73dfk3pg`) are both **live on `3534b30`** after the `checksPass` master deploy. Three legacy services still exist and still auto-deploy from `master`: `siton-staging-web-atp1`, `siton-demo-preview-atp1`, `siton-demo-preview`. The connected Render tool exposes no delete/suspend action, so their removal remains an owner-dashboard action.
+Current merged baseline: `1008ec7` (PR #210 documentation-map cleanup), on top of `7c5c0ed` (PR #202 Mission Control route extraction). Master Siton CI run 37182469293 on `1008ec7` completed successfully with no failed jobs. Black Sky Engineering remains **100% closed**; Production Readiness remains a separate owner-driven track and real money remains blocked.
+Render staging: canonical services `siton-staging-web` (`srv-daa5o9u7bikc73fgjskg`) and `siton-staging-worker` (`srv-daakn0tg1s2s73dfk3pg`) are both **LIVE on `1008ec7`**, directly verified after the green master CI. Three legacy services still exist and are not touched by this work.
 Supabase staging (`siton-staging`, `hnptacfzuqebfgeshadq`): migration ledger **75/75**, high-water `082` (re-read 2026-10-03); `deal-images` bucket `public=true`, `file_size_limit=10485760`, MIME exactly JPEG/PNG/WebP/MP4/WebM; `storage-broker` ACTIVE v2 (`verify_jwt=false`, broker-key auth).
-Agent-platform expansion is frozen until there is a concrete product-delivery need and live provider evidence. Stale/superseded agent or review PRs #70, #71, #78, #79, #95, #96, #127, #137, #138, #192, #201 and #203 are closed or being superseded with history preserved. Active non-Dependabot work is #202 (Claude Mission Control route extraction), #205 (Claude operational health/readiness route extraction), and this status reconciliation PR; Dependabot #100/#107/#108 remain separate.
+Agent-platform expansion is frozen until there is a concrete product-delivery need and live provider evidence. PR #211 (CI META audit) was closed without merge after evidence supported **NO CHANGE**; no classifier/workflow/gate change entered master. Active Lean Refactor runtime work is the health/readiness extraction originally prepared in #205; a clean ChatGPT fallback branch is rebuilding it from current master because the stale #205 head had not synced. Dependabot work remains separate.
 
 History moved out of this file by the Lean Refactor D5 status trim (2026-10-02), verbatim: `docs/archive/PROJECT_STATUS_HISTORY_TO_2026-09-30.md` (former header lines, the 2026-09-22 agent-team snapshot, the 2026-09-18 night closeout and Claude Code milestones up to 2026-09-28).
 
@@ -320,28 +320,30 @@ Sixth pass on `4746d43`: DO NOT MERGE — two cases `eb7c2b4` caught were lost (
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
 
 <!-- AGENT_STATUS:chatgpt:START -->
-### ChatGPT latest milestone — coordination closeout and current source-of-truth reconciliation
+### ChatGPT latest milestone — health/readiness extraction fallback on current master
 
 - UPDATED: 2026-10-04
-- COMPLETED:
-  - PR #199 merged as `f065331`; exact-head CI and independent Codex review were clean.
-  - PR #204 merged as `3534b30`; exact-head CI and Codex review were clean.
-  - Master Siton CI run 37153756055 on `3534b30` completed successfully with no failed jobs.
-  - Render workspace `My Workspace` re-verified: canonical web + worker are both LIVE on `3534b30`.
-  - Supabase staging re-read: migration ledger 75/75, high-water `082`.
-  - PR #202 Mission Control extraction was independently checked: the 438-line moved handler block is byte-identical before/after; Claude still owes the final status-slot/sync/re-review sequence before merge.
-  - PR #205 health/readiness extraction is green and clean on head `6916bcd`, but waits for this status reconciliation before its final sync/status/re-review sequence.
-- TESTED:
-  - `3534b30` master CI green.
-  - Canonical Render web + worker LIVE on `3534b30`.
-  - #202 exact-head CI was green on `57cca7c` before master advanced; final head after sync still required.
-  - #205 exact-head CI and Codex were clean on `6916bcd`; final head after status sync still required.
+- BASELINE:
+  - Current master `1008ec7` (PR #210) has FULL Siton CI green (run 37182469293).
+  - Canonical Render web + worker directly verified LIVE on exact `1008ec7`.
+  - PR #211 CI META audit closed without merge; implementation verdict NO CHANGE, so FAST/STANDARD/FULL remain unchanged.
+- COMPLETED IN BRANCH:
+  - Built isolated branch `chatgpt/health-readiness-sync-fallback` from exact master `1008ec7`; Claude's #205 branch was not overwritten.
+  - Ported the verified mechanical move of GET `/health` and GET `/readiness` into `src/operational_health_routes.ts`, while `readinessProbe` stays created/exported in `src/app.ts`.
+  - Preserved PR #202 Mission Control coverage in all seven overlapping gate/source-pin files; both `src/admin_mission_control_routes.ts` and `src/operational_health_routes.ts` are retained.
+  - Ported the health/readiness docs, architecture/team-plan pins and structural extraction proof.
+- TESTED / VERIFIED SO FAR:
+  - Git history comparison proved only the seven pre-mapped pin files overlapped #202; all other #205 files were unchanged between its old base and `1008ec7`.
+  - Current-master Render deployment evidence is LIVE on web + worker at `1008ec7`.
+  - No exact-head CI has run on this fallback branch yet; no merge/staging claim is made.
 - OPEN:
-  - Merge this status reconciliation after exact-head CI + independent review.
-  - Then Claude must sync #202 and #205 onto the resulting master, update only the Claude status slot as appropriate, rerun exact-head CI, re-request Codex review, and merge one PR at a time.
-  - Three legacy Render services remain manual owner-dashboard deletion.
-- PERCENT: 90% for this coordination/status slice. Facts are reconciled; only this status PR's CI/review/merge remain.
-- NEXT: CI + review on this status PR -> merge -> release Claude to finish #202 then #205 serially.
+  - Complete diff review against original #205 and current master.
+  - Open replacement PR; independent Codex review; exact-head Siton CI.
+  - Merge only if behind_by=0 and review/CI are clean.
+  - After merge: master FULL CI, exact Render web+worker merge SHA, `/health` 200 and `/readiness` 200 + expected headers.
+  - The original stale #205 stays open until the replacement is proven; close it only as superseded after that.
+- PERCENT: 70% for this fallback slice. Code/pins are reconstructed; PR/review/CI/merge/staging are still open.
+- NEXT: final diff audit -> replacement PR -> exact-head CI + Codex -> merge -> master/staging verification.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 

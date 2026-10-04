@@ -58,6 +58,7 @@ import {
 import { registerFrontendExperience } from "./frontend_runtime.js";
 import { applicationRequestTelemetry } from "./infrastructure_metrics.js";
 import { createReadinessProbe } from "./readiness_probe.js";
+import { registerOperationalHealthRoutes } from "./operational_health_routes.js";
 import { rateLimitClientKey } from "./public_write_caps.js";
 import { countHttpStatus } from "./runtime_counters.js";
 import { assertProductionRuntimeGuards } from "./production_guards.js";
@@ -6050,8 +6051,6 @@ app.setErrorHandler((error: any, req: any, reply) => {
   return reply.code(httpStatus).send(payload);
 });
 
-app.get("/health", async () => ({ ok: true }));
-
 // Browser error relay. The web client never holds the Sentry DSN; it posts a
 // bounded report here and the server forwards it through the same allowlist
 // and scrubbing as server errors. Anonymous by design, so it is size-capped,
@@ -6099,17 +6098,9 @@ export const readinessProbe = createReadinessProbe({
   }
 });
 
-app.get("/readiness", async (req: any, reply: any) => {
-  const verdict = await readinessProbe.probe();
-  reply.header("x-readiness-cache", verdict.cached ? "hit" : "miss");
-  reply.header("x-readiness-age-ms", String(verdict.age_ms));
-  if (!verdict.ok) return reply.code(503).send(verdict.body);
-  // Operational aid for the proxy hop configuration (A2): the address the
-  // runtime attributes to THIS caller. Lets an operator confirm from a
-  // browser that TRUST_PROXY_HOPS resolves their real address (not a proxy,
-  // not a spoofed X-Forwarded-For prefix). It is the caller's own address.
-  return { ...verdict.body, client_ip: String(req.ip || ""), trust_proxy_hops: resolveTrustProxyHops() };
-});
+// GET /health (liveness) and GET /readiness live in src/operational_health_routes.ts
+// since the Lean Refactor; the probe above is handed to them unchanged.
+registerOperationalHealthRoutes(app, { readinessProbe, resolveTrustProxyHops });
 
 function parseImageUploadBody(body: any) {
   const dataUrl = String(body?.image_data_url || body?.data_url || "").trim();

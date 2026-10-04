@@ -11,7 +11,7 @@ const isolation = require("../../scripts/lib/test_db_isolation.cjs");
 let dbAvailable = false;
 try { if (process.env.DATABASE_URL) { isolation.assertLocalBase(process.env.DATABASE_URL); dbAvailable = true; } } catch { dbAvailable = false; }
 
-const ROUTE_FIXTURE = ["src/app.ts", "src/frontend_runtime.ts", "src/receipt_content_routes.ts", "src/distribution_hub.ts", "src/admin_mission_control_routes.ts", "frontend/app.js", "scripts/lib", "scripts/protected_route_policy.cjs", "scripts/web_route_inventory.cjs", "scripts/route_inventory_report.cjs", "config/route-classification.json"];
+const ROUTE_FIXTURE = ["src/app.ts", "src/frontend_runtime.ts", "src/receipt_content_routes.ts", "src/distribution_hub.ts", "src/admin_mission_control_routes.ts", "src/operational_health_routes.ts", "frontend/app.js", "scripts/lib", "scripts/protected_route_policy.cjs", "scripts/web_route_inventory.cjs", "scripts/route_inventory_report.cjs", "config/route-classification.json"];
 
 test("route inventory report classifies every route on the real code and fails on a new unclassified sensitive route", () => {
   const clean = createFixtureRepo(ROUTE_FIXTURE);
@@ -24,7 +24,8 @@ test("route inventory report classifies every route on the real code and fails o
 
   const mutated = createFixtureRepo(ROUTE_FIXTURE);
   try {
-    mutated.mutate("src/app.ts", "app.get(\"/health\", async () => ({ ok: true }));", "app.get(\"/health\", async () => ({ ok: true }));\napp.post(\"/api/export/all-buyers\", async () => ({ ok: true }));");
+    // /health lives in src/operational_health_routes.ts since the Lean Refactor; the planted route must land in a scanned source file
+    mutated.mutate("src/operational_health_routes.ts", "app.get(\"/health\", async () => ({ ok: true }));", "app.get(\"/health\", async () => ({ ok: true }));\napp.post(\"/api/export/all-buyers\", async () => ({ ok: true }));");
     const result = mutated.run("scripts/route_inventory_report.cjs");
     assert.equal(result.status, 1, result.stdout + result.stderr);
     assert.match(result.stdout, /\[FAIL\] unclassified routes: 1 routes match no classification rule \(1 sensitive\)/);

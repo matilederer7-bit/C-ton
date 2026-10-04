@@ -140,8 +140,8 @@ What each signal proves (`scripts/health_contract_check.cjs:1-23`, `docs/HEALTH_
 
 | Probe | Code | Proves | Does NOT prove |
 |---|---|---|---|
-| `GET /health` → `200 {"ok":true}` | `src/app.ts:3570` | HTTP listener alive | DB, schema, provider, worker (stays 200 with the DB dropped) |
-| `GET /readiness` → `200 {ok,database:"connected",schema:"siton",boundary,…}` | `src/app.ts:3572-3578` → `src/runtime_database_boundary.ts:14-44` | ledger complete, required tables/triggers present, connected as `siton_web_runtime` (never postgres/service_role), inventory RPC `siton_inventory_rpc` v1 | worker liveness (documented gap) |
+| `GET /health` → `200 {"ok":true}` | `src/operational_health_routes.ts` (wired from `src/app.ts`) | HTTP listener alive | DB, schema, provider, worker (stays 200 with the DB dropped) |
+| `GET /readiness` → `200 {ok,database:"connected",schema:"siton",boundary,…}` | `src/operational_health_routes.ts` → `readinessProbe` in `src/app.ts` → `src/runtime_database_boundary.ts:14-44` | ledger complete, required tables/triggers present, connected as `siton_web_runtime` (never postgres/service_role), inventory RPC `siton_inventory_rpc` v1 | worker liveness (documented gap) |
 | `GET /health/integrations` | `src/frontend_runtime.ts:1538-1558` | `integrations.payment.provider=mockpay`, mode `mock-backed`, payout `internal-ledger`, notifications `log-only`; no secret echoed | correctness of money flows |
 | `GET /api/preview/meta` → `preview.deployment.runtime_commit_sha` | `src/frontend_runtime.ts:1029-1052,2166-2181` | which SHA is running (`RENDER_GIT_COMMIT`); `is_stale` only when `EXPECTED_COMMIT_SHA` is set (OPEN: not set on staging today, policy WARNING) | — |
 
