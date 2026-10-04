@@ -150,8 +150,12 @@ const frontendRuntimeSource = read("src/frontend_runtime.ts");
 // frontend_runtime.ts into src/seller_fulfillment_routes.ts (Lean Refactor);
 // the seller-reporting checks below read both files, each parsed on its own.
 const sellerFulfillmentRoutesSource = read("src/seller_fulfillment_routes.ts");
-const sellerReportingFiles = [["src/frontend_runtime.ts", frontendRuntimeSource], ["src/seller_fulfillment_routes.ts", sellerFulfillmentRoutesSource]];
-const sellerReportingSource = frontendRuntimeSource + "\n" + sellerFulfillmentRoutesSource;
+// The admin control-center (R6) reads moved out of frontend_runtime.ts into
+// src/admin_control_center_routes.ts (Lean Refactor); their reporting SQL was
+// part of this scan and stays in it.
+const adminControlCenterRoutesSource = read("src/admin_control_center_routes.ts");
+const sellerReportingFiles = [["src/frontend_runtime.ts", frontendRuntimeSource], ["src/seller_fulfillment_routes.ts", sellerFulfillmentRoutesSource], ["src/admin_control_center_routes.ts", adminControlCenterRoutesSource]];
+const sellerReportingSource = frontendRuntimeSource + "\n" + sellerFulfillmentRoutesSource + "\n" + adminControlCenterRoutesSource;
 assert(moneyStateInLists(sellerReportingSource).includes(collected), "seller export/frontend runtime SQL must count ChargedSuccess and RecoveredCharge together");
 {
   const comparisons = [];
@@ -232,8 +236,8 @@ for (const required of ["gross_amount", "platform_fee_base_amount", "platform_fe
 // 12. Distributor surface carries no money wording; C-ton is never the seller.
 // ---------------------------------------------------------------------------
 {
-  // the Mission Control, support and seller fulfillment routes moved out of frontend_runtime.ts (Lean Refactor); they stay in the scan
-  const distributorSurface = ast.stripComments(frontendRuntimeSource, "frontend_runtime.ts") + "\n" + ast.stripComments(read("src/admin_mission_control_routes.ts"), "admin_mission_control_routes.ts") + "\n" + ast.stripComments(read("src/support_routes.ts"), "support_routes.ts") + "\n" + ast.stripComments(sellerFulfillmentRoutesSource, "seller_fulfillment_routes.ts") + "\n" + read("frontend/app.js");
+  // the Mission Control, support, seller fulfillment and admin control-center (R6) routes moved out of frontend_runtime.ts (Lean Refactor); they stay in the scan
+  const distributorSurface = ast.stripComments(frontendRuntimeSource, "frontend_runtime.ts") + "\n" + ast.stripComments(read("src/admin_mission_control_routes.ts"), "admin_mission_control_routes.ts") + "\n" + ast.stripComments(read("src/support_routes.ts"), "support_routes.ts") + "\n" + ast.stripComments(sellerFulfillmentRoutesSource, "seller_fulfillment_routes.ts") + "\n" + ast.stripComments(adminControlCenterRoutesSource, "admin_control_center_routes.ts") + "\n" + read("frontend/app.js");
   for (const re of [/affiliate[^.\n]{0,80}commission/i, /distributor[^.\n]{0,80}commission/i, /affiliate[^.\n]{0,80}payout/i, /distributor[^.\n]{0,80}payout/i, /affiliate[^.\n]{0,80}balance/i, /distributor[^.\n]{0,80}balance/i]) {
     assert(!re.test(distributorSurface), "distributor surface contains forbidden money wording: " + re);
   }
