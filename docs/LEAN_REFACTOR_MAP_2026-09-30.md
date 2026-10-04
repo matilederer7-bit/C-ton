@@ -233,7 +233,7 @@ CI through `test:release-tools`. Keep.
 
 ### 3.8 `docs/` — see `docs/DOCUMENTATION_MAP.md`
 
-CANONICAL 12 / REFERENCE 100 / ARCHIVE 176 (176 before D3-B, 175 after it, 176 again with the D5 status-history archive of 2026-10-02). Physical moves into `docs/archive/` happen per file
+CANONICAL 12 / REFERENCE 102 / ARCHIVE 174 after the 2026-10-04 documentation-map cleanup: the active Lean Refactor map and branch census are now explicitly REFERENCE, and the two unreadable zero-consumer archive notes were deleted. Physical moves into `docs/archive/` happen per file
 with their consumers updated (`scripts/architecture_truth_gate.cjs`, `scripts/legal_compliance_gate.cjs`,
 `scripts/release_checklist.cjs`, `src/admin_mission_control.ts`, ~40 tests read docs by path).
 
@@ -320,7 +320,7 @@ read-only passes (src / web / frontend; scripts / dependencies / config / root; 
 
 | Item | Proof / blocker |
 |---|---|
-| `docs/archive/db-drift-resolution.md`, `docs/archive/runtime-contract-resolution.md` | unreadable encoding, zero consumers; archived meanwhile |
+| ~~`docs/archive/db-drift-resolution.md`, `docs/archive/runtime-contract-resolution.md`~~ | **DONE 2026-10-04** — zero consumers, no authority/history value beyond already-superseded runtime notes; deleted in the documentation-map cleanup |
 | ~~`/api/admin/notifications/status`~~ | DONE — removed by PR #190 (`5c5221f`) |
 | superseded renderers in `frontend/app.js` | dead (no dispatcher reaches them); slice tests retargeted (§7.2, round-2 slice 4). Deletion PR next, after the owner decides the §8.2 gaps (deleting removes the only implementation of e.g. buyer document visibility) |
 | `src/stage10c_harden_deals.sql` | retired 3-line marker; only a comment in migration 022 names it (migrations are never edited, so it stays unless the owner accepts a dangling comment) |
