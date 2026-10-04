@@ -393,7 +393,7 @@ Module boundaries added: `legal_html.ts` (pure HTML render, no I/O beyond the pr
 5. The explicit "no action needed now" copy (React gates the CTA instead).
 6. The "live buyer center" eyebrow headline.
 
-Deleting `renderTrackingPage` would delete the only legacy implementation of 1–2; decide "build it in React" or "drop the requirement" first. The other seven superseded renderers can be removed independently because their live `renderCton*` replacements already own those flows. Each GAP assertion fails if a live surface starts delivering the item, so a gap is retired deliberately.
+Deleting `renderTrackingPage` would delete the only legacy implementation of 1–2; decide "build it in React" or "drop the requirement" first. The other seven superseded renderers can be removed independently. During deletion, CI exposed one stale whole-file pin and one real requirement living only in dead code: completed-deal seller Excel export. The copy pin was retargeted to the live payment renderer; the Excel export was ported onto `renderCtonSellerDealPage` before deleting the legacy seller renderer. Each GAP assertion fails if a live surface starts delivering the item, so a gap is retired deliberately.
 
 ### 8.3 Open candidates (in order)
 
