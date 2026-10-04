@@ -123,6 +123,68 @@ A lane on an idle runner takes 2–2.5 minutes: about 40 s of setup (Postgres se
 
 The proof runs #129 and #130 were started together with the master run, #128 and two Dependabot runs. That put about 70 jobs against GitHub's concurrent-job limit, so lanes waited up to 9 minutes for a runner; `web-runtime-core` was created at 20:08:11 and started at 20:17:34. This queueing is the new bottleneck when many PRs run at once. It is a runner-capacity limit, not test time. Larger runners, or fewer simultaneous pushes, remove it.
 
+## 2026-10-04: META profile audit (verdict: no new profile) and the release-tool bottleneck
+
+Question asked: can a fourth profile, META (`docs/team-plans/**`, `docs/archive/**`, `docs/BRANCH_CENSUS_*.md`, `docs/LEAN_REFACTOR_MAP_*.md`), below FAST, shorten CI for safe metadata changes without weakening a gate? The premise was that FAST barely saves wall-clock because of `static-gates`. The audit measured the runs instead of assuming.
+
+### Baseline (GitHub job timings, 2026-10-03/04)
+
+| Run | Profile | Wall-clock | classify | static-gates | focused-tests | of which release-tool tests | preflight-database | verdict |
+|---|---|---|---|---|---|---|---|---|
+| 37177876079 (PR #209, status docs) | FAST | **6m26s** | 9s | 1m17s | 5m56s | **4m53s** | skipped | 9s |
+| 37179255449 (PR #210, docs map) | FAST | **5m41s** | 7s | 48s | 5m16s | **4m29s** | skipped | 8s |
+| 37179074808 (master `7c5c0ed`) | FULL | **5m51s** | 8s | 1m17s | skipped | — | **5m22s** (its preflight step: 4m31s) | 10s |
+| 37156327175 (PR #205) | FULL | **6m38s** | 9s | 1m14s | skipped | — | **5m42s** (preflight step: 4m46s) | 6s |
+
+`static-gates` runs beside `focused-tests` from the first second and finishes 4–5 minutes before it. It is not on the critical path of any profile; a profile that skipped it would save no wall-clock at all. The critical path of FAST is the `Release-tool tests` step of `focused-tests` (`node --test tests/release_tools/**/*.test.cjs`), and the critical path of FULL is `preflight-database`, whose gates run serially and include the same `release-tools-tests` gate.
+
+Inside that suite one file dominated. Local timings of each release-tool test file (4 CPUs, no database; the suite runs files in parallel, so its wall-clock is about the longest file):
+
+| File | Serial wall-clock | What it does |
+|---|---|---|
+| `legal_gate.test.cjs` | **204 s** | 94 runs of `scripts/legal_compliance_gate.cjs` on disposable fixtures (1 real-product check, 21 legitimate-copy controls, 72 mutations), serial, ~2.1 s each, of which ~1.7 s is TypeScript parsing in `scripts/lib/raw_card_terms.cjs` |
+| `cdp_launcher.test.cjs` | 21 s | one deliberate 20 s CDP timeout |
+| `money_tax_gate.test.cjs` | 16 s | 11 gate runs on fixtures |
+| `release_orchestration.test.cjs` | 15 s | preflight on fixtures |
+| `git_history_secret_scan.test.cjs` | 12 s | throw-away git repositories |
+| the other 24 files | ≤ 9 s each, 23 s in total | |
+
+### Gate audit against the META candidates
+
+For every gate of the FAST path: what it reads, whether a metadata-only change (team plans, archive records, census, refactor map) can affect it, the risk of skipping it, and whether a release-tool test already proves the same claim.
+
+| Gate (job) | Reads | Metadata-only change can affect it | Risk if skipped | Same claim proven elsewhere |
+|---|---|---|---|---|
+| Production dependency audit (static-gates) | lockfile, registry | no | none for docs; it costs 1 s | no |
+| Distributor attribution-only contract (static-gates) | `src/`, `web/src`, `frontend/`, i18n | no | none for docs; 1 s | `distributor_gate.test.cjs` (fixture) |
+| Bilingual i18n gate (static-gates) | `web/src`, dictionaries | no | none for docs; 1 s | no |
+| Seven-day deal-cap sweep (static-gates) | **every** `.md`/`.docx` under `docs/`, incl. `docs/archive/` | **yes**: an archived record re-stating the retired 7-day cap without its historical marker is exactly what it catches | real: product-invariant drift in a document agents read | no |
+| Operational repair validation (static-gates) | `tests/operational_repair_validation.ts` inputs (runbooks) | no for the candidates | none for docs; 8–13 s | no |
+| Diff whitespace gate (static-gates) | the diff | yes (any file) | low; 0 s | no |
+| Release preflight static (static-gates, 24–42 s): typescript, enforcement scan, architecture gate, payment scan, runtime DDL, money/tax canon, legal gate, **secret/PII scan**, logging hygiene, runtime env policy, startup matrix, no-real-money proof, route inventory, migration static, demo build, mobile/PWA, repository hygiene, supply chain, Docker static | code, config, canon docs; the secret/PII scan walks the whole tree **including `docs/archive/`** (`scripts/lib/repo_scan_policy.cjs` `INCLUDED_DIR_PATHS`) | secret/PII scan: **yes** (a pasted token or phone number in a team plan or archive record); architecture gate: reads named docs only; the rest: no | secret/PII: real; architecture/money/legal: none for the candidates but each costs ≤ 2 s | partly (fixture tests), but the working-tree scan of the actual change exists only here |
+| Release manifest and checklist (static-gates) | preflight reports | no | none; 0 s | no |
+| Release-tool tests (focused-tests) | fixtures copied from fixed lists (`legal_gate`, `money_tax_gate`, `architecture_truth_gate`, `distributor_gate`, …), `docs/team-plans/*.json` (`team_plan_check.test.cjs`), `AGENTS.md`/`CLAUDE.md`/`PROJECT_STATUS.md` (`agent_efficiency_v2.test.cjs`), `.github/workflows/*` | `team_plan_check.test.cjs`: **yes** for team plans; `agent_efficiency_v2.test.cjs`: **yes** for `PROJECT_STATUS.md`; `legal_gate.test.cjs` and the other fixture suites: **no** (fixed file lists, none of them under the candidates) | the drift guards for plans and status are real; the fixture suites prove the gates, not the documents | — |
+| Focused `tests/*.ts` (focused-tests) | the tests that name a changed path | yes, by construction | real (a test that reads the document) | no |
+| ci-verdict | classification + manifests | no | n/a | — |
+
+Conclusions:
+
+1. The only job a META profile could remove from the FAST path with a wall-clock effect is `focused-tests`, and the only expensive thing in it is `legal_gate.test.cjs`. Skipping it for metadata changes is defensible in isolation (its fixture list does not touch the candidates), but it needs a new allowlist, new skip reasons in the verdict, a pin that the fixture list never grows into `docs/`, and it saves nothing on STANDARD/FULL, where the same suite sits on the FULL critical path inside `preflight-database`.
+2. The same wall-clock is recovered for **every** profile, with **no skip and no new classifier state**, by letting the 94 independent gate processes of `legal_gate.test.cjs` run concurrently (each on its own `mkdtemp` fixture; the gate writes nothing but stdout/stderr). That is what this change does: `fixture.runAsync()` beside `run()`, and the suite declared with `concurrency = max(2, availableParallelism)`. Every control, mutation and expected message is unchanged; forcing the gate to always exit 0 still fails 72 tests, forcing it to always exit 1 still fails 93.
+3. `PROJECT_STATUS.md` stays FAST: `agent_efficiency_v2.test.cjs` reads it, and FAST runs that test. Nothing below FAST is introduced; `docs/team-plans/**`, `docs/archive/**`, census and refactor-map files stay `docs` (trivial) under the existing allowlist and keep every static gate (seven-day sweep, secret/PII scan) that actually reads them.
+
+**Verdict: no META profile.** The classifier, the verdict and the workflow are unchanged. FAST, STANDARD and FULL keep exactly their gates.
+
+### After
+
+| Measurement | Before | After |
+|---|---|---|
+| `legal_gate.test.cjs`, local, 4 CPUs | 204 s | 105 s |
+| `npm run test:release-tools`, local, no database (container limited to ~2 effective cores) | filled from the master worktree run | 131 s (433 tests, 423 pass, 10 environment skips, 0 fail) |
+| focused-tests `Release-tool tests` step (FAST) | 4m29s–4m53s | filled from the PR head run |
+| FAST wall-clock | 5m41s–6m26s | filled from the first docs-only run on master after merge |
+| FULL wall-clock | 5m51s–6m38s | filled from the PR head run (this PR is FULL: it edits a release-tool test) |
+
 ## Local equivalents
 
 | CI job | Local command |

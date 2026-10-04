@@ -9,6 +9,7 @@
     "origin/dependabot/npm_and_yarn/production-minor-patch-9c12172c6f",
     "origin/dependabot/npm_and_yarn/web/vite-8.3.1"
   ],
+  "overlap_decision": "TEAM_PLAN_FAIL accepted and recorded: the only overlap is tests/release_tools/legal_gate.test.cjs on origin/claude/health-readiness-routes-extract (PR #205), which edits two FIXTURE_FILES entries (lines 13-20) and the file of the first MUTATIONS entry (lines 66-73). This task edits the require line, runGate() and the describe() wrapper (lines 8-65), the four test() signatures and the file end; `git merge-tree --write-tree` of this head against that branch reports no conflict in this file (its only conflicts, scripts/web_route_inventory.cjs and tests/legacy_runtime_isolation_validation.ts, pre-exist between master and #205 and are untouched here). Whichever merges second rebases trivially. PROJECT_STATUS.md is deliberately not in this task while #205 is open.",
   "interface_contract": {
     "tests/release_tools/support/fixture_repo.cjs": "createFixtureRepo(relFiles).runAsync(scriptRel, args, env) -> Promise<{status, signal, stdout, stderr, error}>; same cwd/env/timeout contract as run(), never rejects on a non-zero exit, status null when the child was killed. run() is unchanged.",
     "tests/release_tools/legal_gate.test.cjs": "same controls, same mutations, same expected messages; declared inside one describe() with concurrency = max(2, os.availableParallelism()) and async bodies awaiting runAsync()"
@@ -55,9 +56,15 @@
       "senior": true,
       "tier": "senior",
       "scope": "Independent adversarial review (security-auditor posture): concurrency hazards between fixtures, exit-status mapping of runAsync vs spawnSync, assertion equivalence per test, nothing weakened",
-      "reviews": ["B1"],
-      "depends_on": ["B1"],
-      "dod": ["verdict with concrete failure scenarios and file:line references"]
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "verdict with concrete failure scenarios and file:line references"
+      ]
     },
     {
       "id": "R2",
@@ -65,9 +72,15 @@
       "role": "reviewer",
       "tier": "senior",
       "scope": "Cross-provider review of the exact PR head via the Codex re-review workflow",
-      "reviews": ["B1"],
-      "depends_on": ["B1"],
-      "dod": ["Codex review on the final head, findings fixed or answered"]
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "Codex review on the final head, findings fixed or answered"
+      ]
     }
   ]
 }
