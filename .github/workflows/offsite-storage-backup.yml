@@ -1,0 +1,150 @@
+name: Off-site Storage backup
+
+# Secrets-gated encrypted copy of the canonical deal-images bucket.
+# Source Supabase S3 credentials are exposed only to the read step.
+# The source step lists/downloads only; it never writes or deletes.
+# CI receives only the age public recipient and cannot decrypt backups.
+
+on:
+  schedule:
+    - cron: "43 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: offsite-storage-backup
+  cancel-in-progress: false
+
+jobs:
+  offsite-storage-backup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      SOURCE_BUCKET: deal-images
+    steps:
+      - name: Gate on provisioned secrets
+        id: gate
+        env:
+          SITON_STORAGE_BACKUP_S3_ACCESS_KEY_ID: ${{ secrets.SITON_STORAGE_BACKUP_S3_ACCESS_KEY_ID }}
+          SITON_STORAGE_BACKUP_S3_SECRET_ACCESS_KEY: ${{ secrets.SITON_STORAGE_BACKUP_S3_SECRET_ACCESS_KEY }}
+          SITON_STORAGE_BACKUP_S3_ENDPOINT: ${{ secrets.SITON_STORAGE_BACKUP_S3_ENDPOINT }}
+          SITON_STORAGE_BACKUP_S3_REGION: ${{ secrets.SITON_STORAGE_BACKUP_S3_REGION }}
+          OFFSITE_BACKUP_ENCRYPTION_PUBLIC_KEY: ${{ secrets.OFFSITE_BACKUP_ENCRYPTION_PUBLIC_KEY }}
+          OFFSITE_BACKUP_S3_BUCKET: ${{ secrets.OFFSITE_BACKUP_S3_BUCKET }}
+          OFFSITE_BACKUP_S3_ACCESS_KEY_ID: ${{ secrets.OFFSITE_BACKUP_S3_ACCESS_KEY_ID }}
+          OFFSITE_BACKUP_S3_SECRET_ACCESS_KEY: ${{ secrets.OFFSITE_BACKUP_S3_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in SITON_STORAGE_BACKUP_S3_ACCESS_KEY_ID SITON_STORAGE_BACKUP_S3_SECRET_ACCESS_KEY SITON_STORAGE_BACKUP_S3_ENDPOINT SITON_STORAGE_BACKUP_S3_REGION OFFSITE_BACKUP_ENCRYPTION_PUBLIC_KEY OFFSITE_BACKUP_S3_BUCKET OFFSITE_BACKUP_S3_ACCESS_KEY_ID OFFSITE_BACKUP_S3_SECRET_ACCESS_KEY; do
+            if [ -z "${!name:-}" ]; then missing+=("$name"); fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "OFFSITE_STORAGE_BACKUP_SKIPPED missing ${missing[*]}"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          case "$OFFSITE_BACKUP_ENCRYPTION_PUBLIC_KEY" in age1*) ;; *) echo "public age recipient required" >&2; exit 1 ;; esac
+          case "$SITON_STORAGE_BACKUP_S3_ENDPOINT" in https://*.storage.supabase.co/storage/v1/s3) ;; *) echo "Supabase Storage S3 endpoint required" >&2; exit 1 ;; esac
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Install age
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq age
+          age --version
+          aws --version
+
+      - name: Read source inventory and download bucket
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SITON_STORAGE_BACKUP_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SITON_STORAGE_BACKUP_S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.SITON_STORAGE_BACKUP_S3_REGION }}
+          SOURCE_ENDPOINT: ${{ secrets.SITON_STORAGE_BACKUP_S3_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          umask 077
+          root="$RUNNER_TEMP/offsite-storage"
+          mkdir -p "$root/$SOURCE_BUCKET"
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          echo "BACKUP_STAMP=$stamp" >> "$GITHUB_ENV"
+          aws s3api list-objects-v2 --endpoint-url "$SOURCE_ENDPOINT" --bucket "$SOURCE_BUCKET" --output json > "$root/source-inventory.json"
+          source_count="$(jq '[.Contents[]?] | length' "$root/source-inventory.json")"
+          source_bytes="$(jq '[.Contents[]?.Size // 0] | add // 0' "$root/source-inventory.json")"
+          aws s3 sync --endpoint-url "$SOURCE_ENDPOINT" --only-show-errors --no-follow-symlinks "s3://$SOURCE_BUCKET/" "$root/$SOURCE_BUCKET/"
+          local_count="$(find "$root/$SOURCE_BUCKET" -type f -printf '.' | wc -c | tr -d ' ')"
+          local_bytes="$(find "$root/$SOURCE_BUCKET" -type f -printf '%s\n' | awk '{s+=$1} END {print s+0}')"
+          if [ "$local_count" != "$source_count" ] || [ "$local_bytes" != "$source_bytes" ]; then
+            echo "OFFSITE_STORAGE_BACKUP_VERIFY_FAIL source=${source_count}/${source_bytes} local=${local_count}/${local_bytes}" >&2
+            exit 1
+          fi
+          echo "SOURCE_OBJECT_COUNT=$source_count" >> "$GITHUB_ENV"
+          echo "SOURCE_OBJECT_BYTES=$source_bytes" >> "$GITHUB_ENV"
+          echo "OFFSITE_STORAGE_SOURCE_VERIFY_PASS objects=$source_count bytes=$source_bytes"
+
+      - name: Archive and encrypt with owner public key
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          OFFSITE_BACKUP_ENCRYPTION_PUBLIC_KEY: ${{ secrets.OFFSITE_BACKUP_ENCRYPTION_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/offsite-storage"
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -cf storage.tar "$SOURCE_BUCKET" source-inventory.json
+          plain_sha="$(sha256sum storage.tar | cut -d' ' -f1)"
+          echo "PLAIN_SHA256=$plain_sha" >> "$GITHUB_ENV"
+          age --encrypt --recipient "$OFFSITE_BACKUP_ENCRYPTION_PUBLIC_KEY" --output storage.tar.age storage.tar
+          head -c 21 storage.tar.age | grep -q '^age-encryption.org/v1'
+          shred -u storage.tar || rm -f storage.tar
+          enc_sha="$(sha256sum storage.tar.age | cut -d' ' -f1)"
+          echo "ENCRYPTED_SHA256=$enc_sha" >> "$GITHUB_ENV"
+          jq -n --arg created_at "$BACKUP_STAMP" --arg repository "$GITHUB_REPOSITORY" --arg commit "$GITHUB_SHA" --arg run_id "$GITHUB_RUN_ID" --arg source_bucket "$SOURCE_BUCKET" --arg object_count "$SOURCE_OBJECT_COUNT" --arg object_bytes "$SOURCE_OBJECT_BYTES" --arg plain_sha256 "$plain_sha" --arg encrypted_sha256 "$enc_sha" --arg encrypted_bytes "$(stat -c %s storage.tar.age)" '{format:"tar, age-encrypted",source:"Supabase Storage S3",source_bucket:$source_bucket,object_count:($object_count|tonumber),object_bytes:($object_bytes|tonumber),created_at:$created_at,repository:$repository,commit:$commit,run_id:$run_id,plain_sha256:$plain_sha256,encrypted_sha256:$encrypted_sha256,encrypted_bytes:($encrypted_bytes|tonumber)}' > manifest.json
+
+      - name: Upload encrypted archive to off-site storage
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.OFFSITE_BACKUP_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.OFFSITE_BACKUP_S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.OFFSITE_BACKUP_S3_REGION || 'us-east-1' }}
+          OFFSITE_BACKUP_S3_BUCKET: ${{ secrets.OFFSITE_BACKUP_S3_BUCKET }}
+          OFFSITE_BACKUP_S3_ENDPOINT: ${{ secrets.OFFSITE_BACKUP_S3_ENDPOINT }}
+          OFFSITE_STORAGE_S3_PREFIX: ${{ secrets.OFFSITE_STORAGE_S3_PREFIX || 'siton-storage/' }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/offsite-storage"
+          endpoint=()
+          if [ -n "${OFFSITE_BACKUP_S3_ENDPOINT:-}" ]; then endpoint=(--endpoint-url "$OFFSITE_BACKUP_S3_ENDPOINT"); fi
+          key="${OFFSITE_STORAGE_S3_PREFIX}${BACKUP_STAMP:0:4}/${BACKUP_STAMP:4:2}/deal-images-${BACKUP_STAMP}"
+          echo "OBJECT_KEY=$key" >> "$GITHUB_ENV"
+          aws s3 cp "${endpoint[@]}" --only-show-errors storage.tar.age "s3://${OFFSITE_BACKUP_S3_BUCKET}/${key}.tar.age"
+          aws s3 cp "${endpoint[@]}" --only-show-errors manifest.json "s3://${OFFSITE_BACKUP_S3_BUCKET}/${key}.manifest.json"
+
+      - name: Download-back verification
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.OFFSITE_BACKUP_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.OFFSITE_BACKUP_S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.OFFSITE_BACKUP_S3_REGION || 'us-east-1' }}
+          OFFSITE_BACKUP_S3_BUCKET: ${{ secrets.OFFSITE_BACKUP_S3_BUCKET }}
+          OFFSITE_BACKUP_S3_ENDPOINT: ${{ secrets.OFFSITE_BACKUP_S3_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/offsite-storage"
+          endpoint=()
+          if [ -n "${OFFSITE_BACKUP_S3_ENDPOINT:-}" ]; then endpoint=(--endpoint-url "$OFFSITE_BACKUP_S3_ENDPOINT"); fi
+          aws s3 cp "${endpoint[@]}" --only-show-errors "s3://${OFFSITE_BACKUP_S3_BUCKET}/${OBJECT_KEY}.tar.age" downloaded.tar.age
+          got="$(sha256sum downloaded.tar.age | cut -d' ' -f1)"
+          if [ "$got" != "$ENCRYPTED_SHA256" ]; then echo "OFFSITE_STORAGE_BACKUP_VERIFY_FAIL sha256" >&2; exit 1; fi
+          echo "OFFSITE_STORAGE_BACKUP_PASS object=${OBJECT_KEY}.tar.age objects=${SOURCE_OBJECT_COUNT} bytes=${SOURCE_OBJECT_BYTES} encrypted_sha256=${ENCRYPTED_SHA256}"
+
+      - name: Remove local files
+        if: always()
+        run: |
+          if [ -d "$RUNNER_TEMP/offsite-storage" ]; then
+            find "$RUNNER_TEMP/offsite-storage" -type f -exec shred -u {} + 2>/dev/null || true
+            rm -rf "$RUNNER_TEMP/offsite-storage"
+          fi
