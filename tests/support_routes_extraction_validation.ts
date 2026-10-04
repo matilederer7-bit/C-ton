@@ -90,7 +90,6 @@ const CHECK = {
   INTAKE: "the public intake keeps its protections in order: tables, honeypot, validation, per-client cap, DB caps, writes",
 } as const;
 
-
 // Each check throws on a violation. They run on the real sources and on mutants.
 const CHECKS: Record<string, (s: Sources) => void> = {
   [CHECK.REGISTRATION]: (s) => {
@@ -192,7 +191,7 @@ for (const name of Object.keys(CHECKS)) {
   }
 }
 
-// Mutation controls: each mutant must be rejected by at least one check.
+// Mutation controls: each mutant must be rejected by the check that guards that property.
 function replaceOnce(text: string, from: string, to: string) {
   assert.equal(text.split(from).length - 1, 1, `mutation anchor must be unique: ${from.slice(0, 80)}`);
   return text.replace(from, to);
