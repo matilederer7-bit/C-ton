@@ -286,3 +286,121 @@ Safe actions
 Forbidden
 
 - Deleting `siton.deal_images` rows when files are missing.
+
+---
+
+## 16. Operational Diagnostics / Local Recovery
+
+Use Mission Control first. The commands below are read-only diagnostics for an operator who needs lower-level evidence. They do not authorize direct DB state edits, real-money actions, refunds, payouts, or production restore operations.
+
+### Quick health check
+
+Local/dev PowerShell:
+
+```powershell
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/health | Select-Object -ExpandProperty Content
+```
+
+Expected:
+
+```json
+{"ok":true}
+```
+
+For a deployed environment, use that environment's canonical `/health` and `/readiness` endpoints rather than a local address.
+
+### Stuck outbox
+
+This catches both old `processing` rows whose `processing_started_at` is null and genuinely stale processing rows older than 30 seconds.
+
+```powershell
+node scripts/run_pg_query.cjs "select event_uuid, event_type, aggregate_id, status, attempt_count, processing_started_at, updated_at from siton.outbox_events where status='processing' and (processing_started_at is null or processing_started_at < now() - interval '30 seconds') order by updated_at asc" "[]"
+```
+
+Healthy expectation: empty result. Do not repair the row by direct SQL; use the Safe Action and escalation rules in section 1.
+
+### DLQ and retry pressure
+
+```powershell
+node scripts/run_pg_query.cjs "select event_uuid, event_type, aggregate_id, attempt_count, last_error, created_at from siton.outbox_dlq order by created_at desc limit 20" "[]"
+```
+
+```powershell
+node scripts/run_pg_query.cjs "select event_type, status, count(*)::int as cnt, max(attempt_count)::int as max_attempt from siton.outbox_events group by event_type, status order by event_type, status" "[]"
+```
+
+Investigate repeated retry growth, repeated errors and fresh DLQ entries. Never delete DLQ rows to make the dashboard green.
+
+### Deal / event correlation investigation
+
+Replace `<DEAL_ID>` with the relevant deal UUID.
+
+```powershell
+node scripts/run_pg_query.cjs "select event_uuid, event_type, status, attempt_count, last_error, created_at from siton.outbox_events where aggregate_id = $1 order by created_at asc" "[\"<DEAL_ID>\"]"
+```
+
+```powershell
+node scripts/run_pg_query.cjs "select event_uuid, event_type, attempt_count, last_error, created_at from siton.outbox_dlq where aggregate_id = $1 order by created_at asc" "[\"<DEAL_ID>\"]"
+```
+
+```powershell
+node scripts/run_pg_query.cjs "select audit_id, entity_type, entity_id, state_type, from_state, to_state, action_name, request_id, idempotency_key, created_at from siton.audit_log where deal_id = $1 order by created_at asc" "[\"<DEAL_ID>\"]"
+```
+
+```powershell
+node scripts/run_pg_query.cjs "select attempt_id, participant_id, attempt_type, result_class, correlation_id, created_at from siton.payment_attempts where deal_id = $1 order by created_at asc" "[\"<DEAL_ID>\"]"
+```
+
+For the canonical application-level trace, use the authenticated Mission Control surface `GET /api/admin/mission-control/deals/:dealId/trace`. The retired `/debug/deals/:id` surface is not a current inspection path.
+
+### Charging failure / completion-window evidence
+
+```powershell
+node scripts/run_pg_query.cjs "select participant_id, buyer_state, money_state from siton.participants where buyer_state='ChargeFailedCompletion' and money_state='ChargeFailedRecovery' order by created_at asc" "[]"
+```
+
+```powershell
+node scripts/run_pg_query.cjs "select attempt_id, participant_id, deal_id, result_class, correlation_id, created_at from siton.payment_attempts where attempt_type='charge_start' order by created_at desc limit 20" "[]"
+```
+
+```powershell
+node scripts/run_pg_query.cjs "select event_uuid, aggregate_id, status, attempt_count, available_at from siton.outbox_events where event_type='recovery_deal' order by created_at desc limit 20" "[]"
+```
+
+For one deal:
+
+```powershell
+node scripts/run_pg_query.cjs "select deal_id, state, completion_window_until from siton.deals where deal_id = $1" "[\"<DEAL_ID>\"]"
+```
+
+```powershell
+node scripts/run_pg_query.cjs "select event_uuid, event_type, status, available_at from siton.outbox_events where aggregate_id = $1 and event_type in ('recovery_deal','finalize_deal') order by created_at asc" "[\"<DEAL_ID>\"]"
+```
+
+These queries are evidence only. Never manually capture, refund, settle or force a deal/participant state from SQL.
+
+### Local worker/server restart
+
+Local/dev only:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\restart_server_tsnode_clean.ps1
+```
+
+Expected: the old local port-3000 process stops, the app starts again, and `/health` returns `{"ok":true}`. A staging/production service restart or deploy follows the platform runbook and must not be simulated with this local script.
+
+### Safe rollback
+
+1. Prefer redeploying the previous known-good runtime SHA.
+2. Re-check `/health`, `/readiness`, Mission Control, stuck outbox and DLQ evidence.
+3. Do **not** restore a database, mutate production state, rotate credentials, refund, capture or pay out money without the explicit approval required by the production runbooks and owner policy.
+4. If a database restore is genuinely required, follow the disaster-recovery procedure and its approval/evidence requirements; never improvise a restore from this runbook.
+
+### Minimum release-candidate sanity
+
+1. `GET /health` is 200 and returns `{"ok":true}`.
+2. `GET /readiness` is 200 with the expected readiness contract.
+3. The stuck-outbox query is empty.
+4. DLQ has no fresh unexpected entries.
+5. One known deal is internally consistent in Mission Control via `/api/admin/mission-control/deals/:dealId/trace`.
+
