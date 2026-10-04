@@ -3716,6 +3716,266 @@ function adjustJoinQty(delta) {
   render();
 }
 
+function renderHomeLegacy() {
+  const payload = state.homePayload?.site;
+  const preview = state.previewMeta?.preview;
+  return `
+    <section class="hero">
+      <article class="card hero-main stack hero-emphasis">
+        <span class="eyebrow">האתר הראשי של C-ton</span>
+        <h1>פותחים עסקה, מעלים דף אישי, ומפיצים לינק ישיר לקונים</h1>
+        <p class="muted">
+          C-ton היא פלטפורמה לעסקאות קבוצתיות מבוססות לינק. האתר הראשי הוא שער העבודה למוכר: מכאן פותחים עסקה, מפרסמים דף ציבורי אישי, ומפיצים לינק ישיר שדרכו הקונים מצטרפים.
+        </p>
+        <div class="actions">
+          <a class="button primary" href="${esc(payload?.seller_entry?.create_deal_url || "/app/seller/new")}" data-nav="${esc(payload?.seller_entry?.create_deal_url || "/app/seller/new")}">פתיחת עסקה חדשה</a>
+          <a class="button secondary" href="${esc(payload?.seller_entry?.manage_deals_url || "/app/seller")}" data-nav="${esc(payload?.seller_entry?.manage_deals_url || "/app/seller")}">ניהול העסקאות שלי</a>
+        </div>
+        <div class="summary-item">
+          <span class="muted">נקודת הכניסה של הקונה</span>
+          <strong class="mono">/app/deal/&lt;dealId&gt;</strong>
+          <p class="small muted">${esc(payload?.buyer_entry_note || "הקונה נכנס ישירות לדף העסקה דרך לינק אישי שנשלח אליו.")}</p>
+        </div>
+        <div class="summary-item">
+          <span class="muted">הכיוון המוצרי הפעיל</span>
+          <strong>${esc(payload?.product_direction || "עסקאות קבוצתיות מבוססות לינק")}</strong>
+          <p class="small muted">${esc(payload?.positioning || "אתר מותגי חזק למוכרים, עם דף עסקה ציבורי ולינק ישיר לקונה.")}</p>
+        </div>
+      </article>
+      <aside class="card hero-side stack">
+        <div class="summary-item summary-spotlight">
+          <span class="muted">תמונת מצב עדכנית</span>
+          <strong>${buyerState[0]}</strong>
+          <p class="small muted">${moneyState[0]} · ${dealState.label}</p>
+        </div>
+        <div class="summary-item"><span class="muted">עסקאות שנפתחו</span><strong>${num(payload?.proof_points?.total_deals || 0)}</strong></div>
+        <div class="summary-item"><span class="muted">עסקאות חיות עכשיו</span><strong>${num(payload?.proof_points?.live_deals || 0)}</strong></div>
+        <div class="summary-item"><span class="muted">עסקאות שהושלמו</span><strong>${num(payload?.proof_points?.completed_deals || 0)}</strong></div>
+        ${preview?.is_demo_preview ? `<div class="summary-item"><span class="muted">מצב הסביבה</span><strong>${esc(formatEnvironmentLabel(preview?.deployment_mode || "preview"))}</strong></div>` : `<div class="summary-item"><span class="muted">אופי המוצר</span><strong>מסלול קנייה בלינק ישיר</strong></div>`}
+        <div class="summary-item"><span class="muted">הבטחת המסלול</span><strong>המוכר פותח, הקונה מצטרף דרך לינק</strong></div>
+      </aside>
+    </section>
+    <section class="card section stack">
+      <h2>מה קורה בפועל</h2>
+      <div class="card-list">${(payload?.core_surfaces || []).map((item) => `<article class="summary-item"><strong>${esc(item)}</strong></article>`).join("")}</div>
+    </section>
+  `;
+  return `
+    <section class="hero">
+      <article class="card hero-main stack hero-emphasis">
+        <span class="eyebrow">מסלול הקונה של C-ton</span>
+        <h1>חוויית קונה מחוברת לבקאנד החי</h1>
+        <p class="muted">
+          הכניסה למסלול האמיתי היא דרך קישור עסקה. משם ממשיכים לאימות טלפון, לאישור מסגרת, לאישור ההצטרפות ולמעקב.
+        </p>
+        <div class="summary-item">
+          <span class="muted">פורמט קישור העסקה</span>
+          <strong class="mono">/app/deal/&lt;dealId&gt;</strong>
+        </div>
+      </article>
+      <aside class="card hero-side stack">
+        <div class="summary-item">
+          <span class="muted">מה זמין כרגע</span>
+          <strong>דף עסקה, אימות טלפון, אישור מסגרת, אישור ומעקב</strong>
+        </div>
+        <div class="summary-item">
+          <span class="muted">למי המסלול מיועד</span>
+          <strong>לקונה שמקבל קישור ישיר לעסקה</strong>
+        </div>
+      </aside>
+    </section>
+  `;
+}
+
+function renderDealPage() {
+  if (!state.dealPayload && state.loading) return "";
+  if (!state.dealPayload) return renderEmptyState("אי אפשר להציג את העסקה", "לא הצלחנו לטעון את פרטי העסקה שביקשת.");
+
+  const { deal, metrics, availability } = state.dealPayload;
+  const dealCopy = getDealCopy(deal.state);
+  const qty = Number(state.form.qty || 1);
+  const qtyIssue = validateQty(state.dealPayload, qty);
+  const nextAction = nextDealAction(deal.state, availability.canJoin);
+  const remainingToTarget = Math.max(0, Number(deal.threshold_units || 0) - Number(metrics.joined_units || 0));
+  if (availability.canJoin && remainingToTarget > 0) {
+    nextAction.cta = `הצטרפו עכשיו – עוד ${num(remainingToTarget)} יחידות ליעד`;
+  } else if (availability.canJoin && deal.state === "TargetReached") {
+    nextAction.cta = "הצטרפו עכשיו – העסקה יוצאת לפועל";
+  }
+  const flow = getFlow(deal.deal_id);
+  const affiliateRef = currentAffiliateRef() || flow?.affiliateRef || "";
+  const deliveryOptions = getDeliveryOptions(state.dealPayload);
+  const selectedDelivery = getSelectedDeliveryOption(state.dealPayload, state.form.deliveryOptionId);
+  const deliveryIssue = validateDeliveryChoice(state.dealPayload, state.form.deliveryOptionId);
+  const holdTotal = calcHoldTotal(state.dealPayload, qty, selectedDelivery);
+  const availabilityBanner = renderDealAvailabilityBanner(availability, metrics, nextAction);
+
+  return `
+    <section class="hero product-hero">
+      <article class="card hero-main stack hero-emphasis">
+        <span class="eyebrow">עסקה ציבורית</span>
+        <span class="badge ${dealCopy.badgeTone}">${dealCopy.label}</span>
+        <div class="deal-hero-layout">
+          ${renderDealVisual(deal.title, deliveryOptions, selectedDelivery, getPrimaryDealImage(deal))}
+          <div class="stack deal-hero-copy">
+            <h1>${esc(deal.title)}</h1>
+            <p class="muted">${availability.message || dealCopy.description}</p>
+            ${availabilityBanner}
+            <div class="summary-grid deal-story-grid">
+              <div class="summary-item summary-spotlight">
+                <span class="muted">מה מקבלים בעסקה</span>
+                <strong>${currency(deal.price_per_unit)} ליחידה</strong>
+                <p class="small muted">דף העסקה מרכז את הפרטים, הקצב ואופן ההצטרפות בלי עומס טכני.</p>
+              </div>
+              <div class="summary-item">
+                <span class="muted">אופני קבלה</span>
+                <strong>${num(deliveryOptions.length)}</strong>
+                <p class="small muted">${selectedDelivery ? esc(selectedDelivery.label) : "ניתן לבחור אופן קבלה בשלב ההצטרפות."}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="trust-band">
+          <div class="trust-point"><span class="muted">כניסה לעסקה</span><strong>רק דרך לינק ישיר</strong></div>
+          <div class="trust-point"><span class="muted">בשלב הזה</span><strong>תפיסת מסגרת בלבד</strong></div>
+          <div class="trust-point"><span class="muted">חיוב בפועל</span><strong>רק אם העסקה תושלם</strong></div>
+        </div>
+        <div class="info-strip trust-box">
+          <strong>בהצטרפות תתבצע תפיסת מסגרת בלבד</strong>
+          <p class="small">חיוב בפועל יתבצע רק אם העסקה תיסגר בהצלחה לפי תנאי העסקה.</p>
+        </div>
+        ${(() => {
+          const s = deal.seller;
+          if (!s || !s.business_name) return '';
+          const waNum = s.support_phone ? String(s.support_phone).replace(/\D/g, '') : null;
+          const waUrl = waNum ? 'https://wa.me/' + waNum : null;
+          const contactLinks = [
+            waUrl ? `<a href="${esc(waUrl)}" target="_blank" rel="noopener noreferrer">WhatsApp</a>` : '',
+            s.support_email ? `<a href="mailto:${esc(s.support_email)}">${esc(s.support_email)}</a>` : ''
+          ].filter(Boolean).join(' | ');
+          return `
+            <div class="info-strip seller-info-card">
+              <strong>נמכר על ידי: ${esc(s.business_name)}</strong>
+              ${s.business_description ? `<p class="small muted">${esc(s.business_description)}</p>` : ''}
+              ${contactLinks ? `<p class="small">שאלות? צרו קשר עם המוכר: ${contactLinks}</p>` : ''}
+            </div>
+          `;
+        })()}
+        ${renderShareActions(`/app/deal/${deal.deal_id}`, deal.title)}
+        <div class="metric-grid">
+          <div class="metric"><span class="muted">מחיר ליחידה</span><strong>${currency(deal.price_per_unit)}</strong></div>
+          <div class="metric"><span class="muted">כמות שכבר נרשמה</span><strong>${num(metrics.joined_units)} יח'</strong></div>
+          <div class="metric"><span class="muted">קיבולת שנותרה</span><strong>${num(metrics.remaining_units)} יח'</strong></div>
+        </div>
+        ${renderProgressBlock({
+          stateName: deal.state,
+          currentUnits: metrics.joined_units,
+          targetUnits: deal.threshold_units,
+          percentValue: metrics.progress_to_minimum_pct ?? ((Number(metrics.joined_units || 0) / Math.max(1, Number(deal.threshold_units || 1))) * 100)
+        })}
+        <div class="summary-grid">
+          <div class="summary-item"><span class="muted">יעד בסיס לעסקה</span><strong>${num(deal.threshold_units)} יח'</strong><p class="small muted">העסקה תיחשב מוצלחת אם יחויבו בפועל לפחות 90% מכמות המינימום. אם פחות מכך יחויב בפועל, העסקה תיכשל והכספים יטופלו לפי מדיניות ההחזרים.</p></div>
+          <div class="summary-item"><span class="muted">מקסימום בעסקה</span><strong>${num(deal.max_units)} יח'</strong></div>
+          <div class="summary-item"><span class="muted">סגירת חלון ההצטרפות</span><strong>${dt(deal.deadline)}</strong></div>
+          <div class="summary-item"><span class="muted">מספר משתתפים</span><strong>${num(metrics.participants_count)}</strong></div>
+        </div>
+        ${affiliateRef ? `<div class="info-strip tone-info"><strong>ייחוס לינק ההפצה נשמר במסלול</strong><p class="small">קוד ההפניה <span class="mono">${esc(affiliateRef)}</span> יישאר מחובר להצטרפות הזאת ויופיע במסכים הפנימיים הרלוונטיים.</p></div>` : ""}
+        ${flow ? renderExistingFlow(flow, deal.deal_id) : ""}
+        ${renderLegalReferenceStrip("deal")}
+      </article>
+      <aside class="card hero-side stack">
+        <h2>${dealCopy.title}</h2>
+        <p class="muted">${nextAction.description}</p>
+        <div class="summary-grid">
+          <div class="summary-item">
+            <span class="muted">מצב העסקה</span>
+            <strong>${dealCopy.label}</strong>
+            <p class="small muted">${availability.message || dealCopy.description}</p>
+          </div>
+          <div class="summary-item">
+            <span class="muted">השלב הבא</span>
+            <strong>${nextAction.cta}</strong>
+            <p class="small muted">${nextAction.description}</p>
+          </div>
+        </div>
+        <div class="cta-panel">
+          <strong>הצטרפות מהירה וברורה</strong>
+          <p class="small muted">בחר כמות ואופן קבלה, המשך לאימות טלפון, ואז אשר תפיסת מסגרת בלבד.</p>
+        </div>
+        ${deliveryOptions.length ? `
+          <div class="delivery-choice-preview stack compact-section" data-testid="buyer-delivery-options-preview">
+            <strong>איפה מקבלים את המוצר?</strong>
+            ${deliveryOptions.map((option) => `
+              <div class="summary-item">
+                <span class="muted">${esc(formatDeliveryTypeLabel(option.option_type))} · ${currency(option.cost || 0)}</span>
+                <strong>${esc(option.label)}</strong>
+                ${renderDeliveryOptionDetails(option)}
+              </div>
+            `).join("")}
+          </div>
+        ` : ""}
+        <form data-action="start-join" class="stack">
+          <div class="field">
+            <label for="qty">כמה יחידות תרצה להצטרף?</label>
+            <input id="qty" name="qty" type="number" min="1" max="${Math.max(1, metrics.remaining_units)}" step="1" value="${qty}" />
+          </div>
+          <div class="field">
+            <label for="deliveryOptionId">אופן קבלה</label>
+            ${deliveryOptions.length > 1 ? `
+              <select id="deliveryOptionId" name="deliveryOptionId">
+                <option value="">בחר אופן קבלה</option>
+                ${deliveryOptions.map((option) => `<option value="${esc(option.option_id)}" ${selectedDelivery?.option_id === option.option_id ? "selected" : ""}>${esc(option.label)} · ${currency(option.cost || 0)}</option>`).join("")}
+              </select>
+            ` : selectedDelivery ? `
+              <div class="info-strip">
+                <strong>${esc(selectedDelivery.label)}</strong>
+                <p class="small muted">${currency(selectedDelivery.cost || 0)} · ${esc(formatDeliveryTypeLabel(selectedDelivery.option_type))}</p>
+                ${renderDeliveryOptionDetails(selectedDelivery)}
+              </div>
+              <input type="hidden" name="deliveryOptionId" value="${esc(selectedDelivery.option_id)}" />
+            ` : `
+              <div class="error-card compact">לא הוגדרה אפשרות קבלה לעסקה הזאת.</div>
+            `}
+          </div>
+          ${qtyIssue ? `<div class="error-card compact">${esc(qtyIssue)}</div>` : ""}
+          ${deliveryIssue ? `<div class="error-card compact">${esc(deliveryIssue)}</div>` : ""}
+          ${selectedDelivery ? `
+            <div class="summary-item">
+              <span class="muted">אופן קבלה שנבחר</span>
+              <strong>${esc(selectedDelivery.label)}</strong>
+              <p class="small muted">${esc(formatDeliveryTypeLabel(selectedDelivery.option_type))} · ${currency(selectedDelivery.cost || 0)}</p>
+              ${renderDeliveryOptionDetails(selectedDelivery)}
+            </div>
+          ` : ""}
+          <div class="summary-item summary-spotlight">
+            <span class="muted">עלות משוערת</span>
+            <strong>${currency(holdTotal)}</strong>
+            <p class="small muted">${REQUIRED_PAYMENT_NOTICE}</p>
+          </div>
+          ${selectedDelivery ? `
+            <div class="summary-item">
+              <span class="muted">פירוט תפיסת המסגרת</span>
+              <strong>${currency(holdTotal)}</strong>
+              <p class="small muted">${num(Math.max(0, qty))} יח' x ${currency(deal.price_per_unit)} + ${currency(selectedDelivery.cost || 0)} ${esc(selectedDelivery.label)}</p>
+              ${renderDeliveryOptionDetails(selectedDelivery)}
+            </div>
+          ` : ""}
+            <div class="info-strip tone-warning trust-box">
+              <strong>מה נשמר עכשיו</strong>
+              <p class="small">${REQUIRED_PAYMENT_NOTICE}</p>
+            </div>
+            <div class="mini-legal-note">
+              <span class="muted">המידע המחייב זמין תמיד:</span>
+              ${renderLegalLinkRow()}
+            </div>
+            <button class="primary" type="submit" ${availability.canJoin ? "" : "disabled"}>${nextAction.cta}</button>
+          </form>
+      </aside>
+    </section>
+    ${renderDealChatSection(deal)}
+  `;
+}
+
 function progressToneClass(stateName, currentUnits, targetUnits) {
   if (stateName === "CompletionWindow") return "completion-window";
   if (["TargetReached", "Completed"].includes(stateName) || Number(currentUnits || 0) >= Number(targetUnits || 0)) return "target-reached";
@@ -4955,6 +5215,204 @@ async function downloadDeliveryHandoffExcel(dealId) {
     link.remove();
     URL.revokeObjectURL(objectUrl);
   }, "לא הצלחנו להוריד את קובץ נתוני האספקה.");
+}
+
+function renderSellerDealPage() {
+  const auth = currentSellerAuth();
+  if (!usesDemoSellerContext() && !auth.authenticated) {
+    return renderSellerAuthGate();
+  }
+  const payload = state.sellerDealPayload;
+  if (!payload && state.loading) return "";
+  if (!payload) return renderEmptyState("ניהול העסקה לא זמין", "לא הצלחנו לטעון עכשיו את מסך ניהול העסקה.");
+  const deal = payload.deal;
+  const receipts = payload.receipts_surface;
+  const progressPct = sellerDealProgressPct(deal.metrics, deal.threshold_units);
+  const urgency = sellerDeadlineSignal(deal.deadline, deal.state);
+  const focus = sellerNextFocus(deal, null);
+  const receiptsNote = normalizeSurfaceNote(receipts.note, "receipts");
+  const participantSnapshot = summarizeSellerParticipants(payload.participants);
+  const primaryImage = getPrimaryDealImage(deal);
+  const activeSellerId = payload.seller_profile?.seller_id || currentSellerContext().seller_id;
+  const activeSellerDisplayName = normalizeSellerDisplayName(
+    activeSellerId,
+    payload.seller_profile?.display_name || currentSellerContext().display_name
+  );
+  const sellerStatus = payload.seller_profile?.seller_status || state.sellerAuth?.seller_context?.seller_status || "Active";
+  const sellerNotice = sellerEnforcementNotice(sellerStatus);
+  const publishBlockedByStatus = ["Restricted", "Suspended", "Banned"].includes(sellerStatus);
+  const cloneBlockedByStatus = ["Suspended", "Banned"].includes(sellerStatus);
+  const isDraft = deal.state === "Draft";
+  const isShareable = !isDraft && ["PendingTarget", "TargetReached"].includes(deal.state);
+  const publicDealPath = `/app/deal/${encodeURIComponent(deal.deal_id)}`;
+  const publicDealUrl = absoluteUrl(publicDealPath);
+  return `
+    <section class="hero">
+      <article class="card hero-main stack hero-emphasis">
+        <span class="eyebrow">ניהול עסקה</span>
+        <span class="badge ${DEAL_TONE[deal.state] || "warning"}">${esc(getDealCopy(deal.state).label)}</span>
+        ${primaryImage?.url ? `<img class="seller-deal-hero-image" src="${esc(primaryImage.url)}" alt="תמונת מוצר עבור ${esc(deal.title)}" />` : `<div class="product-image-preview compact-preview"><div class="product-image-placeholder"><strong>אין תמונה לעסקה</strong><span class="package-icon" aria-hidden="true">□</span></div></div>`}
+        ${renderDealImageGallery(deal)}
+        <h1>${esc(deal.title)}</h1>
+        <p class="muted">${isDraft ? "העסקה נשמרה כטיוטה פנימית. היא עדיין לא פורסמה, אין לה לינק לשיתוף, וקונים לא יכולים להצטרף עד הפרסום." : "זהו חדר הבקרה של המוכר לדף הציבורי, ללינק הישיר לקונים, לרשימת המשתתפים ולעדכוני הקבלה והמסירה."}</p>
+        ${sellerNotice ? `<div class="info-strip tone-warning"><strong>${esc(sellerNotice)}</strong></div>` : ""}
+        ${isDraft ? `<div class="info-strip tone-warning draft-private-notice"><strong>העסקה נשמרה כטיוטה</strong><p class="small">היא עדיין לא פורסמה. כדי שאנשים יוכלו להצטרף, יש לפרסם אותה.</p></div>` : `<div class="info-strip tone-success"><strong>העסקה פורסמה והיא פתוחה להצטרפות</strong><p class="small">אפשר לשתף את הלינק הציבורי ולעקוב מכאן אחרי ההצטרפויות.</p></div>`}
+        <div class="trust-band">
+          <div class="trust-point"><span class="muted">מצב עריכה</span><strong>${payload.seller_actions.edit_locked ? "נעול אחרי פרסום" : "עדיין בטיוטה"}</strong></div>
+          <div class="trust-point"><span class="muted">דף ציבורי</span><strong>${payload.seller_actions.can_publish ? "מוכן לפרסום" : "כבר פורסם או נסגר"}</strong></div>
+          <div class="trust-point"><span class="muted">קישור קונה</span><strong>${isDraft ? "יופיע רק אחרי פרסום" : "לינק ישיר אחד לעסקה"}</strong></div>
+        </div>
+        <div class="summary-grid">
+          <div class="summary-item"><span class="muted">מחיר ליחידה</span><strong>${currency(deal.price_per_unit)}</strong></div>
+          <div class="summary-item"><span class="muted">יחידות שנרשמו</span><strong>${num(deal.metrics.joined_units)}</strong></div>
+          <div class="summary-item"><span class="muted">משתתפים</span><strong>${num(deal.metrics.participants_count)}</strong></div>
+        <div class="summary-item"><span class="muted">עמלת C-ton</span><strong>8%</strong></div>
+        </div>
+        <div class="live-summary-grid">
+          <div class="summary-item summary-spotlight"><span class="muted">נותר למלא</span><strong>${num(Math.max(0, deal.max_units - deal.metrics.joined_units))} יח'</strong><p class="small muted">מתוך קיבולת כוללת של ${num(deal.max_units)} יח'.</p></div>
+          <div class="summary-item"><span class="muted">סף פתיחה</span><strong>${num(deal.threshold_units)} יח'</strong><p class="small muted">יעד הבסיס לפני סגירת חלון ההצטרפות.</p></div>
+          <div class="summary-item"><span class="muted">${isDraft ? "סטטוס הפצה" : "הקישור הפעיל"}</span><strong class="${isDraft ? "" : "mono"}">${isDraft ? "אין לינק ציבורי בטיוטה" : esc(payload.seller_profile?.direct_link || `/app/deal/${deal.deal_id}`)}</strong><p class="small muted">${isDraft ? "העסקה עדיין בטיוטה. פרסמו אותה כדי לקבל לינק לשיתוף." : "זהו הלינק שהקונים צריכים לראות ולהבין במהירות."}</p></div>
+        </div>
+        <div class="seller-deal-control-grid">
+          <div class="summary-item summary-spotlight">
+            <span class="muted">חויבו בהצלחה</span>
+            <strong>${num(participantSnapshot.charged)}</strong>
+            <p class="small muted">משתתפים שהמערכת כבר סימנה כמושלמי חיוב.</p>
+          </div>
+          <div class="summary-item">
+            <span class="muted">בהמתנה להשלמה</span>
+            <strong>${num(participantSnapshot.pending)}</strong>
+            <p class="small muted">הצטרפויות שעוד ניתן לעקוב אחריהן במסלול המערכת.</p>
+          </div>
+          <div class="summary-item">
+            <span class="muted">דורש בקרה</span>
+            <strong>${num(participantSnapshot.unresolved)}</strong>
+            <p class="small muted">מספר משתתפים שנשארו במצב לא סגור וייש לברר עבורם.</p>
+          </div>
+        </div>
+        ${renderProgressBlock({
+          stateName: deal.state,
+          currentUnits: deal.metrics.joined_units,
+          targetUnits: deal.threshold_units,
+          percentValue: progressPct,
+          atRiskUnits: participantSnapshot.pending
+        })}
+        <div class="surface-note">
+          <strong>אם זה יסתיים עכשיו</strong>
+          <p class="small muted">${Number(deal.metrics.joined_units || 0) >= Number(deal.threshold_units || 0) ? "העסקה תיסגר בהצלחה" : "העסקה תיכשל"}</p>
+        </div>
+        <div class="actions">
+          ${["Charging", "CompletionWindow"].includes(deal.state) ? `<div class="info-strip tone-warning"><strong>העסקה נעולה לצפייה בלבד.</strong><p class="small">כל הפעולות מתבצעות אוטומטית.</p></div>` : payload.seller_actions.can_publish && !publishBlockedByStatus ? `
+            <form data-action="seller-publish" data-deal-id="${esc(deal.deal_id)}" class="stack draft-publish-panel">
+              <strong>מוכן לצאת ללינק חי?</strong>
+              <p class="small muted">בלחיצה על פרסום העסקה תעבור ממצב טיוטה ל-PendingTarget ותיפתח להצטרפות קונים.</p>
+              ${renderSellerPublishLegalAcceptance()}
+              <button class="primary" type="submit">פרסם עסקה</button>
+            </form>
+          ` : payload.seller_actions.can_publish && publishBlockedByStatus ? `<button class="primary" type="button" disabled>פרסום חסום זמנית</button>` : ""}
+          ${isDraft ? `<a class="button secondary" href="/app/seller/deals/${encodeURIComponent(deal.deal_id)}/edit" data-nav="/app/seller/deals/${encodeURIComponent(deal.deal_id)}/edit">המשך עריכה</a><a class="button secondary" href="/app/seller" data-nav="/app/seller">חזרה לדשבורד</a>` : ""}
+          ${isShareable ? `<a class="button primary" href="${publicDealPath}" data-nav="${publicDealPath}">פתיחת הדף הציבורי</a><a class="button secondary" href="/app/seller/deals/${encodeURIComponent(deal.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(deal.deal_id)}">ניהול עסקה</a>` : ""}
+          <button class="secondary" type="button" ${cloneBlockedByStatus ? "disabled" : `data-inline-action="seller-clone" data-deal-id="${esc(deal.deal_id)}"`}>צור עסקה דומה</button>
+        </div>
+        ${isShareable ? `<div class="info-strip tone-success"><strong>לינק ציבורי</strong><p class="small mono">${esc(publicDealUrl)}</p>${renderShareActions(publicDealPath, deal.title)}</div>` : `<div class="info-strip tone-warning"><strong>העסקה עדיין בטיוטה</strong><p class="small">פרסמו אותה כדי לקבל לינק לשיתוף. עד אז אין שיתוף ואין כניסת קונים.</p></div>`}
+      </article>
+      <aside class="card hero-side stack">
+        <div class="summary-item summary-spotlight"><span class="muted">תמונת מצב עדכנית</span><strong>${esc(getDealCopy(deal.state).label)}</strong><p class="small muted">${num(deal.metrics.joined_units)} יח' מתוך ${num(deal.max_units)} · ${num(progressPct)}% סגירה</p></div>
+        <div class="urgency-panel ${urgency.tone}">
+          <strong>${esc(urgency.title)}</strong>
+          <p class="small muted">${esc(urgency.detail)}</p>
+        </div>
+        <div class="countdown-chip"><span>דדליין</span><strong>${dt(deal.deadline)}</strong></div>
+        <div class="cta-panel">
+          <strong>${esc(focus.title)}</strong>
+          <p class="small muted">${esc(focus.detail)}</p>
+        </div>
+        <div class="surface-note">
+          <strong>מה חשוב עכשיו</strong>
+          <p class="small muted">${esc(payload.seller_actions.can_publish ? "אם הטיוטה נראית חדה, זה המקום לפרסם ולא להשאיר את העסקה בלי דף חי." : urgency.tone === "danger" ? "זה חלון שצריך בקרה מהירה: קצב, קישור ציבורי, ומשתתפים שכבר בפנים." : "המסך הזה נועד להחזיק תמונת מצב תפעולית אחת, בלי לחפש מידע בכמה מקומות.")}</p>
+        </div>
+        <div class="summary-item"><span class="muted">מצב עריכה</span><strong>${payload.seller_actions.edit_locked ? "נעול אחרי פרסום" : "טיוטה ניתנת לעריכה"}</strong></div>
+        <div class="summary-item"><span class="muted">זהות המוכר הפעילה</span><strong>${esc(activeSellerDisplayName)}</strong><p class="small muted"><span class="mono">${esc(activeSellerId)}</span></p></div>
+        <div class="summary-item"><span class="muted">הלינק הישיר</span><strong class="${isDraft ? "" : "mono"}">${isDraft ? "זמין רק אחרי פרסום" : esc(payload.seller_profile?.direct_link || `/app/deal/${deal.deal_id}`)}</strong></div>
+        <div class="summary-item"><span class="muted">אפשרויות קבלה</span><strong>${num((payload.delivery_options || []).length)}</strong></div>
+        <div class="summary-item"><span class="muted">נוצרה ב-</span><strong>${dt(deal.created_at)}</strong></div>
+        <div class="summary-item"><span class="muted">מועד סגירה</span><strong>${dt(deal.deadline)}</strong></div>
+      </aside>
+    </section>
+    <section class="card section stack">
+      <div class="section-header">
+        <div class="stack compact compact-section">
+          <h2>אפשרויות קבלה</h2>
+          <p class="muted section-intro">אלה האפשרויות שיראו לקונה בדף הציבורי ושיישמרו על כל הצטרפות.</p>
+        </div>
+        <div class="pill-row">
+          <span class="stat-pill"><span>אפשרויות</span><strong>${num((payload.delivery_options || []).length)}</strong></span>
+        </div>
+      </div>
+      ${payload.delivery_options?.length ? `
+        <div class="card-list">
+          ${payload.delivery_options.map((option) => `
+            <article class="summary-item">
+              <div class="actions spread">
+                <strong>${esc(presentDeliveryOptionLabel(option.label, option.option_type))}</strong>
+                <span class="badge success">${currency(option.cost || 0)}</span>
+              </div>
+              <p class="small muted">${esc(formatDeliveryTypeLabel(option.option_type || ""))}</p>
+            </article>
+          `).join("")}
+        </div>
+      ` : `<p class="muted">לא הוגדרו עדיין אפשרויות קבלה לעסקה הזאת.</p>`}
+    </section>
+    <section class="card section stack">
+      <div class="section-header">
+        <div class="stack compact compact-section">
+          <h2>משתתפים</h2>
+          <p class="muted section-intro">כאן רואים מי כבר נרשם, איזה אופן קבלה נבחר, ומה מצב ההשתתפות והתפיסה הכספית.</p>
+        </div>
+        <div class="pill-row">
+          <span class="stat-pill"><span>משתתפים</span><strong>${num(payload.participants.length)}</strong></span>
+        </div>
+      </div>
+      ${payload.participants.length ? renderTablePanel("רשימת משתתפים", "זה המקום לזהות מהר מי בפנים, באיזה סטטוס, ואיפה יש חריגות שצריך להסביר.", payload.participants, ["participant_id", "buyer_id", "qty", "delivery_method_label", "delivery_cost", "buyer_state", "money_state", "created_at"]) : `<div class="empty-surface"><p class="muted">עדיין אין מצטרפים לעסקה הזאת.</p></div>`}
+    </section>
+    <section class="card section stack">
+      <div class="section-header">
+        <div class="stack compact compact-section">
+          <h2>ניסיונות חיוב</h2>
+          <p class="muted section-intro">האזור הזה נכנס לפעולה כשהעסקה מגיעה לשלב החיוב בפועל או למסלול השלמה.</p>
+        </div>
+        <div class="pill-row">
+          <span class="stat-pill"><span>ניסיונות</span><strong>${num(payload.payment_attempts.length)}</strong></span>
+        </div>
+      </div>
+      ${payload.payment_attempts.length ? renderTablePanel("ניסיונות חיוב אחרונים", "כאן בודקים אם יש מעבר תקין בין ניסיון, תוצאה, וזמן הפעולה האחרון.", payload.payment_attempts, ["attempt_type", "correlation_id", "result_class", "created_at"]) : `<div class="empty-surface"><p class="muted">עדיין לא נרשמו ניסיונות חיוב.</p></div>`}
+    </section>
+    <section class="card section stack">
+      <h2>קבלות וסיכום עסקה שהושלמה</h2>
+      <p class="muted">${esc(receiptsNote)}</p>
+      <div class="summary-grid">
+        <div class="summary-item"><span class="muted">מצב מסמכים</span><strong>${esc(receipts.status)}</strong></div>
+        <div class="summary-item"><span class="muted">ברוטו</span><strong>${currency(receipts.summary.gross_amount)}</strong></div>
+        <div class="summary-item"><span class="muted">עמלת C-ton</span><strong>${currency(receipts.summary.siton_fee_amount)}</strong></div>
+        <div class="summary-item summary-spotlight"><span class="muted">נטו למוכר</span><strong>${currency(receipts.summary.seller_net_amount)}</strong></div>
+        <div class="summary-item"><span class="muted">מסמכים</span><strong>${num(receipts.summary.receipt_document_count)}</strong></div>
+      </div>
+      ${deal.state === "Completed" ? `
+        <div class="summary-item stack">
+          <div class="actions spread">
+            <div>
+              <strong>ייצוא עסקה</strong>
+              <p class="small muted">כולל קונים זכאים, פרטי אספקה, כמויות, גבייה, עמלת C-ton ונטו למוכר.</p>
+            </div>
+            <button class="primary" type="button" data-inline-action="seller-excel-export" data-deal-id="${esc(deal.deal_id)}">הורד Excel עסקה</button>
+          </div>
+        </div>
+      ` : ""}
+      ${receipts.documents.length ? renderTablePanel("מסמכי עסקה לפי רישום אמיתי", "הטבלה נשענת רק על רשומות invoice_documents אמיתיות. אם עדיין לא נוצרה רשומה, יוצג במפורש שאין מסמך מונפק.", receipts.documents, ["document_id", "document_status", "issued_at", "participant_id", "buyer_id", "qty", "gross_amount", "share_code", "affiliate_name"]) : `<div class="empty-surface"><p class="muted">עדיין אין רשומות מסמך אמיתיות לעסקה הזאת.</p></div>`}
+      <p class="small muted">זהו משטח פנימי למוכנות חשבונאית, לא מסמך חיצוני שהופק בפועל.</p>
+    </section>
+    ${deal.state === "Completed" ? renderDeliveryHandoffSection(deal.deal_id) : ""}
+  `;
 }
 
 function buildAdminUrgencySummary(payload, systemStatus, notificationStatus, invoiceStatus) {
