@@ -29,8 +29,6 @@ Counts after the 2026-10-04 cleanup: CANONICAL 12 · REFERENCE 102 · ARCHIVE 17
 | `docs/CLAUDE_TEAM_LEAD.md` | lead procedure |
 | `docs/ENGINEERING_OPERATING_SYSTEM.md` | engineering model and tiers |
 | `docs/CI_TEST_STRATEGY.md` | CI rules |
-| `docs/LEAN_REFACTOR_MAP_2026-09-30.md` | Lean Refactor Map | active repository cleanup / decomposition plan and evidence |
-| `docs/BRANCH_CENSUS_2026-10-02.md` | Branch Census | current branch recovery / deletion census used by the refactor |
 | `docs/DOCUMENTATION_MAP.md` | this map |
 
 Reading order for a new agent is exactly the "Start every meaningful task" list in `AGENTS.md` (this map neither shortens nor reorders it): 1. constitution → 2. current architecture → 3. `PROJECT_STATUS.md` → 4. `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md` (and any newer canonical amendment) → 5. `docs/CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md` → 6. `AI_WORKFLOW.md` → 7. the task-relevant REFERENCE docs plus the relevant migration, runbook and test files. `CLAUDE.md` is the Claude Code entry point that leads into `AGENTS.md`, and `docs/CLAUDE_TEAM_LEAD.md` is read additionally when acting as lead; neither changes that order.
@@ -53,6 +51,7 @@ Reading order for a new agent is exactly the "Start every meaningful task" list 
 | `docs/BACKUP_RESTORE_RUNBOOK.md` | Backup and Restore Runbook | runbook |
 | `docs/BLACK_SKY_THREAT_MODEL.md` | Black-Sky Threat Model | threat model |
 | `docs/BRAND_GRAPHITE_MINT.md` | Brand "Graphite Mint" | brand spec |
+| `docs/BRANCH_CENSUS_2026-10-02.md` | Branch Census | current branch recovery / deletion census used by the refactor |
 | `docs/BUYER_CAPACITY_RULE_OVERRIDE.md` | buyer-capacity-rule-override | product rule |
 | `docs/BUYER_DOCUMENT_VISIBILITY.md` | Buyer Document Visibility | design |
 | `docs/BUYER_TERMS_HE.md` | תנאי שימוש לקונה | legal text |
@@ -83,6 +82,7 @@ Reading order for a new agent is exactly the "Start every meaningful task" list 
 | `docs/INVOICE_ACCOUNTING_GROUNDWORK.md` | Invoice / Accounting Groundwork | invoice design |
 | `docs/INVOICE_PROVIDER_MORNING_ADAPTER.md` | Morning / Green Invoice Adapter | provider adapter |
 | `docs/KNOWN_GAPS_AND_DECISIONS.md` | Known Gaps And Decisions | closed product decisions |
+| `docs/LEAN_REFACTOR_MAP_2026-09-30.md` | Lean Refactor Map | active repository cleanup / decomposition plan and evidence |
 | `docs/LANDING_HERO_VIDEO.md` | Landing hero video spec | asset spec |
 | `docs/LEGAL_TRUST_SURFACES.md` | Legal / Trust Surfaces | legal surfaces |
 | `docs/LOCAL_RESTORE_CHECKLIST.md` | Local Restore Checklist | checklist |
