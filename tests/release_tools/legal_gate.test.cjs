@@ -18,6 +18,7 @@ const FIXTURE_FILES = [
   "src/app.ts",
   "src/http_security_headers.ts",
   "src/operational_health_routes.ts",
+  "src/seller_deal_image_routes.ts",
   "src/legal_pages.ts",
   "src/admin_mission_control.ts",
   "src/payment_provider.ts",

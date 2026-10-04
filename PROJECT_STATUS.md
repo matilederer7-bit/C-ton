@@ -320,27 +320,28 @@ Sixth pass on `4746d43`: DO NOT MERGE — two cases `eb7c2b4` caught were lost (
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
 
 <!-- AGENT_STATUS:chatgpt:START -->
-### ChatGPT latest milestone — health/readiness extraction closed on master and staging
+### ChatGPT latest milestone — Lean Refactor seller deal-image route extraction
 
 - UPDATED: 2026-10-04
 - COMPLETED:
-  - PR #212 merged into `master` as `4acc867e56fe7b3b330bc6bfa2aa867563587a10`.
-  - GET `/health` and GET `/readiness` now live in `src/operational_health_routes.ts`; `readinessProbe` remains created/exported in `src/app.ts`.
-  - PR #202 Mission Control coverage was preserved across the overlapping source-pin and gate files.
-  - Original PR #205 was superseded; no stale branch was used for the merge.
+  - Isolated branch `chatgpt/extract-seller-deal-image-routes` from master `6f1791e`; no overlapping PR was open at start.
+  - PR #215 extracts exactly three seller deal-image mutation routes from `src/app.ts` into `src/seller_deal_image_routes.ts`: upload, reorder/primary selection, and delete.
+  - `src/app.ts` drops from 8,579 to 8,260 lines (−319); shared seller-authority, transaction and cleanup helpers remain in `app.ts` and are injected.
+  - Route inventory, legal, security, legacy-isolation and team-plan risk scans were extended to keep the extracted module covered; the module remains HIGH_RISK/security-reviewed.
+  - Added `tests/seller_deal_image_routes_extraction_validation.ts` and a binding team plan.
 - TESTED:
-  - Master Siton CI run 424 on exact merge SHA `4acc867`: SUCCESS.
-  - FULL lanes green, including static gates, database preflight, Docker smoke/release lab, API, unit/DB/workers, payments, security, integration-failure, concurrency and all three E2E shards.
-  - Render canonical `siton-staging-web` and `siton-staging-worker`: LIVE on exact `4acc867`.
-  - Render web health-check path is `/readiness`; the current connector verified the deployment state but did not expose the response headers for an independent external read-back.
+  - First exact-head CI exposed three TypeScript implicit-any errors created by lost contextual typing after extraction; fixed with explicit `c: any` only, no logic change.
+  - Second exact-head CI is running after the fix; the previously failing Operational repair validation has passed on the new head.
+  - No local checkout/database is available in this chat environment, so no local-test claim is made.
 - OPEN:
-  - No code, review, CI or deploy blocker remains for this slice.
-  - Optional evidence-only follow-up: external HTTP read-back of `/health` and the `x-readiness-cache` / `x-readiness-age-ms` headers when an egress-capable browser is available.
-  - Production Readiness remains the active owner-driven track; real money remains blocked.
-- PERCENT: 100% for the health/readiness extraction slice. Production Readiness remains 21% (6/28).
+  - Exact-head Siton CI must finish green.
+  - Independent senior review is still required; Codex re-review was requested automatically and Claude is assigned as an additional independent reviewer.
+  - Merge, master CI and exact-SHA staging verification remain open.
+- PERCENT: 80% for this slice. Code + source-pin/gate preservation are done; review/CI/merge/staging are not.
 - NEXT:
-  - Stop Lean Refactor work unless a concrete defect appears.
-  - Work Production Readiness blockers, starting with PR-6 through PR-8 backup and restore evidence, without enabling real money or touching Grow live mode.
+  - Independent review of PR #215 on the latest head.
+  - Merge only after review + exact-head green CI; then verify master CI and canonical Render web/worker on the merge SHA.
+  - After #215 closes, continue the next non-overlapping Lean Refactor slice in `src/frontend_runtime.ts`.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 
