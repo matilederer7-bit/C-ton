@@ -178,7 +178,7 @@ await run("D4 — no 'already joined' / 'single participation' copy in frontend 
     /one\s+purchase\s+per\s+buyer/i,
     /unique\s+buyer\s+per\s+deal/i
   ];
-  for (const path of ["frontend/app.js", "src/frontend_runtime.ts"]) {
+  for (const path of ["frontend/app.js", "src/frontend_runtime.ts", "src/support_routes.ts"]) {
     const body = read(path);
     for (const re of forbidden) {
       assert.ok(
@@ -201,6 +201,7 @@ await run("D5 — affiliate surface has no earnings/balance/withdraw wording", (
   ];
   for (const path of [
     "src/frontend_runtime.ts",
+    "src/support_routes.ts",
     "src/product_surface_support.ts",
     "frontend/app.js"
   ]) {
