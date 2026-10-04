@@ -162,8 +162,12 @@ async function main() {
     assert.doesNotMatch(response.body, /Draft only/);
     assert.doesNotMatch(response.body, /mock authorization provider/);
     assert.doesNotMatch(response.body, /buyer id/);
-    assert.match(response.body, /אישור תפיסת מסגרת/);
-    assert.match(response.body, /אישור מסגרת בלבד/);
+    const paymentStart = response.body.indexOf("function renderCtonPaymentPage");
+    const paymentEnd = response.body.indexOf("function renderCtonConfirmationPage", paymentStart);
+    assert.ok(paymentStart >= 0 && paymentEnd > paymentStart, "live C-ton payment renderer must exist");
+    const livePaymentSurface = response.body.slice(paymentStart, paymentEnd);
+    assert.match(livePaymentSurface, /אשרו תפיסת מסגרת/);
+    assert.match(livePaymentSurface, /תפיסת מסגרת בלבד/);
   });
 
   await runTest("operational surfaces are framed as controlled operational views in the unified copy layer", async () => {
