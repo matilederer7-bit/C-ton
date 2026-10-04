@@ -64,7 +64,7 @@ export function registerSellerDealImageRoutes(app: any, deps: SellerDealImageRou
   app.post("/api/seller/deals/:dealId/images", { bodyLimit: IMAGE_UPLOAD_BODY_LIMIT_BYTES }, async (req: any, reply: any) => {
     await ensureRemainingProductSurfaceTables(withTx);
     const dealId = String(req.params.dealId || "");
-  
+
     const response = await withTx(async (c) => {
       const sellerAuthority = await requireSellerAuthority(req, c);
       await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "operate");
@@ -147,19 +147,19 @@ export function registerSellerDealImageRoutes(app: any, deps: SellerDealImageRou
       const requestedPrimary = isAccepted(body.is_primary) || existingImages.rowCount === 0 || !existingImages.rows.some((row: any) => Boolean(row.is_primary));
       const sortOrderRaw = Number(body.sort_order);
       const sortOrder = Number.isInteger(sortOrderRaw) && sortOrderRaw >= 0 ? Math.min(sortOrderRaw, DEAL_IMAGE_LIMIT - 1) : existingImages.rowCount;
-  
+
       // Black-Sky B8: the per-deal cap above bounds ONE deal; this bounds what
       // ONE seller may accumulate across all deals (count + bytes), serialized
       // per seller, before any byte reaches storage.
       await assertSellerDealImageQuota(c, sellerAuthority.seller_id, base64DecodedLength(parsed.base64Data));
-  
+
       const saved = await saveDealImage({
         dealId,
         originalFilename,
         mimeType: parsed.mimeType,
         base64Data: parsed.base64Data
       });
-  
+
       let responsePayload: any;
       try {
         if (requestedPrimary) {
@@ -217,16 +217,16 @@ export function registerSellerDealImageRoutes(app: any, deps: SellerDealImageRou
       }
       return responsePayload;
     });
-  
+
     // A successful write must not be visible to the client before COMMIT.
     await hitTestFault("http.upload.after_commit_before_response");
     return reply.code(201).send(response);
   });
-  
+
   app.patch("/api/seller/deals/:dealId/images/order", async (req: any) => {
     await ensureRemainingProductSurfaceTables(withTx);
     const dealId = String(req.params.dealId || "");
-  
+
     return withTx(async (c) => {
       const sellerAuthority = await requireSellerAuthorityWithoutBody(req, c);
       await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "operate");
@@ -277,7 +277,7 @@ export function registerSellerDealImageRoutes(app: any, deps: SellerDealImageRou
       if (primaryImageId && !existingIds.includes(primaryImageId)) {
         throw Object.assign(new Error("primary_image_id must belong to this Draft"), { statusCode: 400, code: "DEAL_IMAGE_PRIMARY_INVALID" });
       }
-  
+
       await c.query(`UPDATE siton.deal_images SET is_primary=false WHERE deal_id=$1`, [dealId]);
       for (const [sortOrder, imageId] of orderedIds.entries()) {
         await c.query(
@@ -309,7 +309,7 @@ export function registerSellerDealImageRoutes(app: any, deps: SellerDealImageRou
       };
     });
   });
-  
+
   app.delete("/api/seller/deals/:dealId/images/:imageId", async (req: any, reply: any) => {
     const dealId = String(req.params.dealId || "");
     const imageId = String(req.params.imageId || "");
@@ -348,7 +348,7 @@ export function registerSellerDealImageRoutes(app: any, deps: SellerDealImageRou
       );
       return { storage_provider: image.storage_provider as StorageProviderCode, storage_key: String(image.storage_key), can_delete: !shared.rows[0]?.still_referenced };
     });
-  
+
     let deletion: "deleted" | "scheduled" | "retained_shared" = removed.can_delete ? "deleted" : "retained_shared";
     if (!removed.can_delete) {
       await hitTestFault("http.delete.after_commit_before_response");
