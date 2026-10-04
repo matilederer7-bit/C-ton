@@ -33,7 +33,9 @@ const allSource = [
   // Mission Control routes moved out of frontend_runtime.ts by the Lean Refactor; stay in the static scan
   await readFile("src/admin_mission_control_routes.ts", "utf8"),
   // /health + /readiness moved out of app.ts by the Lean Refactor; stay in the static scan
-  await readFile("src/operational_health_routes.ts", "utf8")
+  await readFile("src/operational_health_routes.ts", "utf8"),
+  // seller deal image mutation routes moved out of app.ts; keep their auth/storage surface in the scan
+  await readFile("src/seller_deal_image_routes.ts", "utf8")
 ].join("\n");
 
 await runTest("security_admin_auth_validation", async () => {
