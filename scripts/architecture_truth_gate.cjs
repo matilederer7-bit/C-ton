@@ -88,6 +88,7 @@ const GATE_INPUT_FILES = [
   "Dockerfile",
   "package.json",
   "src/app.ts",
+  "src/operational_health_routes.ts",
   "src/worker.ts",
   "src/db.ts",
   "src/production_guards.ts",
@@ -298,7 +299,10 @@ function runArchitectureGate(root = process.cwd()) {
   const workerSource = read("src/worker.ts");
   const guardsSource = read("src/production_guards.ts");
   const dbSource = read("src/db.ts");
-  assert(appSource.includes('app.get("/readiness"'), "Fastify readiness route missing");
+  // /health + /readiness moved to src/operational_health_routes.ts (Lean Refactor); app.ts still owns the probe and wires the module.
+  const healthRoutesSource = read("src/operational_health_routes.ts");
+  assert(healthRoutesSource.includes('app.get("/readiness"'), "Fastify readiness route missing");
+  assert(appSource.includes("registerOperationalHealthRoutes(app, { readinessProbe, resolveTrustProxyHops })"), "Fastify readiness route is not wired from src/app.ts");
   assert(appSource.includes("buildInventoryRepository(c)"), "Fastify Join does not use the internal inventory repository");
   assert(workerSource.includes('createRuntimePool("worker", 2)'), "Worker database boundary is not explicit");
   assert(/assertProductionRuntimeGuards/.test(workerSource), "the worker must run the production runtime guards at boot");
