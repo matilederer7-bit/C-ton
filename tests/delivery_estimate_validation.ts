@@ -39,9 +39,10 @@ async function run(name: string, fn: () => Promise<void> | void) {
   catch (e: any) { console.error(`FAIL ${name}: ${e.message}`); failed++; }
 }
 
+// support routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
 const [app_src, runtime_src, sellerPage, dealPage, apiClient] = await Promise.all([
   readFile("src/app.ts", "utf8"),
-  readFile("src/frontend_runtime.ts", "utf8"),
+  Promise.all([readFile("src/frontend_runtime.ts", "utf8"), readFile("src/support_routes.ts", "utf8")]).then((parts) => parts.join("\n")),
   readFile("web/src/pages/seller.tsx", "utf8"),
   readFile("web/src/pages/deal.tsx", "utf8"),
   readFile("web/src/api.ts", "utf8")

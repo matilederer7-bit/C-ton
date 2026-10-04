@@ -35,7 +35,9 @@ const allSource = [
   // /health + /readiness moved out of app.ts by the Lean Refactor; stay in the static scan
   await readFile("src/operational_health_routes.ts", "utf8"),
   // seller deal image mutation routes moved out of app.ts; keep their auth/storage surface in the scan
-  await readFile("src/seller_deal_image_routes.ts", "utf8")
+  await readFile("src/seller_deal_image_routes.ts", "utf8"),
+  // support routes moved out of frontend_runtime.ts by the Lean Refactor; stay in the static scan
+  await readFile("src/support_routes.ts", "utf8")
 ].join("\n");
 
 await runTest("security_admin_auth_validation", async () => {
