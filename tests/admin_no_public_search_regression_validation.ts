@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-// support routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
-const runtime = (await readFile("src/frontend_runtime.ts", "utf8")) + "\n" + (await readFile("src/support_routes.ts", "utf8"));
+// support and seller fulfillment routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
+const runtime = (await readFile("src/frontend_runtime.ts", "utf8")) + "\n" + (await readFile("src/support_routes.ts", "utf8")) + "\n" + (await readFile("src/seller_fulfillment_routes.ts", "utf8"));
 const frontend = await readFile("frontend/app.js", "utf8");
 
 assert.match(runtime, /app\.get\(["']\/api\/mall\/deals/);

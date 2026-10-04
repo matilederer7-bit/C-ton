@@ -12,8 +12,8 @@ async function runTest(name: string, fn: () => Promise<void> | void) {
 }
 
 const app = await readFile("src/app.ts", "utf8");
-// support routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
-const runtime = (await readFile("src/frontend_runtime.ts", "utf8")) + "\n" + (await readFile("src/support_routes.ts", "utf8"));
+// support and seller fulfillment routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
+const runtime = (await readFile("src/frontend_runtime.ts", "utf8")) + "\n" + (await readFile("src/support_routes.ts", "utf8")) + "\n" + (await readFile("src/seller_fulfillment_routes.ts", "utf8"));
 const controlPlane = await readFile("src/admin_control_plane.ts", "utf8");
 const mission = await readFile("src/admin_mission_control.ts", "utf8");
 const providerReadinessDoc = await readFile("docs/PROVIDER_LIVE_MONEY_READINESS.md", "utf8");
@@ -89,6 +89,9 @@ await runTest("refund_policy_mission_control_validation", async () => {
   assert.match(mission, /admin_commercial_refund_allowed:\s*false/);
   assert.match(mission, /system_refund_on_failed_deal_required:\s*true/);
   assert.match(mission, /provider_sandbox_required:\s*true/);
+  // the live manual-refund route scan must still see the seller fulfillment routes after the Lean Refactor move
+  assert.match(mission, /read\("src\/seller_fulfillment_routes\.ts"\)/);
+  assert.match(mission, /const routeText = `\$\{runtime\}\\n\$\{sellerFulfillmentRoutes\}\\n\$\{app\}`;/);
 });
 
 await runTest("refund_policy_copy_validation", async () => {

@@ -403,15 +403,17 @@ async function buildRefundPolicyReadiness(rootDir: string) {
     }
   };
 
-  const [runtime, app, controlPlane, supportCases, frontend, policyDoc] = await Promise.all([
+  const [runtime, sellerFulfillmentRoutes, app, controlPlane, supportCases, frontend, policyDoc] = await Promise.all([
     read("src/frontend_runtime.ts"),
+    // seller fulfillment, delivery and export routes moved out of frontend_runtime.ts (Lean Refactor); they stay in the route scan
+    read("src/seller_fulfillment_routes.ts"),
     read("src/app.ts"),
     read("src/admin_control_plane.ts"),
     read("src/operational_cases.ts"),
     read("frontend/app.js"),
     read("docs/REFUND_POLICY.md")
   ]);
-  const routeText = `${runtime}\n${app}`;
+  const routeText = `${runtime}\n${sellerFulfillmentRoutes}\n${app}`;
   const manualRefundRoutePatterns = [
     /app\.(post|patch|put|delete)\(\s*["'][^"']*\/api\/admin\/[^"']*refund/i,
     /app\.(post|patch|put|delete)\(\s*["'][^"']*\/api\/seller\/[^"']*refund/i,

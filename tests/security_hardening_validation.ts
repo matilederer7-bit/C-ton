@@ -13,6 +13,9 @@ async function runTest(name: string, fn: () => Promise<void>) {
 
 const app = await readFile("src/app.ts", "utf8");
 const runtime = await readFile("src/frontend_runtime.ts", "utf8");
+// seller fulfillment, delivery and export routes moved out of frontend_runtime.ts (Lean Refactor);
+// the CSV/Excel-injection and seller-ownership checks keep reading them
+const runtimeWithSellerFulfillment = runtime + "\n" + (await readFile("src/seller_fulfillment_routes.ts", "utf8"));
 const mission = await readFile("src/admin_mission_control.ts", "utf8");
 const imageStorage = await readFile("src/product_image_storage.ts", "utf8");
 const sellerAuth = await readFile("src/seller_auth.ts", "utf8");
@@ -37,7 +40,9 @@ const allSource = [
   // seller deal image mutation routes moved out of app.ts; keep their auth/storage surface in the scan
   await readFile("src/seller_deal_image_routes.ts", "utf8"),
   // support routes moved out of frontend_runtime.ts by the Lean Refactor; stay in the static scan
-  await readFile("src/support_routes.ts", "utf8")
+  await readFile("src/support_routes.ts", "utf8"),
+  // seller fulfillment, delivery and export routes moved out of frontend_runtime.ts by the Lean Refactor; stay in the static scan
+  await readFile("src/seller_fulfillment_routes.ts", "utf8")
 ].join("\n");
 
 await runTest("security_admin_auth_validation", async () => {
@@ -102,9 +107,9 @@ await runTest("security_upload_validation", async () => {
 });
 
 await runTest("security_csv_excel_injection_validation", async () => {
-  assert.match(runtime, /Prevent formula injection/);
-  assert.ok(runtime.includes("/^[=+\\-@]/") || runtime.includes("/^[=\\-+@*]/"));
-  assert.match(runtime, /function safeTextDH/);
+  assert.match(runtimeWithSellerFulfillment, /Prevent formula injection/);
+  assert.ok(runtimeWithSellerFulfillment.includes("/^[=+\\-@]/") || runtimeWithSellerFulfillment.includes("/^[=\\-+@*]/"));
+  assert.match(runtimeWithSellerFulfillment, /function safeTextDH/);
 });
 
 await runTest("security_xss_sanitization_validation", async () => {
@@ -121,7 +126,7 @@ await runTest("security_webhook_signature_policy_validation", async () => {
 });
 
 await runTest("security_idor_seller_ownership_validation", async () => {
-  assert.match(runtime, /forbidden: you do not own this deal|seller is not authorized|WHERE deal_id=\$1 AND seller_id=\$2/);
+  assert.match(runtimeWithSellerFulfillment, /forbidden: you do not own this deal|seller is not authorized|WHERE deal_id=\$1 AND seller_id=\$2/);
 });
 
 await runTest("security_participant_tracking_access_validation", async () => {

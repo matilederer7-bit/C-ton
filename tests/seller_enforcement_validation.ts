@@ -196,8 +196,8 @@ try {
 
   await run("seller enforcement stays isolated from duplicate discovery and distributor money rails", async () => {
     const platformFee = await readFile("src/platform_fee_money.ts", "utf8");
-    // support routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
-    const frontendRuntime = (await readFile("src/frontend_runtime.ts", "utf8")) + "\n" + (await readFile("src/support_routes.ts", "utf8"));
+    // support and seller fulfillment routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
+    const frontendRuntime = (await readFile("src/frontend_runtime.ts", "utf8")) + "\n" + (await readFile("src/support_routes.ts", "utf8")) + "\n" + (await readFile("src/seller_fulfillment_routes.ts", "utf8"));
     assert.match(platformFee, /SITON_PLATFORM_FEE_RATE/);
     assert.doesNotMatch(frontendRuntime, /app\.get\(["']\/api\/marketplace/i);
     assert.doesNotMatch(frontendRuntime, /app\.get\(["']\/api\/catalog/i);
