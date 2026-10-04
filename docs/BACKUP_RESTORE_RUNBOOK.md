@@ -2,7 +2,7 @@
 
 Status: how backups are taken, verified and drilled. Written 2026-09-27 (Black-Sky branch, base `dd378dd`). The restore procedure for a real loss is `docs/DISASTER_RECOVERY_RUNBOOK.md`; this file covers the standing backup posture, the off-site workflow, the drill cadence and the local restore checklist. `docs/DB_BACKUP_RESTORE_REHEARSAL.md` remains the proof record of the rehearsal script.
 
-Legend: **IMPLEMENTED**, **EXPECTED**, **UNVERIFIED** (never observed by us), **OWNER ACTION**.
+Legend: **IMPLEMENTED**, **VERIFIED**, **EXPECTED**, **UNVERIFIED** (never observed by us), **OWNER ACTION**.
 
 ## 0. Never-do list
 
@@ -18,24 +18,28 @@ Legend: **IMPLEMENTED**, **EXPECTED**, **UNVERIFIED** (never observed by us), **
 
 | Layer | What | State | RPO | Who verifies |
 |---|---|---|---|---|
-| A. Supabase-managed backups / PITR for project `siton-staging` | platform feature | **UNVERIFIED by us**: plan, retention and whether PITR is enabled are owner-console facts not recorded in the repository | unknown | OWNER ACTION checklist §2 |
+| A. Supabase-managed backups / PITR for project `siton-staging` | platform feature | **VERIFIED 2026-10-04: NOT A CURRENT RECOVERY LAYER.** The connected Supabase organisation reports `plan=free` / `tier_free`. Current Supabase documentation states automatic daily backups are for Pro/Team/Enterprise projects; PITR is a paid-plan add-on. We did not observe a hosted backup object or restore point, and none may be claimed. | no hosted-backup RPO to rely on today | plan verified through Supabase project/organisation APIs; upgrade/add-on remains OWNER ACTION |
 | B. Off-site encrypted dump | `.github/workflows/offsite-db-backup.yml`: daily `17 2 * * *` UTC + `workflow_dispatch`; `pg_dump --format=custom --compress=9 --no-owner --no-privileges --schema=siton --schema=siton_inventory`; `pg_restore --list` verification before encryption; age public-key encryption; sha256 of plaintext and ciphertext in `manifest.json`; upload to S3-compatible storage; download-back sha256 verify; plaintext shredded | IMPLEMENTED, **secrets-gated**: prints `OFFSITE_BACKUP_SKIPPED missing <names>` and exits 0 until the owner provisions the secrets (§3) | ≤ 24 h once running | the workflow log (`OFFSITE_BACKUP_PASS object=… plain_sha256=… encrypted_sha256=…`) + the quarterly decrypt drill (§5) |
 | C. Local restore rehearsal | `npm run db:backup-restore-rehearsal` (`scripts/db_backup_restore_rehearsal.cjs`) on disposable local databases | IMPLEMENTED, run in CI/locally; proves the restore **path**, not any hosted backup | n/a | every release; PASS line in §4 |
 
 What no layer covers: `auth.users` (Supabase Auth), Storage objects (`deal-images`), Render environment values, role passwords, the Edge Function deployment. Each is listed with its recovery in `docs/DISASTER_RECOVERY_RUNBOOK.md` §1/§3.
 
-## 2. Hosted backups — owner verification checklist (OWNER ACTION, record the answers in the incident/ops folder, never in Git)
+Read-only inventory on 2026-10-04: `auth.users` = **9**; Storage buckets = **1**; Storage objects = **49**; Storage object bytes from metadata = **19,003,844 bytes (~18.1 MiB)**. These counts prove the gap is real but do not constitute a backup. The app database itself is ~22 MiB (separate read-only census).
+
+## 2. Hosted backups — verified current posture + remaining owner checks
+
+Read-only verification on 2026-10-04: project `hnptacfzuqebfgeshadq` (`siton-staging`) is ACTIVE_HEALTHY in `eu-central-1`, PostgreSQL `17.6.1.166`; its organisation reports `plan=free` / `tier_free`. Supabase's current backup documentation says automatic daily backups are provided on Pro, Team and Enterprise projects, while PITR requires a paid plan plus add-on. Therefore PR-7 cannot be marked complete on the current plan: there is no hosted-backup layer we can rely on today. Upgrading the plan or enabling a paid backup feature is an owner/cost decision, not something CI may silently do.
 
 | # | Check | Where | Record |
 |---|---|---|---|
-| 2.1 | Which plan is `siton-staging` on, and does the plan include daily backups? | Supabase dashboard → project → Settings → Billing / Database → Backups | plan name, backup availability yes/no |
-| 2.2 | Is PITR enabled? retention window? | same | yes/no, days |
-| 2.3 | Date of the most recent successful platform backup | Database → Backups list | timestamp |
+| 2.1 | Which plan is `siton-staging` on, and does the plan include daily backups? | Supabase organisation/project API + dashboard | **VERIFIED 2026-10-04:** Free (`tier_free`); automatic daily backups are not included by the current Supabase plan contract |
+| 2.2 | Is PITR enabled? retention window? | Database → Backups / add-ons | **OPEN OWNER DECISION:** current Free plan is not a PITR recovery layer; paid-plan/add-on cost must be approved before enabling |
+| 2.3 | Date of the most recent successful platform backup | Database → Backups list | **NOT ESTABLISHED / must not be claimed:** no hosted backup object or restore point has been observed |
 | 2.4 | Has a platform restore **ever** been performed for this project? | your own records | date or "never" |
 | 2.5 | Who can trigger a platform restore and does that account have MFA? | Supabase organisation members | names (no credentials) |
 | 2.6 | Region of the project; is a cross-region copy available? | project settings | region, yes/no |
 
-Until 2.1–2.3 are answered "yes / enabled / recent", the honest RPO for a hosted loss is "layer B or nothing".
+Current conclusion: on the verified Free plan, the honest RPO for a hosted loss is **layer B or nothing**. A future paid-plan/PITR decision must be re-verified here before Layer A is upgraded from unavailable to usable.
 
 ## 3. Off-site workflow — what to provision (names only; values never appear anywhere)
 
@@ -50,7 +54,7 @@ GitHub → repository → Settings → Secrets and variables → Actions:
 | `OFFSITE_BACKUP_S3_ENDPOINT` (optional) | non-AWS endpoint URL (R2, B2, MinIO …) | |
 | `OFFSITE_BACKUP_S3_REGION` (optional, default `us-east-1`) | | |
 | `OFFSITE_BACKUP_S3_PREFIX` (optional, default `siton-db/`) | key prefix | |
-| repository variable `OFFSITE_BACKUP_PG_MAJOR` (optional, default `16`) | `pg_dump` major ≥ the server's major | Supabase shows the server version in project settings |
+| repository variable `OFFSITE_BACKUP_PG_MAJOR` (workflow default `16`) | `pg_dump` major ≥ the server's major | **Set to `17` before the first real run.** `siton-staging` is verified on PostgreSQL `17.6.1.166`; the workflow default is not sufficient for this project. |
 
 Object layout: `<prefix><yyyy>/<mm>/siton-<yyyymmddThhmmssZ>.dump.age` and `….manifest.json` (`manifest.json` fields: `format`, `schemas`, `privileges: "not included (--no-privileges): re-apply supabase/staging grant files after restore"`, `created_at`, `repository`, `commit`, `run_id`, `pg_dump`, `plain_sha256`, `encrypted_sha256`, `encrypted_bytes`, `toc_entries`, `verified`).
 
