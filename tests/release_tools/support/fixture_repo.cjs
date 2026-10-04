@@ -7,7 +7,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
+const { execFile, spawnSync } = require("node:child_process");
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 
@@ -69,6 +69,25 @@ function createFixtureRepo(relFiles, options = {}) {
         encoding: "utf8",
         env: { ...process.env, DOTENV_CONFIG_QUIET: "true", NODE_ENV: "test", ...env },
         timeout: 120000
+      });
+    },
+    // Same contract as run(), without blocking the event loop: a suite declared
+    // with `concurrency` can hold several gate processes in flight (the gate
+    // parses TypeScript on every run, so the mutation suites are CPU-bound and
+    // serial runs cost ~2 s each). Never rejects on a non-zero exit; status is
+    // null when the child was killed (timeout or signal), as with spawnSync.
+    runAsync(scriptRel, args = [], env = {}) {
+      return new Promise((resolve) => {
+        execFile(process.execPath, [path.join(fixtureRoot, scriptRel), ...args], {
+          cwd: fixtureRoot,
+          encoding: "utf8",
+          env: { ...process.env, DOTENV_CONFIG_QUIET: "true", NODE_ENV: "test", ...env },
+          timeout: 120000,
+          maxBuffer: 64 * 1024 * 1024
+        }, (error, stdout, stderr) => {
+          const status = error ? (typeof error.code === "number" ? error.code : null) : 0;
+          resolve({ status, signal: error ? error.signal || null : null, stdout: String(stdout || ""), stderr: String(stderr || ""), error: error && status === null ? error : null });
+        });
       });
     },
     cleanup() {

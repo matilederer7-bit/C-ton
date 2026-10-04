@@ -1,0 +1,73 @@
+{
+  "task": "Shorten CI wall-clock for safe docs/metadata changes without weakening any gate: audit the META-profile proposal against the measured critical path (verdict: NO CHANGE to profiles, static-gates is not the bottleneck), and remove the real bottleneck, the serial legal-gate mutation suite inside the release-tool tests, by running its independent gate processes concurrently with unchanged assertions.",
+  "lead": "claude-lead",
+  "base": "origin/master",
+  "open_branches": [
+    "origin/claude/health-readiness-routes-extract",
+    "origin/chatgpt/docs-map-zero-consumer-cleanup",
+    "origin/dependabot/npm_and_yarn/typescript-7.0.2",
+    "origin/dependabot/npm_and_yarn/production-minor-patch-9c12172c6f",
+    "origin/dependabot/npm_and_yarn/web/vite-8.3.1"
+  ],
+  "interface_contract": {
+    "tests/release_tools/support/fixture_repo.cjs": "createFixtureRepo(relFiles).runAsync(scriptRel, args, env) -> Promise<{status, signal, stdout, stderr, error}>; same cwd/env/timeout contract as run(), never rejects on a non-zero exit, status null when the child was killed. run() is unchanged.",
+    "tests/release_tools/legal_gate.test.cjs": "same controls, same mutations, same expected messages; declared inside one describe() with concurrency = max(2, os.availableParallelism()) and async bodies awaiting runAsync()"
+  },
+  "assignments": [
+    {
+      "id": "B1",
+      "agent": "claude-lead",
+      "role": "builder",
+      "tier": "senior",
+      "scope": "CI wall-clock: the legal-gate test suite scheduling, the shared fixture runner, the CI strategy document (audit + measurements) and this plan",
+      "allowed": [
+        "tests/release_tools/legal_gate.test.cjs",
+        "tests/release_tools/support/fixture_repo.cjs",
+        "docs/CI_TEST_STRATEGY.md",
+        "docs/team-plans/2026-10-04-ci-release-tools-wallclock.json"
+      ],
+      "forbidden": [
+        "src/",
+        "web/",
+        "frontend/",
+        "scripts/",
+        "config/",
+        ".github/",
+        "tests/*.ts",
+        "tests/helpers/",
+        "package.json",
+        "package-lock.json",
+        "PROJECT_STATUS.md"
+      ],
+      "depends_on": [],
+      "dod": [
+        "every control and mutation of legal_gate.test.cjs still runs, with the same anchor, the same mutation and the same expected message; no test removed, skipped or weakened",
+        "a gate forced to exit 0 makes every mutation test fail; a gate forced to exit 1 makes every control fail (proof that the suite still detects a broken gate)",
+        "npm run test:release-tools passes locally and in CI (static-gates/preflight-database/focused-tests), and the legal-gate file no longer dominates the step",
+        "docs/CI_TEST_STRATEGY.md records the META audit (per gate: inputs, metadata sensitivity, risk if skipped, duplication), the measured bottleneck and the before/after wall-clock on the exact PR head",
+        "no classifier rule, verdict rule, workflow job or gate changes; the META profile is not introduced"
+      ]
+    },
+    {
+      "id": "R1",
+      "agent": "claude-subagent",
+      "role": "reviewer",
+      "senior": true,
+      "tier": "senior",
+      "scope": "Independent adversarial review (security-auditor posture): concurrency hazards between fixtures, exit-status mapping of runAsync vs spawnSync, assertion equivalence per test, nothing weakened",
+      "reviews": ["B1"],
+      "depends_on": ["B1"],
+      "dod": ["verdict with concrete failure scenarios and file:line references"]
+    },
+    {
+      "id": "R2",
+      "agent": "codex",
+      "role": "reviewer",
+      "tier": "senior",
+      "scope": "Cross-provider review of the exact PR head via the Codex re-review workflow",
+      "reviews": ["B1"],
+      "depends_on": ["B1"],
+      "dod": ["Codex review on the final head, findings fixed or answered"]
+    }
+  ]
+}
