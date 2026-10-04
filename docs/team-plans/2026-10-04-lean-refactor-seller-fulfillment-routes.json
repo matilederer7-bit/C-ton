@@ -1,0 +1,121 @@
+{
+  "task": "Lean Refactor: mechanically move the eleven seller fulfillment, delivery-handoff and export routes out of src/frontend_runtime.ts into src/seller_fulfillment_routes.ts with zero behaviour change; preserve seller guards, ownership checks, validation order, SQL, transactions, idempotency, fulfillment state logic, CSV/Excel output, status/error codes, response shapes and every gate/source scan that covered the moved code.",
+  "lead": "claude-lead",
+  "base": "origin/master@1293279f8f970bc1888479fc0b6ee628d8fe0a8f",
+  "open_branches": [],
+  "open_branch_notes": "origin/chatgpt/verify-hosted-backup-posture (PR #217, open) changes docs/BACKUP_RESTORE_RUNBOOK.md, docs/DISASTER_RECOVERY_RUNBOOK.md and the chatgpt slot of PROJECT_STATUS.md. Its only shared path is PROJECT_STATUS.md, where B1 writes the claude slot only (AGENTS.md: independent agent slots), so it is not listed in open_branches. origin/claude/mission-control-routes-extract-ajvgl0 touches frontend_runtime.ts but is already merged as PR #202. Dependabot PRs #100, #107, #108, #206, #207, #208 touch only dependency manifests.",
+  "interface_contract": {
+    "src/seller_fulfillment_routes.ts": "registerSellerFulfillmentRoutes(app, deps) registers exactly, in this order, GET /api/seller/deals/:dealId/shipping-export, GET /api/seller/deals/:dealId/delivery-handoff, GET /api/seller/deals/:dealId/delivery-handoff/export.xlsx, GET /api/seller/fulfillment/resolve, GET /api/seller/fulfillment/search, POST /api/seller/fulfillment/handoff, GET /api/seller/deals/:dealId/fulfillment, GET /api/seller/deals/:dealId/voucher-export, GET /api/seller/deals/:dealId/ticket-export, POST /api/seller/fulfillment/:unitId/redeem, GET /api/seller/deals/:dealId/export.xlsx; frontend_runtime.ts keeps and injects withTx, resolveRequiredSellerContext, ensureSellerActionAllowed, requireUuid, ensureProductSurfaces and mockMoneyRuntime (still used by buyer tracking), and wires the module once at the original registration point (after GET /api/seller/deals/:id, before POST /webhooks/payments)."
+  },
+  "assignments": [
+    {
+      "id": "B1",
+      "agent": "claude-lead",
+      "role": "builder",
+      "tier": "senior",
+      "scope": "mechanical seller fulfillment route extraction, runtime wiring/import trim, preservation of every gate/source scan over frontend_runtime.ts, structural extraction proof with mutation controls, status slot",
+      "allowed": [
+        "PROJECT_STATUS.md",
+        "docs/team-plans/2026-10-04-lean-refactor-seller-fulfillment-routes.json",
+        "scripts/legal_compliance_gate.cjs",
+        "scripts/money_tax_invoice_gate.cjs",
+        "scripts/web_route_inventory.cjs",
+        "src/frontend_runtime.ts",
+        "src/seller_fulfillment_routes.ts",
+        "tests/admin_forbidden_money_actions_validation.ts",
+        "tests/admin_mission_control_routes_extraction_validation.ts",
+        "tests/admin_mutation_route_inventory_validation.ts",
+        "tests/admin_no_public_search_regression_validation.ts",
+        "tests/admin_support_cases_validation.ts",
+        "tests/cache_policy_validation.ts",
+        "tests/deal_types_validation.ts",
+        "tests/delivery_estimate_validation.ts",
+        "tests/demo_readiness_validation.ts",
+        "tests/full_e2e_gate_validation.ts",
+        "tests/legacy_runtime_isolation_validation.ts",
+        "tests/legal_trust_validation.ts",
+        "tests/money_tax_invoice_canon_validation.ts",
+        "tests/operational_health_routes_extraction_validation.ts",
+        "tests/r2_money_authority_validation.ts",
+        "tests/read_surfaces_truth_alignment_validation.ts",
+        "tests/refund_policy_validation.ts",
+        "tests/release_tools/legal_gate.test.cjs",
+        "tests/release_tools/money_tax_gate.test.cjs",
+        "tests/release_tools/runtime_surface.test.cjs",
+        "tests/security_hardening_validation.ts",
+        "tests/security_identity_tracking_validation.ts",
+        "tests/seller_enforcement_validation.ts",
+        "tests/seller_fulfillment_routes_extraction_validation.ts",
+        "tests/spec_drift_regression_wave3_validation.ts",
+        "tests/support_routes_extraction_validation.ts"
+      ],
+      "forbidden": [
+        "src/app.ts",
+        "src/physical_fulfillment.ts",
+        "src/deal_types.ts",
+        "src/platform_fee_money.ts",
+        "src/payment_provider.ts",
+        "src/payment_reconciliation.ts",
+        "src/payout_rail.ts",
+        "src/invoice_dispatch.ts",
+        "src/vat_authority.ts",
+        "src/authorization_lifecycle.ts",
+        "src/seller_enforcement.ts",
+        "src/seller_auth.ts",
+        "src/outbox_worker_helpers.ts",
+        "src/worker.ts",
+        "src/support_routes.ts",
+        "src/migrations/",
+        "supabase/",
+        ".github/workflows/",
+        "config/real-money-release-policy.json",
+        "render.yaml",
+        "frontend/app.js",
+        "web/"
+      ],
+      "depends_on": [],
+      "dod": [
+        "the moved handler block is byte-identical to the block removed from frontend_runtime.ts and every identifier in it binds to the same declaration (TypeScript checker comparison); the only type-level difference is the injected seller resolver's any return",
+        "each of the eleven routes is registered exactly once, from src/seller_fulfillment_routes.ts, wired once at the original point; the live onRoute registry is byte-identical to master (360 entries, same order)",
+        "the seller guard opens every handler's transaction before any validation or row read; pickup routes keep ensureSellerActionAllowed operate; ownership, redemption order and handoff reply-after-commit are pinned by mutation-tested checks",
+        "every test/script that read frontend_runtime.ts as text still covers the moved code: fixed lists and fixtures include the module, absence scans read it, multi-read files updated read by read",
+        "route inventory unchanged (220 routes; the only field diff is a static error_statuses attribution between two neighbours, explained)",
+        "the fulfillment, delivery, voucher, ticket, redeem and export suites, all frontend_runtime consumers, release-tool tests, money/legal gates and the canonical verifier pass",
+        "independent senior review and Codex on the exact PR head; Siton CI green on the exact head before merge"
+      ]
+    },
+    {
+      "id": "R1",
+      "agent": "claude-subagent",
+      "role": "reviewer",
+      "senior": true,
+      "tier": "senior",
+      "scope": "independent read-only senior review of B1 against the actual diff: verbatim move, authorization and ownership, fulfillment invariants, idempotency, transactions, coverage drift, fixed file lists, absence scans, vacuous assertions, registration duplication",
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "verdict MERGE or DO NOT MERGE with concrete failure scenarios for every finding"
+      ]
+    },
+    {
+      "id": "R2",
+      "agent": "codex",
+      "role": "reviewer",
+      "tier": "senior",
+      "scope": "Codex review of the exact PR head",
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "clean Codex verdict on the final head"
+      ]
+    }
+  ]
+}
