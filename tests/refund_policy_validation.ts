@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { REFUND_READINESS_ROUTE_MODULES, scanManualRefundRoutes } from "../src/refund_route_readiness.js";
 
 async function runTest(name: string, fn: () => Promise<void> | void) {
   try {
@@ -23,6 +27,7 @@ const legalDoc = await readFile("docs/LEGAL_TRUST_SURFACES.md", "utf8");
 const refundPolicyDoc = await readFile("docs/REFUND_POLICY.md", "utf8");
 const frontend = await readFile("frontend/app.js", "utf8");
 const packageJson = await readFile("package.json", "utf8");
+const routeInventory = await readFile("scripts/web_route_inventory.cjs", "utf8");
 
 const sourceRuntime = `${app}\n${runtime}`;
 
@@ -89,9 +94,45 @@ await runTest("refund_policy_mission_control_validation", async () => {
   assert.match(mission, /admin_commercial_refund_allowed:\s*false/);
   assert.match(mission, /system_refund_on_failed_deal_required:\s*true/);
   assert.match(mission, /provider_sandbox_required:\s*true/);
-  // the live manual-refund route scan must still see the seller fulfillment routes after the Lean Refactor move
-  assert.match(mission, /read\("src\/seller_fulfillment_routes\.ts"\)/);
-  assert.match(mission, /const routeText = `\$\{runtime\}\\n\$\{sellerFulfillmentRoutes\}\\n\$\{app\}`;/);
+  assert.match(mission, /scanManualRefundRoutes\(\)/);
+  assert.match(mission, /refund_route_sources_unreadable/);
+
+  const inventorySourceBody = routeInventory.match(/const sources = \[([\s\S]*?)\];/)?.[1] || "";
+  const inventorySources = [...inventorySourceBody.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+  const readinessSources = REFUND_READINESS_ROUTE_MODULES.map((moduleName) => `src/${moduleName}.ts`);
+  assert.deepEqual(readinessSources, inventorySources, "refund readiness must scan the exact route-inventory source set");
+
+  const liveScan = await scanManualRefundRoutes();
+  const currentTestExtension = fileURLToPath(import.meta.url).endsWith(".js") ? ".js" : ".ts";
+  assert.equal(liveScan.source_extension, currentTestExtension);
+  assert.deepEqual(liveScan.unreadable_modules, [], "the executing build must expose every canonical route module to the scan");
+  assert.equal(liveScan.manual_refund_routes_found, false);
+});
+
+await runTest("refund_policy_mission_control_compiled_mutant_validation", async () => {
+  const extension = fileURLToPath(import.meta.url).endsWith(".js") ? ".js" : ".ts";
+  const sourceDir = extension === ".js"
+    ? resolve(dirname(fileURLToPath(import.meta.url)), "../src")
+    : resolve(process.cwd(), "src");
+  const fixtureDir = await mkdtemp(join(tmpdir(), "siton-refund-route-scan-"));
+  try {
+    for (const moduleName of REFUND_READINESS_ROUTE_MODULES) {
+      await cp(join(sourceDir, `${moduleName}${extension}`), join(fixtureDir, `${moduleName}${extension}`));
+    }
+    const sellerPath = join(fixtureDir, `seller_fulfillment_routes${extension}`);
+    const sellerText = await readFile(sellerPath, "utf8");
+    await writeFile(
+      sellerPath,
+      sellerText + `\napp.post("/api/seller/deals/:dealId/refund", async () => ({ ok: true }));\n`,
+      "utf8"
+    );
+
+    const mutantScan = await scanManualRefundRoutes({ moduleDir: fixtureDir, extension });
+    assert.deepEqual(mutantScan.unreadable_modules, []);
+    assert.equal(mutantScan.manual_refund_routes_found, true, "a manual refund route in an extracted runtime module must block readiness");
+  } finally {
+    await rm(fixtureDir, { recursive: true, force: true });
+  }
 });
 
 await runTest("refund_policy_copy_validation", async () => {
