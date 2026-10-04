@@ -3695,6 +3695,13 @@ function renderCtonSellerDealPage() {
             ? `<p>העסקה עדיין בטיוטה. פרסמו אותה כדי לקבל לינק לשיתוף.</p>`
             : isShareable ? `<button class="secondary" type="button" data-inline-action="copy-link" data-share-url="/app/deal/${encodeURIComponent(deal.deal_id)}">העתק לינק</button>` : `<p>השיתוף אינו זמין במצב הנוכחי.</p>`}
       </section>
+      ${deal.state === "Completed" ? `
+        <section class="cton-card cton-actions-panel">
+          <h2>ייצוא עסקה</h2>
+          <p class="small muted">כולל קונים זכאים, פרטי אספקה, כמויות, גבייה, עמלת C-ton ונטו למוכר.</p>
+          <button class="primary" type="button" data-inline-action="seller-excel-export" data-deal-id="${esc(deal.deal_id)}">הורד Excel עסקה</button>
+        </section>
+      ` : ""}
       <section class="cton-card cton-timeline"><h2>Timeline</h2><div><span>פורסמה</span><span>יעד הושג</span><span>נסגרה להצטרפות</span><span>חיובים</span><span>השלמה</span><span>סיום</span></div></section>
     </section>
   `;
