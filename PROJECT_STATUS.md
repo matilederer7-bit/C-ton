@@ -324,24 +324,24 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 
 - UPDATED: 2026-10-04
 - COMPLETED:
-  - PR #215: seller deal-image route extraction from `src/app.ts`; latest head `75cd661` has Siton CI #434 SUCCESS and Claude senior re-review clean after the structural-test fix. Codex exact-head review is still outstanding, so it is not merged.
-  - PR #216: deletion scope was narrowed after CI exposed hidden requirement coverage. Four legacy renderers are now removed safely from `frontend/app.js`: `renderOtpPage`, `renderPaymentPage`, `renderConfirmationPage`, `renderSellerPage`.
-  - `frontend/app.js` is now 8,986 physical lines on the narrowed branch (−352 vs current master physical-line count 9,338; the earlier 817-line deletion was intentionally rolled back in part).
-  - Retained: `renderHomeLegacy`, `renderDealPage`, `renderTrackingPage`, `renderSellerDealPage`. CI proved they still carry assertions/features not yet present or not yet pinned on the live `renderCton*` surfaces.
+  - PR #215: seller deal-image route extraction from `src/app.ts`; latest head `75cd661` has Siton CI #434 SUCCESS and Claude senior re-review clean. Exact-head Codex review remains the only review blocker.
+  - PR #216: seven no-dispatcher legacy renderers are removed from `frontend/app.js`. During CI, two hidden dependencies were found and preserved correctly: completed-deal Excel export was ported to live `renderCtonSellerDealPage`, and payment hold-copy assertions were retargeted to live `renderCtonPaymentPage`.
+  - `frontend/app.js` is 8,528 physical lines on the reconciled branch versus 9,338 on master (−810 physical lines after adding the live export block).
+  - `renderTrackingPage` remains intentionally because §8.2 still has two explicit owner-decision gaps: buyer document visibility and cumulative progress chart.
 - TESTED:
-  - PR #215 latest head `75cd661`: Siton CI #434 SUCCESS; Claude re-review clean.
-  - PR #216 first CI #433: FAILED exactly two source/product-gap checks while all static, security, payments, API, E2E, Docker and database-preflight lanes passed. The failing evidence caused the safe scope reduction rather than a weakened gate.
+  - PR #215 head `75cd661`: Siton CI #434 SUCCESS; Claude re-review clean.
+  - PR #216 first CI #433 failed on two useful gap detectors; those failures were addressed by preserving the requirement on the live surface rather than weakening gates. New exact-head CI is running on the reconciled branch.
 - OPEN:
-  - PR #215: exact-head Codex review, merge, master CI and staging verification.
-  - PR #216: rerun exact-head CI after scope reduction, independent review, merge, master verification.
-  - Separate future gap work: completed-deal Excel export on live seller-deal UI; live-copy test retarget for Home/Deal; tracking document visibility + chart decision.
-  - No real-money, payments, auth, state-machine, DB, Supabase or Render configuration change is part of either slice.
+  - PR #215: Codex exact-head review, merge, master CI and staging verification.
+  - PR #216: exact-head CI, independent review, merge, master CI and staging verification.
+  - Tracking gaps remain a separate owner decision; no silent deletion.
+  - No real-money, payments backend, auth, state-machine, DB, Supabase or Render configuration change is part of either slice.
 - PERCENT:
-  - PR #215: 90% (code + CI + Claude review done; Codex/merge/staging open).
-  - PR #216: 75% (safe scope identified and implemented; new CI/review/merge open).
+  - PR #215: 90%.
+  - PR #216: 85%.
 - NEXT:
-  - Do not merge #215 until Codex reviews `75cd661`.
-  - Validate narrowed #216; only then merge.
+  - Merge neither PR until its exact-head review and CI conditions are satisfied.
+  - After these close, continue with a non-overlapping Production Readiness slice (off-site Storage backup) rather than opening more frontend overlap.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 
