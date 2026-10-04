@@ -1,0 +1,91 @@
+{
+  "task": "Lean Refactor: mechanically extract the three seller deal-image mutation routes from src/app.ts into src/seller_deal_image_routes.ts with zero behavior change; preserve auth-before-observation, storage atomicity, idempotency, seller quota, shared-blob protection, response-loss fault boundaries and every gate/source scan that covered the code.",
+  "lead": "chatgpt",
+  "base": "origin/master@6f1791e916afbfbea6069e2e751d6d7031b70fa6",
+  "open_branches": [],
+  "interface_contract": {
+    "src/seller_deal_image_routes.ts": "registerSellerDealImageRoutes(app, deps) registers exactly POST /api/seller/deals/:dealId/images, PATCH /api/seller/deals/:dealId/images/order, DELETE /api/seller/deals/:dealId/images/:imageId; app.ts retains shared authority/transaction/storage-cleanup helpers and wires the module once."
+  },
+  "assignments": [
+    {
+      "id": "B1",
+      "agent": "chatgpt",
+      "role": "builder",
+      "tier": "senior",
+      "scope": "mechanical seller deal-image route extraction, app wiring/import cleanup, route/legal/security/team-plan scan preservation, structural regression proof",
+      "allowed": [
+        "src/app.ts",
+        "src/seller_deal_image_routes.ts",
+        "tests/seller_deal_image_routes_extraction_validation.ts",
+        "tests/security_hardening_validation.ts",
+        "tests/legacy_runtime_isolation_validation.ts",
+        "tests/release_tools/runtime_surface.test.cjs",
+        "tests/release_tools/legal_gate.test.cjs",
+        "tests/release_tools/team_plan_check.test.cjs",
+        "scripts/web_route_inventory.cjs",
+        "scripts/legal_compliance_gate.cjs",
+        "scripts/team_plan_check.cjs",
+        "docs/team-plans/2026-10-04-lean-refactor-seller-deal-image-routes.json",
+        "PROJECT_STATUS.md"
+      ],
+      "forbidden": [
+        "src/payment_provider.ts",
+        "src/platform_fee_money.ts",
+        "src/payment_reconciliation.ts",
+        "src/authorization_lifecycle.ts",
+        "src/outbox_worker_helpers.ts",
+        "src/worker.ts",
+        "src/migrations/",
+        "supabase/",
+        ".github/workflows/",
+        "config/real-money-release-policy.json",
+        "render.yaml"
+      ],
+      "depends_on": [],
+      "dod": [
+        "the three route handler bodies remain behavior-equivalent and are registered exactly once from the extracted module",
+        "app.ts contains no handler body for the three extracted paths",
+        "auth-before-observation ordering remains pinned",
+        "seller quota occurs before storage write; idempotency and shared-blob behavior remain unchanged",
+        "web route inventory, legal scan, security scan, legacy isolation and team-plan risk classification include the new module",
+        "deal_images, response-loss fault, seller upload quota and storage-boundary tests pass",
+        "independent senior review on the exact PR head; new pushes invalidate prior review",
+        "Siton CI green on the exact PR head before merge"
+      ]
+    },
+    {
+      "id": "R1",
+      "agent": "claude-subagent",
+      "role": "reviewer",
+      "senior": true,
+      "tier": "senior",
+      "scope": "independent review only: prove auth ordering, SQL/transaction boundaries, storage cleanup, idempotency, quotas and response shapes did not drift",
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "record concrete findings or a clean verdict on the exact final head"
+      ]
+    },
+    {
+      "id": "R2",
+      "agent": "codex",
+      "role": "reviewer",
+      "senior": true,
+      "tier": "senior",
+      "scope": "independent PR review on the exact final head",
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "clean review or every finding resolved before merge"
+      ]
+    }
+  ]
+}
