@@ -142,7 +142,7 @@ Inside that suite one file dominated. Local timings of each release-tool test fi
 
 | File | Serial wall-clock | What it does |
 |---|---|---|
-| `legal_gate.test.cjs` | **204 s** | 94 runs of `scripts/legal_compliance_gate.cjs` on disposable fixtures (1 real-product check, 21 legitimate-copy controls, 72 mutations), serial, ~2.1 s each, of which ~1.7 s is TypeScript parsing in `scripts/lib/raw_card_terms.cjs` |
+| `legal_gate.test.cjs` | **204 s** | 94 runs of `scripts/legal_compliance_gate.cjs` on disposable fixtures (1 real-product check, 21 legitimate-copy controls, 71 mutations), serial, ~2.1 s each, of which ~1.7 s is TypeScript parsing in `scripts/lib/raw_card_terms.cjs` |
 | `cdp_launcher.test.cjs` | 21 s | one deliberate 20 s CDP timeout |
 | `money_tax_gate.test.cjs` | 16 s | 11 gate runs on fixtures |
 | `release_orchestration.test.cjs` | 15 s | preflight on fixtures |
@@ -170,7 +170,7 @@ For every gate of the FAST path: what it reads, whether a metadata-only change (
 Conclusions:
 
 1. The only job a META profile could remove from the FAST path with a wall-clock effect is `focused-tests`, and the only expensive thing in it is `legal_gate.test.cjs`. Skipping it for metadata changes is defensible in isolation (its fixture list does not touch the candidates), but it needs a new allowlist, new skip reasons in the verdict, a pin that the fixture list never grows into `docs/`, and it saves nothing on STANDARD/FULL, where the same suite sits on the FULL critical path inside `preflight-database`.
-2. The same wall-clock is recovered for **every** profile, with **no skip and no new classifier state**, by letting the 94 independent gate processes of `legal_gate.test.cjs` run concurrently (each on its own `mkdtemp` fixture; the gate writes nothing but stdout/stderr). That is what this change does: `fixture.runAsync()` beside `run()`, and the suite declared with `concurrency = max(2, availableParallelism)`. Every control, mutation and expected message is unchanged; forcing the gate to always exit 0 still fails 72 tests, forcing it to always exit 1 still fails 93.
+2. The same wall-clock is recovered for **every** profile, with **no skip and no new classifier state**, by letting the 94 independent gate processes of `legal_gate.test.cjs` run concurrently (capped at eight) (each on its own `mkdtemp` fixture; the gate writes nothing but stdout/stderr). That is what this change does: `fixture.runAsync()` beside `run()`, and the suite declared with `concurrency = min(8, max(2, availableParallelism))`. Every control, mutation and expected message is unchanged; forcing the gate to always exit 0 still fails 72 tests (the 71 mutations and the real-product check, which needs the owner-decision warning), forcing it to always exit 1 still fails 93 (everything except the one mutation whose expected message the forced output happens to carry).
 3. `PROJECT_STATUS.md` stays FAST: `agent_efficiency_v2.test.cjs` reads it, and FAST runs that test. Nothing below FAST is introduced; `docs/team-plans/**`, `docs/archive/**`, census and refactor-map files stay `docs` (trivial) under the existing allowlist and keep every static gate (seven-day sweep, secret/PII scan) that actually reads them.
 
 **Verdict: no META profile.** The classifier, the verdict and the workflow are unchanged. FAST, STANDARD and FULL keep exactly their gates.
@@ -180,7 +180,7 @@ Conclusions:
 | Measurement | Before | After |
 |---|---|---|
 | `legal_gate.test.cjs`, local, 4 CPUs | 204 s | 105 s |
-| `npm run test:release-tools`, local, no database (container limited to ~2 effective cores) | filled from the master worktree run | 131 s (433 tests, 423 pass, 10 environment skips, 0 fail) |
+| `npm run test:release-tools`, local, no database (container limited to ~2 effective cores) | 270 s (master worktree; 433 tests, 423 pass, 10 environment skips; partly contended by a parallel run, but bounded below by the 204 s legal-gate file) | 131 s (same 433 / 423 / 10 / 0 fail) |
 | focused-tests `Release-tool tests` step (FAST) | 4m29s–4m53s | filled from the PR head run |
 | FAST wall-clock | 5m41s–6m26s | filled from the first docs-only run on master after merge |
 | FULL wall-clock | 5m51s–6m38s | filled from the PR head run (this PR is FULL: it edits a release-tool test) |

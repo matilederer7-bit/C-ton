@@ -47,7 +47,10 @@ const FIXTURE_FILES = [
 
 async function runGate(fixture) {
   const result = await fixture.runAsync("scripts/legal_compliance_gate.cjs");
-  return { status: result.status, out: String(result.stdout || "") + String(result.stderr || "") };
+  // A killed or unstartable child (status null) is named in the output so the
+  // failing assertion says why instead of "input '' did not match".
+  const killed = result.status === null ? `\n[gate process ended without an exit code: signal=${result.signal || "none"} error=${result.error ? result.error.code || result.error.message : "none"}]` : "";
+  return { status: result.status, out: String(result.stdout || "") + String(result.stderr || "") + killed };
 }
 
 // Every control and mutation below spawns the gate on its own disposable
@@ -56,10 +59,12 @@ async function runGate(fixture) {
 // the product with the TypeScript compiler (~2 s of CPU); run serially the
 // ninety-odd runs were the longest single step of every CI profile (measured
 // 2026-10-04: 204 s locally, 4.5-5 min on the runner). The suite therefore
-// runs its tests concurrently, one gate process per available CPU. Assertions
-// are unchanged: every mutation must still fail the gate with its expected
+// runs its tests concurrently, one gate process per available CPU, capped at
+// eight so a large workstation does not hold dozens of TypeScript heaps while
+// node --test runs the sibling files beside this one. Assertions are
+// unchanged: every mutation must still fail the gate with its expected
 // message, every control must still pass.
-describe("legal compliance gate", { concurrency: Math.max(2, os.availableParallelism()) }, () => {
+describe("legal compliance gate", { concurrency: Math.min(8, Math.max(2, os.availableParallelism())) }, () => {
 
 test("legal gate passes on the real product, keeps the CVV disclosure sentence, and reports the production KYC step as an owner decision", async () => {
   const fixture = createFixtureRepo(FIXTURE_FILES);
