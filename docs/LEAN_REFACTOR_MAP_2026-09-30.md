@@ -322,7 +322,7 @@ read-only passes (src / web / frontend; scripts / dependencies / config / root; 
 |---|---|
 | ~~`docs/archive/db-drift-resolution.md`, `docs/archive/runtime-contract-resolution.md`~~ | **DONE 2026-10-04** — zero consumers, no authority/history value beyond already-superseded runtime notes; deleted in the documentation-map cleanup |
 | ~~`/api/admin/notifications/status`~~ | DONE — removed by PR #190 (`5c5221f`) |
-| superseded renderers in `frontend/app.js` | **PARTIAL DELETE IN PROGRESS (2026-10-04):** seven dead renderers with live `renderCton*` replacements are removed in an isolated PR (`renderHomeLegacy`, `renderDealPage`, `renderOtpPage`, `renderPaymentPage`, `renderConfirmationPage`, `renderSellerPage`, `renderSellerDealPage`). `renderTrackingPage` remains deliberately because §8.2 still records two owner-decision gaps: buyer document visibility and the cumulative chart. |
+| superseded renderers in `frontend/app.js` | **PARTIAL DELETE IN PROGRESS (2026-10-04):** four renderers are deletion-safe and removed (`renderOtpPage`, `renderPaymentPage`, `renderConfirmationPage`, `renderSellerPage`). CI proved four legacy renderers must remain for now: `renderHomeLegacy` / `renderDealPage` still carry copy assertions not yet retargeted to the live product, `renderTrackingPage` carries document-visibility + chart gaps, and `renderSellerDealPage` carries the only current UI for completed-deal Excel export. |
 | `src/stage10c_harden_deals.sql` | retired 3-line marker; only a comment in migration 022 names it (migrations are never edited, so it stays unless the owner accepts a dangling comment) |
 
 ### 7.3 Kept on purpose (SUPPORT / CORE despite few or no callers)
@@ -373,7 +373,7 @@ The per-branch list is in the owner report of 2026-10-01.
 | `src/frontend_runtime.ts` | 12 256 | 12 144 (legal HTML → `src/legal_html.ts`, 123) |
 | `src/app.ts` | 8 637 | 8 587 (security headers → `src/http_security_headers.ts`, 56) |
 | `src/*.ts` files / lines | 87 / 51 106 | 89 / 51 123 (moves only: +2 module headers and imports) |
-| `frontend/app.js` | 9 337 | 8 520 executable lines plus trailing newline in the partial-deletion branch (7 dead renderers removed; `renderTrackingPage` retained pending the §8.2 owner decision) |
+| `frontend/app.js` | 9 337 | 8 985 executable lines plus trailing newline in the narrowed deletion branch (4 proven-safe legacy renderers removed; 4 retained pending explicit gap closure) |
 | CDP launcher copies (operator proofs) | 6 identical + 4 differing + 5 retired | 1 shared (`scripts/lib/cdp.cjs`) + 4 differing (documented) + 5 retired |
 | `scripts/*.cjs` / `scripts/lib` | 93 / 14 | 93 / 15 |
 | `tests/*.ts` / release-tool tests | 322 / 28 | 322 / 29 (+`cdp_launcher.test.cjs`) |
