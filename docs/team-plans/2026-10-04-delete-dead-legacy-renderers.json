@@ -1,5 +1,5 @@
 {
-  "task": "Lean Refactor: delete only the four superseded frontend/app.js legacy renderers whose removal preserves every current product assertion; retain legacy Home, Deal, Tracking and SellerDeal renderers because CI/gap review proves they still carry requirements absent from the live renderCton* surfaces.",
+  "task": "Lean Refactor: delete seven superseded frontend/app.js legacy renderers with no dispatcher callers, while preserving the completed-deal Excel export on the live renderCtonSellerDealPage and deliberately retaining renderTrackingPage because two tracking-only product requirements remain an owner decision.",
   "lead": "chatgpt",
   "base": "origin/master@6f1791e916afbfbea6069e2e751d6d7031b70fa6",
   "open_branches": [
@@ -11,13 +11,15 @@
       "agent": "chatgpt",
       "role": "builder",
       "tier": "standard",
-      "scope": "delete only renderOtpPage, renderPaymentPage, renderConfirmationPage and renderSellerPage; retain renderHomeLegacy, renderDealPage, renderTrackingPage and renderSellerDealPage until their uncovered requirements are handled separately; add regression guard; update Lean map/status",
+      "scope": "delete the seven superseded renderers; preserve completed-deal Excel export on renderCtonSellerDealPage; retarget stale whole-file assertions to the live renderCton* surfaces; keep renderTrackingPage pending owner decision",
       "allowed": [
         "frontend/app.js",
         "tests/frontend_dead_legacy_renderers_validation.ts",
         "docs/LEAN_REFACTOR_MAP_2026-09-30.md",
         "docs/team-plans/2026-10-04-delete-dead-legacy-renderers.json",
-        "PROJECT_STATUS.md"
+        "PROJECT_STATUS.md",
+        "tests/frontend_flow_validation.ts",
+        "tests/product_surfaces_refinement_validation.ts"
       ],
       "forbidden": [
         "src/",
@@ -29,10 +31,12 @@
       ],
       "depends_on": [],
       "dod": [
-        "exactly four superseded legacy renderers are removed",
-        "renderHomeLegacy, renderDealPage, renderTrackingPage and renderSellerDealPage remain because deleting them currently removes asserted copy/features not yet delivered by the live surfaces",
+        "exactly seven documented dead legacy renderers are removed",
+        "renderTrackingPage remains until the owner decides §8.2 document visibility/chart gaps",
         "all corresponding renderCton* live replacements remain",
-        "no product behavior, route, money, auth, state-machine or provider change",
+        "completed deals retain seller Excel export on the live renderCtonSellerDealPage and no non-Completed state exposes that button",
+        "payment hold-copy assertions target the live renderCtonPaymentPage rather than dead code",
+        "no route, money backend, auth, state-machine, DB, provider, Supabase or Render change",
         "relevant frontend tests and Siton CI green on exact head",
         "independent reviewer clean on exact final head"
       ]
