@@ -404,12 +404,15 @@ async function buildRefundPolicyReadiness(rootDir: string) {
     }
   };
 
-  const [refundRouteScan, controlPlane, supportCases, frontend, policyDoc] = await Promise.all([
+  const [refundRouteScan, app, controlPlane, supportCases, frontend, policyDoc] = await Promise.all([
     // Scan the route modules from the directory this code is actually executing from:
     // src/*.ts in source execution, .demo_dist/src/*.js in Docker/Render, and
     // .tmp_test_dist/src/*.js in compiled tests. This avoids a false-clean
     // readiness verdict when TypeScript sources are absent from the runtime tree.
     scanManualRefundRoutes(),
+    // The existing failed-deal refund worker assertions still inspect app source
+    // separately; keep that read until those checks are migrated to runtime code.
+    read("src/app.ts"),
     read("src/admin_control_plane.ts"),
     read("src/operational_cases.ts"),
     read("frontend/app.js"),
