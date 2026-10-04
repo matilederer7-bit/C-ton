@@ -4,13 +4,10 @@ import { readFile } from "node:fs/promises";
 const source = await readFile("frontend/app.js", "utf8");
 
 const removed = [
-  "renderHomeLegacy",
-  "renderDealPage",
   "renderOtpPage",
   "renderPaymentPage",
   "renderConfirmationPage",
-  "renderSellerPage",
-  "renderSellerDealPage"
+  "renderSellerPage"
 ];
 
 for (const name of removed) {
@@ -33,10 +30,17 @@ for (const live of [
   assert.match(source, new RegExp(`\\bfunction\\s+${live}\\s*\\(`), `${live} must remain`);
 }
 
-// Owner decision is still open for the two tracking-only legacy requirements
-// recorded in docs/LEAN_REFACTOR_MAP_2026-09-30.md §8.2. Keep the old tracking
-// renderer until that decision is made; this PR deliberately does not decide it.
-assert.match(source, /\bfunction\s+renderTrackingPage\s*\(/);
+// Deletion-only rule: if removing a legacy renderer exposes a requirement that
+// the live renderCton* surface does not yet carry, retain it until that gap is
+// handled deliberately. Current retained legacy renderers are pinned below.
+for (const retained of [
+  "renderHomeLegacy",
+  "renderDealPage",
+  "renderTrackingPage",
+  "renderSellerDealPage"
+]) {
+  assert.match(source, new RegExp(`\\bfunction\\s+${retained}\\s*\\(`), `${retained} remains pending a separate gap decision/fix`);
+}
 assert.match(source, /\bfunction\s+renderCtonTrackingPage\s*\(/);
 
 console.log("Dead legacy renderer removal validation passed.");
