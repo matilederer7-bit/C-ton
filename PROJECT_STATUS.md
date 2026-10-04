@@ -68,6 +68,16 @@ Current invariants:
 
 ## AGENT MILESTONES
 
+### ChatGPT latest milestone — Mission Control refund-readiness runtime scan fix (2026-10-04)
+
+- COMPLETED: replaced the source-checkout-dependent manual-refund route scan with a runtime-module scan. It reads the route modules beside the executing Mission Control code: TypeScript during source execution and compiled JavaScript in `.demo_dist/src` / `.tmp_test_dist/src`. The scan covers the exact nine route-bearing modules listed by `scripts/web_route_inventory.cjs` and fails closed if any one is unreadable.
+- COMPLETED: added `src/refund_route_readiness.ts` as the isolated scanner, kept manual seller/admin/support refund routes blocked, and exposed scan evidence in the Mission Control refund-readiness payload.
+- TESTED: regression tests authored to prove exact source-list parity, prove the executing build can read every route module, and prove a mutant manual seller refund route in the compiled route tree is detected. CI has not run yet on this branch.
+- OPEN: PR review, Siton CI, merge, master CI and Render staging verification.
+- PERCENT: 65%.
+- NEXT: open the PR, require Codex review on the final head, merge only with green CI, then verify canonical staging and close this entry at 100%.
+
+
 <!-- AGENT_STATUS:claude:START -->
 ### Claude Code latest milestone — Lean Refactor: the eleven seller fulfillment, delivery and export routes moved verbatim out of `frontend_runtime.ts` (2026-10-04)
 

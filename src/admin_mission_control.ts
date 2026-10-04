@@ -9,6 +9,7 @@ import type { PayoutProvider } from "./payout_provider.js";
 import { getPayoutProviderSummary } from "./payout_provider.js";
 import { calculatePlatformFeeMoney } from "./platform_fee_money.js";
 import { trackingMode } from "./participant_tracking_security.js";
+import { scanManualRefundRoutes } from "./refund_route_readiness.js";
 
 type Severity = "info" | "warning" | "critical";
 type Verdict = "green" | "yellow" | "red";
@@ -403,23 +404,24 @@ async function buildRefundPolicyReadiness(rootDir: string) {
     }
   };
 
-  const [runtime, sellerFulfillmentRoutes, app, controlPlane, supportCases, frontend, policyDoc] = await Promise.all([
-    read("src/frontend_runtime.ts"),
-    // seller fulfillment, delivery and export routes moved out of frontend_runtime.ts (Lean Refactor); they stay in the route scan
-    read("src/seller_fulfillment_routes.ts"),
+  const [refundRouteScan, app, controlPlane, supportCases, frontend, policyDoc] = await Promise.all([
+    // Scan the route modules from the directory this code is actually executing from:
+    // src/*.ts in source execution, .demo_dist/src/*.js in Docker/Render, and
+    // .tmp_test_dist/src/*.js in compiled tests. This avoids a false-clean
+    // readiness verdict when TypeScript sources are absent from the runtime tree.
+    scanManualRefundRoutes(),
+    // The existing failed-deal refund worker assertions still inspect app source
+    // separately; keep that read until those checks are migrated to runtime code.
     read("src/app.ts"),
     read("src/admin_control_plane.ts"),
     read("src/operational_cases.ts"),
     read("frontend/app.js"),
     read("docs/REFUND_POLICY.md")
   ]);
-  const routeText = `${runtime}\n${sellerFulfillmentRoutes}\n${app}`;
-  const manualRefundRoutePatterns = [
-    /app\.(post|patch|put|delete)\(\s*["'][^"']*\/api\/admin\/[^"']*refund/i,
-    /app\.(post|patch|put|delete)\(\s*["'][^"']*\/api\/seller\/[^"']*refund/i,
-    /app\.(post|patch|put|delete)\(\s*["'][^"']*\/api\/support\/[^"']*refund/i
-  ];
-  const manualRefundRoutesFound = manualRefundRoutePatterns.some((pattern) => pattern.test(routeText));
+  const manualRefundRoutesFound = refundRouteScan.manual_refund_routes_found;
+  if (refundRouteScan.unreadable_modules.length) {
+    blockers.push(`refund_route_sources_unreadable:${refundRouteScan.unreadable_modules.join(",")}`);
+  }
   if (manualRefundRoutesFound) blockers.push("manual_refund_route_found");
 
   const forbiddenActions = [
@@ -460,6 +462,11 @@ async function buildRefundPolicyReadiness(rootDir: string) {
     partial_commercial_refund_allowed: false,
     system_refund_on_failed_deal_required: true,
     manual_refund_routes_found: manualRefundRoutesFound,
+    manual_refund_route_scan: {
+      source_extension: refundRouteScan.source_extension,
+      scanned_modules: refundRouteScan.scanned_modules,
+      unreadable_modules: refundRouteScan.unreadable_modules
+    },
     manual_refund_actions_found: missingForbiddenActions.length === 0 ? 0 : missingForbiddenActions.length,
     seller_refund_ui_found: sellerRefundUiFound,
     admin_refund_ui_found: adminRefundUiFound,
