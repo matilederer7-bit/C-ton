@@ -196,7 +196,7 @@ Until then the three legacy services keep building every `master` commit and fai
   React/runtime pickup handoff — camera success/failure, QR and typed code, paid/unpaid,
   pending→fulfilled — so a runbook rewrite alone never retires it: equivalent coverage must land
   first), `restart_server_tsnode_clean.ps1` with `register-ts-node.mjs` and
-  `restart_server_clean.ps1` (`OPERATIONAL_RUNBOOK.md` restart procedure; `scripts/README.md` calls
+  `restart_server_clean.ps1` (`OPERATIONAL_RUNBOOKS.md` §16 local restart procedure; `scripts/README.md` calls
   them operational), `receipt_content_browser_proof.cjs` (`docs/SITE_CMS.md` operations section,
   `docs/RECEIPT_TRUST_CONTENT.md`). Any of these leaves SUPPORT only when the runbook procedure that
   names it is intentionally replaced in the same PR.
