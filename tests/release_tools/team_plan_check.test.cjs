@@ -36,7 +36,7 @@ test("reviewers are read-only and every builder needs an independent reviewer", 
 });
 
 test("database, money, security, state-machine and CI paths require an independent senior reviewer", () => {
-  for (const path of ["web/src/auth.tsx", "web/src/session.ts", "web/src/authRedirect.ts", "web/src/api.ts", "src/error_monitoring.ts", "src/log_redaction.ts", "src/http_security_headers.ts", "src/operational_health_routes.ts", "src/migrations/075_x.sql", "src/payment_provider.ts", "src/seller_auth.ts", "src/app.ts", ".github/workflows/x.yml", "src/platform_fee_money.ts"]) {
+  for (const path of ["web/src/auth.tsx", "web/src/session.ts", "web/src/authRedirect.ts", "web/src/api.ts", "src/error_monitoring.ts", "src/log_redaction.ts", "src/http_security_headers.ts", "src/operational_health_routes.ts", "src/seller_deal_image_routes.ts", "src/migrations/075_x.sql", "src/payment_provider.ts", "src/seller_auth.ts", "src/app.ts", ".github/workflows/x.yml", "src/platform_fee_money.ts"]) {
     const missing = checkPlan(plan([builder("B1", [path]), reviewer("R", ["B1"])]));
     assert.deepEqual(codes(missing), ["senior_review_missing"], path);
     const present = checkPlan(plan([builder("B1", [path]), reviewer("R", ["B1"], { senior: true })]));
