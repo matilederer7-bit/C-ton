@@ -1,9 +1,9 @@
 {
   "task": "Lean Refactor: delete seven superseded frontend/app.js legacy renderers with no dispatcher callers, port the completed-deal Excel export to the live renderCtonSellerDealPage, retarget stale hold-copy assertions to live renderers, and retain renderTrackingPage pending the owner decision on tracking gaps.",
   "lead": "chatgpt",
-  "base": "origin/master@6f1791e916afbfbea6069e2e751d6d7031b70fa6",
+  "base": "origin/master@ec084934107b344d12879bd54b57c836b291ea4d",
   "open_branches": [
-    "chatgpt/extract-seller-deal-image-routes"
+    "origin/chatgpt/verify-hosted-backup-posture"
   ],
   "assignments": [
     {
