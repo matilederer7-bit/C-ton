@@ -103,6 +103,9 @@ jobs:
           enc_sha="$(sha256sum storage.tar.age | cut -d' ' -f1)"
           echo "ENCRYPTED_SHA256=$enc_sha" >> "$GITHUB_ENV"
           jq -n --arg created_at "$BACKUP_STAMP" --arg repository "$GITHUB_REPOSITORY" --arg commit "$GITHUB_SHA" --arg run_id "$GITHUB_RUN_ID" --arg source_bucket "$SOURCE_BUCKET" --arg object_count "$SOURCE_OBJECT_COUNT" --arg object_bytes "$SOURCE_OBJECT_BYTES" --arg plain_sha256 "$plain_sha" --arg encrypted_sha256 "$enc_sha" --arg encrypted_bytes "$(stat -c %s storage.tar.age)" '{format:"tar, age-encrypted",source:"Supabase Storage S3",source_bucket:$source_bucket,object_count:($object_count|tonumber),object_bytes:($object_bytes|tonumber),created_at:$created_at,repository:$repository,commit:$commit,run_id:$run_id,plain_sha256:$plain_sha256,encrypted_sha256:$encrypted_sha256,encrypted_bytes:($encrypted_bytes|tonumber)}' > manifest.json
+          find "$SOURCE_BUCKET" -type f -exec shred -u {} + 2>/dev/null || true
+          rm -rf "$SOURCE_BUCKET"
+          shred -u source-inventory.json || rm -f source-inventory.json
 
       - name: Upload encrypted archive to off-site storage
         if: steps.gate.outputs.ready == 'true'
