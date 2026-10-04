@@ -592,8 +592,8 @@ try {
     assert.equal(terms.statusCode, 200);
     const privacy = await app.inject({ method: "GET", url: "/app/privacy" });
     assert.equal(privacy.statusCode, 200);
-    // support routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
-    const runtime = (await readFile("src/frontend_runtime.ts", "utf8")) + "\n" + (await readFile("src/support_routes.ts", "utf8"));
+    // support and seller fulfillment routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
+    const runtime = (await readFile("src/frontend_runtime.ts", "utf8")) + "\n" + (await readFile("src/support_routes.ts", "utf8")) + "\n" + (await readFile("src/seller_fulfillment_routes.ts", "utf8"));
     assert.doesNotMatch(runtime, /affiliate.*commission/i);
     assert.match(runtime, /Prevent formula injection/);
 

@@ -8,9 +8,10 @@ import { readFile } from "node:fs/promises";
 // an admin mutation to shared-key-only authority.
 
 // The admin routes registered by src/frontend_runtime.ts, plus the support
-// routes that moved out of it into src/support_routes.ts (Lean Refactor): the
-// inventory covers both files, each scanned on its own.
-const SOURCE_FILES = ["src/frontend_runtime.ts", "src/support_routes.ts"];
+// routes and the seller fulfillment routes that moved out of it into
+// src/support_routes.ts and src/seller_fulfillment_routes.ts (Lean Refactor):
+// the inventory covers every file, each scanned on its own.
+const SOURCE_FILES = ["src/frontend_runtime.ts", "src/support_routes.ts", "src/seller_fulfillment_routes.ts"];
 const sources = await Promise.all(SOURCE_FILES.map((file) => readFile(file, "utf8")));
 
 // Split each file into route blocks. Each block starts at an `app.<method>("...`

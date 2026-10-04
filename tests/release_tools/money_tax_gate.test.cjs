@@ -16,6 +16,7 @@ const FIXTURE_FILES = [
   "src/frontend_runtime.ts",
   "src/admin_mission_control_routes.ts",
   "src/support_routes.ts",
+  "src/seller_fulfillment_routes.ts",
   "src/invoice_dispatch.ts",
   "src/app.ts",
   "src/payout_rail.ts",
@@ -114,6 +115,22 @@ const MUTATIONS = [
     from: "COALESCE(SUM(seller_net_amount), 0) AS seller_net_payable",
     to: "COALESCE(SUM(gross_amount), 0) AS seller_net_payable",
     expect: /seller_net_payable/
+  },
+  {
+    // the seller exports moved to src/seller_fulfillment_routes.ts (Lean Refactor); the gate must still see them
+    name: "moved seller export stops excluding Dropped buyers",
+    file: "src/seller_fulfillment_routes.ts",
+    from: 'p.buyer_state === "Dropped"',
+    to: 'p.buyer_state === "Dropped_"',
+    all: true,
+    expect: /Dropped exclusion/
+  },
+  {
+    name: "moved seller fulfillment routes gain distributor commission wording",
+    file: "src/seller_fulfillment_routes.ts",
+    from: "  function pickupCodeNotFound(reply: any) {",
+    to: '  const distributorNote = "affiliate commission";\n  function pickupCodeNotFound(reply: any) {',
+    expect: /forbidden money wording/
   }
 ];
 
@@ -121,7 +138,7 @@ for (const mutation of MUTATIONS) {
   test("money/tax gate fails when: " + mutation.name, () => {
     const fixture = createFixtureRepo(FIXTURE_FILES);
     try {
-      fixture.mutate(mutation.file, mutation.from, mutation.to);
+      fixture.mutate(mutation.file, mutation.from, mutation.to, { all: Boolean(mutation.all) });
       const result = runGate(fixture);
       assert.notEqual(result.status, 0, "gate should fail: " + mutation.name + "\n" + result.out);
       assert.match(result.out, /MONEY_TAX_INVOICE_CANON_FAIL/);
