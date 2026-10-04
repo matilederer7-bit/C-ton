@@ -333,26 +333,26 @@ Sixth pass on `4746d43`: DO NOT MERGE — two cases `eb7c2b4` caught were lost (
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
 
 <!-- AGENT_STATUS:chatgpt:START -->
-### ChatGPT active Lean Refactor — seller images merged, renderer deletion rebased
+### ChatGPT latest milestone — renderer cleanup merged; support extraction test follow-up rebuilt
 
 - UPDATED: 2026-10-04
 - COMPLETED:
-  - PR #215 merged to `master` as `ec084934107b344d12879bd54b57c836b291ea4d`: seller deal-image upload/reorder/delete routes extracted from `src/app.ts` into `src/seller_deal_image_routes.ts`. Exact PR-head CI #434 was green; Claude senior re-review was clean; merge commit records Codex clean on the final head.
-  - Renderer-deletion work rebuilt from exact new master on isolated branch `chatgpt/delete-dead-legacy-renderers-v2`, avoiding the status conflict of old PR #216.
-  - Seven no-dispatcher legacy renderers are removed from `frontend/app.js`; completed-deal Excel export is preserved on live `renderCtonSellerDealPage`; payment hold-copy assertions target live `renderCtonPaymentPage`; `renderTrackingPage` remains pending §8.2.
+  - PR #218 was independently diff-reviewed by ChatGPT, exact-head CI was green, Codex was clean on `fb80d6b`, and it squash-merged as `d910c25`. Seven unreachable legacy renderers are removed; their live `renderCton*` replacements remain dispatcher-owned; the legacy tracking renderer remains intentionally because Lean Refactor Map §8.2 still records document-visibility and cumulative-chart gaps.
+  - PR #220 became non-mergeable only after #218 changed `PROJECT_STATUS.md` on master. The Claude-owned branch was not rewritten. Its two test-only fixes were rebuilt from current master `d910c25` on isolated branch `chatgpt/support-extraction-test-followup`.
+  - D4/D5 spec-drift scans now include `src/support_routes.ts`; the forbidden regexes are unchanged.
+  - All 11 support-extraction mutants are now required to fail their intended invariant check, with unique fail-closed `replaceOnce` anchors.
 - TESTED:
-  - #215 PR head: Siton CI #434 SUCCESS and senior review clean.
-  - Renderer deletion: prior CI exposed two real gaps; both were fixed by preserving behavior/coverage, not by weakening gates. The rebased v2 still requires a fresh exact-head CI and review.
+  - #218 exact-head Siton CI: PASS; ChatGPT review: clean; Codex: clean on exact head.
+  - Replacement follow-up diff is limited to the two intended test files plus this ChatGPT status slot. Fresh CI/review on the replacement head are required; no claim is made from the superseded #220 head.
 - OPEN:
-  - #215 post-merge closeout: master CI on `ec084934` and canonical Render web/worker on the same SHA are not yet verified; do not call the slice 100% until both are true.
-  - Renderer deletion v2: PR, exact-head CI, independent review, merge, master CI and staging verification.
-  - Tracking document-visibility + cumulative-chart gaps remain an explicit owner/product decision.
+  - Replacement support-test PR: fresh exact-head CI, independent Codex review, merge and master CI.
+  - #218 post-merge master CI and canonical Render web/worker exact-SHA verification.
 - PERCENT:
-  - #215 slice: 95% (merged; post-merge CI/deploy verification open).
-  - Renderer deletion v2: 80% (code/gap preservation/rebase done; final PR gates open).
+  - Renderer-deletion slice: 90% (merged; post-merge master CI + Render verification open).
+  - Support extraction test follow-up: 65% (rebuilt cleanly on current master; PR gates and merge open).
 - NEXT:
-  - Verify master CI + Render exact SHA for #215.
-  - Replace superseded #216 with the rebased v2 PR and require fresh exact-head review + CI before merge.
+  - Open replacement PR from `chatgpt/support-extraction-test-followup`; close #220 as superseded without modifying its branch.
+  - Merge only after exact-head CI + Codex; then verify the final master SHA on CI and Render before starting the next `/app` shell extraction slice.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 
