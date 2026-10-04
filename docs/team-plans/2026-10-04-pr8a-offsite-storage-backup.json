@@ -1,0 +1,62 @@
+{
+  "task": "PR-8a: add a secrets-gated, source-read-only, age-encrypted off-site backup lane for the canonical Supabase Storage deal-images bucket. No credentials are provisioned and no hosted backup is executed in this branch.",
+  "lead": "chatgpt",
+  "base": "origin/master@6f1791e916afbfbea6069e2e751d6d7031b70fa6",
+  "open_branches": [
+    "chatgpt/extract-seller-deal-image-routes",
+    "chatgpt/delete-dead-legacy-renderers",
+    "chatgpt/verify-hosted-backup-posture"
+  ],
+  "assignments": [
+    {
+      "id": "B1",
+      "agent": "chatgpt",
+      "role": "builder",
+      "tier": "senior",
+      "scope": "new offsite Storage workflow, static release-tool tests and operator runbook; source is read-only; destination is encrypted; no private age key in CI",
+      "allowed": [
+        ".github/workflows/offsite-storage-backup.yml",
+        "tests/release_tools/offsite_storage_backup_workflow.test.cjs",
+        "docs/OFFSITE_STORAGE_BACKUP_RUNBOOK.md",
+        "docs/team-plans/2026-10-04-pr8a-offsite-storage-backup.json",
+        "PROJECT_STATUS.md"
+      ],
+      "forbidden": [
+        "src/",
+        "supabase/",
+        "render.yaml",
+        "config/real-money-release-policy.json",
+        ".github/workflows/offsite-db-backup.yml"
+      ],
+      "depends_on": [],
+      "dod": [
+        "source Supabase credentials exist only in the list/download step",
+        "workflow contains no source write/delete path and no --delete",
+        "source object count+bytes are verified before encryption",
+        "only age public recipient enters CI and plaintext archive is shredded",
+        "off-site upload is download-back sha256 verified",
+        "static workflow tests pass",
+        "PROJECT_STATUS is updated before PR open without clobbering another agent slot",
+        "independent senior review and exact-head CI green before merge",
+        "PR-8 remains OPEN until a real decrypt+restore drill into a disposable Supabase project succeeds"
+      ]
+    },
+    {
+      "id": "R1",
+      "agent": "codex",
+      "role": "reviewer",
+      "tier": "senior",
+      "senior": true,
+      "scope": "security review of credential scope, source read-only proof, shell quoting/injection, archive integrity, secret leakage and false-pass paths",
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "clean review on exact final head or every finding resolved"
+      ]
+    }
+  ]
+}
