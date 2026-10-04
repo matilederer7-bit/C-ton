@@ -2,10 +2,10 @@
 
 Updated: 2026-10-04
 Canonical branch: `master`
-Current merged baseline: `1008ec7` (PR #210 documentation-map cleanup), on top of `7c5c0ed` (PR #202 Mission Control route extraction). Master Siton CI run 37182469293 on `1008ec7` completed successfully with no failed jobs. Black Sky Engineering remains **100% closed**; Production Readiness remains a separate owner-driven track and real money remains blocked.
-Render staging: canonical services `siton-staging-web` (`srv-daa5o9u7bikc73fgjskg`) and `siton-staging-worker` (`srv-daakn0tg1s2s73dfk3pg`) are both **LIVE on `1008ec7`**, directly verified after the green master CI. Three legacy services still exist and are not touched by this work.
+Current merged baseline: `4acc867` (PR #212 health/readiness route extraction), on top of `1008ec7` (PR #210 documentation-map cleanup) and `7c5c0ed` (PR #202 Mission Control route extraction). Master Siton CI run 424 on `4acc867` completed successfully with no failed jobs. Black Sky Engineering remains **100% closed**; Production Readiness remains a separate owner-driven track and real money remains blocked.
+Render staging: canonical services `siton-staging-web` (`srv-daa5o9u7bikc73fgjskg`) and `siton-staging-worker` (`srv-daakn0tg1s2s73dfk3pg`) are both **LIVE on `4acc867`**, directly verified in Render after the green master CI. The web service health check path is `/readiness`. Three legacy services still exist and are not touched by this work.
 Supabase staging (`siton-staging`, `hnptacfzuqebfgeshadq`): migration ledger **75/75**, high-water `082` (re-read 2026-10-03); `deal-images` bucket `public=true`, `file_size_limit=10485760`, MIME exactly JPEG/PNG/WebP/MP4/WebM; `storage-broker` ACTIVE v2 (`verify_jwt=false`, broker-key auth).
-Agent-platform expansion is frozen until there is a concrete product-delivery need and live provider evidence. PR #211 (CI META audit) was closed without merge after evidence supported **NO CHANGE**; no classifier/workflow/gate change entered master. Active Lean Refactor runtime work is the health/readiness extraction originally prepared in #205; a clean ChatGPT fallback branch is rebuilding it from current master because the stale #205 head had not synced. Dependabot work remains separate.
+Agent-platform expansion is frozen until there is a concrete product-delivery need and live provider evidence. PR #211 (CI META audit) was closed without merge after evidence supported **NO CHANGE**; no classifier/workflow/gate change entered master. The health/readiness Lean Refactor slice is complete: replacement PR #212 was rebuilt from current master, merged, master CI is green and both canonical staging services are live on the merge SHA. PR #205 was superseded. Dependabot work remains separate.
 
 History moved out of this file by the Lean Refactor D5 status trim (2026-10-02), verbatim: `docs/archive/PROJECT_STATUS_HISTORY_TO_2026-09-30.md` (former header lines, the 2026-09-22 agent-team snapshot, the 2026-09-18 night closeout and Claude Code milestones up to 2026-09-28).
 
@@ -320,30 +320,27 @@ Sixth pass on `4746d43`: DO NOT MERGE — two cases `eb7c2b4` caught were lost (
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
 
 <!-- AGENT_STATUS:chatgpt:START -->
-### ChatGPT latest milestone — health/readiness extraction fallback on current master
+### ChatGPT latest milestone — health/readiness extraction closed on master and staging
 
 - UPDATED: 2026-10-04
-- BASELINE:
-  - Current master `1008ec7` (PR #210) has FULL Siton CI green (run 37182469293).
-  - Canonical Render web + worker directly verified LIVE on exact `1008ec7`.
-  - PR #211 CI META audit closed without merge; implementation verdict NO CHANGE, so FAST/STANDARD/FULL remain unchanged.
-- COMPLETED IN BRANCH:
-  - Built isolated branch `chatgpt/health-readiness-sync-fallback` from exact master `1008ec7`; Claude's #205 branch was not overwritten.
-  - Ported the verified mechanical move of GET `/health` and GET `/readiness` into `src/operational_health_routes.ts`, while `readinessProbe` stays created/exported in `src/app.ts`.
-  - Preserved PR #202 Mission Control coverage in all seven overlapping gate/source-pin files; both `src/admin_mission_control_routes.ts` and `src/operational_health_routes.ts` are retained.
-  - Ported the health/readiness docs, architecture/team-plan pins and structural extraction proof.
-- TESTED / VERIFIED SO FAR:
-  - Git history comparison proved only the seven pre-mapped pin files overlapped #202; all other #205 files were unchanged between its old base and `1008ec7`.
-  - Current-master Render deployment evidence is LIVE on web + worker at `1008ec7`.
-  - No exact-head CI has run on this fallback branch yet; no merge/staging claim is made.
+- COMPLETED:
+  - PR #212 merged into `master` as `4acc867e56fe7b3b330bc6bfa2aa867563587a10`.
+  - GET `/health` and GET `/readiness` now live in `src/operational_health_routes.ts`; `readinessProbe` remains created/exported in `src/app.ts`.
+  - PR #202 Mission Control coverage was preserved across the overlapping source-pin and gate files.
+  - Original PR #205 was superseded; no stale branch was used for the merge.
+- TESTED:
+  - Master Siton CI run 424 on exact merge SHA `4acc867`: SUCCESS.
+  - FULL lanes green, including static gates, database preflight, Docker smoke/release lab, API, unit/DB/workers, payments, security, integration-failure, concurrency and all three E2E shards.
+  - Render canonical `siton-staging-web` and `siton-staging-worker`: LIVE on exact `4acc867`.
+  - Render web health-check path is `/readiness`; the current connector verified the deployment state but did not expose the response headers for an independent external read-back.
 - OPEN:
-  - Complete diff review against original #205 and current master.
-  - Open replacement PR; independent Codex review; exact-head Siton CI.
-  - Merge only if behind_by=0 and review/CI are clean.
-  - After merge: master FULL CI, exact Render web+worker merge SHA, `/health` 200 and `/readiness` 200 + expected headers.
-  - The original stale #205 stays open until the replacement is proven; close it only as superseded after that.
-- PERCENT: 70% for this fallback slice. Code/pins are reconstructed; PR/review/CI/merge/staging are still open.
-- NEXT: final diff audit -> replacement PR -> exact-head CI + Codex -> merge -> master/staging verification.
+  - No code, review, CI or deploy blocker remains for this slice.
+  - Optional evidence-only follow-up: external HTTP read-back of `/health` and the `x-readiness-cache` / `x-readiness-age-ms` headers when an egress-capable browser is available.
+  - Production Readiness remains the active owner-driven track; real money remains blocked.
+- PERCENT: 100% for the health/readiness extraction slice. Production Readiness remains 21% (6/28).
+- NEXT:
+  - Stop Lean Refactor work unless a concrete defect appears.
+  - Work Production Readiness blockers, starting with PR-6 through PR-8 backup and restore evidence, without enabling real money or touching Grow live mode.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 
