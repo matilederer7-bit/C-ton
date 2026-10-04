@@ -322,7 +322,7 @@ read-only passes (src / web / frontend; scripts / dependencies / config / root; 
 |---|---|
 | ~~`docs/archive/db-drift-resolution.md`, `docs/archive/runtime-contract-resolution.md`~~ | **DONE 2026-10-04** — zero consumers, no authority/history value beyond already-superseded runtime notes; deleted in the documentation-map cleanup |
 | ~~`/api/admin/notifications/status`~~ | DONE — removed by PR #190 (`5c5221f`) |
-| superseded renderers in `frontend/app.js` | dead (no dispatcher reaches them); slice tests retargeted (§7.2, round-2 slice 4). Deletion PR next, after the owner decides the §8.2 gaps (deleting removes the only implementation of e.g. buyer document visibility) |
+| superseded renderers in `frontend/app.js` | **PARTIAL DELETE IN PROGRESS (2026-10-04):** seven dead renderers with live `renderCton*` replacements are removed in an isolated PR (`renderHomeLegacy`, `renderDealPage`, `renderOtpPage`, `renderPaymentPage`, `renderConfirmationPage`, `renderSellerPage`, `renderSellerDealPage`). `renderTrackingPage` remains deliberately because §8.2 still records two owner-decision gaps: buyer document visibility and the cumulative chart. |
 | `src/stage10c_harden_deals.sql` | retired 3-line marker; only a comment in migration 022 names it (migrations are never edited, so it stays unless the owner accepts a dangling comment) |
 
 ### 7.3 Kept on purpose (SUPPORT / CORE despite few or no callers)
@@ -373,7 +373,7 @@ The per-branch list is in the owner report of 2026-10-01.
 | `src/frontend_runtime.ts` | 12 256 | 12 144 (legal HTML → `src/legal_html.ts`, 123) |
 | `src/app.ts` | 8 637 | 8 587 (security headers → `src/http_security_headers.ts`, 56) |
 | `src/*.ts` files / lines | 87 / 51 106 | 89 / 51 123 (moves only: +2 module headers and imports) |
-| `frontend/app.js` | 9 337 | 9 337 (8 dead renderers still present; tests no longer pin them) |
+| `frontend/app.js` | 9 337 | 8 520 executable lines plus trailing newline in the partial-deletion branch (7 dead renderers removed; `renderTrackingPage` retained pending the §8.2 owner decision) |
 | CDP launcher copies (operator proofs) | 6 identical + 4 differing + 5 retired | 1 shared (`scripts/lib/cdp.cjs`) + 4 differing (documented) + 5 retired |
 | `scripts/*.cjs` / `scripts/lib` | 93 / 14 | 93 / 15 |
 | `tests/*.ts` / release-tool tests | 322 / 28 | 322 / 29 (+`cdp_launcher.test.cjs`) |
@@ -393,8 +393,7 @@ Module boundaries added: `legal_html.ts` (pure HTML render, no I/O beyond the pr
 5. The explicit "no action needed now" copy (React gates the CTA instead).
 6. The "live buyer center" eyebrow headline.
 
-Deleting the dead renderers deletes the only implementation of 1–2; decide "build it in React" or "drop the requirement"
-first. Each GAP assertion fails if a live surface starts delivering the item, so a gap is retired deliberately.
+Deleting `renderTrackingPage` would delete the only legacy implementation of 1–2; decide "build it in React" or "drop the requirement" first. The other seven superseded renderers can be removed independently because their live `renderCton*` replacements already own those flows. Each GAP assertion fails if a live surface starts delivering the item, so a gap is retired deliberately.
 
 ### 8.3 Open candidates (in order)
 
