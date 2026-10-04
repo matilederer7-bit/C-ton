@@ -1,11 +1,11 @@
 # SITON PROJECT STATUS
 
-Updated: 2026-10-02
+Updated: 2026-10-04
 Canonical branch: `master`
-Current merged baseline: `832c389` (PR #184, D5 status trim, docs only) on top of `9f81f32` (PR #183, status-only) and `73c0466` (PR #174, CMS video storage contract: `storage-broker` images 5 MiB / MP4-WebM 10 MiB; staging bucket policy `supabase/staging/029`). Siton CI push runs: 36963296658 on `73c0466`, 36966172597 on `9f81f32` and 36967823346 on `832c389`, all success. Black Sky Engineering remains **100% closed**; Production Readiness remains a separate owner-driven track and real money remains blocked.
-Render staging: web `srv-daa5o9u7bikc73fgjskg` and worker `srv-daakn0tg1s2s73dfk3pg` both **live on `832c389`** (deploys `dep-davjssdg1s2s73fooni0` / `dep-davjssdg1s2s73fooo00`; the runtime change `73c0466` went live as `dep-davj07uq1p3s73dbmu50` / `dep-davj086q1p3s73dbmuj0`; read 2026-10-02 from the Render API). The free-plan web instance hibernates ~15 min after its last request; agent containers are denied `*.onrender.com`, so liveness is read from Render deploy status and logs.
-Supabase staging (`siton-staging`, `hnptacfzuqebfgeshadq`): migration ledger 78 rows (read 2026-10-02); `deal-images` bucket `public=true`, `file_size_limit=10485760`, MIME exactly JPEG/PNG/WebP/MP4/WebM, no `storage` policies; `storage-broker` ACTIVE v2 (`verify_jwt=false`, broker-key auth), source byte-identical to `73c0466`.
-Agent-platform expansion is frozen until there is a concrete product-delivery need and live provider evidence. Stale/superseded agent or review PRs #70, #71, #78, #79, #95, #96, #127, #137 and #138 were closed with history preserved. Other open PRs besides this status closeout are Dependabot only. Product work remains in focused issues #140–#143 and should proceed as small direct slices rather than via the currently non-critical Cloud Agent Manager path.
+Current merged baseline: `3534b30` (PR #204, log-only docs/tests contract alignment) on top of `f065331` (PR #199, complete retirement of dead `DEBUG_JOIN_LOGGING`). Master Siton CI run 37153756055 on `3534b30` completed successfully with no failed jobs. Black Sky Engineering remains **100% closed**; Production Readiness remains a separate owner-driven track and real money remains blocked.
+Render staging: canonical services `siton-staging-web` (`srv-daa5o9u7bikc73fgjskg`) and `siton-staging-worker` (`srv-daakn0tg1s2s73dfk3pg`) are both **live on `3534b30`** after the `checksPass` master deploy. Three legacy services still exist and still auto-deploy from `master`: `siton-staging-web-atp1`, `siton-demo-preview-atp1`, `siton-demo-preview`. The connected Render tool exposes no delete/suspend action, so their removal remains an owner-dashboard action.
+Supabase staging (`siton-staging`, `hnptacfzuqebfgeshadq`): migration ledger **75/75**, high-water `082` (re-read 2026-10-03); `deal-images` bucket `public=true`, `file_size_limit=10485760`, MIME exactly JPEG/PNG/WebP/MP4/WebM; `storage-broker` ACTIVE v2 (`verify_jwt=false`, broker-key auth).
+Agent-platform expansion is frozen until there is a concrete product-delivery need and live provider evidence. Stale/superseded agent or review PRs #70, #71, #78, #79, #95, #96, #127, #137, #138, #192, #201 and #203 are closed or being superseded with history preserved. Active non-Dependabot work is #202 (Claude Mission Control route extraction), #205 (Claude operational health/readiness route extraction), and this status reconciliation PR; Dependabot #100/#107/#108 remain separate.
 
 History moved out of this file by the Lean Refactor D5 status trim (2026-10-02), verbatim: `docs/archive/PROJECT_STATUS_HISTORY_TO_2026-09-30.md` (former header lines, the 2026-09-22 agent-team snapshot, the 2026-09-18 night closeout and Claude Code milestones up to 2026-09-28).
 
@@ -69,6 +69,18 @@ Current invariants:
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
+### Claude Code latest milestone — Lean Refactor round 2, slice 6: the seven Mission Control GET routes moved verbatim out of `frontend_runtime.ts` (2026-10-04)
+
+- UPDATED: 2026-10-04
+- BRANCH / PR: `claude/mission-control-routes-extract-ajvgl0` from master `72ecd0a`, PR #202; synced by merge onto master `f065331` (#199), then `030b471` (#209). Team plan `docs/team-plans/2026-10-03-lean-refactor-mission-control-routes.json` (`TEAM_PLAN_PASS`).
+- COMPLETED (code): `/api/admin/mission-control`, `/anomalies`, `/deals/:dealId/trace`, `/participants/:participantId/trace`, `/correlation/:correlationId`, `/outbox/:eventId`, `/webhooks/:provider/:eventId` live in the new `src/admin_mission_control_routes.ts`, registered from the same point of `registerFrontendExperience` by `registerAdminMissionControlRoutes(app, deps)`. The 438-line handler block is byte-identical before/after (diff empty, also against `git show 72ecd0a`). No helper copied: the runtime injects its own `requireAdminRead`, `requireUuid`, the seven memoized `ensure*` schema checks, `payoutProvider`, `frontendDir` and the same `deps` fields; builders / provider summaries / `DEFAULT_SELLER_ID` are imported from their modules. Unchanged: paths, methods, auth, validation, error codes, response shapes, SQL, ordering, limits, `withTx` boundaries, money / payout summaries, audit, read-only action policy. `src/frontend_runtime.ts` 12 144 → 11 723 lines (−421); the six `./admin_mission_control.js` imports left with the routes.
+- COMPLETED (coverage preserved): source pins retargeted with identical regexes (`security_hardening_validation` + module in its `allSource` scan, `aws_accordion_readiness_validation` + wiring assert, `legacy_runtime_isolation_validation` route census); the module added to `web_route_inventory` sources (7 routes still listed, `guard call: requireAdminRead`, `UNGUARDED_PROTECTED_ROUTES=0`), the legal gate runtime scan, the money/tax gate distributor-surface scan and their release-tool fixtures (`legal_gate`, `money_tax_gate`, `runtime_surface`). New `tests/admin_mission_control_routes_extraction_validation.ts`: each route registered exactly once as GET in the module, none left in the runtime, exact injected dependency set, no guard / validator / schema check re-implemented, every handler opens with `requireAdminRead`, one `withTx` per route, validation + error contracts, `ensure*` order, read-only money / action flags; mutation-proven (duplicate registration, dropped guard, flipped money flag, copied `requireUuid` → FAIL).
+- CHECKED: local migrated disposable PostgreSQL 16 — `mission_control_validation`, `admin_mission_control_outbox_trace_validation`, 7 further admin API suites (control plane, omnisearch, system status, dashboard data, no-commission regression, outbox attempt ceiling, cross-principal isolation), 13 source-pin suites, full `test:release-tools` 433/0, `tsc`, lint, route inventory, legal gate, money/tax gate: PASS. Siton CI `ci-verdict` PASS (FULL) on `eb84280` and `57cca7c`. Independent senior review (security-auditor posture) on `388d44d`: move behaviour-preserving; 3 findings fixed in `eb84280` (two release-tool fixtures missing the new module → ENOENT, one unused import). Codex: the same two P1 fixture findings on `388d44d` (fixed, threads resolved); "no major issues" on `eb84280`; on `57cca7c` one finding = this status entry (deferred until the owner's status-coordination lock lifted with #209).
+- BEHAVIOUR: none. Runtime impact: Render redeploy of identical behaviour.
+- OPEN: exact-head Siton CI + Codex on the final head (this commit), merge, master CI, staging `/readiness` read-back. Then #205 (health / readiness routes), serially, per the owner's order.
+- PERCENT: round-2 slices 1–5 DONE; slice 6 code complete and reviewed, merge pending on the final-head gates.
+- NEXT: push → CI + Codex on the exact head → squash-merge → master CI → `/readiness` → #205.
+
 ### Claude Code latest milestone — Lean Refactor round 2, slice 5: dead `TWILIO_*` config removed (2026-10-02)
 
 - UPDATED: 2026-10-02
@@ -308,22 +320,28 @@ Sixth pass on `4746d43`: DO NOT MERGE — two cases `eb7c2b4` caught were lost (
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
 
 <!-- AGENT_STATUS:chatgpt:START -->
-### ChatGPT latest milestone — Lean Refactor: retire dead DEBUG_JOIN_LOGGING config
+### ChatGPT latest milestone — coordination closeout and current source-of-truth reconciliation
 
-- UPDATED: 2026-10-03
+- UPDATED: 2026-10-04
 - COMPLETED:
-  - Rebuilt stale PR #192 from current master `72ecd0a` instead of merging its old base.
-  - Addressed Claude's blocking review: removed the dead `DEBUG_JOIN_LOGGING` export from `src/runtime_config.ts`, then removed its demo env entry and runtime-environment-policy guard.
-  - Corrected all live logging/security policy references identified by review.
-  - `DEBUG_SQL_LOGGING` and `DISABLE_OUTBOX_WORKER` remain unchanged.
+  - PR #199 merged as `f065331`; exact-head CI and independent Codex review were clean.
+  - PR #204 merged as `3534b30`; exact-head CI and Codex review were clean.
+  - Master Siton CI run 37153756055 on `3534b30` completed successfully with no failed jobs.
+  - Render workspace `My Workspace` re-verified: canonical web + worker are both LIVE on `3534b30`.
+  - Supabase staging re-read: migration ledger 75/75, high-water `082`.
+  - PR #202 Mission Control extraction was independently checked: the 438-line moved handler block is byte-identical before/after; Claude still owes the final status-slot/sync/re-review sequence before merge.
+  - PR #205 health/readiness extraction is green and clean on head `6916bcd`, but waits for this status reconciliation before its final sync/status/re-review sequence.
 - TESTED:
-  - `config/runtime-environment-policy.json` parses after the removal.
-  - Exact-head Siton CI and independent review remain required before merge.
+  - `3534b30` master CI green.
+  - Canonical Render web + worker LIVE on `3534b30`.
+  - #202 exact-head CI was green on `57cca7c` before master advanced; final head after sync still required.
+  - #205 exact-head CI and Codex were clean on `6916bcd`; final head after status sync still required.
 - OPEN:
-  - Replacement PR CI / review / merge / master verification.
-  - Legacy Render service deletion remains an owner-dashboard action.
-- PERCENT: 60%. Review findings fixed on a current-master branch; repository gates and independent review pending.
-- NEXT: replacement PR -> exact-head CI -> Claude reviewer-only pass -> merge only if green.
+  - Merge this status reconciliation after exact-head CI + independent review.
+  - Then Claude must sync #202 and #205 onto the resulting master, update only the Claude status slot as appropriate, rerun exact-head CI, re-request Codex review, and merge one PR at a time.
+  - Three legacy Render services remain manual owner-dashboard deletion.
+- PERCENT: 90% for this coordination/status slice. Facts are reconciled; only this status PR's CI/review/merge remain.
+- NEXT: CI + review on this status PR -> merge -> release Claude to finish #202 then #205 serially.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 

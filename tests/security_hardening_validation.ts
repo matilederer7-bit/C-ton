@@ -30,6 +30,8 @@ const allSource = [
   await readFile("src/legal_html.ts", "utf8"),
   // moved out of app.ts by the Lean Refactor; stays in the static scan
   await readFile("src/http_security_headers.ts", "utf8"),
+  // Mission Control routes moved out of frontend_runtime.ts by the Lean Refactor; stay in the static scan
+  await readFile("src/admin_mission_control_routes.ts", "utf8"),
   // /health + /readiness moved out of app.ts by the Lean Refactor; stay in the static scan
   await readFile("src/operational_health_routes.ts", "utf8")
 ].join("\n");
@@ -38,7 +40,10 @@ await runTest("security_admin_auth_validation", async () => {
   assert.match(runtime, /function requireAdminKey/);
   assert.match(runtime, /admin_key_not_configured/);
   assert.match(runtime, /timingSafeEqual/);
-  assert.match(runtime, /app\.get\("\/api\/admin\/mission-control"/);
+  // the Mission Control routes live in src/admin_mission_control_routes.ts since the Lean Refactor; same guard, same registration
+  const missionControlRoutes = await readFile("src/admin_mission_control_routes.ts", "utf8");
+  assert.match(missionControlRoutes, /app\.get\("\/api\/admin\/mission-control"/);
+  assert.match(missionControlRoutes, /if \(!\(await requireAdminRead\(req, reply\)\)\) return;/);
   // R6: admin READ surfaces gate through requireAdminRead (named identity via
   // Supabase/cookie, or the timing-safe ops key inside requireAdminKey).
   assert.match(runtime, /function requireAdminRead/);
