@@ -31,7 +31,11 @@ await run("ops_runbook_docs_exist_validation", async () => {
     "Emergency Pause Charging",
     "Deploy Stale",
     "DB Unavailable",
-    "Storage Unavailable"
+    "Storage Unavailable",
+    "Operational Diagnostics / Local Recovery",
+    "Local worker/server restart",
+    "Safe rollback",
+    "Minimum release-candidate sanity"
   ]) {
     assert.match(runbooks, new RegExp(heading));
   }
@@ -74,5 +78,8 @@ await run("ops_no_destructive_remediation_validation", async () => {
   assert.match(runbooks, /Forbidden/);
   assert.match(runbooks, /Deleting DLQ rows/);
   assert.match(runbooks, /Manual capture/);
+  assert.match(runbooks, /retired `\/debug\/deals\/:id` surface is not a current inspection path/);
+  assert.match(runbooks, /\/api\/admin\/mission-control\/deals\/:dealId\/trace/);
+  assert.match(runbooks, /Do \*\*not\*\* restore a database/);
   assert.match(interventionDoc, /never deletes/i);
 });
