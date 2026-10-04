@@ -324,22 +324,24 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 
 - UPDATED: 2026-10-04
 - COMPLETED:
-  - PR #215: seller deal-image route extraction from `src/app.ts`; exact-head Siton CI #432 is green. Independent review is still open, so it is not merged.
-  - Parallel branch `chatgpt/delete-dead-legacy-renderers`: deleted seven superseded no-dispatcher renderers from `frontend/app.js`, reducing it from 9,338 to 8,521 physical lines (−817). Added a regression guard and Lean-map update.
-  - `renderTrackingPage` is deliberately retained because two §8.2 product requirements remain an owner decision: buyer document visibility and cumulative progress chart.
+  - PR #215: seller deal-image route extraction from `src/app.ts`; latest head `75cd661` has Siton CI #434 SUCCESS and Claude senior re-review clean after the structural-test fix. Codex exact-head review is still outstanding, so it is not merged.
+  - PR #216: deletion scope was narrowed after CI exposed hidden requirement coverage. Four legacy renderers are now removed safely from `frontend/app.js`: `renderOtpPage`, `renderPaymentPage`, `renderConfirmationPage`, `renderSellerPage`.
+  - `frontend/app.js` is now 8,986 physical lines on the narrowed branch (−352 vs current master physical-line count 9,338; the earlier 817-line deletion was intentionally rolled back in part).
+  - Retained: `renderHomeLegacy`, `renderDealPage`, `renderTrackingPage`, `renderSellerDealPage`. CI proved they still carry assertions/features not yet present or not yet pinned on the live `renderCton*` surfaces.
 - TESTED:
-  - PR #215 exact-head Siton CI #432: SUCCESS.
-  - Renderer-deletion branch has source-level regression coverage; full exact-head CI/review not run yet at this status commit.
+  - PR #215 latest head `75cd661`: Siton CI #434 SUCCESS; Claude re-review clean.
+  - PR #216 first CI #433: FAILED exactly two source/product-gap checks while all static, security, payments, API, E2E, Docker and database-preflight lanes passed. The failing evidence caused the safe scope reduction rather than a weakened gate.
 - OPEN:
-  - PR #215: independent senior review, merge, master CI and staging verification.
-  - Renderer-deletion slice: PR, exact-head CI, independent review, merge, master verification.
+  - PR #215: exact-head Codex review, merge, master CI and staging verification.
+  - PR #216: rerun exact-head CI after scope reduction, independent review, merge, master verification.
+  - Separate future gap work: completed-deal Excel export on live seller-deal UI; live-copy test retarget for Home/Deal; tracking document visibility + chart decision.
   - No real-money, payments, auth, state-machine, DB, Supabase or Render configuration change is part of either slice.
 - PERCENT:
-  - PR #215: 85% (code + CI done; review/merge/staging open).
-  - Renderer deletion: 70% (deletion + guard + docs done; PR/CI/review/merge open).
+  - PR #215: 90% (code + CI + Claude review done; Codex/merge/staging open).
+  - PR #216: 75% (safe scope identified and implemented; new CI/review/merge open).
 - NEXT:
-  - Close #215 only after independent review on its latest head.
-  - Open and validate the renderer-deletion PR independently; do not merge it merely because #215 is green.
+  - Do not merge #215 until Codex reviews `75cd661`.
+  - Validate narrowed #216; only then merge.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 
