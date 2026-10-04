@@ -108,8 +108,10 @@ await runTest("readiness_contract_validation", async () => {
   assert.ok(healthHandler, "/health handler must be locatable");
   assert.doesNotMatch(healthHandler[0], /withTx|c\.query|provider/i, "/health must not query DB or providers");
 
-  // Mission control endpoint must be registered (in frontend_runtime.ts where admin routes live)
-  assert.match(frontendRuntime, /app\.get\("\/api\/admin\/mission-control"/, "mission-control endpoint must be registered");
+  // Mission control endpoint must be registered (in src/admin_mission_control_routes.ts since the Lean Refactor, wired from frontend_runtime.ts where admin routes live)
+  const missionControlRoutes = await readFile("src/admin_mission_control_routes.ts", "utf8");
+  assert.match(missionControlRoutes, /app\.get\("\/api\/admin\/mission-control"/, "mission-control endpoint must be registered");
+  assert.match(frontendRuntime, /registerAdminMissionControlRoutes\(app, \{/, "mission-control routes must be wired from frontend_runtime.ts");
 });
 
 await runTest("cdn_policy_validation", async () => {
