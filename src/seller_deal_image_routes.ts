@@ -65,7 +65,7 @@ export function registerSellerDealImageRoutes(app: any, deps: SellerDealImageRou
     await ensureRemainingProductSurfaceTables(withTx);
     const dealId = String(req.params.dealId || "");
 
-    const response = await withTx(async (c) => {
+    const response = await withTx(async (c: any) => {
       const sellerAuthority = await requireSellerAuthority(req, c);
       await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "operate");
       // Authorization precedes every observation: the id shape, the upload body
@@ -227,7 +227,7 @@ export function registerSellerDealImageRoutes(app: any, deps: SellerDealImageRou
     await ensureRemainingProductSurfaceTables(withTx);
     const dealId = String(req.params.dealId || "");
 
-    return withTx(async (c) => {
+    return withTx(async (c: any) => {
       const sellerAuthority = await requireSellerAuthorityWithoutBody(req, c);
       await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "operate");
       // Authorization precedes every observation.
@@ -313,7 +313,7 @@ export function registerSellerDealImageRoutes(app: any, deps: SellerDealImageRou
   app.delete("/api/seller/deals/:dealId/images/:imageId", async (req: any, reply: any) => {
     const dealId = String(req.params.dealId || "");
     const imageId = String(req.params.imageId || "");
-    const removed = await withTx(async (c) => {
+    const removed = await withTx(async (c: any) => {
       const sellerAuthority = await requireSellerAuthority(req, c);
       await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "operate");
       requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
