@@ -226,8 +226,9 @@ try {
   });
 
   await run("guardrails: no duplicate catalog/search API, affiliate payout, or request-thread money action", async () => {
+    // support routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
     const [frontendRuntime, appTs, appJs] = await Promise.all([
-      readFile("src/frontend_runtime.ts", "utf8"),
+      Promise.all([readFile("src/frontend_runtime.ts", "utf8"), readFile("src/support_routes.ts", "utf8")]).then((parts) => parts.join("\n")),
       readFile("src/app.ts", "utf8"),
       readFile("frontend/app.js", "utf8")
     ]);

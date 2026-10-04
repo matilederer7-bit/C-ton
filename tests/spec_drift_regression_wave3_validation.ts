@@ -54,7 +54,8 @@ await run("D1 — /app is the canonical Mall and duplicate discovery routes stay
 });
 
 await run("D1 — Mall uses bounded filters and has no arbitrary public text search", () => {
-  const runtime = read("src/frontend_runtime.ts");
+  // support routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
+  const runtime = read("src/frontend_runtime.ts") + "\n" + read("src/support_routes.ts");
   const mall = read("src/mall_read_model.ts");
   assert.match(runtime, /\/api\/mall\/deals/);
   assert.match(mall, /physical_product/);
@@ -85,7 +86,8 @@ await run("D2 — no `platform_fee_rate = 0.05` assignment anywhere in src/", ()
     "src/platform_fee_money.ts",
     "src/app.ts",
     "src/invoice_dispatch.ts",
-    "src/frontend_runtime.ts"
+    "src/frontend_runtime.ts",
+    "src/support_routes.ts"
   ]) {
     const body = read(path);
     assert.ok(
@@ -123,6 +125,7 @@ await run("D3 — no comment/string claims fee excludes delivery in active sourc
     "src/platform_fee_money.ts",
     "src/product_surface_support.ts",
     "src/frontend_runtime.ts",
+    "src/support_routes.ts",
     "frontend/app.js"
   ]) {
     const body = read(path);

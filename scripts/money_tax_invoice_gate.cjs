@@ -222,8 +222,8 @@ for (const required of ["gross_amount", "platform_fee_base_amount", "platform_fe
 // 12. Distributor surface carries no money wording; C-ton is never the seller.
 // ---------------------------------------------------------------------------
 {
-  // the Mission Control routes moved out of frontend_runtime.ts (Lean Refactor); they stay in the scan
-  const distributorSurface = ast.stripComments(frontendRuntimeSource, "frontend_runtime.ts") + "\n" + ast.stripComments(read("src/admin_mission_control_routes.ts"), "admin_mission_control_routes.ts") + "\n" + read("frontend/app.js");
+  // the Mission Control and support routes moved out of frontend_runtime.ts (Lean Refactor); they stay in the scan
+  const distributorSurface = ast.stripComments(frontendRuntimeSource, "frontend_runtime.ts") + "\n" + ast.stripComments(read("src/admin_mission_control_routes.ts"), "admin_mission_control_routes.ts") + "\n" + ast.stripComments(read("src/support_routes.ts"), "support_routes.ts") + "\n" + read("frontend/app.js");
   for (const re of [/affiliate[^.\n]{0,80}commission/i, /distributor[^.\n]{0,80}commission/i, /affiliate[^.\n]{0,80}payout/i, /distributor[^.\n]{0,80}payout/i, /affiliate[^.\n]{0,80}balance/i, /distributor[^.\n]{0,80}balance/i]) {
     assert(!re.test(distributorSurface), "distributor surface contains forbidden money wording: " + re);
   }

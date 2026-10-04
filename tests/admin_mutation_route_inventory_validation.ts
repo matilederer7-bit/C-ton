@@ -7,17 +7,29 @@ import { readFile } from "node:fs/promises";
 // requireAdminAuthContext. This guards against a future edit silently reverting
 // an admin mutation to shared-key-only authority.
 
-const source = await readFile("src/frontend_runtime.ts", "utf8");
+// The admin routes registered by src/frontend_runtime.ts, plus the support
+// routes that moved out of it into src/support_routes.ts (Lean Refactor): the
+// inventory covers both files, each scanned on its own.
+const SOURCE_FILES = ["src/frontend_runtime.ts", "src/support_routes.ts"];
+const sources = await Promise.all(SOURCE_FILES.map((file) => readFile(file, "utf8")));
 
-// Split the file into route blocks. Each block starts at an `app.<method>("...`
-// registration (2-space indent) and runs until the next registration.
+// Split each file into route blocks. Each block starts at an `app.<method>("...`
+// registration (2-space indent) and runs until the next registration in the same file.
 const routeRe = /\n  app\.(get|post|patch|put|delete)\(\s*"([^"]+)"/g;
-type Block = { method: string; path: string; start: number };
+type Block = { method: string; path: string; start: number; file: number };
 const starts: Block[] = [];
 let m: RegExpExecArray | null;
-while ((m = routeRe.exec(source))) {
-  starts.push({ method: m[1]!.toLowerCase(), path: m[2]!, start: m.index });
-}
+sources.forEach((source, file) => {
+  routeRe.lastIndex = 0;
+  while ((m = routeRe.exec(source))) {
+    starts.push({ method: m[1]!.toLowerCase(), path: m[2]!, start: m.index, file });
+  }
+});
+const nextIn = (block: Block) => starts.find((b) => b.file === block.file && b.start > block.start);
+const bodyOf = (block: Block) => {
+  const next = nextIn(block);
+  return sources[block.file]!.slice(block.start, next ? next.start : block.start + 4000);
+};
 
 const MUTATION = new Set(["post", "patch", "put", "delete"]);
 const adminMutations = starts.filter((b) => MUTATION.has(b.method) && /^\/api\/admin\//.test(b.path));
@@ -46,8 +58,7 @@ for (let i = 0; i < adminMutations.length; i++) {
   const block = adminMutations[i]!;
   if (AUTH_BOOTSTRAP.has(block.path)) continue;
   // Body = from this registration to the next registration (or +4000 chars).
-  const next = starts.find((b) => b.start > block.start);
-  const body = source.slice(block.start, next ? next.start : block.start + 4000);
+  const body = bodyOf(block);
   const named = /requireAdminMutation\(|requireAdminAuthContext\(/.test(body);
   if (!named) offenders.push(`${block.method.toUpperCase()} ${block.path}`);
 }
@@ -69,8 +80,7 @@ for (const path of P0_ROUTES) {
   ok(`P0 route uses named-admin gate: ${path}`, () => {
     const block = adminMutations.find((b) => b.path === path);
     assert.ok(block, `route ${path} not found among admin mutations`);
-    const next = starts.find((b) => b.start > block!.start);
-    const body = source.slice(block!.start, next ? next.start : block!.start + 4000);
+    const body = bodyOf(block!);
     assert.match(body, /requireAdminMutation\(/, `${path} must gate with requireAdminMutation`);
   });
 }

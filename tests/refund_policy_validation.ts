@@ -12,7 +12,8 @@ async function runTest(name: string, fn: () => Promise<void> | void) {
 }
 
 const app = await readFile("src/app.ts", "utf8");
-const runtime = await readFile("src/frontend_runtime.ts", "utf8");
+// support routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
+const runtime = (await readFile("src/frontend_runtime.ts", "utf8")) + "\n" + (await readFile("src/support_routes.ts", "utf8"));
 const controlPlane = await readFile("src/admin_control_plane.ts", "utf8");
 const mission = await readFile("src/admin_mission_control.ts", "utf8");
 const providerReadinessDoc = await readFile("docs/PROVIDER_LIVE_MONEY_READINESS.md", "utf8");

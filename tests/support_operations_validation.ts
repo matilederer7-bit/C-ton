@@ -12,7 +12,8 @@ async function run(name: string, fn: () => Promise<void>) {
 }
 
 const cases = await readFile("src/operational_cases.ts", "utf8");
-const runtime = await readFile("src/frontend_runtime.ts", "utf8");
+// the support-case routes moved out of src/frontend_runtime.ts (Lean Refactor); their pins moved with them
+const supportRoutes = await readFile("src/support_routes.ts", "utf8");
 const mission = await readFile("src/admin_mission_control.ts", "utf8");
 const doc = await readFile("docs/SUPPORT_OPERATIONS.md", "utf8");
 const migration = await readFile("src/migrations/034_operational_cases.sql", "utf8");
@@ -26,8 +27,8 @@ await run("support_case_lifecycle_validation", async () => {
 });
 
 await run("support_case_requires_reason_validation", async () => {
-  assert.match(runtime, /\/api\/admin\/support-cases/);
-  assert.match(runtime, /case\.update_status|case\.assign|case\.close|case\.escalate/);
+  assert.match(supportRoutes, /\/api\/admin\/support-cases/);
+  assert.match(supportRoutes, /case\.update_status|case\.assign|case\.close|case\.escalate/);
   assert.match(migration, /resolution_note/);
   assert.match(migration, /operational_cases_close_note_check/);
 });

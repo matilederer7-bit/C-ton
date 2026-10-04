@@ -11,9 +11,10 @@ async function run(name: string, fn: () => Promise<void>) {
   }
 }
 
+// support routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
 const [appJs, runtimeTs] = await Promise.all([
   readFile("frontend/app.js", "utf8"),
-  readFile("src/frontend_runtime.ts", "utf8")
+  Promise.all([readFile("src/frontend_runtime.ts", "utf8"), readFile("src/support_routes.ts", "utf8")]).then((parts) => parts.join("\n"))
 ]);
 
 await run("seller receipt surface no longer invents pseudo receipt ids", async () => {

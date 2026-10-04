@@ -78,7 +78,8 @@ await run("seller export, invoice document, and payout use canonical fields", ()
 });
 
 await run("distributor attribution does not create money rail", () => {
-  const frontendRuntime = read("src/frontend_runtime.ts");
+  // support routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
+  const frontendRuntime = read("src/frontend_runtime.ts") + "\n" + read("src/support_routes.ts");
   const sellerAnalytics = read("src/seller_analytics.ts");
   assert.match(sellerAnalytics, /attributed_gross/);
   assert.match(sellerAnalytics, /measurement_only: true/);

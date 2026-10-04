@@ -1,0 +1,120 @@
+{
+  "task": "Lean Refactor: mechanically move the nine support routes out of src/frontend_runtime.ts into src/support_routes.ts with zero behaviour change; preserve admin/public auth semantics, validation order, rate limits, SQL, transactions, status/error codes, response shapes, case events and every gate/source scan that covered the moved code.",
+  "lead": "claude-lead",
+  "base": "origin/master@ec084934107b344d12879bd54b57c836b291ea4d",
+  "open_branches": [],
+  "open_branch_notes": "origin/chatgpt/delete-dead-legacy-renderers (PR #216, open) changes frontend/app.js, its own tests, docs/LEAN_REFACTOR_MAP_2026-09-30.md and the chatgpt slot of PROJECT_STATUS.md. Its only shared path is PROJECT_STATUS.md, where B1 writes the claude slot only (AGENTS.md: independent agent slots), so it is not listed in open_branches; frontend/app.js is forbidden to B1.",
+  "interface_contract": {
+    "src/support_routes.ts": "registerSupportRoutes(app, deps) registers exactly GET/POST /api/admin/support-cases, PATCH/GET /api/admin/support-cases/:caseId, POST /api/admin/support-cases/:caseId/reply, POST /api/admin/support-cases/:caseId/escalate, POST /api/support/contact, POST /api/admin/support, POST /api/admin/support/:ticketId; frontend_runtime.ts keeps and injects its guards (requireAdminRead, requireAdminMutation, adminActorRef, requireUuid), memoized schema checks (ensureProductSurfaces, ensureInquiryTables), appendCustomerInquiryMessage and inquiryRequestId, and wires the module once at the original registration point."
+  },
+  "assignments": [
+    {
+      "id": "B1",
+      "agent": "claude-lead",
+      "role": "builder",
+      "tier": "senior",
+      "scope": "mechanical support-route extraction, runtime wiring/import trim, preservation of every gate/source scan over frontend_runtime.ts, structural extraction proof with mutation controls, status slot",
+      "allowed": [
+        "src/frontend_runtime.ts",
+        "src/support_routes.ts",
+        "tests/support_routes_extraction_validation.ts",
+        "tests/admin_mutation_route_inventory_validation.ts",
+        "tests/support_operations_validation.ts",
+        "tests/admin_forbidden_money_actions_validation.ts",
+        "tests/admin_mission_control_routes_extraction_validation.ts",
+        "tests/admin_no_public_search_regression_validation.ts",
+        "tests/admin_support_cases_validation.ts",
+        "tests/cache_policy_validation.ts",
+        "tests/deal_types_validation.ts",
+        "tests/delivery_estimate_validation.ts",
+        "tests/demo_readiness_validation.ts",
+        "tests/full_e2e_gate_validation.ts",
+        "tests/legacy_runtime_isolation_validation.ts",
+        "tests/legal_trust_validation.ts",
+        "tests/money_tax_invoice_canon_validation.ts",
+        "tests/operational_health_routes_extraction_validation.ts",
+        "tests/r2_money_authority_validation.ts",
+        "tests/read_surfaces_truth_alignment_validation.ts",
+        "tests/refund_policy_validation.ts",
+        "tests/security_hardening_validation.ts",
+        "tests/security_identity_tracking_validation.ts",
+        "tests/seller_enforcement_validation.ts",
+        "tests/spec_drift_regression_wave3_validation.ts",
+        "tests/release_tools/legal_gate.test.cjs",
+        "tests/release_tools/money_tax_gate.test.cjs",
+        "tests/release_tools/runtime_surface.test.cjs",
+        "scripts/web_route_inventory.cjs",
+        "scripts/legal_compliance_gate.cjs",
+        "scripts/money_tax_invoice_gate.cjs",
+        "docs/team-plans/2026-10-04-lean-refactor-support-routes.json",
+        "PROJECT_STATUS.md"
+      ],
+      "forbidden": [
+        "src/app.ts",
+        "src/seller_deal_image_routes.ts",
+        "src/payment_provider.ts",
+        "src/platform_fee_money.ts",
+        "src/payment_reconciliation.ts",
+        "src/payout_rail.ts",
+        "src/invoice_dispatch.ts",
+        "src/vat_authority.ts",
+        "src/authorization_lifecycle.ts",
+        "src/outbox_worker_helpers.ts",
+        "src/worker.ts",
+        "src/operational_cases.ts",
+        "src/seller_inquiries.ts",
+        "src/public_write_caps.ts",
+        "src/admin_identity.ts",
+        "src/migrations/",
+        "supabase/",
+        ".github/workflows/",
+        "config/real-money-release-policy.json",
+        "render.yaml",
+        "frontend/app.js"
+      ],
+      "depends_on": [],
+      "dod": [
+        "the moved handler block is byte-identical to the block removed from frontend_runtime.ts and every identifier in it binds to the same declaration (TypeScript checker comparison)",
+        "each of the nine routes is registered exactly once, from src/support_routes.ts, wired once at the original point",
+        "admin guards remain the first statement of every admin handler; the public intake keeps honeypot, validation, per-client cap and DB caps before any write",
+        "every test/script that read frontend_runtime.ts as text still covers the moved code: fixed lists and fixtures include the module, absence scans read it, moved pins retargeted with identical regexes",
+        "route inventory unchanged (220 routes, no field diff)",
+        "the five support suites, all frontend_runtime consumers, release-tool tests and static gates pass",
+        "independent senior review and Codex on the exact PR head; Siton CI green on the exact head before merge"
+      ]
+    },
+    {
+      "id": "R1",
+      "agent": "claude-subagent",
+      "role": "reviewer",
+      "senior": true,
+      "tier": "senior",
+      "scope": "independent read-only senior review of B1 against the actual diff: verbatim move, auth-before-observation, rate limits, gate coverage, structural test strength",
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "verdict MERGE or DO NOT MERGE with concrete failure scenarios for every finding"
+      ]
+    },
+    {
+      "id": "R2",
+      "agent": "codex",
+      "role": "reviewer",
+      "tier": "senior",
+      "scope": "Codex review of the exact PR head",
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "clean Codex verdict on the final head"
+      ]
+    }
+  ]
+}
