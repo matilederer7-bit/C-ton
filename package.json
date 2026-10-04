@@ -173,8 +173,8 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1139.0",
-    "@aws-sdk/s3-request-presigner": "^3.1139.0",
+    "@aws-sdk/client-s3": "^3.1144.0",
+    "@aws-sdk/s3-request-presigner": "^3.1144.0",
     "@capacitor/android": "^8.5.2",
     "@capacitor/app": "^8.1.1",
     "@capacitor/browser": "^8.0.4",
@@ -186,10 +186,10 @@
     "@capacitor/push-notifications": "^8.1.2",
     "@capacitor/share": "^8.0.2",
     "@siton/secure-storage": "file:mobile-plugins/siton-secure-storage",
-    "dotenv": "^18.0.4",
+    "dotenv": "^18.0.5",
     "exceljs": "^4.4.0",
     "fastify": "^5.12.5",
-    "pg": "^8.23.0",
+    "pg": "^8.23.1",
     "pino": "^10.3.1"
   },
   "devDependencies": {
