@@ -400,6 +400,9 @@ Deleting `renderTrackingPage` would delete the only legacy implementation of 1�
 - npm scripts (157): mapped — the only identical pairs (`dev`/`start`, `lint`/`scan:backend`, `proof:no-real-money`/`gate:real-money`) all have consumers in docs, workflows or scripts; the 22 scripts without a textual consumer are developer entry points (CI group runners `test:unit|db|api|payments|e2e`, single-test shortcuts, `i18n:build`, `start:demo`), not aliases. Zero-consumer aliases: none, so nothing deleted.
 - Further `frontend_runtime.ts` / `app.ts` route-group moves (admin ops, support, pilot, `/app` shell; ops and seller-deal
   routes) — one concern per PR.
+  Done 2026-10-04: support (#219), seller fulfillment (#222), admin control-center R6 reads (`src/admin_control_center_routes.ts`,
+  six GET routes; `frontend_runtime.ts` 9,819 → 9,394). Next candidate: the remaining admin read group (pilot metrics, growth,
+  viral admin reads, demo readiness).
 - NOT mechanical (separate senior workstreams): `paymentMinorAmount`, `parsePositiveIntegerQuantity`, `roundMoney`,
   `sha256`, token generation, peppered hash, cookie parsers, `requireUuid`.
 

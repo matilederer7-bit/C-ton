@@ -42,7 +42,9 @@ const allSource = [
   // support routes moved out of frontend_runtime.ts by the Lean Refactor; stay in the static scan
   await readFile("src/support_routes.ts", "utf8"),
   // seller fulfillment, delivery and export routes moved out of frontend_runtime.ts by the Lean Refactor; stay in the static scan
-  await readFile("src/seller_fulfillment_routes.ts", "utf8")
+  await readFile("src/seller_fulfillment_routes.ts", "utf8"),
+  // admin control-center (R6) read routes moved out of frontend_runtime.ts by the Lean Refactor; stay in the static scan
+  await readFile("src/admin_control_center_routes.ts", "utf8")
 ].join("\n");
 
 await runTest("security_admin_auth_validation", async () => {
