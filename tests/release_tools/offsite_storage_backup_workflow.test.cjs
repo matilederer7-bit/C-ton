@@ -36,6 +36,19 @@ test("backup is secrets-gated, integrity checked, encrypted and download-verifie
   assert.doesNotMatch(workflow, /age --decrypt/);
 });
 
+test("source plaintext is destroyed before the off-site upload step", () => {
+  const encryptStart = workflow.indexOf("- name: Archive and encrypt with owner public key");
+  const uploadStart = workflow.indexOf("- name: Upload encrypted archive to off-site storage", encryptStart);
+  assert.ok(encryptStart >= 0 && uploadStart > encryptStart);
+  const beforeUpload = workflow.slice(encryptStart, uploadStart);
+  assert.match(beforeUpload, /find "\$SOURCE_BUCKET" -type f -exec shred -u/);
+  assert.match(beforeUpload, /rm -rf "\$SOURCE_BUCKET"/);
+  assert.match(beforeUpload, /shred -u source-inventory\.json/);
+  const uploadAndLater = workflow.slice(uploadStart);
+  assert.doesNotMatch(uploadAndLater, /source-inventory\.json/);
+  assert.doesNotMatch(uploadAndLater, /"\$SOURCE_BUCKET"/);
+});
+
 test("workflow has minimal GitHub permissions and no marketplace actions", () => {
   assert.match(workflow, /permissions:\s*\n\s*contents: read/);
   assert.doesNotMatch(workflow, /^\s*uses:/m);
