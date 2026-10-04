@@ -320,27 +320,26 @@ Sixth pass on `4746d43`: DO NOT MERGE — two cases `eb7c2b4` caught were lost (
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
 
 <!-- AGENT_STATUS:chatgpt:START -->
-### ChatGPT latest milestone — health/readiness extraction closed on master and staging
+### ChatGPT active Lean Refactor work — two isolated slices
 
 - UPDATED: 2026-10-04
 - COMPLETED:
-  - PR #212 merged into `master` as `4acc867e56fe7b3b330bc6bfa2aa867563587a10`.
-  - GET `/health` and GET `/readiness` now live in `src/operational_health_routes.ts`; `readinessProbe` remains created/exported in `src/app.ts`.
-  - PR #202 Mission Control coverage was preserved across the overlapping source-pin and gate files.
-  - Original PR #205 was superseded; no stale branch was used for the merge.
+  - PR #215: seller deal-image route extraction from `src/app.ts`; exact-head Siton CI #432 is green. Independent review is still open, so it is not merged.
+  - Parallel branch `chatgpt/delete-dead-legacy-renderers`: deleted seven superseded no-dispatcher renderers from `frontend/app.js`, reducing it from 9,338 to 8,521 physical lines (−817). Added a regression guard and Lean-map update.
+  - `renderTrackingPage` is deliberately retained because two §8.2 product requirements remain an owner decision: buyer document visibility and cumulative progress chart.
 - TESTED:
-  - Master Siton CI run 424 on exact merge SHA `4acc867`: SUCCESS.
-  - FULL lanes green, including static gates, database preflight, Docker smoke/release lab, API, unit/DB/workers, payments, security, integration-failure, concurrency and all three E2E shards.
-  - Render canonical `siton-staging-web` and `siton-staging-worker`: LIVE on exact `4acc867`.
-  - Render web health-check path is `/readiness`; the current connector verified the deployment state but did not expose the response headers for an independent external read-back.
+  - PR #215 exact-head Siton CI #432: SUCCESS.
+  - Renderer-deletion branch has source-level regression coverage; full exact-head CI/review not run yet at this status commit.
 - OPEN:
-  - No code, review, CI or deploy blocker remains for this slice.
-  - Optional evidence-only follow-up: external HTTP read-back of `/health` and the `x-readiness-cache` / `x-readiness-age-ms` headers when an egress-capable browser is available.
-  - Production Readiness remains the active owner-driven track; real money remains blocked.
-- PERCENT: 100% for the health/readiness extraction slice. Production Readiness remains 21% (6/28).
+  - PR #215: independent senior review, merge, master CI and staging verification.
+  - Renderer-deletion slice: PR, exact-head CI, independent review, merge, master verification.
+  - No real-money, payments, auth, state-machine, DB, Supabase or Render configuration change is part of either slice.
+- PERCENT:
+  - PR #215: 85% (code + CI done; review/merge/staging open).
+  - Renderer deletion: 70% (deletion + guard + docs done; PR/CI/review/merge open).
 - NEXT:
-  - Stop Lean Refactor work unless a concrete defect appears.
-  - Work Production Readiness blockers, starting with PR-6 through PR-8 backup and restore evidence, without enabling real money or touching Grow live mode.
+  - Close #215 only after independent review on its latest head.
+  - Open and validate the renderer-deletion PR independently; do not merge it merely because #215 is green.
 <!-- AGENT_STATUS:chatgpt:END -->
 
 
