@@ -1,5 +1,5 @@
 {
-  "task": "Shorten CI wall-clock for safe docs/metadata changes without weakening any gate: audit the META-profile proposal against the measured critical path (verdict: NO CHANGE to profiles, static-gates is not the bottleneck), and remove the real bottleneck, the serial legal-gate mutation suite inside the release-tool tests, by running its independent gate processes concurrently with unchanged assertions.",
+  "task": "Shorten CI wall-clock for safe docs/metadata changes without weakening any gate: audit the META-profile proposal against the measured critical path. Verdict: NO CHANGE to profiles, classifier, verdict or workflow (static-gates is not the bottleneck; the CPU-bound release-tool suite is). A concurrency change to legal_gate.test.cjs was tried, measured on the exact PR head (no runner gain: 218 s -> 213 s) and reverted; the record and the two remaining levers are in docs/CI_TEST_STRATEGY.md.",
   "lead": "claude-lead",
   "base": "origin/master",
   "open_branches": [
@@ -9,10 +9,9 @@
     "origin/dependabot/npm_and_yarn/production-minor-patch-9c12172c6f",
     "origin/dependabot/npm_and_yarn/web/vite-8.3.1"
   ],
-  "overlap_decision": "TEAM_PLAN_FAIL accepted and recorded: the only overlap is tests/release_tools/legal_gate.test.cjs on origin/claude/health-readiness-routes-extract (PR #205), which edits two FIXTURE_FILES entries (lines 13-20) and the file of the first MUTATIONS entry (lines 66-73). This task edits the require line, runGate() and the describe() wrapper (lines 8-65), the four test() signatures and the file end; `git merge-tree --write-tree` of this head against that branch reports no conflict in this file (its only conflicts, scripts/web_route_inventory.cjs and tests/legacy_runtime_isolation_validation.ts, pre-exist between master and #205 and are untouched here). Whichever merges second rebases trivially. PROJECT_STATUS.md is deliberately not in this task while #205 is open.",
+  "overlap_decision": "No overlap on the final head: the attempted edit of tests/release_tools/legal_gate.test.cjs (also edited on origin/claude/health-readiness-routes-extract, PR #205) was reverted after measurement, so this task changes only docs/CI_TEST_STRATEGY.md and this plan. PROJECT_STATUS.md is deliberately not in this task while #205 is open.",
   "interface_contract": {
-    "tests/release_tools/support/fixture_repo.cjs": "createFixtureRepo(relFiles).runAsync(scriptRel, args, env) -> Promise<{status, signal, stdout, stderr, error}>; same cwd/env/timeout contract as run(), never rejects on a non-zero exit, status null when the child was killed. run() is unchanged.",
-    "tests/release_tools/legal_gate.test.cjs": "same controls, same mutations, same expected messages; declared inside one describe() with concurrency = min(8, max(2, os.availableParallelism())) and async bodies awaiting runAsync()"
+    "docs/CI_TEST_STRATEGY.md": "audit record only; no script, workflow or test contract changes"
   },
   "assignments": [
     {
@@ -20,10 +19,8 @@
       "agent": "claude-lead",
       "role": "builder",
       "tier": "senior",
-      "scope": "CI wall-clock: the legal-gate test suite scheduling, the shared fixture runner, the CI strategy document (audit + measurements) and this plan",
+      "scope": "CI wall-clock audit: the CI strategy document (META audit, baseline, exact-head measurement of the attempted change, remaining levers) and this plan",
       "allowed": [
-        "tests/release_tools/legal_gate.test.cjs",
-        "tests/release_tools/support/fixture_repo.cjs",
         "docs/CI_TEST_STRATEGY.md",
         "docs/team-plans/2026-10-04-ci-release-tools-wallclock.json"
       ],
@@ -34,19 +31,16 @@
         "scripts/",
         "config/",
         ".github/",
-        "tests/*.ts",
-        "tests/helpers/",
+        "tests/",
         "package.json",
         "package-lock.json",
         "PROJECT_STATUS.md"
       ],
       "depends_on": [],
       "dod": [
-        "every control and mutation of legal_gate.test.cjs still runs, with the same anchor, the same mutation and the same expected message; no test removed, skipped or weakened",
-        "a gate forced to exit 0 makes every mutation test fail; a gate forced to exit 1 makes every control fail (proof that the suite still detects a broken gate)",
-        "npm run test:release-tools passes locally and in CI (static-gates/preflight-database/focused-tests), and the legal-gate file no longer dominates the step",
-        "docs/CI_TEST_STRATEGY.md records the META audit (per gate: inputs, metadata sensitivity, risk if skipped, duplication), the measured bottleneck and the before/after wall-clock on the exact PR head",
-        "no classifier rule, verdict rule, workflow job or gate changes; the META profile is not introduced"
+        "docs/CI_TEST_STRATEGY.md records the META audit (per gate: inputs, metadata sensitivity, risk if skipped, duplication), the per-job baseline, the exact-head measurement of the attempted concurrency change and why it was reverted, and the two remaining levers with expected numbers",
+        "no classifier rule, verdict rule, workflow job, gate or test changes; the META profile is not introduced; the final head differs from master only in docs/",
+        "Siton CI green on the exact head (FAST, since the head is docs-only)"
       ]
     },
     {
@@ -55,7 +49,7 @@
       "role": "reviewer",
       "senior": true,
       "tier": "senior",
-      "scope": "Independent adversarial review (security-auditor posture): concurrency hazards between fixtures, exit-status mapping of runAsync vs spawnSync, assertion equivalence per test, nothing weakened",
+      "scope": "Independent review of the audit's claims against the CI logs and the code it cites (gate inputs, test coverage claims, measurements)",
       "reviews": [
         "B1"
       ],

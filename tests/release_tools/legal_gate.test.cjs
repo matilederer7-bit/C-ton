@@ -5,8 +5,7 @@
 //   code that handles a CVV field            => FAIL
 //   unconditional seller KYC refusal         => FAIL
 //   age gate / marketing opt-in surfaces     => FAIL
-const { describe, test } = require("node:test");
-const os = require("node:os");
+const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createFixtureRepo } = require("./support/fixture_repo.cjs");
 
@@ -45,32 +44,16 @@ const FIXTURE_FILES = [
   "scripts/legal_compliance_gate.cjs"
 ];
 
-async function runGate(fixture) {
-  const result = await fixture.runAsync("scripts/legal_compliance_gate.cjs");
-  // A killed or unstartable child (status null) is named in the output so the
-  // failing assertion says why instead of "input '' did not match".
-  const killed = result.status === null ? `\n[gate process ended without an exit code: signal=${result.signal || "none"} error=${result.error ? result.error.code || result.error.message : "none"}]` : "";
-  return { status: result.status, out: String(result.stdout || "") + String(result.stderr || "") + killed };
+function runGate(fixture) {
+  const result = fixture.run("scripts/legal_compliance_gate.cjs");
+  return { status: result.status, out: String(result.stdout || "") + String(result.stderr || "") };
 }
 
-// Every control and mutation below spawns the gate on its own disposable
-// fixture (mkdtemp; node_modules is a read-only link), and the gate writes
-// nothing outside stdout/stderr, so the runs are independent. Each run parses
-// the product with the TypeScript compiler (~2 s of CPU); run serially the
-// ninety-odd runs were the longest single step of every CI profile (measured
-// 2026-10-04: 204 s locally, 4.5-5 min on the runner). The suite therefore
-// runs its tests concurrently, one gate process per available CPU, capped at
-// eight so a large workstation does not hold dozens of TypeScript heaps while
-// node --test runs the sibling files beside this one. Assertions are
-// unchanged: every mutation must still fail the gate with its expected
-// message, every control must still pass.
-describe("legal compliance gate", { concurrency: Math.min(8, Math.max(2, os.availableParallelism())) }, () => {
-
-test("legal gate passes on the real product, keeps the CVV disclosure sentence, and reports the production KYC step as an owner decision", async () => {
+test("legal gate passes on the real product, keeps the CVV disclosure sentence, and reports the production KYC step as an owner decision", () => {
   const fixture = createFixtureRepo(FIXTURE_FILES);
   try {
     assert.match(fixture.read("src/legal_pages.ts"), /CVV/, "fixture must carry the legal CVV disclosure sentence");
-    const result = await runGate(fixture);
+    const result = runGate(fixture);
     assert.equal(result.status, 0, result.out);
     assert.match(result.out, /LEGAL_COMPLIANCE_GATE_PASS/);
     assert.match(result.out, /OWNER_DECISION seller publish requires verification_status=approved in production-like environments/);
@@ -614,11 +597,11 @@ for (const control of [
   { name: "VAT at 18% on the fee", file: "docs/SELLER_TERMS_HE.md", from: "אין שיעור עמלה שונה לעסקה.", to: "אין שיעור עמלה שונה לעסקה. על עמלת C-ton יחול מע״מ בשיעור 18%." },
   { name: "Siton's own fee is also collected on link-sourced joins", file: "docs/PRIVACY_POLICY_HE.md", from: "## למה המידע נאסף", to: "עמלת C-ton נגבית גם על הצטרפויות שהגיעו מלינק הפצה.\n\n## למה המידע נאסף" }
 ]) {
-  test("legal gate still passes on legitimate copy: " + control.name, async () => {
+  test("legal gate still passes on legitimate copy: " + control.name, () => {
     const fixture = createFixtureRepo(FIXTURE_FILES);
     try {
       fixture.mutate(control.file, control.from, control.to);
-      const result = await runGate(fixture);
+      const result = runGate(fixture);
       assert.equal(result.status, 0, result.out);
     } finally {
       fixture.cleanup();
@@ -627,11 +610,11 @@ for (const control of [
 }
 
 // Negative control: the verb "distribute a link" is ordinary seller copy, not a role.
-test("legal gate still passes when seller copy uses the verb 'distribute a link'", async () => {
+test("legal gate still passes when seller copy uses the verb 'distribute a link'", () => {
   const fixture = createFixtureRepo(FIXTURE_FILES);
   try {
     assert.match(fixture.read("frontend/app.js"), /ומפיצים לינק ישיר לקונים/);
-    const result = await runGate(fixture);
+    const result = runGate(fixture);
     assert.equal(result.status, 0, result.out);
     assert.doesNotMatch(result.out, /distributor-role wording returned/);
   } finally {
@@ -640,11 +623,11 @@ test("legal gate still passes when seller copy uses the verb 'distribute a link'
 });
 
 for (const mutation of MUTATIONS) {
-  test("legal gate fails when: " + mutation.name, async () => {
+  test("legal gate fails when: " + mutation.name, () => {
     const fixture = createFixtureRepo(FIXTURE_FILES);
     try {
       fixture.mutate(mutation.file, mutation.from, mutation.to, { all: Boolean(mutation.all) });
-      const result = await runGate(fixture);
+      const result = runGate(fixture);
       assert.notEqual(result.status, 0, "gate should fail: " + mutation.name + "\n" + result.out);
       assert.match(result.out, /LEGAL_COMPLIANCE_GATE_FAIL/);
       assert.match(result.out, mutation.expect);
@@ -653,5 +636,3 @@ for (const mutation of MUTATIONS) {
     }
   });
 }
-
-});

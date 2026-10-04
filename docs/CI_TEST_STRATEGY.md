@@ -123,7 +123,7 @@ A lane on an idle runner takes 2–2.5 minutes: about 40 s of setup (Postgres se
 
 The proof runs #129 and #130 were started together with the master run, #128 and two Dependabot runs. That put about 70 jobs against GitHub's concurrent-job limit, so lanes waited up to 9 minutes for a runner; `web-runtime-core` was created at 20:08:11 and started at 20:17:34. This queueing is the new bottleneck when many PRs run at once. It is a runner-capacity limit, not test time. Larger runners, or fewer simultaneous pushes, remove it.
 
-## 2026-10-04: META profile audit (verdict: no new profile) and the release-tool bottleneck
+## 2026-10-04: META profile audit (verdict: no change) and the release-tool bottleneck
 
 Question asked: can a fourth profile, META (`docs/team-plans/**`, `docs/archive/**`, `docs/BRANCH_CENSUS_*.md`, `docs/LEAN_REFACTOR_MAP_*.md`), below FAST, shorten CI for safe metadata changes without weakening a gate? The premise was that FAST barely saves wall-clock because of `static-gates`. The audit measured the runs instead of assuming.
 
@@ -170,20 +170,28 @@ For every gate of the FAST path: what it reads, whether a metadata-only change (
 Conclusions:
 
 1. The only job a META profile could remove from the FAST path with a wall-clock effect is `focused-tests`, and the only expensive thing in it is `legal_gate.test.cjs`. Skipping it for metadata changes is defensible in isolation (its fixture list does not touch the candidates), but it needs a new allowlist, new skip reasons in the verdict, a pin that the fixture list never grows into `docs/`, and it saves nothing on STANDARD/FULL, where the same suite sits on the FULL critical path inside `preflight-database`.
-2. The same wall-clock is recovered for **every** profile, with **no skip and no new classifier state**, by letting the 94 independent gate processes of `legal_gate.test.cjs` run concurrently (capped at eight) (each on its own `mkdtemp` fixture; the gate writes nothing but stdout/stderr). That is what this change does: `fixture.runAsync()` beside `run()`, and the suite declared with `concurrency = min(8, max(2, availableParallelism))`. Every control, mutation and expected message is unchanged; forcing the gate to always exit 0 still fails 72 tests (the 71 mutations and the real-product check, which needs the owner-decision warning), forcing it to always exit 1 still fails 93 (everything except the one mutation whose expected message the forced output happens to carry).
+2. Letting the 94 independent gate processes of `legal_gate.test.cjs` run concurrently (an async `fixture.runAsync()` and a `describe({ concurrency })` wrapper, assertions unchanged) was tried on PR #211 and **measured on the exact head, then reverted**. Locally it worked (the whole release-tool suite 270 s → 131 s on a container with ~2 effective cores). On the 4-vCPU runner it did not: the `release-tools-tests` gate inside `preflight-database` took 213 006 ms with the change (run 37180889481) against 218 103 ms without it (run 37179074808, master). The baseline FAST log (run 37179255449) explains why: the 94 legal-gate runs already cost 2.8 s each there (267 s of CPU, against 2.1 s alone locally), the other 339 subtests another 147 s, and `node --test` already runs three files side by side, so the runner is CPU-bound at roughly 300 s of work for the suite and more processes only share the same cores. A change that helps the local loop but not CI was not worth the extra contention for the timing-bound sibling tests (`migration_runner_hardening`, `runtime_shutdown`), so it is not in master.
 3. `PROJECT_STATUS.md` stays FAST: `agent_efficiency_v2.test.cjs` reads it, and FAST runs that test. Nothing below FAST is introduced; `docs/team-plans/**`, `docs/archive/**`, census and refactor-map files stay `docs` (trivial) under the existing allowlist and keep every static gate (seven-day sweep, secret/PII scan) that actually reads them. For team plans those static scans are the whole automated coverage: no CI job enumerates `docs/team-plans/*.json`, the checker is run by the lead on the plan it commits.
 
 **Verdict: no META profile.** The classifier, the verdict and the workflow are unchanged. FAST, STANDARD and FULL keep exactly their gates.
 
-### After
+### Measured on the exact head (run 37180889481, FULL, `d3af172` with the concurrency change)
 
-| Measurement | Before | After |
+| Measurement | master `7c5c0ed` (run 37179074808) | PR head with the concurrency change |
 |---|---|---|
-| `legal_gate.test.cjs`, local, 4 CPUs | 204 s | 105 s |
-| `npm run test:release-tools`, local, no database (container limited to ~2 effective cores) | 270 s (master worktree; 433 tests, 423 pass, 10 environment skips; partly contended by a parallel run, but bounded below by the 204 s legal-gate file) | 131 s (same 433 / 423 / 10 / 0 fail) |
-| focused-tests `Release-tool tests` step (FAST) | 4m29s–4m53s | filled from the PR head run |
-| FAST wall-clock | 5m41s–6m26s | filled from the first docs-only run on master after merge |
-| FULL wall-clock | 5m51s–6m38s | filled from the PR head run (this PR is FULL: it edits a release-tool test) |
+| `release-tools-tests` gate inside `preflight-database` | 218 103 ms | 213 006 ms |
+| `preflight-database` job | 5m22s | 5m37s |
+| FULL wall-clock (run created → `ci-verdict` done) | 5m51s | 6m37s (34 s of it waiting for a runner) |
+| `npm run test:release-tools`, local, ~2 effective cores | 270 s | 131 s |
+
+### What would shorten FAST and FULL (not done here; each is its own decision)
+
+Both profiles end on the same CPU-bound release-tool suite (about 300 s of CPU on the runner, 160 s of it the legal gate parsing `web/src` with the TypeScript compiler 94 times). Two levers remain, neither of which skips a gate:
+
+1. **Run the suite on its own job.** Today it is the last serial gate of `preflight-database` (FULL) and the long step of `focused-tests` (FAST). A dedicated job for `legal_gate.test.cjs` (or for the whole release-tool suite, out of the preflight chain) would cut the FULL critical path from ~5m30s to the test lanes' ~2m30s–3m30s, and FAST from ~5m30s to about 45 s of setup plus ~100 s of tests, at the cost of one more runner job per run and a `ci_verdict.cjs` row for it. It needs `.github/workflows/ci.yml`, `scripts/ci_verdict.cjs`, the lane contract in `scripts/ci_change_classifier.cjs` and their tests (FULL profile, senior review), and the "every standard gate runs in exactly one job" test keeps the gate from being lost.
+2. **Make the legal gate cheaper per run.** Its 1.7 s of TypeScript parsing per run is spent on files the mutation did not change; parsing `web/src` once per process is inherent to a gate that is one process. A gate-side cache or a narrower product scan is a change to `scripts/legal_compliance_gate.cjs` / `scripts/lib/raw_card_terms.cjs` (security tooling, FULL profile, senior review) and must keep every mutation of `legal_gate.test.cjs` failing.
+
+Until one of those is taken, FAST stays as it is: about 5m30s–6m30s, of which `static-gates` is never the limiting job.
 
 ## Local equivalents
 
