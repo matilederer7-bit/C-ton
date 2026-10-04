@@ -1,5 +1,5 @@
 {
-  "task": "Lean Refactor: delete seven superseded frontend/app.js legacy renderers with no dispatcher callers, while preserving the completed-deal Excel export on the live renderCtonSellerDealPage and deliberately retaining renderTrackingPage because two tracking-only product requirements remain an owner decision.",
+  "task": "Lean Refactor: delete seven superseded frontend/app.js legacy renderers with no dispatcher callers, port the completed-deal Excel export to the live renderCtonSellerDealPage, retarget stale hold-copy assertions to live renderers, and retain renderTrackingPage pending the owner decision on tracking gaps.",
   "lead": "chatgpt",
   "base": "origin/master@6f1791e916afbfbea6069e2e751d6d7031b70fa6",
   "open_branches": [
@@ -11,7 +11,7 @@
       "agent": "chatgpt",
       "role": "builder",
       "tier": "standard",
-      "scope": "delete the seven superseded renderers; preserve completed-deal Excel export on renderCtonSellerDealPage; retarget stale whole-file assertions to the live renderCton* surfaces; keep renderTrackingPage pending owner decision",
+      "scope": "delete renderHomeLegacy, renderDealPage, renderOtpPage, renderPaymentPage, renderConfirmationPage, renderSellerPage and renderSellerDealPage; preserve completed-deal Excel export on renderCtonSellerDealPage; retarget payment hold-copy checks to the live surface; keep renderTrackingPage",
       "allowed": [
         "frontend/app.js",
         "tests/frontend_dead_legacy_renderers_validation.ts",
@@ -31,10 +31,10 @@
       ],
       "depends_on": [],
       "dod": [
-        "exactly seven documented dead legacy renderers are removed",
+        "exactly seven superseded legacy renderers are removed",
         "renderTrackingPage remains until the owner decides §8.2 document visibility/chart gaps",
         "all corresponding renderCton* live replacements remain",
-        "completed deals retain seller Excel export on the live renderCtonSellerDealPage and no non-Completed state exposes that button",
+        "completed deals expose seller Excel export on live renderCtonSellerDealPage and non-Completed states do not",
         "payment hold-copy assertions target the live renderCtonPaymentPage rather than dead code",
         "no route, money backend, auth, state-machine, DB, provider, Supabase or Render change",
         "relevant frontend tests and Siton CI green on exact head",
