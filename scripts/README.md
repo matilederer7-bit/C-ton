@@ -11,7 +11,7 @@ Canonical / operational (prescribed by live runbooks, no automated caller):
 - `r3_hosted_proof.cjs` — hosted proof named by the deployment, credential-compromise,
   disaster-recovery and security-incident runbooks
 - `restart_server_clean.ps1`, `restart_server_tsnode_clean.ps1`, `register-ts-node.mjs` —
-  `docs/OPERATIONAL_RUNBOOK.md` restart procedure
+  `docs/OPERATIONAL_RUNBOOKS.md` §16 local restart procedure
 - `r7r8_browser_proof.cjs`, `launch_polish_browser_proof.cjs`, `buyer_polish_browser_proof.cjs`,
   `pickup_fulfillment_browser_proof.cjs`, `p0_browser_proof.cjs` — `docs/DEPLOYMENT_RUNBOOK.md` §10
 - `pilot_readiness_proof.cjs` — `docs/PILOT_LAUNCH_RUNBOOK.md`
