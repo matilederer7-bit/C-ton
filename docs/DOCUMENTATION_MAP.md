@@ -1,6 +1,6 @@
 # Siton Documentation Map
 
-Updated: 2026-09-30. Owner decision: a new agent must understand Siton without reading hundreds of documents.
+Updated: 2026-10-04. Owner decision: a new agent must understand Siton without reading hundreds of documents.
 
 Three tiers. A document's tier is decided by its role today, not by its title. Historical documents stay in Git for their evidence value; they are never authority.
 
@@ -12,7 +12,7 @@ Three tiers. A document's tier is decided by its role today, not by its title. H
 
 Physical relocation of ARCHIVE files into `docs/archive/` is incremental and mechanical: several gates and tests read documents by path (`scripts/architecture_truth_gate.cjs`, `scripts/legal_compliance_gate.cjs`, `src/admin_mission_control.ts`, `tests/*`), so moves happen in small consumer-proven batches, never in bulk. D5 batches 1–5 (2026-10-01) moved one hundred and seven zero-consumer records (the Morning Handoffs and their DECISION / ISSUES / LOG companions; delivery, closure and audit reports, including the eight `*_DELIVERY_REPORT.md` files that sat at the repository root; stage, pass, red-team, payment-plan and decision records) without changing their contents. Batch 6 moved 39 ARCHIVE records that only other documents link (the links in active documents now point into `docs/archive/`; links inside archived records are left as history). The 29 ARCHIVE documents still outside `docs/archive/` are read by code, a test, a config or a team plan, or linked from a record that stays for that reason, or keep their path by the D2 decision; they stay where their consumer needs them. `docs/archive/` is tracked (`.gitignore` exception) and stays inside every repository scan (`scripts/lib/repo_scan_policy.cjs` `INCLUDED_DIR_PATHS`), so archiving a document never removes it from the secret/PII scan or the sweeps.
 
-Counts: CANONICAL 12 · REFERENCE 100 · ARCHIVE 176 (288 documents: everything under `docs/`, including `docs/archive/`, plus — before Lean Refactor D5 — the root reports, which now live in `docs/archive/`; `legacy/render/README.md` and `legacy/render/docs/*` were deleted by Lean Refactor D3-B on 2026-10-01). Out of scope: `.claude/agents/*.md` (agent definitions, CI-checked), `scripts/README.md`, `scripts/retired/README.md`, `ios/App/CapApp-SPM/README.md`.
+Counts after the 2026-10-04 cleanup: CANONICAL 12 · REFERENCE 102 · ARCHIVE 174 = **288 mapped Markdown documents** (284 Markdown files under `docs/` plus the four root canonical files `AGENTS.md`, `CLAUDE.md`, `AI_WORKFLOW.md`, `PROJECT_STATUS.md`). Non-Markdown support/data files under `docs/` — 23 JSON, 11 DOCX and 1 SQL file — are not tier rows. Out of scope: `.claude/agents/*.md` (agent definitions, CI-checked), `scripts/README.md`, `scripts/retired/README.md`, `ios/App/CapApp-SPM/README.md`.
 
 ## CANONICAL (read these)
 
@@ -29,6 +29,8 @@ Counts: CANONICAL 12 · REFERENCE 100 · ARCHIVE 176 (288 documents: everything 
 | `docs/CLAUDE_TEAM_LEAD.md` | lead procedure |
 | `docs/ENGINEERING_OPERATING_SYSTEM.md` | engineering model and tiers |
 | `docs/CI_TEST_STRATEGY.md` | CI rules |
+| `docs/LEAN_REFACTOR_MAP_2026-09-30.md` | Lean Refactor Map | active repository cleanup / decomposition plan and evidence |
+| `docs/BRANCH_CENSUS_2026-10-02.md` | Branch Census | current branch recovery / deletion census used by the refactor |
 | `docs/DOCUMENTATION_MAP.md` | this map |
 
 Reading order for a new agent is exactly the "Start every meaningful task" list in `AGENTS.md` (this map neither shortens nor reorders it): 1. constitution → 2. current architecture → 3. `PROJECT_STATUS.md` → 4. `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md` (and any newer canonical amendment) → 5. `docs/CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md` → 6. `AI_WORKFLOW.md` → 7. the task-relevant REFERENCE docs plus the relevant migration, runbook and test files. `CLAUDE.md` is the Claude Code entry point that leads into `AGENTS.md`, and `docs/CLAUDE_TEAM_LEAD.md` is read additionally when acting as lead; neither changes that order.
@@ -318,9 +320,7 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/UX_NIGHT_REINTEGRATION.md` | Overnight UX reintegration | night report |
 | `docs/archive/V1_1_BASE44_PRE_ACTIVATION_SNAPSHOT.md` | V1.1 Base44 pre-activation snapshot | Base44-era |
 | `docs/archive/V1_1_RESUMED_LIVE_CLOSURE_2026-08-26.md` | V1.1 Resumed Live-Closure | Base44-era |
-| `docs/archive/db-drift-resolution.md` | db-drift-resolution | old note, unreadable |
 | `docs/foundation-canonical-2026-04-18/README.md` | Foundation pack, HISTORICAL SOURCE | marked historical/obsolete |
-| `docs/archive/runtime-contract-resolution.md` | runtime-contract-resolution | old note, unreadable |
 | `docs/archive/USER_TEST_CONDITIONAL_DEAL_PLAN.md` | Conditional Deal User Test Plan | research plan from 2026-08-23, not an operating document |
 | `docs/archive/PROJECT_STATUS_HISTORY_TO_2026-09-30.md` | PROJECT_STATUS history (to 2026-09-30) | status history moved verbatim by the D5 status trim (2026-10-02) |
 
@@ -335,7 +335,6 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 
 ## Housekeeping candidates (not done here)
 
-- `docs/archive/db-drift-resolution.md`, `docs/archive/runtime-contract-resolution.md`: unreadable encoding, zero consumers — DELETE CANDIDATES (owner decision; kept archived until then).
 - `docs/OPERATIONAL_RUNBOOK.md` overlaps `docs/OPERATIONAL_RUNBOOKS.md` (PowerShell era).
 - `docs/archive/HOUSEKEEPING_SUMMARY.md` points at a file that no longer exists.
 - `PROJECT_STATUS.md` carries ~900 lines of milestone history; the standing rule already says history lives in Git.
