@@ -23,6 +23,7 @@ const FIXTURE_FILES = [
   "src/seller_fulfillment_routes.ts",
   "src/admin_control_center_routes.ts",
   "src/admin_growth_routes.ts",
+  "src/admin_demo_readiness_routes.ts",
   "src/legal_pages.ts",
   "src/admin_mission_control.ts",
   "src/payment_provider.ts",

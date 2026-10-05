@@ -226,9 +226,9 @@ try {
   });
 
   await run("guardrails: no duplicate catalog/search API, affiliate payout, or request-thread money action", async () => {
-    // support, seller fulfillment, admin control-center (R6) and admin growth routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
+    // support, seller fulfillment, admin control-center (R6), admin growth and admin demo-readiness routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
     const [frontendRuntime, appTs, appJs] = await Promise.all([
-      Promise.all([readFile("src/frontend_runtime.ts", "utf8"), readFile("src/support_routes.ts", "utf8"), readFile("src/seller_fulfillment_routes.ts", "utf8"), readFile("src/admin_control_center_routes.ts", "utf8"), readFile("src/admin_growth_routes.ts", "utf8")]).then((parts) => parts.join("\n")),
+      Promise.all([readFile("src/frontend_runtime.ts", "utf8"), readFile("src/support_routes.ts", "utf8"), readFile("src/seller_fulfillment_routes.ts", "utf8"), readFile("src/admin_control_center_routes.ts", "utf8"), readFile("src/admin_growth_routes.ts", "utf8"), readFile("src/admin_demo_readiness_routes.ts", "utf8")]).then((parts) => parts.join("\n")),
       readFile("src/app.ts", "utf8"),
       readFile("frontend/app.js", "utf8")
     ]);

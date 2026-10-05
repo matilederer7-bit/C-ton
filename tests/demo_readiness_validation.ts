@@ -3,10 +3,20 @@ import { readFile } from "node:fs/promises";
 
 // ── Static checks (no server needed) ─────────────────────────────────────────
 
-// support, seller fulfillment, admin control-center (R6) and admin growth routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
-const frontendRuntime = (await readFile("src/frontend_runtime.ts", "utf8")) + "\n" + (await readFile("src/support_routes.ts", "utf8")) + "\n" + (await readFile("src/seller_fulfillment_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_control_center_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_growth_routes.ts", "utf8"));
+// support, seller fulfillment, admin control-center (R6), admin growth and admin demo-readiness routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
+const frontendRuntime = (await readFile("src/frontend_runtime.ts", "utf8")) + "\n" + (await readFile("src/support_routes.ts", "utf8")) + "\n" + (await readFile("src/seller_fulfillment_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_control_center_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_growth_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_demo_readiness_routes.ts", "utf8"));
 const frontendApp     = await readFile("frontend/app.js", "utf8");
 const platformFee     = await readFile("src/platform_fee_money.ts", "utf8");
+
+// The route's handler text: an 8000-character window from its registration.
+// The route moved into src/admin_demo_readiness_routes.ts (Lean Refactor),
+// which the scan reads; a missing anchor fails loudly instead of slicing from
+// -1 (which would scan the wrong text and pass vacuously).
+function demoReadinessBlock() {
+  const at = frontendRuntime.indexOf("/api/admin/demo-readiness");
+  assert.ok(at >= 0, "the demo-readiness route text must be in the scanned sources");
+  return frontendRuntime.slice(at, at + 8000);
+}
 
 function check(name: string, fn: () => void) {
   try { fn(); console.log("PASS " + name); }
@@ -31,19 +41,13 @@ check("SITON_PLATFORM_FEE_RATE is 0.08", () => {
 
 // No direct capture/refund/void/payout in the new endpoint block
 check("demo-readiness endpoint has no money mutation", () => {
-  const block = frontendRuntime.slice(
-    frontendRuntime.indexOf("/api/admin/demo-readiness"),
-    frontendRuntime.indexOf("/api/admin/demo-readiness") + 8000
-  );
+  const block = demoReadinessBlock();
   assert.doesNotMatch(block, /capture|refund|void|payout\.execute|\.sale\(/i);
 });
 
 // No state transition in the new endpoint
 check("demo-readiness endpoint has no state transition", () => {
-  const block = frontendRuntime.slice(
-    frontendRuntime.indexOf("/api/admin/demo-readiness"),
-    frontendRuntime.indexOf("/api/admin/demo-readiness") + 8000
-  );
+  const block = demoReadinessBlock();
   assert.doesNotMatch(block, /UPDATE\s+siton\.(deals|participants)\s+SET\s+state/i);
 });
 

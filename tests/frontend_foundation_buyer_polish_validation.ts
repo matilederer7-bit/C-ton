@@ -56,6 +56,9 @@ const [dealPage, trackPage, landingPage, landingHe, landingEn, appTsx, component
 // The owner pilot metrics (with the feedback aggregate) moved out of
 // frontend_runtime.ts into src/admin_growth_routes.ts (Lean Refactor); its pins follow it.
 const adminGrowthRoutes = await readFile("src/admin_growth_routes.ts", "utf8");
+// The R6 control-center reads and the demo-readiness read also sat after the
+// feedback route in the runtime; they moved out the same way (Lean Refactor).
+const laterAdminReadRoutes = (await readFile("src/admin_control_center_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_demo_readiness_routes.ts", "utf8"));
 
 run("P1: the deal page answers WHAT/WHY/WHAT-IF at the top and the needed/deadline facts from canonical fields", () => {
   assert.match(dealPage, /data-testid="deal-explainer">\{dealCopy\.explainer\}/);
@@ -309,8 +312,9 @@ run("analytics: the pilot funnel stays on the existing rail — deal_view, join_
   assert.match(dealPage, /sendFunnelEvent\(dealId, "inquiry_started", \{ once_key: sessionId\(\) \}\)/);
   assert.match(components, /"share_button_click"/);
   assert.match(viral, /export type FunnelEventType = "deal_view" \| "share_button_click" \| "join_started" \| "join_failed" \| "inquiry_started";/, "no new funnel event type");
-  // the slice used to run to the end of the runtime and so also covered the moved pilot-metrics aggregate
-  assert.doesNotMatch(runtime.slice(runtime.indexOf('app.post("/api/deals/:dealId/feedback"')) + "\n" + adminGrowthRoutes, /CREATE TABLE|ALTER TABLE/, "feedback route creates no schema");
+  // the slice used to run to the end of the runtime and so also covered the routes that later moved out after it
+  // (pilot-metrics aggregate, R6 control-center reads, demo readiness); it keeps reading them
+  assert.doesNotMatch(runtime.slice(runtime.indexOf('app.post("/api/deals/:dealId/feedback"')) + "\n" + adminGrowthRoutes + "\n" + laterAdminReadRoutes, /CREATE TABLE|ALTER TABLE/, "feedback route creates no schema");
 });
 
 console.log(`BUYER_POLISH_FOUNDATION passed=${passed} failed=${failed}`);
