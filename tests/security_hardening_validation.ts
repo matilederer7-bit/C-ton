@@ -44,7 +44,9 @@ const allSource = [
   // seller fulfillment, delivery and export routes moved out of frontend_runtime.ts by the Lean Refactor; stay in the static scan
   await readFile("src/seller_fulfillment_routes.ts", "utf8"),
   // admin control-center (R6) read routes moved out of frontend_runtime.ts by the Lean Refactor; stay in the static scan
-  await readFile("src/admin_control_center_routes.ts", "utf8")
+  await readFile("src/admin_control_center_routes.ts", "utf8"),
+  // admin pilot / growth / viral read routes moved out of frontend_runtime.ts by the Lean Refactor; stay in the static scan
+  await readFile("src/admin_growth_routes.ts", "utf8")
 ].join("\n");
 
 await runTest("security_admin_auth_validation", async () => {
@@ -58,7 +60,9 @@ await runTest("security_admin_auth_validation", async () => {
   // R6: admin READ surfaces gate through requireAdminRead (named identity via
   // Supabase/cookie, or the timing-safe ops key inside requireAdminKey).
   assert.match(runtime, /function requireAdminRead/);
-  assert.ok((runtime.match(/await requireAdminRead\(req, reply\)/g) || []).length >= 10);
+  // the admin read routes moved out of frontend_runtime.ts (Lean Refactor) still count toward the bound
+  const adminReadSurfaces = runtime + "\n" + (await readFile("src/admin_control_center_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_growth_routes.ts", "utf8"));
+  assert.ok((adminReadSurfaces.match(/await requireAdminRead\(req, reply\)/g) || []).length >= 10);
   // the key check still backs the read guard (fail-closed when unconfigured in
   // production-like environments)
   assert.match(runtime, /return requireAdminKey\(req as FastifyRequest, reply as FastifyReply\);/);

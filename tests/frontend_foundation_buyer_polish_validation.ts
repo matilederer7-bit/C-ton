@@ -53,6 +53,9 @@ const [dealPage, trackPage, landingPage, landingHe, landingEn, appTsx, component
   readFile("web/src/viral.ts", "utf8"),
   readFile("web/src/mobileUrls.ts", "utf8")
 ]);
+// The owner pilot metrics (with the feedback aggregate) moved out of
+// frontend_runtime.ts into src/admin_growth_routes.ts (Lean Refactor); its pins follow it.
+const adminGrowthRoutes = await readFile("src/admin_growth_routes.ts", "utf8");
 
 run("P1: the deal page answers WHAT/WHY/WHAT-IF at the top and the needed/deadline facts from canonical fields", () => {
   assert.match(dealPage, /data-testid="deal-explainer">\{dealCopy\.explainer\}/);
@@ -250,7 +253,7 @@ run("P6: feedback — one question, fixed categories, bounded text, PII-free pay
   assert.match(route, /text\.length > BUYER_FEEDBACK_TEXT_MAX/);
   assert.match(route, /Number\(limits\.per_deal \|\| 0\) >= 60 \|\| Number\(limits\.total \|\| 0\) >= 200/);
   assert.match(route, /String\(body\.website \|\| ""\)\.trim\(\)/, "honeypot");
-  assert.match(runtime, /feedback: \{\s*\n\s*total: feedbackByCategory\.rows\.reduce/);
+  assert.match(adminGrowthRoutes, /feedback: \{\s*\n\s*total: feedbackByCategory\.rows\.reduce/);
   assert.match(adminPage, /data-testid="pilot-feedback"/);
   assert.match(trackPage, /surface="tracking"/);
 });
@@ -306,7 +309,8 @@ run("analytics: the pilot funnel stays on the existing rail — deal_view, join_
   assert.match(dealPage, /sendFunnelEvent\(dealId, "inquiry_started", \{ once_key: sessionId\(\) \}\)/);
   assert.match(components, /"share_button_click"/);
   assert.match(viral, /export type FunnelEventType = "deal_view" \| "share_button_click" \| "join_started" \| "join_failed" \| "inquiry_started";/, "no new funnel event type");
-  assert.doesNotMatch(runtime.slice(runtime.indexOf('app.post("/api/deals/:dealId/feedback"')), /CREATE TABLE|ALTER TABLE/, "feedback route creates no schema");
+  // the slice used to run to the end of the runtime and so also covered the moved pilot-metrics aggregate
+  assert.doesNotMatch(runtime.slice(runtime.indexOf('app.post("/api/deals/:dealId/feedback"')) + "\n" + adminGrowthRoutes, /CREATE TABLE|ALTER TABLE/, "feedback route creates no schema");
 });
 
 console.log(`BUYER_POLISH_FOUNDATION passed=${passed} failed=${failed}`);

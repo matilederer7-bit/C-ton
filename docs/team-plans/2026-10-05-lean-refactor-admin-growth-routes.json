@@ -1,0 +1,129 @@
+{
+  "task": "Lean Refactor: mechanically move the five read-only admin pilot / growth / viral routes out of src/frontend_runtime.ts into src/admin_growth_routes.ts with zero behaviour change; preserve the admin read guard, validation order, schema-check order, SQL, transactions, the shared viral-tree engine (stays in the runtime, injected), status codes, response shapes, registration order and every gate/source scan that covered the moved code. demo-readiness, the admin seller viral read and the viral recompute mutation are deliberately out of scope (separate, non-contiguous block).",
+  "lead": "claude-lead",
+  "base": "origin/master@c4e1c2f730f2e931b250ff47ffc5ff69a45d51ec",
+  "open_branches": [],
+  "open_branch_notes": "Open PRs at start: #217 (docs + chatgpt status slot only) and Dependabot #100, #107, #108, #206, #207, #208 (dependency manifests only); none touches src/frontend_runtime.ts. Branches whose tip is ahead of master are squash-merged history (#222, #224, #225, #227) or carry no commits of their own (chatgpt/extract-app-shell-routes at 1293279). B1 writes only the claude slot of PROJECT_STATUS.md.",
+  "interface_contract": {
+    "src/admin_growth_routes.ts": "registerAdminGrowthRoutes(app, deps) registers exactly, in this order, GET /api/admin/pilot-metrics, GET /api/admin/growth, GET /api/admin/deals/:dealId/viral, GET /api/admin/deals/:dealId/viral-tree, GET /api/admin/deals/:dealId/propagation; frontend_runtime.ts keeps and injects withTx, requireAdminRead, requireUuid, ensureProductSurfaces, ensureInquiryTables and the shared viral-tree engine (queryViralTreeLevel, queryPropagationSources, viralTreeQueryParams \u2014 still used by the seller explorer routes), and wires the module once at the original point (after the shared engine definitions; registry neighbours GET /api/seller/deals/:dealId/viral and GET /api/seller/inquiries). REFUND_READINESS_ROUTE_MODULES and scripts/web_route_inventory.cjs sources stay in exact lock-step."
+  },
+  "assignments": [
+    {
+      "id": "B1",
+      "agent": "claude-lead",
+      "role": "builder",
+      "tier": "senior",
+      "scope": "mechanical admin growth route extraction, runtime wiring/import trim, preservation of every gate/source scan over frontend_runtime.ts, structural extraction proof with mutation controls and live registry check, status slot",
+      "allowed": [
+        "PROJECT_STATUS.md",
+        "docs/LEAN_REFACTOR_MAP_2026-09-30.md",
+        "docs/team-plans/2026-10-05-lean-refactor-admin-growth-routes.json",
+        "scripts/legal_compliance_gate.cjs",
+        "scripts/money_tax_invoice_gate.cjs",
+        "scripts/web_route_inventory.cjs",
+        "src/admin_growth_routes.ts",
+        "src/frontend_runtime.ts",
+        "src/refund_route_readiness.ts",
+        "tests/admin_control_center_routes_extraction_validation.ts",
+        "tests/admin_forbidden_money_actions_validation.ts",
+        "tests/admin_growth_routes_extraction_validation.ts",
+        "tests/admin_mission_control_routes_extraction_validation.ts",
+        "tests/admin_mutation_route_inventory_validation.ts",
+        "tests/admin_no_public_search_regression_validation.ts",
+        "tests/admin_support_cases_validation.ts",
+        "tests/cache_policy_validation.ts",
+        "tests/deal_types_validation.ts",
+        "tests/delivery_estimate_validation.ts",
+        "tests/demo_readiness_validation.ts",
+        "tests/frontend_foundation_buyer_polish_validation.ts",
+        "tests/full_e2e_gate_validation.ts",
+        "tests/legacy_runtime_isolation_validation.ts",
+        "tests/legal_trust_validation.ts",
+        "tests/money_tax_invoice_canon_validation.ts",
+        "tests/operational_health_routes_extraction_validation.ts",
+        "tests/r2_money_authority_validation.ts",
+        "tests/read_surfaces_truth_alignment_validation.ts",
+        "tests/refund_policy_validation.ts",
+        "tests/release_tools/legal_gate.test.cjs",
+        "tests/release_tools/money_tax_gate.test.cjs",
+        "tests/release_tools/runtime_surface.test.cjs",
+        "tests/security_hardening_validation.ts",
+        "tests/security_identity_tracking_validation.ts",
+        "tests/seller_enforcement_validation.ts",
+        "tests/seller_fulfillment_routes_extraction_validation.ts",
+        "tests/spec_drift_regression_wave3_validation.ts",
+        "tests/support_routes_extraction_validation.ts"
+      ],
+      "forbidden": [
+        "src/app.ts",
+        "src/platform_fee_money.ts",
+        "src/vat_authority.ts",
+        "src/payment_provider.ts",
+        "src/payment_reconciliation.ts",
+        "src/payout_rail.ts",
+        "src/invoice_dispatch.ts",
+        "src/authorization_lifecycle.ts",
+        "src/admin_identity.ts",
+        "src/viral_graph.ts",
+        "src/growth_metrics.ts",
+        "src/growth_window.ts",
+        "src/outbox_worker_helpers.ts",
+        "src/worker.ts",
+        "src/admin_control_center_routes.ts",
+        "src/support_routes.ts",
+        "src/seller_fulfillment_routes.ts",
+        "src/migrations/",
+        "supabase/",
+        ".github/workflows/",
+        "config/real-money-release-policy.json",
+        "render.yaml",
+        "frontend/app.js",
+        "web/"
+      ],
+      "depends_on": [],
+      "dod": [
+        "both moved handler segments are byte-identical to lines 8357-8531 and 8766-8783 of frontend_runtime.ts at c4e1c2f",
+        "each of the five routes is registered exactly once, from src/admin_growth_routes.ts, wired once at the original point after the shared engine; the live onRoute registry is byte-identical to master (360 entries, same order)",
+        "every handler opens with requireAdminRead and keeps its original validation / schema-check order and one transaction; no write",
+        "the refund-readiness module list and the route inventory sources stay in lock-step and include the module (.ts and compiled .js, mutant detected in both)",
+        "every test/script that read frontend_runtime.ts as text still covers the moved code (literal sweep against the moved text + manual read of every hit)",
+        "static route inventory: same 218 method+path keys, all fields identical except source",
+        "focused suites, release-tool tests, money/legal/route-authorization gates and the canonical verifier pass",
+        "independent senior review and Codex on the exact PR head; Siton CI green on the exact head before merge"
+      ]
+    },
+    {
+      "id": "R1",
+      "agent": "claude-subagent",
+      "role": "reviewer",
+      "senior": true,
+      "tier": "senior",
+      "scope": "independent read-only senior review of B1: verbatim move, authorization, transactions, registration order, coverage drift, fixed file lists, absence scans, vacuous assertions, accidental dependency copy",
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "verdict MERGE or DO NOT MERGE with concrete failure scenarios for every finding"
+      ]
+    },
+    {
+      "id": "R2",
+      "agent": "codex",
+      "role": "reviewer",
+      "tier": "senior",
+      "scope": "Codex review of the exact PR head",
+      "reviews": [
+        "B1"
+      ],
+      "depends_on": [
+        "B1"
+      ],
+      "dod": [
+        "clean Codex verdict on the final head"
+      ]
+    }
+  ]
+}

@@ -75,7 +75,7 @@ check("payment_provider.ts only constructs providers the production guards know 
 });
 
 check("no route module registers a Render-legacy or Base44 HTTP path", () => {
-  const routeFiles = ["app.ts", "frontend_runtime.ts", "receipt_content_routes.ts", "admin_mission_control_routes.ts", "operational_health_routes.ts", "seller_deal_image_routes.ts", "support_routes.ts", "seller_fulfillment_routes.ts", "admin_control_center_routes.ts"].map((f) => readFileSync(join(SRC, f), "utf8")).join("\n");
+  const routeFiles = ["app.ts", "frontend_runtime.ts", "receipt_content_routes.ts", "admin_mission_control_routes.ts", "operational_health_routes.ts", "seller_deal_image_routes.ts", "support_routes.ts", "seller_fulfillment_routes.ts", "admin_control_center_routes.ts", "admin_growth_routes.ts"].map((f) => readFileSync(join(SRC, f), "utf8")).join("\n");
   const paths = [...routeFiles.matchAll(/app\.(?:get|post|put|patch|delete)\(\s*["'`]([^"'`]+)/g)].map((m) => String(m[1]));
   assert.ok(paths.length > 150, `sanity: ${paths.length} routes`);
   const legacy = paths.filter((p) => /base44|\/legacy\/|\/render\//i.test(p));

@@ -3,8 +3,8 @@ import { readFile } from "node:fs/promises";
 
 // ── Static checks (no server needed) ─────────────────────────────────────────
 
-// support, seller fulfillment and admin control-center (R6) routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
-const frontendRuntime = (await readFile("src/frontend_runtime.ts", "utf8")) + "\n" + (await readFile("src/support_routes.ts", "utf8")) + "\n" + (await readFile("src/seller_fulfillment_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_control_center_routes.ts", "utf8"));
+// support, seller fulfillment, admin control-center (R6) and admin growth routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
+const frontendRuntime = (await readFile("src/frontend_runtime.ts", "utf8")) + "\n" + (await readFile("src/support_routes.ts", "utf8")) + "\n" + (await readFile("src/seller_fulfillment_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_control_center_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_growth_routes.ts", "utf8"));
 const frontendApp     = await readFile("frontend/app.js", "utf8");
 const platformFee     = await readFile("src/platform_fee_money.ts", "utf8");
 

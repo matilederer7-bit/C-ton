@@ -28,7 +28,8 @@ const OTHER_ROUTE_FILES = [
   "operational_health_routes.ts",
   "seller_deal_image_routes.ts",
   "support_routes.ts",
-  "seller_fulfillment_routes.ts"
+  "seller_fulfillment_routes.ts",
+  "admin_growth_routes.ts"
 ];
 
 // In the original registration order (Fastify registers in call order).
