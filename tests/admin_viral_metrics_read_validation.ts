@@ -67,7 +67,13 @@ async function seedDeal(sellerId: string, title: string, participants: Array<{ n
 
 const dealA = await seedDeal(SELLER_1, `עסקת קריאה א ${suffix}`, [{ name: "Alef", qty: 1 }, { name: "Bet", qty: 2 }, { name: "Gimel", qty: 3 }]);
 const dealB = await seedDeal(SELLER_2, `עסקת קריאה ב ${suffix}`, [{ name: "Dalet", qty: 4 }]);
-// The canonical engine fills the cache the routes read.
+// The canonical engine fills the cache the routes read. The seller / platform
+// rollup (recomputeAggregateViralMetrics) folds at most 2000 deal cache rows
+// in no particular order; the group runner gives every test a fresh database,
+// so this precondition only trips on a long-lived local database — it names
+// the cause instead of failing as an unexplained count mismatch.
+const dealCacheRows = Number((await pool.query(`SELECT COUNT(*)::int AS n FROM siton.viral_metrics_cache WHERE scope_type='deal'`)).rows[0].n);
+assert.ok(dealCacheRows <= 1998, `precondition: the rollup reads at most 2000 deal cache rows and this database already holds ${dealCacheRows}; run through scripts/run_test_group.cjs (fresh database)`);
 await recomputeDealViralMetrics(pool, dealA);
 await recomputeDealViralMetrics(pool, dealB);
 await recomputeAggregateViralMetrics(pool, SELLER_1);
@@ -164,6 +170,7 @@ await run("seller viral: an authorised admin gets 200 with exactly { ok, seller_
     const row = await cacheRow("seller", SELLER_1);
     assert.deepEqual(body.metrics, typeof row.metrics === "string" ? JSON.parse(row.metrics) : row.metrics);
     assert.equal(body.metrics.seller_id, SELLER_1);
+    assert.ok(body.metrics.top_deals.some((d: any) => d.deal_id === dealA), "the seeded deal is in the rollup");
     assert.equal(body.metrics.deals, 1, "seller 1 rolls up exactly its one deal");
     assert.equal(body.metrics.participants, 3);
     assert.ok(body.metrics.top_deals.every((d: any) => d.seller_id === SELLER_1), "only the seller's own deals");
@@ -174,6 +181,7 @@ await run("seller viral: scoping — seller 2 answers its own rollup only", asyn
   const body = (await get(`/api/admin/sellers/${encodeURIComponent(SELLER_2)}/viral`, KEY_HEADERS)).json();
   assert.equal(body.seller_id, SELLER_2);
   assert.equal(body.metrics.seller_id, SELLER_2);
+  assert.ok(body.metrics.top_deals.some((d: any) => d.deal_id === dealB), "the seeded deal is in the rollup");
   assert.equal(body.metrics.deals, 1);
   assert.equal(body.metrics.participants, 1);
   assert.ok(!JSON.stringify(body.metrics).includes(dealA), "deal A never appears in seller 2's rollup");
