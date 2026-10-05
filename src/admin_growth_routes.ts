@@ -1,8 +1,9 @@
 // ADMIN GROWTH — the read-only owner/admin pilot, growth and viral analytics
-// reads: pilot metrics, the windowed growth dashboard, and the per-deal viral
-// metrics, viral-tree level and propagation-source reads.
+// reads: pilot metrics, the windowed growth dashboard, the per-deal viral
+// metrics, viral-tree level and propagation-source reads, and the per-seller
+// viral metrics read.
 //
-// Lean Refactor: the five routes below were moved verbatim out of
+// Lean Refactor: the six routes below were moved verbatim out of
 // src/frontend_runtime.ts. Nothing about them changed: same methods and paths,
 // same admin read guard (requireAdminRead) as the first statement of every
 // handler, same validation order (uuid and growth-window checks after the
@@ -12,7 +13,11 @@
 // (dependency injection), including the canonical viral-tree / propagation
 // engine, which stays defined in src/frontend_runtime.ts because the seller
 // variants share it; no guard or helper was copied. Every route is a GET: the
-// module performs no write.
+// module performs no write. The per-seller viral read has its own register
+// function because the runtime registered it later (after the seller viral
+// explorer, before the viral recompute mutation, which stays in the runtime):
+// wiring each function at its original point keeps the live registration
+// order unchanged.
 import type { FastifyInstance } from "fastify";
 import { computeGrowthWindowMetrics } from "./growth_metrics.js";
 import { resolveGrowthWindow } from "./growth_window.js";
@@ -241,6 +246,22 @@ export function registerAdminGrowthRoutes(app: FastifyInstance, deps: AdminGrowt
       const result = await queryPropagationSources(c, dealId);
       if (!result) return reply.code(404).send({ ok: false, error: "deal not found", code: "deal_not_found" });
       return result;
+    });
+  });
+}
+
+export type AdminSellerViralRouteDeps = Pick<AdminGrowthRouteDeps, "withTx" | "requireAdminRead">;
+
+export function registerAdminSellerViralRoutes(app: FastifyInstance, deps: AdminSellerViralRouteDeps) {
+  const { requireAdminRead } = deps;
+
+  // Admin: seller-scope viral metrics.
+  app.get("/api/admin/sellers/:sellerId/viral", async (req: any, reply: any) => {
+    if (!(await requireAdminRead(req, reply))) return;
+    const sellerId = String(req.params.sellerId || "").slice(0, 120);
+    return deps.withTx(async (c) => {
+      const cached = await readViralMetricsCache(c, "seller", sellerId);
+      return { ok: true, seller_id: sellerId, ...cached };
     });
   });
 }
