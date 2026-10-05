@@ -10,7 +10,7 @@ fs.mkdirSync(artifacts, { recursive: true });
 // report and the behavioural proof can never disagree about what is protected.
 const policy = require(path.join(root, "scripts", "protected_route_policy.cjs"));
 
-const sources = ["src/app.ts", "src/frontend_runtime.ts", "src/receipt_content_routes.ts", "src/distribution_hub.ts", "src/admin_mission_control_routes.ts", "src/operational_health_routes.ts", "src/seller_deal_image_routes.ts", "src/support_routes.ts", "src/seller_fulfillment_routes.ts", "src/admin_control_center_routes.ts", "src/admin_growth_routes.ts", "src/admin_demo_readiness_routes.ts"];
+const sources = ["src/app.ts", "src/frontend_runtime.ts", "src/receipt_content_routes.ts", "src/distribution_hub.ts", "src/admin_mission_control_routes.ts", "src/operational_health_routes.ts", "src/seller_deal_image_routes.ts", "src/support_routes.ts", "src/seller_fulfillment_routes.ts", "src/admin_control_center_routes.ts", "src/admin_growth_routes.ts", "src/admin_demo_readiness_routes.ts", "src/admin_ops_overview_routes.ts"];
 const routePattern = /\bapp\.(get|post|put|patch|delete|options|head)\(\s*["'`]([^"'`]+)["'`]/g;
 const frontendPattern = /\b(?:fetch|api)\(\s*([`"'])(\/[^`"']+)\1\s*(?:,\s*\{([\s\S]{0,500}?)\})?/g;
 
@@ -192,7 +192,8 @@ const frontendText = [
   "src/seller_fulfillment_routes.ts",
   "src/admin_control_center_routes.ts",
   "src/admin_growth_routes.ts",
-  "src/admin_demo_readiness_routes.ts"
+  "src/admin_demo_readiness_routes.ts",
+  "src/admin_ops_overview_routes.ts"
 ].filter((file) => fs.existsSync(path.join(root, file)))
   .map((file) => fs.readFileSync(path.join(root, file), "utf8"))
   .join("\n");

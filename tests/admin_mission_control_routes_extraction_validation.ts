@@ -15,7 +15,7 @@ const SRC = join(process.cwd(), "src");
 const read = (file: string) => readFileSync(join(SRC, file), "utf8");
 const runtime = read("frontend_runtime.ts");
 const routes = read("admin_mission_control_routes.ts");
-const ROUTE_FILES = ["app.ts", "frontend_runtime.ts", "receipt_content_routes.ts", "distribution_hub.ts", "admin_mission_control_routes.ts", "support_routes.ts", "seller_fulfillment_routes.ts", "admin_control_center_routes.ts", "admin_growth_routes.ts", "admin_demo_readiness_routes.ts"];
+const ROUTE_FILES = ["app.ts", "frontend_runtime.ts", "receipt_content_routes.ts", "distribution_hub.ts", "admin_mission_control_routes.ts", "support_routes.ts", "seller_fulfillment_routes.ts", "admin_control_center_routes.ts", "admin_growth_routes.ts", "admin_demo_readiness_routes.ts", "admin_ops_overview_routes.ts"];
 const MISSION_ROUTES = [
   "/api/admin/mission-control",
   "/api/admin/mission-control/anomalies",
@@ -75,10 +75,19 @@ check("src/frontend_runtime.ts no longer carries the handler bodies and wires th
   assert.match(runtime, /^import \{ registerAdminMissionControlRoutes \} from "\.\/admin_mission_control_routes\.js";$/m);
   const calls = runtime.match(/registerAdminMissionControlRoutes\(app, \{/g) || [];
   assert.equal(calls.length, 1);
-  // the wiring sits where the routes were: after the admin overview, before /api/admin/actions
+  // the wiring sits where the routes were: after the admin ops overview reads
+  // (payment-ops-status, overview, launch-console — moved into
+  // src/admin_ops_overview_routes.ts by the Lean Refactor, wired by the call
+  // below), before /api/admin/actions. A missing anchor fails instead of
+  // comparing -1.
   const wiringAt = runtime.indexOf("registerAdminMissionControlRoutes(app, {");
-  assert.ok(runtime.lastIndexOf('app.get("/api/admin/overview"') < wiringAt, "wired after /api/admin/overview");
-  assert.ok(wiringAt < runtime.indexOf('app.get("/api/admin/actions"'), "wired before /api/admin/actions");
+  const opsOverviewWiringAt = runtime.indexOf("registerAdminOpsOverviewRoutes(app, {");
+  const actionsAt = runtime.indexOf('app.get("/api/admin/actions"');
+  assert.ok(wiringAt >= 0, "Mission Control wiring call present");
+  assert.ok(opsOverviewWiringAt >= 0, "admin ops overview wiring call present");
+  assert.ok(actionsAt >= 0, "/api/admin/actions present");
+  assert.ok(opsOverviewWiringAt < wiringAt, "wired after the admin ops overview reads");
+  assert.ok(wiringAt < actionsAt, "wired before /api/admin/actions");
   // the module receives exactly the closures the handlers used before
   const block = runtime.slice(wiringAt, runtime.indexOf("\n  });\n", wiringAt));
   for (const dep of INJECTED_DEPS) {

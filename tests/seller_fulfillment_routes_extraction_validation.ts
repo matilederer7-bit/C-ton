@@ -40,7 +40,8 @@ const OTHER_ROUTE_FILES = [
   "support_routes.ts",
   "admin_control_center_routes.ts",
   "admin_growth_routes.ts",
-  "admin_demo_readiness_routes.ts"
+  "admin_demo_readiness_routes.ts",
+  "admin_ops_overview_routes.ts"
 ];
 
 type Guard = "deal" | "unit" | "pickup-read" | "pickup-mutation";

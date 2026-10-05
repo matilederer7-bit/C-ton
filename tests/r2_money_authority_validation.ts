@@ -31,7 +31,7 @@ assert.match(moneySource, /computeCustomerChargeVat/);
 assert.doesNotMatch(moneySource, /distributor_commission|commission_rate/i);
 
 // support, seller fulfillment, admin control-center (R6), admin growth and admin demo-readiness routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
-const frontendSource = (await readFile("src/frontend_runtime.ts", "utf8")) + "\n" + (await readFile("src/support_routes.ts", "utf8")) + "\n" + (await readFile("src/seller_fulfillment_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_control_center_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_growth_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_demo_readiness_routes.ts", "utf8"));
+const frontendSource = (await readFile("src/frontend_runtime.ts", "utf8")) + "\n" + (await readFile("src/support_routes.ts", "utf8")) + "\n" + (await readFile("src/seller_fulfillment_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_control_center_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_growth_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_demo_readiness_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_ops_overview_routes.ts", "utf8"));
 const serverMoneyAssignment = frontendSource.indexOf("authorizeInput.amount_minor = serverMoney");
 assert.ok(serverMoneyAssignment >= 0, "provider amount must be overwritten with server-derived money");
 assert.doesNotMatch(frontendSource, /authorizeInput\.(?:vat_amount|buyer_vat_amount)\s*=\s*body\./);
