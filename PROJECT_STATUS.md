@@ -70,14 +70,15 @@ Current invariants:
 
 ### ChatGPT latest milestone — Demo Readiness threshold regression suite (2026-10-05)
 
-- COMPLETED: added `tests/demo_readiness_thresholds_validation.ts`, an isolated Fastify-injection regression suite for the existing read-only `GET /api/admin/demo-readiness` contract. It pins the safety boundaries that remained open after PR #232: exactly one DLQ row is a hard blocker; an oldest-pending outbox event at 3600 seconds does not warn while 3601 seconds does; and `environment.demo_preview` echoes both true and false injected runtime values.
+- COMPLETED: added `tests/demo_readiness_thresholds_validation.ts`, an isolated Fastify-injection regression suite for the existing read-only `GET /api/admin/demo-readiness` contract. It pins the safety boundaries left open after PR #232: exactly one DLQ row is a hard blocker; an oldest-pending outbox event at 3600 seconds does not warn while 3601 seconds does; and `environment.demo_preview` echoes both true and false injected runtime values.
 - COMPLETED (focused gate): `npm run test:demo-readiness` now executes both the existing readiness validation and the new threshold regression suite, so a focused readiness check cannot report green while skipping these thresholds.
 - COMPLETED (no provider side effects): the suite injects throwing spies for every payment-provider operation (required and optional: authorize, capture, recover, refund, tokenize, reauthorize, release, status, webhook verification/parsing) and every payout-provider operation, and asserts the readiness route never executes them.
-- TESTED: PR #234 code/test head `5dfab70` passed full Siton CI run 495 including all three e2e shards, database preflight, security, payments and `ci-verdict`. Codex's first review on `80c9a4e766` found three P2 test-strength gaps; all were fixed on `5dfab70` (DLQ boundary 1, pending-age boundary 3601/3600, full optional-provider spies). Codex re-review on `5dfab70` found no further code/test defect and requested this required PROJECT_STATUS lifecycle record.
+- TESTED (pre-rebase evidence): the prior PR #234 heads passed full Siton CI and Codex review after the three P2 test-strength findings and the focused-gate finding were fixed. #234 was closed unmerged only because master advanced with Claude's non-overlapping admin-ops refactor before merge.
+- COMPLETED (safe rebase): the same three-file change was rebuilt on current master `493e01f` as PR #238, preserving Claude's current PROJECT_STATUS slot and changing only this ChatGPT slot, `package.json`, and the new regression test.
 - BEHAVIOUR: test-only. No runtime, DB, migration, money, payment, provider, auth, UX or API-contract change; no staging redeploy is required for this task.
-- OPEN: exact-head CI + Codex re-review after this status-only delta, merge PR #234, then master CI.
-- PERCENT: 85% for this follow-up; implementation and full CI are complete, lifecycle gates above remain.
-- NEXT: finish exact-head review/CI, squash-merge #234, verify master CI, then close this ChatGPT slot at 100%.
+- OPEN: exact-head CI + Codex review on PR #238, merge, then master CI.
+- PERCENT: 85% for this follow-up; implementation is complete, current-base lifecycle gates remain.
+- NEXT: finish exact-head review/CI on #238, squash-merge, verify master CI, then close this ChatGPT slot at 100%.
 
 <!-- AGENT_STATUS:claude:START -->
 ### Claude Code latest milestone — Lean Refactor: the admin ops overview reads (payment-ops-status, overview, launch-console) moved verbatim out of `frontend_runtime.ts` (2026-10-05)
