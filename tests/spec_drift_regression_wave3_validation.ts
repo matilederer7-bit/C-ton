@@ -55,7 +55,7 @@ await run("D1 — /app is the canonical Mall and duplicate discovery routes stay
 
 await run("D1 — Mall uses bounded filters and has no arbitrary public text search", () => {
   // support, seller fulfillment, admin control-center (R6), admin growth and admin demo-readiness routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
-  const runtime = read("src/frontend_runtime.ts") + "\n" + read("src/support_routes.ts") + "\n" + read("src/seller_fulfillment_routes.ts") + "\n" + read("src/admin_control_center_routes.ts") + "\n" + read("src/admin_growth_routes.ts") + "\n" + read("src/admin_demo_readiness_routes.ts") + "\n" + read("src/admin_ops_overview_routes.ts");
+  const runtime = read("src/frontend_runtime.ts") + "\n" + read("src/support_routes.ts") + "\n" + read("src/seller_fulfillment_routes.ts") + "\n" + read("src/admin_control_center_routes.ts") + "\n" + read("src/admin_growth_routes.ts") + "\n" + read("src/admin_demo_readiness_routes.ts") + "\n" + read("src/admin_ops_overview_routes.ts") + "\n" + read("src/admin_operational_status_routes.ts");
   const mall = read("src/mall_read_model.ts");
   assert.match(runtime, /\/api\/mall\/deals/);
   assert.match(mall, /physical_product/);
@@ -92,7 +92,8 @@ await run("D2 — no `platform_fee_rate = 0.05` assignment anywhere in src/", ()
     "src/admin_control_center_routes.ts",
     "src/admin_growth_routes.ts",
     "src/admin_demo_readiness_routes.ts",
-    "src/admin_ops_overview_routes.ts"
+    "src/admin_ops_overview_routes.ts",
+    "src/admin_operational_status_routes.ts"
   ]) {
     const body = read(path);
     assert.ok(
