@@ -192,7 +192,8 @@ const frontendText = [
   "src/seller_fulfillment_routes.ts",
   "src/admin_control_center_routes.ts",
   "src/admin_growth_routes.ts",
-  "src/admin_demo_readiness_routes.ts"
+  "src/admin_demo_readiness_routes.ts",
+  "src/admin_ops_overview_routes.ts"
 ].filter((file) => fs.existsSync(path.join(root, file)))
   .map((file) => fs.readFileSync(path.join(root, file), "utf8"))
   .join("\n");
