@@ -405,8 +405,10 @@ Deleting `renderTrackingPage` would delete the only legacy implementation of 1�
   five GET routes; 9,393 → 9,208 by `wc -l`), the admin seller viral read (2026-10-05, second register function in
   `src/admin_growth_routes.ts`; 9,208 → 9,203). The viral recompute mutation stays in the runtime (outbox write, not a
   read). Demo readiness (2026-10-05, `src/admin_demo_readiness_routes.ts`; 9,203 → 8,990). Admin ops overview reads
-  (2026-10-05, `src/admin_ops_overview_routes.ts`: payment-ops-status, overview, launch-console; 8,990 → 8,540). The admin
-  actions / control-flags / team / seller-status / compute-upgrade / KYC mutations right after them stay in the runtime.
+  (2026-10-05, `src/admin_ops_overview_routes.ts`: payment-ops-status, overview, launch-console; 8,990 → 8,540). Admin
+  operational status reads (2026-10-05, `src/admin_operational_status_routes.ts`: outbox-status, notifications-status,
+  invoice-status; 8,540 → 8,251). The admin actions / control-flags / team / seller-status / compute-upgrade / KYC
+  mutations stay in the runtime; payout and system-ops reads remain separate follow-up slices.
 - NOT mechanical (separate senior workstreams): `paymentMinorAmount`, `parsePositiveIntegerQuantity`, `roundMoney`,
   `sha256`, token generation, peppered hash, cookie parsers, `requireUuid`.
 
