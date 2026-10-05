@@ -137,6 +137,7 @@ await run("D3 — no comment/string claims fee excludes delivery in active sourc
     "src/admin_growth_routes.ts",
     "src/admin_demo_readiness_routes.ts",
     "src/admin_ops_overview_routes.ts",
+    "src/admin_operational_status_routes.ts",
     "frontend/app.js"
   ]) {
     const body = read(path);
@@ -189,7 +190,7 @@ await run("D4 — no 'already joined' / 'single participation' copy in frontend 
     /one\s+purchase\s+per\s+buyer/i,
     /unique\s+buyer\s+per\s+deal/i
   ];
-  for (const path of ["frontend/app.js", "src/frontend_runtime.ts", "src/support_routes.ts", "src/seller_fulfillment_routes.ts", "src/admin_control_center_routes.ts", "src/admin_growth_routes.ts", "src/admin_demo_readiness_routes.ts", "src/admin_ops_overview_routes.ts"]) {
+  for (const path of ["frontend/app.js", "src/frontend_runtime.ts", "src/support_routes.ts", "src/seller_fulfillment_routes.ts", "src/admin_control_center_routes.ts", "src/admin_growth_routes.ts", "src/admin_demo_readiness_routes.ts", "src/admin_ops_overview_routes.ts", "src/admin_operational_status_routes.ts"]) {
     const body = read(path);
     for (const re of forbidden) {
       assert.ok(
@@ -218,6 +219,7 @@ await run("D5 — affiliate surface has no earnings/balance/withdraw wording", (
     "src/admin_growth_routes.ts",
     "src/admin_demo_readiness_routes.ts",
     "src/admin_ops_overview_routes.ts",
+    "src/admin_operational_status_routes.ts",
     "src/product_surface_support.ts",
     "frontend/app.js"
   ]) {
