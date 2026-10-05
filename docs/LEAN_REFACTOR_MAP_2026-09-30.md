@@ -401,8 +401,9 @@ Deleting `renderTrackingPage` would delete the only legacy implementation of 1�
 - Further `frontend_runtime.ts` / `app.ts` route-group moves (admin ops, support, pilot, `/app` shell; ops and seller-deal
   routes) — one concern per PR.
   Done 2026-10-04: support (#219), seller fulfillment (#222), admin control-center R6 reads (`src/admin_control_center_routes.ts`,
-  six GET routes; `frontend_runtime.ts` 9,819 → 9,394). Next candidate: the remaining admin read group (pilot metrics, growth,
-  viral admin reads, demo readiness).
+  six GET routes; `frontend_runtime.ts` 9,819 → 9,394), admin pilot / growth / viral reads (2026-10-05, `src/admin_growth_routes.ts`,
+  five GET routes; 9,393 → 9,208 by `wc -l`). Next candidate: the admin seller viral read, the viral recompute mutation and
+  demo readiness (one contiguous block).
 - NOT mechanical (separate senior workstreams): `paymentMinorAmount`, `parsePositiveIntegerQuantity`, `roundMoney`,
   `sha256`, token generation, peppered hash, cookie parsers, `requireUuid`.
 

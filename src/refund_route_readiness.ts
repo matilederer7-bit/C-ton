@@ -15,7 +15,8 @@ export const REFUND_READINESS_ROUTE_MODULES = [
   "seller_deal_image_routes",
   "support_routes",
   "seller_fulfillment_routes",
-  "admin_control_center_routes"
+  "admin_control_center_routes",
+  "admin_growth_routes"
 ] as const;
 
 const MANUAL_REFUND_ROUTE_PATTERNS = [
