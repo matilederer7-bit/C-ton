@@ -18,8 +18,14 @@
 //     audit log, changes when they are called.
 // payment-ops-status is money-adjacent: this test only seeds local test rows
 // and reads them back; no capture, refund, payout or provider call happens.
+// The seeded rows follow the money canon (audited state chains, a successful
+// capture attempt and a charge fee row behind every charged participant,
+// refunds as signed reversals on a Refunded participant), and the test proves
+// it: the money invariants report no failure the fixtures did not find.
 import { strict as assert } from "node:assert";
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
+import path from "node:path";
 import pg from "pg";
 import { computeCustomerChargeVat } from "../src/vat_authority.js";
 import { DEFAULT_SELLER_ID, summarizeMoney } from "../src/product_surface_support.js";
@@ -36,6 +42,15 @@ const { app } = await import("../src/app.js");
 const pool = new Pool({ connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton", max: 4 });
 const ADMIN = { "x-admin-key": String(process.env.ADMIN_API_KEY) };
 const ROUTES = ["/api/admin/payment-ops-status", "/api/admin/overview", "/api/admin/launch-console"] as const;
+const moneyInvariants = createRequire(import.meta.url)(path.join(process.cwd(), "scripts", "lib", "money_invariants.cjs"));
+async function failingInvariants(): Promise<string[]> {
+  const client = await pool.connect();
+  try {
+    return moneyInvariants.failingNames(await moneyInvariants.runInvariants(client)).sort();
+  } finally {
+    client.release();
+  }
+}
 
 let failed = 0;
 async function run(name: string, fn: () => Promise<void>) {
@@ -66,39 +81,97 @@ async function seller(id: string, profile: { business: string | null; email: str
     [id, profile.business, profile.email]
   );
 }
-async function deal(state: string, price: number, owner: string | null, title = `Ops overview ${tag}`) {
+// Canonical state chains, audited the way tests/db_money_invariants_validation.ts seeds them.
+const DEAL_CHAINS: Record<string, string[]> = {
+  Draft: ["Draft"],
+  PendingTarget: ["Draft", "PendingTarget"],
+  Completed: ["Draft", "PendingTarget", "TargetReached", "ClosedForJoining", "ReadyForCharging", "Charging", "CompletionWindow", "Completed"]
+};
+const BUYER_CHARGED = ["NotJoined", "JoinedAuthorized", "LockedIn", "ChargingAttempt", "ChargedSuccess"];
+const MONEY_CHARGED = ["NoFinancial", "AuthHeld", "AuthLocked", "ChargeAttempt", "ChargedSuccess"];
+const PARTICIPANT_CHAINS = {
+  charged: { buyer: [...BUYER_CHARGED, "DealCompleted"], money: MONEY_CHARGED },
+  refunded: { buyer: [...BUYER_CHARGED, "DealFailed"], money: [...MONEY_CHARGED, "Refunded"] },
+  // a failed charge that was never recovered: the authorization is released, no money moved
+  dropped: {
+    buyer: ["NotJoined", "JoinedAuthorized", "LockedIn", "ChargingAttempt", "ChargeFailedCompletion", "Dropped"],
+    money: ["NoFinancial", "AuthHeld", "AuthLocked", "ChargeAttempt", "ChargeFailedRecovery", "AuthReleased"]
+  }
+};
+
+async function audit(entity: "deal" | "participant", entityId: string, dealId: string, stateType: string, chain: string[]) {
+  for (let i = 1; i < chain.length; i += 1) {
+    await pool.query(
+      `INSERT INTO siton.audit_log (entity_type, entity_id, deal_id, state_type, from_state, to_state, action_name, request_id, correlation_id, idempotency_key, payload, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,'test.ops_overview_fixture',$7,$7,$8,'{"fixture":"ops_overview"}'::jsonb, now() - make_interval(mins => $9))`,
+      [entity, entityId, dealId, stateType, chain[i - 1], chain[i], `opsov:${randomUUID()}`, `opsov:${entityId}:${stateType}:${chain[i]}`, 90 - i]
+    );
+  }
+}
+async function deal(state: keyof typeof DEAL_CHAINS, price: number, owner: string | null, title = `Ops overview ${tag}`) {
   const dealId = randomUUID();
   await pool.query(
     `INSERT INTO siton.deals
        (deal_id, seller_id, title, state, threshold_units, min_units, max_units, price_per_unit, deadline, published_at, created_at, updated_at)
      VALUES ($1,$2,$3,$4,2,2,50,$5, now()+interval '7 days', $6, clock_timestamp(), clock_timestamp())`,
-    [dealId, owner, title, state, price, state === "Draft" ? null : new Date()]
+    [dealId, owner, title, state, price, state === "Draft" ? null : new Date(Date.now() - 2 * 3600_000)]
   );
+  await audit("deal", dealId, dealId, "deal_state", DEAL_CHAINS[state]!);
   return dealId;
 }
-async function participant(dealId: string, buyerState: string, moneyState: string, qty: number, deliveryCost: number) {
+async function participant(dealId: string, path: keyof typeof PARTICIPANT_CHAINS, qty: number, deliveryCost: number) {
   const participantId = randomUUID();
+  const chain = PARTICIPANT_CHAINS[path];
   await pool.query(
     `INSERT INTO siton.participants
        (participant_id, deal_id, buyer_id, qty, buyer_state, money_state, buyer_name, buyer_phone, delivery_cost, created_at, updated_at)
      VALUES ($1,$2,$3,$4,$5,$6,$7,'0500000000',$8,now(),now())`,
-    [participantId, dealId, `buyer-${tag}-${participantId.slice(0, 6)}`, qty, buyerState, moneyState, `Buyer ${tag}`, deliveryCost]
+    [participantId, dealId, `buyer-${tag}-${participantId.slice(0, 6)}`, qty, chain.buyer[chain.buyer.length - 1], chain.money[chain.money.length - 1], `Buyer ${tag}`, deliveryCost]
   );
+  await audit("participant", participantId, dealId, "buyer_state", chain.buyer);
+  await audit("participant", participantId, dealId, "money_state", chain.money);
   return participantId;
 }
+async function recordAttempt(participantId: string, dealId: string, type: "charge_start" | "refund", correlation: string) {
+  await pool.query(
+    `INSERT INTO siton.payment_attempts (participant_id, deal_id, attempt_type, result_class, correlation_id, dispatch_state, resolved_at)
+     VALUES ($1,$2,$3,'success',$4,'responded',now())`,
+    [participantId, dealId, type, correlation]
+  );
+}
+// Canonical 8% fee on (gross - VAT), VAT 0 in synthetic mode, 18% VAT on the fee; a refund is the signed reversal.
+async function feeRow(participantId: string, dealId: string, gross: number, kind: "charge" | "refund", correlation: string) {
+  const sign = kind === "refund" ? -1 : 1;
+  const base = Math.round(gross * 0.08 * 100) / 100;
+  const vat = Math.round(base * 0.18 * 100) / 100;
+  const total = Math.round((base + vat) * 100) / 100;
+  const amounts = [gross, 0, gross, base, vat, total, total, Math.round((gross - total) * 100) / 100].map((v) => Math.round(v * sign * 100) / 100);
+  await pool.query(
+    `INSERT INTO siton.platform_fee_money_events (participant_id, deal_id, seller_id, event_type, logical_entry_type, provider_code, correlation_id, source_money_state, payout_readiness_status,
+       gross_amount, vat_amount, fee_base_amount, platform_fee_rate, platform_fee_vat_rate, platform_fee_base_amount, platform_fee_vat_amount, platform_fee_total_amount, platform_fee_amount, seller_net_amount)
+     VALUES ($1,$2,$3,$4,$5,'mockpay',$6,$7,$8,$9,$10,$11,0.08,0.18,$12,$13,$14,$15,$16)`,
+    [participantId, dealId, sellerId, kind === "refund" ? "refund_issued" : "charge_captured", kind === "refund" ? "refund_adjustment" : "charge", correlation,
+      kind === "refund" ? "Refunded" : "ChargedSuccess", kind === "refund" ? "reversed_after_refund" : "ready_for_settlement", ...amounts]
+  );
+  return { gross: amounts[0], total: amounts[5] };
+}
 
-// Rows the three routes read or could write: every count must stay put across the calls.
+// Rows the three routes read or could write: every row must stay byte-identical across the calls.
 const WATCHED_TABLES = [
   "payment_attempts", "platform_fee_money_events", "webhook_events", "payment_webhook_security_events", "buyer_payment_methods",
   "deals", "participants", "seller_accounts", "support_tickets", "legal_acceptances", "notification_events",
   "outbox_events", "outbox_dlq", "audit_log"
 ];
-async function tableCounts() {
-  const out: Record<string, number> = {};
-  for (const table of WATCHED_TABLES) out[table] = num((await pool.query(`SELECT COUNT(*)::int AS n FROM siton.${table}`)).rows[0].n);
+async function tableFingerprints() {
+  const out: Record<string, string> = {};
+  for (const table of WATCHED_TABLES) {
+    const row = (await pool.query(`SELECT COUNT(*)::int AS n, COALESCE(md5(string_agg(t::text, '|' ORDER BY t::text)), '') AS digest FROM siton.${table} t`)).rows[0];
+    out[table] = `${row.n}:${row.digest}`;
+  }
   return out;
 }
 
+const invariantsBefore = await failingInvariants();
 await seller(sellerId, { business: `Ops Overview ${tag}`, email: `${tag}@example.test` });
 await seller(otherSellerId, { business: `Other ${tag}`, email: `other-${tag}@example.test` });
 
@@ -123,13 +196,13 @@ await run("every route refuses anonymous, wrong-key, forged-session and forged-b
 await run("payment-ops-status: exact sections, figures from the payment, webhook, card-on-file and fee-ledger tables", async () => {
   const before = await get("/api/admin/payment-ops-status");
   const dealId = await deal("Completed", 100, sellerId, `Payment ops ${tag}`);
-  const participantId = await participant(dealId, "ChargedSuccess", "ChargedSuccess", 1, 8);
+  const participantId = await participant(dealId, "charged", 1, 8);
   const correlation = `corr-${tag}`;
-  await pool.query(
-    `INSERT INTO siton.payment_attempts (participant_id, deal_id, attempt_type, result_class, correlation_id, dispatch_state)
-     VALUES ($1,$2,'charge_start','success',$3,'responded')`,
-    [participantId, dealId, correlation]
-  );
+  await recordAttempt(participantId, dealId, "charge_start", correlation);
+  // a refunded order: its charge, then the signed refund reversal
+  const refundedId = await participant(dealId, "refunded", 1, 0);
+  await recordAttempt(refundedId, dealId, "charge_start", `${correlation}-r-charge`);
+  await recordAttempt(refundedId, dealId, "refund", `${correlation}-r-refund`);
   await pool.query(
     `INSERT INTO siton.webhook_events (provider, event_id, payload_jsonb, status) VALUES ('mockpay',$1,'{}'::jsonb,'processed'), ('mockpay',$2,'{}'::jsonb,'ignored')`,
     [`evt-${tag}-1`, `evt-${tag}-2`]
@@ -139,17 +212,11 @@ await run("payment-ops-status: exact sections, figures from the payment, webhook
     `INSERT INTO siton.buyer_payment_methods (buyer_id, provider_code, provider_payment_method_id, status) VALUES ($1,'mockpay',$2,'active'), ($1,'mockpay',$3,'revoked')`,
     [`buyer-${tag}`, `pm-${tag}-1`, `pm-${tag}-2`]
   );
-  await pool.query(
-    `INSERT INTO siton.platform_fee_money_events (participant_id, deal_id, seller_id, event_type, logical_entry_type, provider_code, correlation_id, source_money_state, payout_readiness_status, gross_amount, vat_amount, fee_base_amount, platform_fee_rate, platform_fee_vat_rate, platform_fee_base_amount, platform_fee_vat_amount, platform_fee_total_amount, platform_fee_amount, seller_net_amount)
-     VALUES ($1,$2,$3,'charge_captured','charge','mockpay',$4,'ChargedSuccess','ready_for_settlement',108,0,108,0.08,0.18,8.64,1.56,10.20,10.20,97.80)`,
-    [participantId, dealId, sellerId, correlation]
-  );
-  // a refund adjustment: never part of the charged gross, counted as a refund entry
-  await pool.query(
-    `INSERT INTO siton.platform_fee_money_events (participant_id, deal_id, seller_id, event_type, logical_entry_type, provider_code, correlation_id, source_money_state, settlement_status, payout_readiness_status, gross_amount, vat_amount, fee_base_amount, platform_fee_rate, platform_fee_vat_rate, platform_fee_base_amount, platform_fee_vat_amount, platform_fee_total_amount, platform_fee_amount, seller_net_amount)
-     VALUES ($1,$2,$3,'refund_issued','refund_adjustment','mockpay',$4,'ChargedSuccess','recorded','reversed_after_refund',54,0,54,0.08,0.18,4.32,0.78,5.10,5.10,48.90)`,
-    [participantId, dealId, sellerId, `${correlation}-refund`]
-  );
+  const charged = await feeRow(participantId, dealId, 108, "charge", correlation);
+  const refundedCharge = await feeRow(refundedId, dealId, 100, "charge", `${correlation}-r-charge`);
+  // the refund reversal: never part of the charged gross, counted as a refund entry, netted in the fee total
+  const refund = await feeRow(refundedId, dealId, 100, "refund", `${correlation}-r-refund`);
+  assert.deepEqual([charged, refundedCharge, refund], [{ gross: 108, total: 10.2 }, { gross: 100, total: 9.44 }, { gross: -100, total: -9.44 }], "canonical fee rows");
   const body = await get("/api/admin/payment-ops-status");
 
   assert.deepEqual(Object.keys(body), ["ok", "provider", "attempts_by_type", "webhook_reconciliation", "webhook_security", "buyer_payment_methods", "fee_ledger", "recent_attempts", "recent_ledger"]);
@@ -162,7 +229,9 @@ await run("payment-ops-status: exact sections, figures from the payment, webhook
   assert.equal(body.provider.mock_backed, readiness.providers.payment.is_mock);
 
   const charge = (b: any) => b.attempts_by_type.find((row: any) => row.attempt_type === "charge_start") || { success: 0, temporary_fail: 0, permanent_fail: 0, unknown: 0 };
-  assert.equal(charge(body).success - charge(before).success, 1, "one more successful charge attempt");
+  assert.equal(charge(body).success - charge(before).success, 2, "two more successful charge attempts");
+  const refunds = (b: any) => b.attempts_by_type.find((row: any) => row.attempt_type === "refund") || { success: 0 };
+  assert.equal(refunds(body).success - refunds(before).success, 1, "one more successful refund attempt");
   const attemptTruth = (await pool.query(`SELECT attempt_type, COUNT(*)::int AS n FROM siton.payment_attempts GROUP BY attempt_type ORDER BY attempt_type`)).rows;
   assert.deepEqual(body.attempts_by_type.map((row: any) => row.attempt_type), attemptTruth.map((row: any) => row.attempt_type), "grouped by attempt type, ordered");
   for (const row of body.attempts_by_type) {
@@ -194,9 +263,9 @@ await run("payment-ops-status: exact sections, figures from the payment, webhook
   for (const key of ["gross_charged", "fee_base", "fee_vat", "fee_total", "entries", "refund_entries"]) {
     assert.equal(body.fee_ledger[key], Number(ledgerTruth[key]), `fee_ledger.${key} is the ledger's own figure`);
   }
-  assert.equal(Number((body.fee_ledger.gross_charged - before.fee_ledger.gross_charged).toFixed(2)), 108, "only charge entries make the charged gross");
-  assert.equal(Number((body.fee_ledger.fee_total - before.fee_ledger.fee_total).toFixed(2)), 15.3, "every entry's fee total is summed");
-  assert.equal(body.fee_ledger.entries - before.fee_ledger.entries, 2);
+  assert.equal(Number((body.fee_ledger.gross_charged - before.fee_ledger.gross_charged).toFixed(2)), 208, "only charge entries make the charged gross (108 + 100; the -100 reversal is excluded)");
+  assert.equal(Number((body.fee_ledger.fee_total - before.fee_ledger.fee_total).toFixed(2)), 10.2, "the fee total nets the signed reversal (10.20 + 9.44 - 9.44)");
+  assert.equal(body.fee_ledger.entries - before.fee_ledger.entries, 3);
   assert.equal(body.fee_ledger.refund_entries - before.fee_ledger.refund_entries, 1);
   assert.equal(body.fee_ledger.note, "Siton fee = 8% of the authoritative charge base (incl. delivery, excl. VAT), from successful charges only");
 
@@ -224,8 +293,10 @@ await run("payment-ops-status: exact sections, figures from the payment, webhook
 
 await run("overview: exact sections, a scoped and trimmed search, settlement from charged money through the money helpers", async () => {
   const dealId = await deal("Completed", 100, sellerId, `Overview ${tag}`);
-  await participant(dealId, "ChargedSuccess", "ChargedSuccess", 2, 20);
-  await participant(dealId, "Dropped", "AuthReleased", 3, 20);
+  const chargedId = await participant(dealId, "charged", 2, 20);
+  await recordAttempt(chargedId, dealId, "charge_start", `overview-${tag}`);
+  await feeRow(chargedId, dealId, 220, "charge", `overview-${tag}`);
+  await participant(dealId, "dropped", 3, 20);
   const draftId = await deal("Draft", 40, sellerId, `Unrelated draft ${randomUUID().slice(0, 8)}`);
 
   const body = await get(`/api/admin/overview?q=${encodeURIComponent(`  ${tag}  `)}`);
@@ -319,13 +390,18 @@ await run("launch-console: exact sections; a seller-terms acceptance counts only
   assert.deepEqual(body.recent_warnings, body.system.warnings.slice(0, 10));
 });
 
-await run("the three routes only read: no watched table changes across repeated calls", async () => {
-  const before = await tableCounts();
+await run("the three routes only read: no watched table changes (rows or contents) across repeated calls", async () => {
+  const before = await tableFingerprints();
   for (let i = 0; i < 2; i += 1) {
     for (const url of ROUTES) await get(url);
     await get(`/api/admin/overview?q=${tag}`);
   }
-  assert.deepEqual(await tableCounts(), before);
+  assert.deepEqual(await tableFingerprints(), before, "row counts and row contents unchanged");
+});
+
+await run("the seeded fixtures follow the money canon: no money invariant fails that did not fail before", async () => {
+  const after = await failingInvariants();
+  assert.deepEqual(after.filter((name) => !invariantsBefore.includes(name)), [], `new failing invariants: ${after.join(", ")}`);
 });
 
 await pool.end();
