@@ -35,7 +35,13 @@ async function responseFor(scenario: Scenario = {}) {
     async authorize() { providerCallCount += 1; throw new Error("payment provider must not be called"); },
     async capture() { providerCallCount += 1; throw new Error("payment provider must not be called"); },
     async recover() { providerCallCount += 1; throw new Error("payment provider must not be called"); },
-    async refund() { providerCallCount += 1; throw new Error("payment provider must not be called"); }
+    async refund() { providerCallCount += 1; throw new Error("payment provider must not be called"); },
+    async tokenize() { providerCallCount += 1; throw new Error("payment provider must not be called"); },
+    async reauthorize() { providerCallCount += 1; throw new Error("payment provider must not be called"); },
+    async release() { providerCallCount += 1; throw new Error("payment provider must not be called"); },
+    async status() { providerCallCount += 1; throw new Error("payment provider must not be called"); },
+    verifyWebhook() { providerCallCount += 1; throw new Error("payment provider must not be called"); },
+    parseWebhookEvent() { providerCallCount += 1; throw new Error("payment provider must not be called"); }
   } as any;
 
   const payoutProvider = {
@@ -132,20 +138,20 @@ async function check(name: string, fn: () => Promise<void>) {
 }
 
 await check("DLQ rows are a hard blocker", async () => {
-  const { body, providerCallCount } = await responseFor({ dlqCount: 2 });
-  assert.equal(body.queues.dlq_count, 2);
+  const { body, providerCallCount } = await responseFor({ dlqCount: 1 });
+  assert.equal(body.queues.dlq_count, 1);
   assert.equal(body.verdict, "blocked");
   assert.equal(body.ok, false);
-  assert.match(JSON.stringify(body.blockers), /outbox DLQ has 2 unresolved event\(s\)/);
+  assert.match(JSON.stringify(body.blockers), /outbox DLQ has 1 unresolved event\(s\)/);
   assert.equal(providerCallCount, 0, "readiness must not execute payment or payout providers");
 });
 
 await check("oldest pending outbox event older than one hour is a warning", async () => {
-  const { body, providerCallCount } = await responseFor({ oldestPendingAgeSeconds: 3661 });
-  assert.equal(body.queues.oldest_pending_age_seconds, 3661);
+  const { body, providerCallCount } = await responseFor({ oldestPendingAgeSeconds: 3601 });
+  assert.equal(body.queues.oldest_pending_age_seconds, 3601);
   assert.equal(body.verdict, "warning");
   assert.equal(body.ok, true);
-  assert.match(JSON.stringify(body.warnings), /oldest pending outbox event is 61m old/);
+  assert.match(JSON.stringify(body.warnings), /oldest pending outbox event is 60m old/);
   assert.equal(body.blockers.length, 0);
   assert.equal(providerCallCount, 0, "readiness must remain read-only");
 });
