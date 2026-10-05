@@ -2,7 +2,7 @@ import { registerReceiptContentRoutes } from "./receipt_content_routes.js";
 import { registerAdminMissionControlRoutes } from "./admin_mission_control_routes.js";
 import { registerSupportRoutes } from "./support_routes.js";
 import { registerAdminControlCenterRoutes } from "./admin_control_center_routes.js";
-import { registerAdminGrowthRoutes } from "./admin_growth_routes.js";
+import { registerAdminGrowthRoutes, registerAdminSellerViralRoutes } from "./admin_growth_routes.js";
 import { registerSellerFulfillmentRoutes } from "./seller_fulfillment_routes.js";
 import { registerDistributionHubRoutes } from "./distribution_hub.js";
 import { ADMIN_TEAM_ROLES, adminLoginEmailForUsername, adminPasswordProblem, adminProvisionerConfig, isAdminTeamRole, normalizeAdminUsername, provisionAdminAuthUser, rollbackAdminAuthUser } from "./admin_team.js";
@@ -8783,14 +8783,9 @@ export function registerFrontendExperience(
     });
   });
 
-  // Admin: seller-scope viral metrics.
-  app.get("/api/admin/sellers/:sellerId/viral", async (req: any, reply: any) => {
-    if (!(await requireAdminRead(req, reply))) return;
-    const sellerId = String(req.params.sellerId || "").slice(0, 120);
-    return deps.withTx(async (c) => {
-      const cached = await readViralMetricsCache(c, "seller", sellerId);
-      return { ok: true, seller_id: sellerId, ...cached };
-    });
+  registerAdminSellerViralRoutes(app, {
+    withTx: deps.withTx,
+    requireAdminRead
   });
 
   // Admin mutation: enqueue a viral recompute for one deal (audited admin
