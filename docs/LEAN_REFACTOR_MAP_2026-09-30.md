@@ -404,7 +404,7 @@ Deleting `renderTrackingPage` would delete the only legacy implementation of 1�
   six GET routes; `frontend_runtime.ts` 9,819 → 9,393 by `wc -l`), admin pilot / growth / viral reads (2026-10-05, `src/admin_growth_routes.ts`,
   five GET routes; 9,393 → 9,208 by `wc -l`), the admin seller viral read (2026-10-05, second register function in
   `src/admin_growth_routes.ts`; 9,208 → 9,203). The viral recompute mutation stays in the runtime (outbox write, not a
-  read). Next candidate: demo readiness, as its own slice.
+  read). Demo readiness (2026-10-05, `src/admin_demo_readiness_routes.ts`; 9,203 → 8,990).
 - NOT mechanical (separate senior workstreams): `paymentMinorAmount`, `parsePositiveIntegerQuantity`, `roundMoney`,
   `sha256`, token generation, peppered hash, cookie parsers, `requireUuid`.
 

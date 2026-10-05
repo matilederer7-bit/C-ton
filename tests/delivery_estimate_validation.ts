@@ -39,10 +39,10 @@ async function run(name: string, fn: () => Promise<void> | void) {
   catch (e: any) { console.error(`FAIL ${name}: ${e.message}`); failed++; }
 }
 
-// support, seller fulfillment, admin control-center (R6) and admin growth routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
+// support, seller fulfillment, admin control-center (R6), admin growth and admin demo-readiness routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
 const [app_src, runtime_src, sellerPage, dealPage, apiClient] = await Promise.all([
   readFile("src/app.ts", "utf8"),
-  Promise.all([readFile("src/frontend_runtime.ts", "utf8"), readFile("src/support_routes.ts", "utf8"), readFile("src/seller_fulfillment_routes.ts", "utf8"), readFile("src/admin_control_center_routes.ts", "utf8"), readFile("src/admin_growth_routes.ts", "utf8")]).then((parts) => parts.join("\n")),
+  Promise.all([readFile("src/frontend_runtime.ts", "utf8"), readFile("src/support_routes.ts", "utf8"), readFile("src/seller_fulfillment_routes.ts", "utf8"), readFile("src/admin_control_center_routes.ts", "utf8"), readFile("src/admin_growth_routes.ts", "utf8"), readFile("src/admin_demo_readiness_routes.ts", "utf8")]).then((parts) => parts.join("\n")),
   readFile("web/src/pages/seller.tsx", "utf8"),
   readFile("web/src/pages/deal.tsx", "utf8"),
   readFile("web/src/api.ts", "utf8")

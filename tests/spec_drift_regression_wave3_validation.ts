@@ -54,8 +54,8 @@ await run("D1 — /app is the canonical Mall and duplicate discovery routes stay
 });
 
 await run("D1 — Mall uses bounded filters and has no arbitrary public text search", () => {
-  // support, seller fulfillment, admin control-center (R6) and admin growth routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
-  const runtime = read("src/frontend_runtime.ts") + "\n" + read("src/support_routes.ts") + "\n" + read("src/seller_fulfillment_routes.ts") + "\n" + read("src/admin_control_center_routes.ts") + "\n" + read("src/admin_growth_routes.ts");
+  // support, seller fulfillment, admin control-center (R6), admin growth and admin demo-readiness routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
+  const runtime = read("src/frontend_runtime.ts") + "\n" + read("src/support_routes.ts") + "\n" + read("src/seller_fulfillment_routes.ts") + "\n" + read("src/admin_control_center_routes.ts") + "\n" + read("src/admin_growth_routes.ts") + "\n" + read("src/admin_demo_readiness_routes.ts");
   const mall = read("src/mall_read_model.ts");
   assert.match(runtime, /\/api\/mall\/deals/);
   assert.match(mall, /physical_product/);
@@ -90,7 +90,8 @@ await run("D2 — no `platform_fee_rate = 0.05` assignment anywhere in src/", ()
     "src/support_routes.ts",
     "src/seller_fulfillment_routes.ts",
     "src/admin_control_center_routes.ts",
-    "src/admin_growth_routes.ts"
+    "src/admin_growth_routes.ts",
+    "src/admin_demo_readiness_routes.ts"
   ]) {
     const body = read(path);
     assert.ok(
@@ -132,6 +133,7 @@ await run("D3 — no comment/string claims fee excludes delivery in active sourc
     "src/seller_fulfillment_routes.ts",
     "src/admin_control_center_routes.ts",
     "src/admin_growth_routes.ts",
+    "src/admin_demo_readiness_routes.ts",
     "frontend/app.js"
   ]) {
     const body = read(path);
@@ -184,7 +186,7 @@ await run("D4 — no 'already joined' / 'single participation' copy in frontend 
     /one\s+purchase\s+per\s+buyer/i,
     /unique\s+buyer\s+per\s+deal/i
   ];
-  for (const path of ["frontend/app.js", "src/frontend_runtime.ts", "src/support_routes.ts", "src/seller_fulfillment_routes.ts", "src/admin_control_center_routes.ts", "src/admin_growth_routes.ts"]) {
+  for (const path of ["frontend/app.js", "src/frontend_runtime.ts", "src/support_routes.ts", "src/seller_fulfillment_routes.ts", "src/admin_control_center_routes.ts", "src/admin_growth_routes.ts", "src/admin_demo_readiness_routes.ts"]) {
     const body = read(path);
     for (const re of forbidden) {
       assert.ok(
@@ -211,6 +213,7 @@ await run("D5 — affiliate surface has no earnings/balance/withdraw wording", (
     "src/seller_fulfillment_routes.ts",
     "src/admin_control_center_routes.ts",
     "src/admin_growth_routes.ts",
+    "src/admin_demo_readiness_routes.ts",
     "src/product_surface_support.ts",
     "frontend/app.js"
   ]) {

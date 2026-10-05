@@ -18,7 +18,7 @@ const app = read("app.ts");
 const routes = read("operational_health_routes.ts");
 // Every route module is required; only the Mission Control module (PR #202, may land before or after this slice) is optional.
 const OPTIONAL_ROUTE_FILES = new Set(["admin_mission_control_routes.ts"]);
-const ROUTE_FILES = ["app.ts", "frontend_runtime.ts", "receipt_content_routes.ts", "distribution_hub.ts", "admin_mission_control_routes.ts", "operational_health_routes.ts", "support_routes.ts", "seller_fulfillment_routes.ts", "admin_control_center_routes.ts", "admin_growth_routes.ts"]
+const ROUTE_FILES = ["app.ts", "frontend_runtime.ts", "receipt_content_routes.ts", "distribution_hub.ts", "admin_mission_control_routes.ts", "operational_health_routes.ts", "support_routes.ts", "seller_fulfillment_routes.ts", "admin_control_center_routes.ts", "admin_growth_routes.ts", "admin_demo_readiness_routes.ts"]
   .filter((file) => !OPTIONAL_ROUTE_FILES.has(file) || existsSync(join(SRC, file)));
 const HEALTH_ROUTES = ["/health", "/readiness"];
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

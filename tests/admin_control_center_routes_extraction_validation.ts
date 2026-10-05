@@ -29,7 +29,8 @@ const OTHER_ROUTE_FILES = [
   "seller_deal_image_routes.ts",
   "support_routes.ts",
   "seller_fulfillment_routes.ts",
-  "admin_growth_routes.ts"
+  "admin_growth_routes.ts",
+  "admin_demo_readiness_routes.ts"
 ];
 
 // In the original registration order (Fastify registers in call order).
@@ -101,7 +102,9 @@ const CHECKS: Record<string, (s: Sources) => void> = {
     assert.equal((s.runtime.match(/registerAdminControlCenterRoutes\(/g) || []).length, 1, "exactly one wiring call");
     const wiringAt = indexOrFail(s.runtime, "  registerAdminControlCenterRoutes(app, {", 0, "wiring");
     const before = indexOrFail(s.runtime, 'app.post("/api/admin/viral/recompute"', 0, "preceding route");
-    const after = indexOrFail(s.runtime, 'app.get("/api/admin/demo-readiness"', 0, "following route");
+    // the demo-readiness read that followed the R6 block moved into
+    // src/admin_demo_readiness_routes.ts (Lean Refactor); its wiring call is the next registration
+    const after = indexOrFail(s.runtime, "  registerAdminDemoReadinessRoutes(app, {", 0, "following route");
     assert.ok(before < wiringAt && wiringAt < after, "wired where the routes were: after the viral recompute route, before demo readiness");
     // nothing else registers between the preceding route's handler and the wiring call
     const gap = s.runtime.slice(before + 1, wiringAt);
@@ -207,7 +210,7 @@ const MUTANTS: Array<[string, string, () => Sources]> = [
   ["audit tail turned into a write", CHECK.READ_ONLY, () => ({ ...real, routes: replaceOnce(real.routes, "      return { ok: true, audit: rows.rows };\n", "      await c.query(`DELETE FROM siton.audit_log WHERE audit_id = $1`, [q]);\n      return { ok: true, audit: rows.rows };\n") })],
   ["deals roster split over two transactions", CHECK.READ_ONLY, () => ({ ...real, routes: replaceOnce(real.routes, "      return { ok: true, deals: rows.rows };\n    });\n", "      return { ok: true, deals: rows.rows };\n    }).then((r: any) => deps.withTx(async () => r));\n") })],
   ["audit route registered a second time in the module", CHECK.REGISTRATION, () => ({ ...real, routes: replaceOnce(real.routes, "\n  });\n}\n", `\n  });\n${audit}}\n`) })],
-  ["audit route left behind in the runtime as well", CHECK.REGISTRATION, () => ({ ...real, runtime: replaceOnce(real.runtime, '  app.get("/api/admin/demo-readiness"', `${audit}  app.get("/api/admin/demo-readiness"`) })],
+  ["audit route left behind in the runtime as well", CHECK.REGISTRATION, () => ({ ...real, runtime: replaceOnce(real.runtime, "  registerAdminDemoReadinessRoutes(app, {", `${audit}  registerAdminDemoReadinessRoutes(app, {`) })],
   ["audit route dropped (omission)", CHECK.REGISTRATION, () => ({ ...real, routes: replaceOnce(real.routes, audit, "") })],
   ["sellers list and drilldown registered in swapped order", CHECK.ORDER, () => {
     const drilldown = handlerSlice("/api/admin/r6/sellers/:sellerId", "/api/admin/r6/audit");
