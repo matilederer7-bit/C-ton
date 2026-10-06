@@ -164,8 +164,11 @@ const adminDemoReadinessRoutesSource = read("src/admin_demo_readiness_routes.ts"
 // moved the same way into src/admin_ops_overview_routes.ts (Lean Refactor);
 // their payment, fee-ledger and settlement SQL stays in these scans.
 const adminOpsOverviewRoutesSource = read("src/admin_ops_overview_routes.ts");
-const sellerReportingFiles = [["src/frontend_runtime.ts", frontendRuntimeSource], ["src/seller_fulfillment_routes.ts", sellerFulfillmentRoutesSource], ["src/admin_control_center_routes.ts", adminControlCenterRoutesSource], ["src/admin_growth_routes.ts", adminGrowthRoutesSource], ["src/admin_demo_readiness_routes.ts", adminDemoReadinessRoutesSource], ["src/admin_ops_overview_routes.ts", adminOpsOverviewRoutesSource]];
-const sellerReportingSource = frontendRuntimeSource + "\n" + sellerFulfillmentRoutesSource + "\n" + adminControlCenterRoutesSource + "\n" + adminGrowthRoutesSource + "\n" + adminDemoReadinessRoutesSource + "\n" + adminOpsOverviewRoutesSource;
+// The admin operational status reads (outbox, notifications, invoice) moved into
+// src/admin_operational_status_routes.ts; keep their queue and invoice SQL in this scan.
+const adminOperationalStatusRoutesSource = read("src/admin_operational_status_routes.ts");
+const sellerReportingFiles = [["src/frontend_runtime.ts", frontendRuntimeSource], ["src/seller_fulfillment_routes.ts", sellerFulfillmentRoutesSource], ["src/admin_control_center_routes.ts", adminControlCenterRoutesSource], ["src/admin_growth_routes.ts", adminGrowthRoutesSource], ["src/admin_demo_readiness_routes.ts", adminDemoReadinessRoutesSource], ["src/admin_ops_overview_routes.ts", adminOpsOverviewRoutesSource], ["src/admin_operational_status_routes.ts", adminOperationalStatusRoutesSource]];
+const sellerReportingSource = frontendRuntimeSource + "\n" + sellerFulfillmentRoutesSource + "\n" + adminControlCenterRoutesSource + "\n" + adminGrowthRoutesSource + "\n" + adminDemoReadinessRoutesSource + "\n" + adminOpsOverviewRoutesSource + "\n" + adminOperationalStatusRoutesSource;
 assert(moneyStateInLists(sellerReportingSource).includes(collected), "seller export/frontend runtime SQL must count ChargedSuccess and RecoveredCharge together");
 {
   const comparisons = [];

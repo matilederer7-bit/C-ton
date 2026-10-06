@@ -50,7 +50,8 @@ const allSource = [
   // the admin demo-readiness read moved out of frontend_runtime.ts by the Lean Refactor; stays in the static scan
   await readFile("src/admin_demo_readiness_routes.ts", "utf8"),
   // the admin ops overview reads (payment-ops-status, overview, launch-console) moved out of frontend_runtime.ts by the Lean Refactor; stay in the static scan
-  await readFile("src/admin_ops_overview_routes.ts", "utf8")
+  await readFile("src/admin_ops_overview_routes.ts", "utf8"),
+  await readFile("src/admin_operational_status_routes.ts", "utf8")
 ].join("\n");
 
 await runTest("security_admin_auth_validation", async () => {
@@ -65,7 +66,7 @@ await runTest("security_admin_auth_validation", async () => {
   // Supabase/cookie, or the timing-safe ops key inside requireAdminKey).
   assert.match(runtime, /function requireAdminRead/);
   // the admin read routes moved out of frontend_runtime.ts (Lean Refactor) still count toward the bound
-  const adminReadSurfaces = runtime + "\n" + (await readFile("src/admin_control_center_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_growth_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_demo_readiness_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_ops_overview_routes.ts", "utf8"));
+  const adminReadSurfaces = runtime + "\n" + (await readFile("src/admin_control_center_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_growth_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_demo_readiness_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_ops_overview_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_operational_status_routes.ts", "utf8"));
   assert.ok((adminReadSurfaces.match(/await requireAdminRead\(req, reply\)/g) || []).length >= 10);
   // the key check still backs the read guard (fail-closed when unconfigured in
   // production-like environments)
