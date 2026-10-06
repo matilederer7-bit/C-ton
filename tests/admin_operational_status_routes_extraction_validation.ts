@@ -127,7 +127,7 @@ const mutants: Array<[string,(s: Sources) => Sources]> = [
 ];
 
 for (const [name, mutate] of mutants) {
-  assert.throws(() => checkSources(mutate(baseline)), undefined, "mutant must be rejected: " + name);
+  assert.throws(() => checkSources(mutate(baseline)), "mutant must be rejected: " + name);
 }
 
 console.log("ADMIN_OPERATIONAL_STATUS_ROUTES_EXTRACTION_PASS");
