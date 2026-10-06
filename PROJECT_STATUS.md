@@ -68,16 +68,17 @@ Current invariants:
 
 ## AGENT MILESTONES
 
-### ChatGPT latest milestone — Mission Control refund-readiness runtime scan fix (2026-10-04)
+### ChatGPT latest milestone — Demo Readiness threshold regression suite (2026-10-05)
 
-- COMPLETED: replaced the source-checkout-dependent manual-refund route scan with a runtime-module scan. It reads the route modules beside the executing Mission Control code: TypeScript during source execution and compiled JavaScript in `.demo_dist/src` / `.tmp_test_dist/src`. The scan covers the exact nine route-bearing modules listed by `scripts/web_route_inventory.cjs` and fails closed if any one is unreadable.
-- COMPLETED: added `src/refund_route_readiness.ts` as the isolated scanner, kept manual seller/admin/support refund routes blocked, exposed scan evidence in the Mission Control refund-readiness payload, and added exact source-list parity plus compiled-tree mutant coverage.
-- TESTED: PR #224 final head `388a239` passed Siton CI run 468 including `ci-verdict`; Codex reviewed that exact head and found no major issues, with no open review threads. PR #224 squash-merged as `db3e474`. Master Siton CI run 469 passed every lane including `ci-verdict`.
-- COMPLETED (staging): canonical Render web deploy `dep-db1c30jm8hqs73dstab0` and worker deploy `dep-db1c30rm8hqs73dstap0` are LIVE on `db3e474`. A post-deploy `/readiness` request returned HTTP 200, and neither canonical service logged an error- or fatal-level line after the deploy.
-- OPEN: none for this refund-readiness fix.
-- PERCENT: 100%.
-- NEXT: continue the next non-overlapping `frontend_runtime.ts` route extraction slice, one concern per PR.
-
+- COMPLETED: added `tests/demo_readiness_thresholds_validation.ts`, an isolated Fastify-injection regression suite for the existing read-only `GET /api/admin/demo-readiness` contract. It pins the safety boundaries left open after PR #232: exactly one DLQ row is a hard blocker; an oldest-pending outbox event at 3600 seconds does not warn while 3601 seconds does; and `environment.demo_preview` echoes both true and false injected runtime values.
+- COMPLETED (focused gate): `npm run test:demo-readiness` now executes both the existing readiness validation and the new threshold regression suite, so a focused readiness check cannot report green while skipping these thresholds.
+- COMPLETED (no provider side effects): the suite injects throwing spies for every payment-provider operation (required and optional: authorize, capture, recover, refund, tokenize, reauthorize, release, status, webhook verification/parsing) and every payout-provider operation, and asserts the readiness route never executes them.
+- TESTED (pre-rebase evidence): the prior PR #234 heads passed full Siton CI and Codex review after the three P2 test-strength findings and the focused-gate finding were fixed. #234 was closed unmerged only because master advanced with Claude's non-overlapping admin-ops refactor before merge.
+- COMPLETED (safe rebase): the same three-file change was rebuilt on current master `493e01f` as PR #238, preserving Claude's current PROJECT_STATUS slot and changing only this ChatGPT slot, `package.json`, and the new regression test.
+- BEHAVIOUR: test-only. No runtime, DB, migration, money, payment, provider, auth, UX or API-contract change; no staging redeploy is required for this task.
+- OPEN: exact-head CI + Codex review on PR #238, merge, then master CI.
+- PERCENT: 85% for this follow-up; implementation is complete, current-base lifecycle gates remain.
+- NEXT: finish exact-head review/CI on #238, squash-merge, verify master CI, then close this ChatGPT slot at 100%.
 
 <!-- AGENT_STATUS:claude:START -->
 ### Claude Code latest milestone — Lean Refactor: the admin ops overview reads (payment-ops-status, overview, launch-console) moved verbatim out of `frontend_runtime.ts` (2026-10-05)
