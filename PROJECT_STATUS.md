@@ -75,9 +75,10 @@ Current invariants:
 - TESTED (PR head): PR #238 exact head `c23e75a` passed Siton CI run 506 after a clean rerun of the previously cancelled jobs, including `ci-verdict`; Mobile canonical/static readiness run 211 passed; Codex reviewed exact head `c23e75a` and found no major issues, and the automatic Codex re-review workflow rerun passed.
 - MERGED: PR #238 squash-merged as `19c9a0c20a908d9dc7ae447793dfb1bca9ed3f73`.
 - BEHAVIOUR: test-only. No runtime, DB, migration, money, payment, provider, auth, UX or API-contract change; no staging redeploy is required.
-- OPEN: master Siton CI run 513 on `19c9a0c` is still running.
-- PERCENT: 95% until master CI closes green.
-- NEXT: verify master CI run 513, then close this slot at 100% and continue PR #239 (admin operational status read extraction).
+- TESTED (master): Siton CI run 513 on `19c9a0c20a908d9dc7ae447793dfb1bca9ed3f73` passed all 18 jobs, including preflight-database and `ci-verdict`.
+- OPEN: none for this demo-readiness follow-up.
+- PERCENT: 100%.
+- NEXT: continue PR #239 (admin operational status read extraction) against the current master.
 
 <!-- AGENT_STATUS:claude:START -->
 ### Claude Code latest milestone — Lean Refactor: the admin ops overview reads (payment-ops-status, overview, launch-console) moved verbatim out of `frontend_runtime.ts` (2026-10-05)
