@@ -68,17 +68,17 @@ Current invariants:
 
 ## AGENT MILESTONES
 
-### ChatGPT latest milestone — Demo Readiness threshold regression suite (2026-10-05)
+### ChatGPT latest milestone — Demo Readiness threshold regression suite closeout (2026-10-06)
 
-- COMPLETED: added `tests/demo_readiness_thresholds_validation.ts`, an isolated Fastify-injection regression suite for the existing read-only `GET /api/admin/demo-readiness` contract. It pins the safety boundaries left open after PR #232: exactly one DLQ row is a hard blocker; an oldest-pending outbox event at 3600 seconds does not warn while 3601 seconds does; and `environment.demo_preview` echoes both true and false injected runtime values.
-- COMPLETED (focused gate): `npm run test:demo-readiness` now executes both the existing readiness validation and the new threshold regression suite, so a focused readiness check cannot report green while skipping these thresholds.
-- COMPLETED (no provider side effects): the suite injects throwing spies for every payment-provider operation (required and optional: authorize, capture, recover, refund, tokenize, reauthorize, release, status, webhook verification/parsing) and every payout-provider operation, and asserts the readiness route never executes them.
-- TESTED (pre-rebase evidence): the prior PR #234 heads passed full Siton CI and Codex review after the three P2 test-strength findings and the focused-gate finding were fixed. #234 was closed unmerged only because master advanced with Claude's non-overlapping admin-ops refactor before merge.
-- COMPLETED (safe rebase): the same three-file change was rebuilt on current master `493e01f` as PR #238, preserving Claude's current PROJECT_STATUS slot and changing only this ChatGPT slot, `package.json`, and the new regression test.
-- BEHAVIOUR: test-only. No runtime, DB, migration, money, payment, provider, auth, UX or API-contract change; no staging redeploy is required for this task.
-- OPEN: exact-head CI + Codex review on PR #238, merge, then master CI.
-- PERCENT: 85% for this follow-up; implementation is complete, current-base lifecycle gates remain.
-- NEXT: finish exact-head review/CI on #238, squash-merge, verify master CI, then close this ChatGPT slot at 100%.
+- COMPLETED: `tests/demo_readiness_thresholds_validation.ts` pins the existing read-only `GET /api/admin/demo-readiness` safety boundaries: one DLQ row blocks; 3600s pending age does not warn while 3601s does; `environment.demo_preview` echoes the injected runtime flag; readiness executes no payment or payout provider operation.
+- COMPLETED (focused gate): `npm run test:demo-readiness` runs both the original readiness validation and the threshold regression suite.
+- TESTED (PR head): PR #238 exact head `c23e75a` passed Siton CI run 506 after a clean rerun of the previously cancelled jobs, including `ci-verdict`; Mobile canonical/static readiness run 211 passed; Codex reviewed exact head `c23e75a` and found no major issues, and the automatic Codex re-review workflow rerun passed.
+- MERGED: PR #238 squash-merged as `19c9a0c20a908d9dc7ae447793dfb1bca9ed3f73`.
+- BEHAVIOUR: test-only. No runtime, DB, migration, money, payment, provider, auth, UX or API-contract change; no staging redeploy is required.
+- TESTED (master): Siton CI run 513 on `19c9a0c20a908d9dc7ae447793dfb1bca9ed3f73` passed all 18 jobs, including preflight-database and `ci-verdict`.
+- OPEN: none for this demo-readiness follow-up.
+- PERCENT: 100%.
+- NEXT: continue PR #239 (admin operational status read extraction) against the current master.
 
 <!-- AGENT_STATUS:claude:START -->
 ### Claude Code latest milestone — Lean Refactor: the admin ops overview reads (payment-ops-status, overview, launch-console) moved verbatim out of `frontend_runtime.ts` (2026-10-05)
