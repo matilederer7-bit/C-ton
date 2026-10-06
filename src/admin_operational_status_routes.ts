@@ -12,14 +12,14 @@ type SchemaCheck = () => Promise<unknown>;
 export type AdminOperationalStatusRouteDeps = {
   withTx: WithTx;
   requireAdminRead: (req: any, reply: any) => Promise<boolean>;
-  workerStuckTimeoutMs?: number;
+  workerStuckTimeoutMs: number | undefined;
   notificationSummary: {
     provider: string;
     mode: string;
     external_delivery: boolean;
   };
   ensureInvoiceWebhookTables: SchemaCheck;
-  invoiceSummary?: {
+  invoiceSummary: {
     provider: string;
     mode: string;
     provider_mode?: string;
@@ -35,7 +35,7 @@ export type AdminOperationalStatusRouteDeps = {
     external_issuance: boolean;
     external_document_issued?: boolean;
     supported_methods?: string[];
-  };
+  } | undefined;
 };
 
 export function registerAdminOperationalStatusRoutes(app: FastifyInstance, deps: AdminOperationalStatusRouteDeps) {
