@@ -68,31 +68,7 @@ Current invariants:
 
 ## AGENT MILESTONES
 
-### ChatGPT latest milestone — Lean Refactor: admin operational status reads extracted (2026-10-06)
-
-- BRANCH / PR: `chatgpt/admin-operational-status-routes-20261005`, PR #239. Scope is exactly three read-only GET routes: `/api/admin/outbox-status`, `/api/admin/notifications-status`, `/api/admin/invoice-status`. Admin mutations, payout reads and system-ops reads are out of scope.
-- COMPLETED (code): moved the original contiguous 300-line block byte-for-byte from `src/frontend_runtime.ts` into `src/admin_operational_status_routes.ts` and wired `registerAdminOperationalStatusRoutes` once at the original registry position, after compute-upgrade and before payout-status. No SQL, auth ordering, thresholds, response shape, provider summary or transaction boundary changed. `frontend_runtime.ts` is 8,540 → 8,251 lines by newline count and 128 → 125 direct route registrations.
-- COMPLETED (coverage): added the module to `scripts/web_route_inventory.cjs`, `REFUND_READINESS_ROUTE_MODULES`, legal/money gates, release-tool fixtures and every relevant source-concatenation / route-file census touched by the moved text. The moved block remains covered instead of silently disappearing from static gates.
-- COMPLETED (tests): added `admin_operational_status_routes_extraction_validation.ts` (registration/order, exact wiring dependencies, admin-read guard, invoice schema check, read-only/no-side-effect rules, response-surface pins and targeted mutants) and `admin_operational_status_read_validation.ts` (401 before DB reads; outbox counts/ages/worker signal; notification provider fallback; invoice provider/webhook/reconcile summaries; SELECT-only fake DB).
-- FIXED DURING CI: the first CI pass exposed two TypeScript defects introduced by the extraction: explicit `undefined` values under `exactOptionalPropertyTypes`, and an invalid `assert.throws` overload in the mutant harness. Both were fixed; Docker/route-contract failures were cascading from that compile failure.
-- TESTED (pre-final-base): exact head `793fbc0` passed Siton CI run 512, including all lanes and `ci-verdict`. The API lane explicitly passed both new tests: `ADMIN_OPERATIONAL_STATUS_READ_PASS` and `ADMIN_OPERATIONAL_STATUS_ROUTES_EXTRACTION_PASS`. The moved handler block was also compared byte-for-byte with master `493e01f`: exact match, 17,584 characters / 300 lines.
-- REVIEW: an early Codex money/security/auth review was requested on `793fbc0`; final review is still required after this lifecycle/status commit, so any earlier verdict is not merge authority.
-- BEHAVIOUR: intended none. Read-only extraction only; no migration, real money, refund, payout, provider activation, auth-policy or production mutation.
-- OPEN: current-base CI on the final head, final Codex review, merge, master CI, staging web/worker verification and status closeout.
-- PERCENT: 80%.
-- NEXT: mark PR #239 ready, require green CI + clean Codex on the final head against current master, then merge and verify staging before closing at 100%.
-
-### ChatGPT latest milestone — Demo Readiness threshold regression suite closeout (2026-10-06)
-
-- COMPLETED: `tests/demo_readiness_thresholds_validation.ts` pins the existing read-only `GET /api/admin/demo-readiness` safety boundaries: one DLQ row blocks; 3600s pending age does not warn while 3601s does; `environment.demo_preview` echoes the injected runtime flag; readiness executes no payment or payout provider operation.
-- COMPLETED (focused gate): `npm run test:demo-readiness` runs both the original readiness validation and the threshold regression suite.
-- TESTED (PR head): PR #238 exact head `c23e75a` passed Siton CI run 506 after a clean rerun of the previously cancelled jobs, including `ci-verdict`; Mobile canonical/static readiness run 211 passed; Codex reviewed exact head `c23e75a` and found no major issues, and the automatic Codex re-review workflow rerun passed.
-- MERGED: PR #238 squash-merged as `19c9a0c20a908d9dc7ae447793dfb1bca9ed3f73`.
-- BEHAVIOUR: test-only. No runtime, DB, migration, money, payment, provider, auth, UX or API-contract change; no staging redeploy is required.
-- TESTED (master): Siton CI run 513 on `19c9a0c20a908d9dc7ae447793dfb1bca9ed3f73` passed all 18 jobs, including preflight-database and `ci-verdict`.
-- OPEN: none for this demo-readiness follow-up.
-- PERCENT: 100%.
-- NEXT: continue PR #239 (admin operational status read extraction) against the current master.
+Two ChatGPT entries that sat here outside any agent slot (PR #239 extraction, 80%/OPEN at the time — merged as `868a746`; demo-readiness threshold closeout, 100%) moved verbatim to `docs/archive/PROJECT_STATUS_OUT_OF_SLOT_ENTRIES_2026-10-06.md` (2026-10-12).
 
 <!-- AGENT_STATUS:claude:START -->
 ### Claude Code latest milestone — Lean Refactor closure: #239 merged, census done, closure tasks in flight (2026-10-12)
@@ -100,7 +76,7 @@ Current invariants:
 - UPDATED: 2026-10-12
 - PR #239 (ChatGPT's admin operational status extraction): merged as `868a746` after a master merge (`PROJECT_STATUS.md` conflict only) and the fix for an unhandled Codex P2 (`scripts/money_tax_invoice_gate.cjs` `distributorSurface` had dropped the new module; fixture mutation added). Codex clean on the final head `ec00248`; master Siton CI run 545 green; Render web (`dep-db691lavcj2c73fcehmg`) + worker (`dep-db691lavcj2c73fcei4g`) live on `868a746`; staging `/readiness` 200; no error logs. This supersedes the "80% / OPEN" lines of the ChatGPT #239 entry above.
 - CLOSURE CENSUS: `docs/LEAN_REFACTOR_MAP_2026-09-30.md` §9 (merged in #247 `e5e0999`). No dead runtime module, no unused dependency, no Base44 runtime code, no canonical-doc contradiction. Mandatory closure set approved by the owner 2026-10-12: F1 one shared route-module registry; F2 `PROJECT_STATUS.md` trim + `AI_WORKFLOW.md` §14 alignment.
-- F2 — DONE: Claude slot trimmed in #247 (356 lines moved verbatim to `docs/archive/PROJECT_STATUS_CLAUDE_HISTORY_2026-09-30_TO_2026-10-05.md`; file 553 → ~200 lines). `AI_WORKFLOW.md` §14 now says "replace your own slot" (this PR, #248): the automated slot writers replace without archiving, and verbatim archival is a deliberate maintenance step for entries with evidence value, not a routine rule.
+- F2 — DONE: the two completed ChatGPT entries that sat above every agent slot moved verbatim to `docs/archive/PROJECT_STATUS_OUT_OF_SLOT_ENTRIES_2026-10-06.md` (#248); residual stale ChatGPT and Codex slots are those agents' own to replace under the §14 rule. Claude slot trimmed in #247 (356 lines moved verbatim to `docs/archive/PROJECT_STATUS_CLAUDE_HISTORY_2026-09-30_TO_2026-10-05.md`; file 553 → ~200 lines). `AI_WORKFLOW.md` §14 now says "replace your own slot" (this PR, #248): the automated slot writers replace without archiving, and verbatim archival is a deliberate maintenance step for entries with evidence value, not a routine rule.
 - F1 — IMPLEMENTED, PR pending: `scripts/lib/route_modules.cjs` (ROUTE_MODULES 14, FRONTEND_RUNTIME_FAMILY 8) + `tests/helpers/route_sources.ts`; 13 inline family concatenations, 9 extraction-test sibling lists, the admin mutation inventory, spec-drift wave 3, legacy isolation, security hardening, 3 release-tool fixtures and the three gates (route inventory, legal, money) read the registry; new `tests/route_module_registry_validation.ts` (registry == `REFUND_READINESS_ROUTE_MODULES`, every `src/*_routes.ts` listed, an unlisted probe fails it). No assertion changed; route inventory output byte-identical; every touched test, the gates, release-tools 426/426 and lint pass locally. Opens as the next PR on this branch after #248 merges (local commit `1f2e8c0`).
 - BEHAVIOUR: none. No DB, migration, money, auth, provider or API-contract change in any of these PRs.
 - OPEN: F1 PR (CI + Codex + merge). PR-18 (three legacy Render services) unchanged: re-verified 2026-10-12, still build and fail on every master commit (`update_failed`) — owner dashboard action.
