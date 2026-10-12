@@ -82,7 +82,7 @@ Reading order for a new agent is exactly the "Start every meaningful task" list 
 | `docs/INVOICE_ACCOUNTING_GROUNDWORK.md` | Invoice / Accounting Groundwork | invoice design |
 | `docs/INVOICE_PROVIDER_MORNING_ADAPTER.md` | Morning / Green Invoice Adapter | provider adapter |
 | `docs/KNOWN_GAPS_AND_DECISIONS.md` | Known Gaps And Decisions | closed product decisions |
-| `docs/LEAN_REFACTOR_MAP_2026-09-30.md` | Lean Refactor Map | active repository cleanup / decomposition plan and evidence |
+| `docs/LEAN_REFACTOR_MAP_2026-09-30.md` | Lean Refactor Map | closed refactor record and evidence: the Lean Refactor track closed 2026-10-12 (§9.4); its B rows stay optional and its C rows belong to their own workstreams |
 | `docs/LANDING_HERO_VIDEO.md` | Landing hero video spec | asset spec |
 | `docs/LEGAL_TRUST_SURFACES.md` | Legal / Trust Surfaces | legal surfaces |
 | `docs/LOCAL_RESTORE_CHECKLIST.md` | Local Restore Checklist | checklist |
