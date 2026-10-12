@@ -136,6 +136,14 @@ const MUTATIONS = [
     from: "  function pickupCodeNotFound(reply: any) {",
     to: '  const distributorNote = "affiliate commission";\n  function pickupCodeNotFound(reply: any) {',
     expect: /forbidden money wording/
+  },
+  {
+    // the admin operational status reads moved to src/admin_operational_status_routes.ts (Lean Refactor); the distributor-money scan must still see them
+    name: "moved admin operational status routes gain distributor commission wording",
+    file: "src/admin_operational_status_routes.ts",
+    from: "  const { requireAdminRead, ensureInvoiceWebhookTables } = deps;",
+    to: '  const { requireAdminRead, ensureInvoiceWebhookTables } = deps;\n  const distributorNote = "affiliate commission";',
+    expect: /forbidden money wording/
   }
 ];
 
