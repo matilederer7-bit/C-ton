@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { ROUTE_MODULES } from "./helpers/route_sources.js";
 
 const SRC = join(process.cwd(), "src");
 const read = (file: string) => readFileSync(join(SRC, file), "utf8");
@@ -12,20 +13,7 @@ const ROUTES = [
   "/api/admin/notifications-status",
   "/api/admin/invoice-status"
 ] as const;
-const OTHER_ROUTE_FILES = [
-  "app.ts",
-  "receipt_content_routes.ts",
-  "distribution_hub.ts",
-  "admin_mission_control_routes.ts",
-  "operational_health_routes.ts",
-  "seller_deal_image_routes.ts",
-  "support_routes.ts",
-  "seller_fulfillment_routes.ts",
-  "admin_control_center_routes.ts",
-  "admin_growth_routes.ts",
-  "admin_demo_readiness_routes.ts",
-  "admin_ops_overview_routes.ts"
-];
+const OTHER_ROUTE_FILES = ROUTE_MODULES.filter((name) => name !== "frontend_runtime" && name !== "admin_operational_status_routes").map((name) => `${name}.ts`);
 
 type Sources = { runtime: string; routes: string; others: Record<string, string> };
 

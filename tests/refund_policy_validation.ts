@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { REFUND_READINESS_ROUTE_MODULES, scanManualRefundRoutes } from "../src/refund_route_readiness.js";
+import { ROUTE_MODULE_FILES, readFrontendRuntimeFamily } from "./helpers/route_sources.js";
 
 async function runTest(name: string, fn: () => Promise<void> | void) {
   try {
@@ -16,8 +17,8 @@ async function runTest(name: string, fn: () => Promise<void> | void) {
 }
 
 const app = await readFile("src/app.ts", "utf8");
-// support, seller fulfillment, admin control-center (R6), admin growth and admin demo-readiness routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
-const runtime = (await readFile("src/frontend_runtime.ts", "utf8")) + "\n" + (await readFile("src/support_routes.ts", "utf8")) + "\n" + (await readFile("src/seller_fulfillment_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_control_center_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_growth_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_demo_readiness_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_ops_overview_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_operational_status_routes.ts", "utf8"));
+// Every module extracted from frontend_runtime.ts stays in this scan (scripts/lib/route_modules.cjs).
+const runtime = (await readFrontendRuntimeFamily());
 const controlPlane = await readFile("src/admin_control_plane.ts", "utf8");
 const mission = await readFile("src/admin_mission_control.ts", "utf8");
 const providerReadinessDoc = await readFile("docs/PROVIDER_LIVE_MONEY_READINESS.md", "utf8");
@@ -97,10 +98,11 @@ await runTest("refund_policy_mission_control_validation", async () => {
   assert.match(mission, /scanManualRefundRoutes\(\)/);
   assert.match(mission, /refund_route_sources_unreadable/);
 
-  const inventorySourceBody = routeInventory.match(/const sources = \[([\s\S]*?)\];/)?.[1] || "";
-  const inventorySources = [...inventorySourceBody.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+  // The route inventory reads the shared registry (scripts/lib/route_modules.cjs); the
+  // runtime readiness scan must list exactly the same modules in the same order.
+  assert.match(routeInventory, /require\("\.\/lib\/route_modules\.cjs"\)/, "route inventory must read the shared route-module registry");
   const readinessSources = REFUND_READINESS_ROUTE_MODULES.map((moduleName) => `src/${moduleName}.ts`);
-  assert.deepEqual(readinessSources, inventorySources, "refund readiness must scan the exact route-inventory source set");
+  assert.deepEqual(readinessSources, [...ROUTE_MODULE_FILES], "refund readiness must scan the exact route-inventory source set");
 
   const liveScan = await scanManualRefundRoutes();
   const currentTestExtension = fileURLToPath(import.meta.url).endsWith(".js") ? ".js" : ".ts";

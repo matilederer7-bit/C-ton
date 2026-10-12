@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import pg from "pg";
 import "dotenv/config";
+import { readFrontendRuntimeFamily } from "./helpers/route_sources.js";
 
 process.env.ADMIN_API_KEY = "seller-enforcement-admin-key";
 process.env.DISABLE_OUTBOX_WORKER = "1";
@@ -197,7 +198,7 @@ try {
   await run("seller enforcement stays isolated from duplicate discovery and distributor money rails", async () => {
     const platformFee = await readFile("src/platform_fee_money.ts", "utf8");
     // support, seller fulfillment, admin control-center (R6), admin growth and admin demo-readiness routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
-    const frontendRuntime = (await readFile("src/frontend_runtime.ts", "utf8")) + "\n" + (await readFile("src/support_routes.ts", "utf8")) + "\n" + (await readFile("src/seller_fulfillment_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_control_center_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_growth_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_demo_readiness_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_ops_overview_routes.ts", "utf8")) + "\n" + (await readFile("src/admin_operational_status_routes.ts", "utf8"));
+    const frontendRuntime = (await readFrontendRuntimeFamily());
     assert.match(platformFee, /SITON_PLATFORM_FEE_RATE/);
     assert.doesNotMatch(frontendRuntime, /app\.get\(["']\/api\/marketplace/i);
     assert.doesNotMatch(frontendRuntime, /app\.get\(["']\/api\/catalog/i);

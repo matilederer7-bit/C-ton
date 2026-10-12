@@ -145,30 +145,12 @@ function moneyStateInLists(source) {
 }
 const collected = ["ChargedSuccess", "RecoveredCharge"].sort().join(",");
 assert(moneyStateInLists(read("src/seller_analytics.ts")).includes(collected), "seller analytics must count ChargedSuccess and RecoveredCharge together");
-const frontendRuntimeSource = read("src/frontend_runtime.ts");
-// The seller fulfillment, delivery and export routes moved out of
-// frontend_runtime.ts into src/seller_fulfillment_routes.ts (Lean Refactor);
-// the seller-reporting checks below read both files, each parsed on its own.
-const sellerFulfillmentRoutesSource = read("src/seller_fulfillment_routes.ts");
-// The admin control-center (R6) reads moved out of frontend_runtime.ts into
-// src/admin_control_center_routes.ts (Lean Refactor); their reporting SQL was
-// part of this scan and stays in it.
-const adminControlCenterRoutesSource = read("src/admin_control_center_routes.ts");
-// The admin pilot, growth and viral reads moved the same way into
-// src/admin_growth_routes.ts (Lean Refactor); their reporting SQL stays in this scan.
-const adminGrowthRoutesSource = read("src/admin_growth_routes.ts");
-// The admin demo-readiness read moved the same way into
-// src/admin_demo_readiness_routes.ts (Lean Refactor); it stays in these scans.
-const adminDemoReadinessRoutesSource = read("src/admin_demo_readiness_routes.ts");
-// The admin ops overview reads (payment-ops-status, overview, launch-console)
-// moved the same way into src/admin_ops_overview_routes.ts (Lean Refactor);
-// their payment, fee-ledger and settlement SQL stays in these scans.
-const adminOpsOverviewRoutesSource = read("src/admin_ops_overview_routes.ts");
-// The admin operational status reads (outbox, notifications, invoice) moved into
-// src/admin_operational_status_routes.ts; keep their queue and invoice SQL in this scan.
-const adminOperationalStatusRoutesSource = read("src/admin_operational_status_routes.ts");
-const sellerReportingFiles = [["src/frontend_runtime.ts", frontendRuntimeSource], ["src/seller_fulfillment_routes.ts", sellerFulfillmentRoutesSource], ["src/admin_control_center_routes.ts", adminControlCenterRoutesSource], ["src/admin_growth_routes.ts", adminGrowthRoutesSource], ["src/admin_demo_readiness_routes.ts", adminDemoReadinessRoutesSource], ["src/admin_ops_overview_routes.ts", adminOpsOverviewRoutesSource], ["src/admin_operational_status_routes.ts", adminOperationalStatusRoutesSource]];
-const sellerReportingSource = frontendRuntimeSource + "\n" + sellerFulfillmentRoutesSource + "\n" + adminControlCenterRoutesSource + "\n" + adminGrowthRoutesSource + "\n" + adminDemoReadinessRoutesSource + "\n" + adminOpsOverviewRoutesSource + "\n" + adminOperationalStatusRoutesSource;
+// frontend_runtime.ts and every module extracted from it (shared registry
+// scripts/lib/route_modules.cjs), each parsed on its own: their reporting,
+// payment, fee-ledger, settlement, queue and invoice SQL stays in these scans.
+const routeModules = require("./lib/route_modules.cjs");
+const sellerReportingFiles = routeModules.FRONTEND_RUNTIME_FAMILY_FILES.map((rel) => [rel, read(rel)]);
+const sellerReportingSource = sellerReportingFiles.map(([, source]) => source).join("\n");
 assert(moneyStateInLists(sellerReportingSource).includes(collected), "seller export/frontend runtime SQL must count ChargedSuccess and RecoveredCharge together");
 {
   const comparisons = [];
@@ -249,8 +231,9 @@ for (const required of ["gross_amount", "platform_fee_base_amount", "platform_fe
 // 12. Distributor surface carries no money wording; C-ton is never the seller.
 // ---------------------------------------------------------------------------
 {
-  // the Mission Control, support, seller fulfillment, admin control-center (R6), admin growth, admin demo-readiness and admin ops overview routes moved out of frontend_runtime.ts (Lean Refactor); they stay in the scan
-  const distributorSurface = ast.stripComments(frontendRuntimeSource, "frontend_runtime.ts") + "\n" + ast.stripComments(read("src/admin_mission_control_routes.ts"), "admin_mission_control_routes.ts") + "\n" + ast.stripComments(read("src/support_routes.ts"), "support_routes.ts") + "\n" + ast.stripComments(sellerFulfillmentRoutesSource, "seller_fulfillment_routes.ts") + "\n" + ast.stripComments(adminControlCenterRoutesSource, "admin_control_center_routes.ts") + "\n" + ast.stripComments(adminGrowthRoutesSource, "admin_growth_routes.ts") + "\n" + ast.stripComments(adminDemoReadinessRoutesSource, "admin_demo_readiness_routes.ts") + "\n" + ast.stripComments(adminOpsOverviewRoutesSource, "admin_ops_overview_routes.ts") + "\n" + ast.stripComments(adminOperationalStatusRoutesSource, "admin_operational_status_routes.ts") + "\n" + read("frontend/app.js");
+  // frontend_runtime.ts, every module extracted from it, the Mission Control reads and the legacy shell stay in the scan
+  const distributorSurface = [...routeModules.FRONTEND_RUNTIME_FAMILY_FILES, "src/admin_mission_control_routes.ts"]
+    .map((rel) => ast.stripComments(read(rel), path.basename(rel))).join("\n") + "\n" + read("frontend/app.js");
   for (const re of [/affiliate[^.\n]{0,80}commission/i, /distributor[^.\n]{0,80}commission/i, /affiliate[^.\n]{0,80}payout/i, /distributor[^.\n]{0,80}payout/i, /affiliate[^.\n]{0,80}balance/i, /distributor[^.\n]{0,80}balance/i]) {
     assert(!re.test(distributorSurface), "distributor surface contains forbidden money wording: " + re);
   }

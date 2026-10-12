@@ -8,24 +8,14 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createFixtureRepo } = require("./support/fixture_repo.cjs");
+const { ROUTE_MODULE_FILES } = require("../../scripts/lib/route_modules.cjs");
 
 const FIXTURE_FILES = [
+  ...ROUTE_MODULE_FILES,
   "frontend/app.js",
   "frontend/index.html",
-  "src/frontend_runtime.ts",
-  "src/admin_mission_control_routes.ts",
   "src/legal_html.ts",
-  "src/app.ts",
   "src/http_security_headers.ts",
-  "src/operational_health_routes.ts",
-  "src/seller_deal_image_routes.ts",
-  "src/support_routes.ts",
-  "src/seller_fulfillment_routes.ts",
-  "src/admin_control_center_routes.ts",
-  "src/admin_growth_routes.ts",
-  "src/admin_demo_readiness_routes.ts",
-  "src/admin_ops_overview_routes.ts",
-  "src/admin_operational_status_routes.ts",
   "src/legal_pages.ts",
   "src/admin_mission_control.ts",
   "src/payment_provider.ts",
@@ -42,7 +32,6 @@ const FIXTURE_FILES = [
   "docs/ADMIN_LEGAL_OPS_POLICY.md",
   "src/seller_analytics.ts",
   "src/notification_templates.ts",
-  "src/distribution_hub.ts",
   "web/src",
   "scripts/i18n/seed.he.json",
   "scripts/i18n/extracted.he.json",
