@@ -51,8 +51,8 @@ for (const doc of requiredDocs) if (!exists(doc)) failures.push("missing require
 
 const app = read("frontend/app.js");
 const routeModules = require("./lib/route_modules.cjs");
-// frontend_runtime.ts and every module extracted from it (shared registry), plus the Mission Control reads; they stay in the product scan
-const runtime = routeModules.readRouteModules([...routeModules.FRONTEND_RUNTIME_FAMILY, "admin_mission_control_routes"], root);
+// frontend_runtime.ts and every module extracted from it (shared registry, Mission Control included); they stay in the product scan
+const runtime = routeModules.readRouteModules(routeModules.FRONTEND_RUNTIME_FAMILY, root);
 // The server-rendered legal shell moved out of frontend_runtime.ts (Lean Refactor); it stays in the product surface.
 const legalShell = read("src/legal_html.ts");
 const server = read("src/app.ts") + "\n" + read("src/http_security_headers.ts") + "\n" + read("src/operational_health_routes.ts") + "\n" + read("src/seller_deal_image_routes.ts"); // extracted app route modules stay in the server scan

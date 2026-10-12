@@ -13,6 +13,7 @@ import { resolve } from "node:path";
 type RouteModuleRegistry = {
   ROUTE_MODULES: readonly string[];
   FRONTEND_RUNTIME_FAMILY: readonly string[];
+  FRONTEND_RUNTIME_WIRED_NOT_EXTRACTED: readonly string[];
   ROUTE_MODULE_FILES: readonly string[];
   FRONTEND_RUNTIME_FAMILY_FILES: readonly string[];
 };
@@ -21,6 +22,7 @@ const registry = createRequire(import.meta.url)(resolve(process.cwd(), "scripts/
 
 export const ROUTE_MODULES: readonly string[] = registry.ROUTE_MODULES;
 export const FRONTEND_RUNTIME_FAMILY: readonly string[] = registry.FRONTEND_RUNTIME_FAMILY;
+export const FRONTEND_RUNTIME_WIRED_NOT_EXTRACTED: readonly string[] = registry.FRONTEND_RUNTIME_WIRED_NOT_EXTRACTED;
 export const ROUTE_MODULE_FILES: readonly string[] = registry.ROUTE_MODULE_FILES;
 export const FRONTEND_RUNTIME_FAMILY_FILES: readonly string[] = registry.FRONTEND_RUNTIME_FAMILY_FILES;
 

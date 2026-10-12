@@ -1,46 +1,115 @@
 // The route-module registry (scripts/lib/route_modules.cjs) is the one list the
 // static gates and the text-reading tests use to find "the runtime". This test
-// proves the registry is complete and that its runtime twin is identical, so a
-// Lean Refactor extraction can no longer narrow a scan by omission.
+// proves, in both directions, that the registry matches what the source tree
+// actually does, so a Lean Refactor extraction can no longer narrow a scan by
+// omission:
+//
+//   1. ROUTE_MODULES == every src/*.ts file that registers a route
+//      (app.get/post/put/patch/delete), whatever the file is called.
+//   2. FRONTEND_RUNTIME_FAMILY (minus frontend_runtime itself) plus
+//      FRONTEND_RUNTIME_WIRED_NOT_EXTRACTED == every module frontend_runtime.ts
+//      imports a register*Routes() function from, with the two sets disjoint.
+//   3. ROUTE_MODULES == REFUND_READINESS_ROUTE_MODULES (the runtime copy).
+//
+// The checks are pure functions over (registry, discovered) and are re-run on
+// mutated inputs below, so removing a family member, forgetting a new registrar
+// or keeping a stale entry each provably fails.
 import assert from "node:assert/strict";
-import { existsSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { REFUND_READINESS_ROUTE_MODULES } from "../src/refund_route_readiness.js";
 import {
   FRONTEND_RUNTIME_FAMILY,
   FRONTEND_RUNTIME_FAMILY_FILES,
+  FRONTEND_RUNTIME_WIRED_NOT_EXTRACTED,
   ROUTE_MODULES,
   ROUTE_MODULE_FILES
 } from "./helpers/route_sources.js";
 
 const SRC = join(process.cwd(), "src");
+const ROUTE_REGISTRATION = /\bapp\.(get|post|put|patch|delete)\(/;
+// `import { registerXxxRoutes } from "./<module>.js"` — the route-registrar convention every
+// extracted module follows (helpers such as content_security_policy export register* functions
+// that are not route registrars, so the name must end in Routes).
+const REGISTER_IMPORT = /^import\s*\{[^}]*\bregister[A-Za-z]*Routes\b[^}]*\}\s*from\s*"\.\/([A-Za-z0-9_]+)\.js";/gm;
 
-// 1. The runtime copy used by the live refund-readiness scan is byte-identical.
-assert.deepEqual([...ROUTE_MODULES], [...REFUND_READINESS_ROUTE_MODULES], "scripts/lib/route_modules.cjs and src/refund_route_readiness.ts must list the same modules in the same order");
+type Registry = {
+  routeModules: readonly string[];
+  family: readonly string[];
+  wiredNotExtracted: readonly string[];
+};
+type Discovered = {
+  registrars: readonly string[];      // src modules that register at least one route
+  wiredByRuntime: readonly string[];  // modules frontend_runtime.ts imports register*Routes() from
+};
 
-// 2. Every file is real.
-for (const file of ROUTE_MODULE_FILES) assert.ok(existsSync(join(process.cwd(), file)), `${file} is listed but missing`);
+const sorted = (list: readonly string[]) => [...list].sort();
 
-// 3. Every src/*_routes.ts module is listed, so a new extraction cannot be forgotten.
-const routeFilesOnDisk = readdirSync(SRC).filter((name) => /_routes\.ts$/.test(name)).map((name) => name.replace(/\.ts$/, "")).sort();
-const missing = routeFilesOnDisk.filter((name) => !ROUTE_MODULES.includes(name));
-assert.deepEqual(missing, [], "src/*_routes.ts modules missing from scripts/lib/route_modules.cjs (add them to ROUTE_MODULES and, if extracted from frontend_runtime.ts, to FRONTEND_RUNTIME_FAMILY)");
-
-// 4. The two entry modules and the two non-"_routes" route modules are present.
-for (const name of ["app", "frontend_runtime", "distribution_hub"]) assert.ok(ROUTE_MODULES.includes(name), `${name} must be a route module`);
-
-// 5. The family is a subset of the registry, starts with frontend_runtime.ts and has no duplicates.
-assert.equal(FRONTEND_RUNTIME_FAMILY[0], "frontend_runtime");
-assert.deepEqual(FRONTEND_RUNTIME_FAMILY.filter((name) => !ROUTE_MODULES.includes(name)), []);
-assert.equal(new Set(FRONTEND_RUNTIME_FAMILY).size, FRONTEND_RUNTIME_FAMILY.length);
-assert.equal(new Set(ROUTE_MODULES).size, ROUTE_MODULES.length);
-assert.deepEqual([...FRONTEND_RUNTIME_FAMILY_FILES], FRONTEND_RUNTIME_FAMILY.map((name) => `src/${name}.ts`));
-
-// 6. Every listed module really registers routes (a stale entry would hide a rename).
-const { readFileSync } = await import("node:fs");
-for (const file of ROUTE_MODULE_FILES) {
-  const text = readFileSync(join(process.cwd(), file), "utf8");
-  assert.ok(/\bapp\.(get|post|put|patch|delete)\(/.test(text), `${file} registers no route; remove it from the registry or fix the rename`);
+function discover(): Discovered {
+  const registrars = readdirSync(SRC)
+    .filter((name) => name.endsWith(".ts"))
+    .filter((name) => ROUTE_REGISTRATION.test(readFileSync(join(SRC, name), "utf8")))
+    .map((name) => name.replace(/\.ts$/, ""));
+  const runtime = readFileSync(join(SRC, "frontend_runtime.ts"), "utf8");
+  const wiredByRuntime = [...runtime.matchAll(REGISTER_IMPORT)].map((match) => String(match[1]));
+  return { registrars: sorted(registrars), wiredByRuntime: sorted([...new Set(wiredByRuntime)]) };
 }
 
-console.log(`ROUTE_MODULE_REGISTRY_PASS modules=${ROUTE_MODULES.length} family=${FRONTEND_RUNTIME_FAMILY.length}`);
+function validateRegistry(registry: Registry, discovered: Discovered) {
+  const { routeModules, family, wiredNotExtracted } = registry;
+  assert.equal(new Set(routeModules).size, routeModules.length, "ROUTE_MODULES has a duplicate");
+  assert.equal(new Set(family).size, family.length, "FRONTEND_RUNTIME_FAMILY has a duplicate");
+
+  // 1. Registry == registrars, both ways (an unlisted registrar and a stale entry both fail).
+  assert.deepEqual(sorted(routeModules), discovered.registrars,
+    "ROUTE_MODULES must list exactly the src/*.ts modules that register routes (app.<method>(); add new route modules to scripts/lib/route_modules.cjs, remove renamed ones)");
+
+  // 2. Family derived from the runtime's own wiring, both ways.
+  assert.equal(family[0], "frontend_runtime", "the family starts with frontend_runtime");
+  const extracted = family.slice(1);
+  assert.deepEqual(extracted.filter((name) => wiredNotExtracted.includes(name)), [],
+    "a module cannot be both in FRONTEND_RUNTIME_FAMILY and FRONTEND_RUNTIME_WIRED_NOT_EXTRACTED");
+  assert.deepEqual(sorted([...extracted, ...wiredNotExtracted]), discovered.wiredByRuntime,
+    "FRONTEND_RUNTIME_FAMILY (minus frontend_runtime) plus FRONTEND_RUNTIME_WIRED_NOT_EXTRACTED must be exactly the modules frontend_runtime.ts imports register*Routes() from (a removed family member or a new extraction both fail here)");
+  for (const name of [...family, ...wiredNotExtracted]) {
+    assert.ok(routeModules.includes(name), `${name} is in the family lists but not in ROUTE_MODULES`);
+  }
+}
+
+const registry: Registry = {
+  routeModules: ROUTE_MODULES,
+  family: FRONTEND_RUNTIME_FAMILY,
+  wiredNotExtracted: FRONTEND_RUNTIME_WIRED_NOT_EXTRACTED
+};
+const discovered = discover();
+
+// Real registry against the real tree.
+validateRegistry(registry, discovered);
+assert.deepEqual([...ROUTE_MODULES], [...REFUND_READINESS_ROUTE_MODULES],
+  "scripts/lib/route_modules.cjs and src/refund_route_readiness.ts must list the same modules in the same order");
+assert.deepEqual([...ROUTE_MODULE_FILES], ROUTE_MODULES.map((name) => `src/${name}.ts`));
+assert.deepEqual([...FRONTEND_RUNTIME_FAMILY_FILES], FRONTEND_RUNTIME_FAMILY.map((name) => `src/${name}.ts`));
+assert.ok(discovered.registrars.length >= 14, `sanity: ${discovered.registrars.length} registrars`);
+assert.ok(discovered.wiredByRuntime.length >= 10, `sanity: ${discovered.wiredByRuntime.length} modules wired by frontend_runtime.ts`);
+
+// Mutation proofs: each omission class the registry exists to prevent must fail.
+const fails = (label: string, mutated: Registry, input: Discovered = discovered) => {
+  assert.throws(() => validateRegistry(mutated, input), `mutation must fail: ${label}`);
+};
+for (const victim of FRONTEND_RUNTIME_FAMILY.slice(1)) {
+  fails(`family without ${victim}`, { ...registry, family: FRONTEND_RUNTIME_FAMILY.filter((name) => name !== victim) });
+}
+for (const victim of ROUTE_MODULES) {
+  fails(`registry without ${victim}`, { ...registry, routeModules: ROUTE_MODULES.filter((name) => name !== victim) });
+}
+fails("stale registry entry", { ...registry, routeModules: [...ROUTE_MODULES, "renamed_away_routes"] });
+fails("new registrar not in the registry", registry, { ...discovered, registrars: sorted([...discovered.registrars, "zz_probe_routes"]) });
+fails("new extraction wired by the runtime but not in the family", registry, { ...discovered, wiredByRuntime: sorted([...discovered.wiredByRuntime, "zz_probe_routes"]) });
+const smuggled = String(FRONTEND_RUNTIME_WIRED_NOT_EXTRACTED[0]);
+fails("wired-not-extracted module smuggled into the family", {
+  ...registry,
+  family: [...FRONTEND_RUNTIME_FAMILY, smuggled],
+  wiredNotExtracted: FRONTEND_RUNTIME_WIRED_NOT_EXTRACTED.filter((name) => name !== smuggled)
+});
+
+console.log(`ROUTE_MODULE_REGISTRY_PASS modules=${ROUTE_MODULES.length} family=${FRONTEND_RUNTIME_FAMILY.length} wired_not_extracted=${FRONTEND_RUNTIME_WIRED_NOT_EXTRACTED.length}`);
