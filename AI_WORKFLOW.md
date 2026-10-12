@@ -245,7 +245,7 @@ When ChatGPT supplies researched conclusions, treat them as task inputs but stil
 
 ## 14. PROJECT_STATUS protocol
 
-Every meaningful milestone must append a status entry containing:
+At every meaningful milestone the responsible lifecycle owner replaces the content of its own marked `<!-- AGENT_STATUS:<agent> -->` slot in `PROJECT_STATUS.md` (AGENTS.md "PROJECT_STATUS.md"): the slot holds the current state of that agent's track, not a log, and the automated slot writers (`scripts/agent_workspace.cjs`, `scripts/cloud_agent_manager.cjs`) replace it the same way. History lives in Git; a superseded entry is moved verbatim into a mapped `docs/archive/` document only when it still has evidence value that other documents cite (as the D5 status trim and the 2026-10-12 Claude-slot archive did), and that move is a deliberate status-maintenance step, never part of a routine slot update. The slot entry contains:
 
 ### What was completed
 A factual summary of the delivered change.
@@ -262,7 +262,7 @@ A sober percentage for this specific track, not for the entire company/product u
 ### Next step
 One concrete next action.
 
-Do not erase historical status entries unless the task is explicitly a status-document maintenance task.
+Do not rewrite or erase another agent's slot, and do not edit `docs/archive/` status history except to move a superseded entry into it verbatim.
 
 ## 15. Commit and push protocol
 
