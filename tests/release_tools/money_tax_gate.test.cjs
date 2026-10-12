@@ -6,24 +6,16 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createFixtureRepo } = require("./support/fixture_repo.cjs");
+const { ROUTE_MODULE_FILES } = require("../../scripts/lib/route_modules.cjs");
 
 const FIXTURE_FILES = [
+  ...ROUTE_MODULE_FILES,
   "src/platform_fee_money.ts",
   "src/runtime_config.ts",
   "src/vat_authority.ts",
   "src/schema_contract.ts",
   "src/seller_analytics.ts",
-  "src/frontend_runtime.ts",
-  "src/admin_mission_control_routes.ts",
-  "src/support_routes.ts",
-  "src/seller_fulfillment_routes.ts",
-  "src/admin_control_center_routes.ts",
-  "src/admin_growth_routes.ts",
-  "src/admin_demo_readiness_routes.ts",
-  "src/admin_ops_overview_routes.ts",
-  "src/admin_operational_status_routes.ts",
   "src/invoice_dispatch.ts",
-  "src/app.ts",
   "src/payout_rail.ts",
   "src/migrations/019_platform_fee_money_events.sql",
   "docs/MONEY_TAX_INVOICE_CANON.md",

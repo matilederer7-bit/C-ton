@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { ROUTE_MODULE_FILES, readRouteFiles } from "./helpers/route_sources.js";
 
 async function runTest(name: string, fn: () => Promise<void>) {
   try {
@@ -33,25 +34,8 @@ const allSource = [
   await readFile("src/legal_html.ts", "utf8"),
   // moved out of app.ts by the Lean Refactor; stays in the static scan
   await readFile("src/http_security_headers.ts", "utf8"),
-  // Mission Control routes moved out of frontend_runtime.ts by the Lean Refactor; stay in the static scan
-  await readFile("src/admin_mission_control_routes.ts", "utf8"),
-  // /health + /readiness moved out of app.ts by the Lean Refactor; stay in the static scan
-  await readFile("src/operational_health_routes.ts", "utf8"),
-  // seller deal image mutation routes moved out of app.ts; keep their auth/storage surface in the scan
-  await readFile("src/seller_deal_image_routes.ts", "utf8"),
-  // support routes moved out of frontend_runtime.ts by the Lean Refactor; stay in the static scan
-  await readFile("src/support_routes.ts", "utf8"),
-  // seller fulfillment, delivery and export routes moved out of frontend_runtime.ts by the Lean Refactor; stay in the static scan
-  await readFile("src/seller_fulfillment_routes.ts", "utf8"),
-  // admin control-center (R6) read routes moved out of frontend_runtime.ts by the Lean Refactor; stay in the static scan
-  await readFile("src/admin_control_center_routes.ts", "utf8"),
-  // admin pilot / growth / viral read routes moved out of frontend_runtime.ts by the Lean Refactor; stay in the static scan
-  await readFile("src/admin_growth_routes.ts", "utf8"),
-  // the admin demo-readiness read moved out of frontend_runtime.ts by the Lean Refactor; stays in the static scan
-  await readFile("src/admin_demo_readiness_routes.ts", "utf8"),
-  // the admin ops overview reads (payment-ops-status, overview, launch-console) moved out of frontend_runtime.ts by the Lean Refactor; stay in the static scan
-  await readFile("src/admin_ops_overview_routes.ts", "utf8"),
-  await readFile("src/admin_operational_status_routes.ts", "utf8")
+  // every other route-bearing module (shared registry: Mission Control, health, seller deal images and every module extracted from frontend_runtime.ts) stays in the static scan
+  await readRouteFiles(ROUTE_MODULE_FILES.filter((file) => file !== "src/app.ts" && file !== "src/frontend_runtime.ts"))
 ].join("\n");
 
 await runTest("security_admin_auth_validation", async () => {

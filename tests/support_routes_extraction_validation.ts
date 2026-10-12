@@ -15,10 +15,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { ROUTE_MODULES } from "./helpers/route_sources.js";
 
 const SRC = join(process.cwd(), "src");
 const read = (file: string) => readFileSync(join(SRC, file), "utf8");
-const OTHER_ROUTE_FILES = ["app.ts", "receipt_content_routes.ts", "distribution_hub.ts", "admin_mission_control_routes.ts", "operational_health_routes.ts", "seller_deal_image_routes.ts", "seller_fulfillment_routes.ts", "admin_control_center_routes.ts", "admin_growth_routes.ts", "admin_demo_readiness_routes.ts", "admin_ops_overview_routes.ts", "admin_operational_status_routes.ts"];
+const OTHER_ROUTE_FILES = ROUTE_MODULES.filter((name) => name !== "frontend_runtime" && name !== "support_routes").map((name) => `${name}.ts`);
 
 type Guard = "admin-read" | "admin-mutation-identity" | "admin-mutation" | "public-intake";
 const SUPPORT_ROUTES: Array<{ method: string; path: string; guard: Guard }> = [

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { FRONTEND_RUNTIME_FAMILY_FILES } from "./helpers/route_sources.js";
 
 // R5C regression: NO administrative mutation route (POST/PATCH/PUT/DELETE under
 // /api/admin) may be guarded by the shared bootstrap key alone. Every mutation
@@ -14,7 +15,7 @@ import { readFile } from "node:fs/promises";
 // src/admin_control_center_routes.ts, src/admin_growth_routes.ts and
 // src/admin_demo_readiness_routes.ts (Lean Refactor):
 // the inventory covers every file, each scanned on its own.
-const SOURCE_FILES = ["src/frontend_runtime.ts", "src/support_routes.ts", "src/seller_fulfillment_routes.ts", "src/admin_control_center_routes.ts", "src/admin_growth_routes.ts", "src/admin_demo_readiness_routes.ts", "src/admin_ops_overview_routes.ts", "src/admin_operational_status_routes.ts"];
+const SOURCE_FILES = FRONTEND_RUNTIME_FAMILY_FILES;
 const sources = await Promise.all(SOURCE_FILES.map((file) => readFile(file, "utf8")));
 
 // Split each file into route blocks. Each block starts at an `app.<method>("...`

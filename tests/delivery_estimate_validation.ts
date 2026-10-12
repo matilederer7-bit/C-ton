@@ -23,6 +23,7 @@ import { readFile } from "node:fs/promises";
 import pg from "pg";
 import { describeDeliveryEstimate, normalizeDeliveryEstimate } from "../src/delivery_estimate.js";
 import { deliveryEstimateText, validateEstimateRange } from "../web/src/deliveryEstimate.js";
+import { readFrontendRuntimeFamily } from "./helpers/route_sources.js";
 const { Pool } = pg;
 
 process.env.PORT = String(process.env.PORT || "3461");
@@ -39,10 +40,10 @@ async function run(name: string, fn: () => Promise<void> | void) {
   catch (e: any) { console.error(`FAIL ${name}: ${e.message}`); failed++; }
 }
 
-// support, seller fulfillment, admin control-center (R6), admin growth and admin demo-readiness routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
+// Every module extracted from frontend_runtime.ts stays in this scan (scripts/lib/route_modules.cjs).
 const [app_src, runtime_src, sellerPage, dealPage, apiClient] = await Promise.all([
   readFile("src/app.ts", "utf8"),
-  Promise.all([readFile("src/frontend_runtime.ts", "utf8"), readFile("src/support_routes.ts", "utf8"), readFile("src/seller_fulfillment_routes.ts", "utf8"), readFile("src/admin_control_center_routes.ts", "utf8"), readFile("src/admin_growth_routes.ts", "utf8"), readFile("src/admin_demo_readiness_routes.ts", "utf8"), readFile("src/admin_ops_overview_routes.ts", "utf8"), readFile("src/admin_operational_status_routes.ts", "utf8")]).then((parts) => parts.join("\n")),
+  readFrontendRuntimeFamily(),
   readFile("web/src/pages/seller.tsx", "utf8"),
   readFile("web/src/pages/deal.tsx", "utf8"),
   readFile("web/src/api.ts", "utf8")

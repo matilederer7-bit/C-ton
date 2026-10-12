@@ -10,12 +10,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { ROUTE_MODULES } from "./helpers/route_sources.js";
 
 const SRC = join(process.cwd(), "src");
 const read = (file: string) => readFileSync(join(SRC, file), "utf8");
 const runtime = read("frontend_runtime.ts");
 const routes = read("admin_mission_control_routes.ts");
-const ROUTE_FILES = ["app.ts", "frontend_runtime.ts", "receipt_content_routes.ts", "distribution_hub.ts", "admin_mission_control_routes.ts", "support_routes.ts", "seller_fulfillment_routes.ts", "admin_control_center_routes.ts", "admin_growth_routes.ts", "admin_demo_readiness_routes.ts", "admin_ops_overview_routes.ts", "admin_operational_status_routes.ts"];
+const ROUTE_FILES = ROUTE_MODULES.map((name) => `${name}.ts`);
 const MISSION_ROUTES = [
   "/api/admin/mission-control",
   "/api/admin/mission-control/anomalies",

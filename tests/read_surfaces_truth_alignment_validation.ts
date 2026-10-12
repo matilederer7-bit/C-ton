@@ -1,5 +1,6 @@
 import { strict as assert } from "node:assert";
 import { readFile } from "node:fs/promises";
+import { readFrontendRuntimeFamily } from "./helpers/route_sources.js";
 
 async function run(name: string, fn: () => Promise<void>) {
   try {
@@ -11,10 +12,10 @@ async function run(name: string, fn: () => Promise<void>) {
   }
 }
 
-// support, seller fulfillment, admin control-center (R6), admin growth and admin demo-readiness routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
+// Every module extracted from frontend_runtime.ts stays in this scan (scripts/lib/route_modules.cjs).
 const [appJs, runtimeTs] = await Promise.all([
   readFile("frontend/app.js", "utf8"),
-  Promise.all([readFile("src/frontend_runtime.ts", "utf8"), readFile("src/support_routes.ts", "utf8"), readFile("src/seller_fulfillment_routes.ts", "utf8"), readFile("src/admin_control_center_routes.ts", "utf8"), readFile("src/admin_growth_routes.ts", "utf8"), readFile("src/admin_demo_readiness_routes.ts", "utf8"), readFile("src/admin_ops_overview_routes.ts", "utf8"), readFile("src/admin_operational_status_routes.ts", "utf8")]).then((parts) => parts.join("\n"))
+  readFrontendRuntimeFamily()
 ]);
 
 await run("seller receipt surface no longer invents pseudo receipt ids", async () => {
