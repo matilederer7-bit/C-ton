@@ -416,3 +416,37 @@ Deleting `renderTrackingPage` would delete the only legacy implementation of 1�
 
 See `docs/BRANCH_CENSUS_2026-10-02.md`: 204 branches; 101 merged branches are verified recoverable through
 `refs/pull/<n>/head` and listed for owner deletion (the session could not delete them: permission policy).
+
+## 9. Closure census (2026-10-12, master `868a746`, after PR #239)
+
+There were three read-only passes: src/web/frontend; scripts/tests/workflows/docs; Render. Every "zero consumers" claim was re-checked with `git grep -w` before it was recorded.
+
+### 9.1 State
+
+| Metric | Value |
+|---|---|
+| `src/frontend_runtime.ts` | 8,251 lines (12,256 at round start), 125 direct route registrations |
+| `src/app.ts` | 8,259 lines, 15 routes, all lifecycle / money / outbox / seller-deal writes, none mechanical |
+| Dead runtime modules / unused deps (root + `web/`) | 0 / 0 |
+| Base44 in runtime | 0 (remaining hits are the guard gate, its tests, SQL comments in applied migrations, and history) |
+| Scripts / npm-script paths / tests pointing at missing files | 0 / 0 of 168 / 0; all 337 `tests/*.ts` are discovered |
+| REFERENCE docs contradicting the canonical sources | 0 |
+
+### 9.2 Findings
+
+| # | Finding | Real harm | Risk | Cost | Class |
+|---|---|---|---|---|---|
+| F1 | 36 files (32 tests incl. release-tool tests, 3 gates, `src/refund_route_readiness.ts`) each copy their own route-module list. There are two shapes (8-file runtime family, 12–14-file "all modules"). Each extraction PR changed 22–24 test files. | A missed list silently narrows a security / money / legal scan. #191 needed a manual fix; the #239 Codex P2 (`money_tax_invoice_gate` `distributorSurface`) was the same failure. | low with a guard test | M | **A: must close.** One shared list (`tests/helpers/route_sources.ts`, asserted equal to `REFUND_READINESS_ROUTE_MODULES`; the gates require the same), plus a guard that every `src/*_routes.ts` is listed. No assertion changes. |
+| F2 | `PROJECT_STATUS.md` has regrown to 533 lines / 145 KB (D5 trim left 311 / 77 KB), with 28 "Claude Code latest milestone" entries and a stale ChatGPT "renderer deletion" entry. `AI_WORKFLOW.md` §14 says "append", contradicting the AGENTS.md slot rule. | It is mandatory reading for every agent task; stale "OPEN" lines mislead. | low | S | **A: must close.** Move pre-2026-10-05 entries verbatim to `docs/archive/`, one latest entry per agent, fix the §14 wording. Only when no open PR edits the file. |
+| F3 | 17 zero-caller functions in `frontend/app.js` (`renderExistingFlow`, `renderHome`, `renderSellerAnalytics*` ×4, `renderDeliveryHandoffSection`, `renderNavLegacy`, `renderDealVisual`, `classifySellerDeals`, `nextDealAction`, `getFlowStatus`, …; about 360 lines). `renderHome` is a slice anchor in 4 tests. | Dead code shipped to the browser; misleading to readers. | low | S | **B: optional.** Keep `renderTrackingPage` until the §8.2 decision. |
+| F4 | 10 `*_routes_extraction_validation.ts` files (2,597 lines) share one template and hard-code sibling lists. | Upkeep cost only; F1 removes most of it. | low | M | B: defer after F1. |
+| F5 | Remaining mechanical read-only moves: admin payout / system-ops reads (10 routes, about 650 lines, payout review tier) and the `/app` shell / static routes (33 routes, about 160 lines). | Readability only. | low–med | M / S | B: defer. Lean Refactor does not need `frontend_runtime.ts` to reach a target size. |
+| F6 | Unused locals and exports outside money/auth (`Locale` import, `TreeBranch`, `useIsWide`, 3 exports). | none | low | S | B: cosmetic, no value on its own. |
+| F7 | `GET /api/admin/storage/orphan-report` writes `siton.storage_orphan_reports`. | Semantic surprise on a GET. | med | S | C: behaviour change, separate ticket. |
+| F8 | Duplicated money/auth helpers (`paymentMinorAmount`, `parsePositiveIntegerQuantity`, `roundMoney` ×5, `requireUuid` ×3, cookie parsers ×2, token generation), plus admin mutations, auth, payments, and the `app.ts` lifecycle routes. | Real but behaviour-sensitive. | high | L | C: senior money / auth workstream, not mechanical. |
+| F9 | Three legacy Render services (`siton-staging-web-atp1`, `siton-demo-preview-atp1`, `siton-demo-preview`) still build and fail on every master commit (re-verified 2026-10-12). | Build minutes and noise; no runtime effect. | none | S (owner, dashboard) | C: Production Readiness PR-18, owner manual action (§2). |
+| F10 | `/app` legacy shell (`frontend/`) | It is still served, and the native apps depend on it. | — | L | C: product decision (§3.2). |
+
+### 9.3 Decision
+
+Lean Refactor closes after F1 and F2: two small, behaviour-free PRs. Every other item is either optional (B) or belongs to a separate owner or senior workstream (C), and none of them blocks Production Readiness.

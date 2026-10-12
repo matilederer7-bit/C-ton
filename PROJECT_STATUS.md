@@ -95,6 +95,26 @@ Current invariants:
 - NEXT: continue PR #239 (admin operational status read extraction) against the current master.
 
 <!-- AGENT_STATUS:claude:START -->
+### Claude Code latest milestone — PR #239 closed out + Lean Refactor closure census (2026-10-12)
+
+- UPDATED: 2026-10-12
+- PR #239 (ChatGPT's admin operational status extraction, which had stalled as non-mergeable): the only blocker was a `PROJECT_STATUS.md` conflict with #238/#240. Master was merged in without a rebase, keeping both ChatGPT entries (`e740203`). The move was re-verified as verbatim: 297 lines and 17,577 chars removed from `frontend_runtime.ts`, all present in `src/admin_operational_status_routes.ts`, wired at the original position.
+  - Unhandled Codex P2 found on `39b22b1`: `scripts/money_tax_invoice_gate.cjs` §12 `distributorSurface` had dropped the new module. Fixed in `ec00248`, with a fixture mutation in `tests/release_tools/money_tax_gate.test.cjs`. The mutation failed before the fix and passes after; release-tools 426/426.
+  - Codex on the final head `ec00248`: "Didn't find any major issues". PR Siton CI green on `ec00248` (`ci-verdict`).
+  - Squash-merged as `868a746`. Master Siton CI run 545 green. Render `siton-staging-web` (`dep-db691lavcj2c73fcehmg`) and `siton-staging-worker` (`dep-db691lavcj2c73fcei4g`) LIVE on `868a746`. Staging `/readiness` 200 on the new instance (Render app logs, matched by request id). No error- or fatal-level logs since the deploy.
+  - This supersedes the "80% / OPEN" lines of the ChatGPT #239 entry above.
+- TESTED (local, disposable PostgreSQL 16): `tsc` main + test, the two new #239 tests and the demo-readiness thresholds test PASS; `lint` PASS.
+  - Canonical verifier: migrations-isolated and route-authorization PASS (route inventory 0 unguarded); unit/db/api/payments/security/concurrency/failure groups PASS.
+  - Environment-only FAILs, all green in CI on the same head: no `web/` build in this container (`web/dist`, `web/node_modules`, `.mobile_dist` absent), which fails mobile-pwa-gate, `mobile_readiness`, `ux_closeout_issue39` and the 8 `frontend_browser_*` suites.
+- LEAN REFACTOR CLOSURE CENSUS: the per-finding table is in `docs/LEAN_REFACTOR_MAP_2026-09-30.md` §9. It found no dead runtime module, no unused dependency, no Base44 runtime code and no canonical-doc contradiction.
+  - Mandatory before closing: (1) one shared route-module list for the gates and tests (36 files copy the list today; the #239 Codex P2 is exactly this failure class); (2) `PROJECT_STATUS.md` trim (533 lines / 145 KB, 28 "Claude Code latest milestone" entries) plus aligning `AI_WORKFLOW.md` §14 "append" with the AGENTS.md slot rule.
+  - Optional: 17 zero-caller functions in `frontend/app.js`.
+  - Everything else is deferred or a separate senior/owner workstream.
+- BEHAVIOUR: none. No DB, migration, money, auth, provider or API-contract change.
+- OPEN: owner decision on the closure set (§9). PR-18 (three legacy Render services) is unchanged: re-verified 2026-10-12, they still build and fail on every master commit (`update_failed`).
+- PERCENT: PR #239 100%. Lean Refactor ≈90%: the census is done and the mandatory closure set is defined but not started.
+- NEXT: on owner approval, run the two mandatory closure tasks as two small PRs, then declare Lean Refactor closed and move to Production Readiness.
+
 ### Claude Code latest milestone — Lean Refactor: the admin ops overview reads (payment-ops-status, overview, launch-console) moved verbatim out of `frontend_runtime.ts` (2026-10-05)
 
 - UPDATED: 2026-10-05
