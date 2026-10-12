@@ -64,7 +64,11 @@ function validateRegistry(registry: Registry, discovered: Discovered) {
   assert.deepEqual(sorted(routeModules), discovered.registrars,
     "ROUTE_MODULES must list exactly the src/*.ts modules that register routes (app.<method>(); add new route modules to scripts/lib/route_modules.cjs, remove renamed ones)");
 
-  // 2. Family derived from the runtime's own wiring, both ways.
+  // 2. Family derived from the runtime's own wiring, both ways. The exception list is
+  //    pinned here on purpose: demoting a family member into it would keep the union
+  //    intact, so growing the list is a reviewed decision that must change this test.
+  assert.deepEqual(sorted(wiredNotExtracted), ["distribution_hub", "receipt_content_routes"],
+    "FRONTEND_RUNTIME_WIRED_NOT_EXTRACTED changed: a module wired by frontend_runtime.ts but not extracted from it is a reviewed exception, update this pin deliberately");
   assert.equal(family[0], "frontend_runtime", "the family starts with frontend_runtime");
   const extracted = family.slice(1);
   assert.deepEqual(extracted.filter((name) => wiredNotExtracted.includes(name)), [],
@@ -105,11 +109,14 @@ for (const victim of ROUTE_MODULES) {
 fails("stale registry entry", { ...registry, routeModules: [...ROUTE_MODULES, "renamed_away_routes"] });
 fails("new registrar not in the registry", registry, { ...discovered, registrars: sorted([...discovered.registrars, "zz_probe_routes"]) });
 fails("new extraction wired by the runtime but not in the family", registry, { ...discovered, wiredByRuntime: sorted([...discovered.wiredByRuntime, "zz_probe_routes"]) });
-const smuggled = String(FRONTEND_RUNTIME_WIRED_NOT_EXTRACTED[0]);
-fails("wired-not-extracted module smuggled into the family", {
+fails("family member demoted into the exception list", {
   ...registry,
-  family: [...FRONTEND_RUNTIME_FAMILY, smuggled],
-  wiredNotExtracted: FRONTEND_RUNTIME_WIRED_NOT_EXTRACTED.filter((name) => name !== smuggled)
+  family: FRONTEND_RUNTIME_FAMILY.filter((name) => name !== "support_routes"),
+  wiredNotExtracted: [...FRONTEND_RUNTIME_WIRED_NOT_EXTRACTED, "support_routes"]
+});
+fails("module in both the family and the exception list", {
+  ...registry,
+  family: [...FRONTEND_RUNTIME_FAMILY, String(FRONTEND_RUNTIME_WIRED_NOT_EXTRACTED[0])]
 });
 
 console.log(`ROUTE_MODULE_REGISTRY_PASS modules=${ROUTE_MODULES.length} family=${FRONTEND_RUNTIME_FAMILY.length} wired_not_extracted=${FRONTEND_RUNTIME_WIRED_NOT_EXTRACTED.length}`);
