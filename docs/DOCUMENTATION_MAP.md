@@ -323,6 +323,7 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/foundation-canonical-2026-04-18/README.md` | Foundation pack, HISTORICAL SOURCE | marked historical/obsolete |
 | `docs/archive/USER_TEST_CONDITIONAL_DEAL_PLAN.md` | Conditional Deal User Test Plan | research plan from 2026-08-23, not an operating document |
 | `docs/archive/PROJECT_STATUS_HISTORY_TO_2026-09-30.md` | PROJECT_STATUS history (to 2026-09-30) | status history moved verbatim by the D5 status trim (2026-10-02) |
+| `docs/archive/PROJECT_STATUS_CLAUDE_HISTORY_2026-09-30_TO_2026-10-05.md` | PROJECT_STATUS Claude slot history (2026-09-30 to 2026-10-05) | Claude slot entries moved verbatim when the slot was reduced to its latest entry (2026-10-12) |
 
 ## Known drift markers added 2026-09-30
 
