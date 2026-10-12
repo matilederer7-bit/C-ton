@@ -5,7 +5,7 @@
 // omission:
 //
 //   1. ROUTE_MODULES == every src/*.ts file that registers a route
-//      (app.get/post/put/patch/delete), whatever the file is called.
+//      (app.get/post/put/patch/delete/options/head), whatever the file is called.
 //   2. FRONTEND_RUNTIME_FAMILY (minus frontend_runtime itself) plus
 //      FRONTEND_RUNTIME_WIRED_NOT_EXTRACTED == every module frontend_runtime.ts
 //      imports a register*Routes() function from, with the two sets disjoint.
@@ -27,7 +27,8 @@ import {
 } from "./helpers/route_sources.js";
 
 const SRC = join(process.cwd(), "src");
-const ROUTE_REGISTRATION = /\bapp\.(get|post|put|patch|delete)\(/;
+// The same method set scripts/web_route_inventory.cjs inventories.
+const ROUTE_REGISTRATION = /\bapp\.(get|post|put|patch|delete|options|head)\(/;
 // `import { registerXxxRoutes } from "./<module>.js"` — the route-registrar convention every
 // extracted module follows (helpers such as content_security_policy export register* functions
 // that are not route registrars, so the name must end in Routes).
@@ -62,7 +63,7 @@ function validateRegistry(registry: Registry, discovered: Discovered) {
 
   // 1. Registry == registrars, both ways (an unlisted registrar and a stale entry both fail).
   assert.deepEqual(sorted(routeModules), discovered.registrars,
-    "ROUTE_MODULES must list exactly the src/*.ts modules that register routes (app.<method>(); add new route modules to scripts/lib/route_modules.cjs, remove renamed ones)");
+    "ROUTE_MODULES must list exactly the src/*.ts modules that register routes (app.get/post/put/patch/delete/options/head); add new route modules to scripts/lib/route_modules.cjs, remove renamed ones)");
 
   // 2. Family derived from the runtime's own wiring, both ways. The exception list is
   //    pinned here on purpose: demoting a family member into it would keep the union
