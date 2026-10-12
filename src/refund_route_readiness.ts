@@ -18,7 +18,8 @@ export const REFUND_READINESS_ROUTE_MODULES = [
   "admin_control_center_routes",
   "admin_growth_routes",
   "admin_demo_readiness_routes",
-  "admin_ops_overview_routes"
+  "admin_ops_overview_routes",
+  "admin_operational_status_routes"
 ] as const;
 
 const MANUAL_REFUND_ROUTE_PATTERNS = [

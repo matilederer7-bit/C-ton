@@ -81,7 +81,7 @@ await run("seller export, invoice document, and payout use canonical fields", ()
 
 await run("distributor attribution does not create money rail", () => {
   // support, seller fulfillment, admin control-center (R6), admin growth and admin demo-readiness routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
-  const frontendRuntime = read("src/frontend_runtime.ts") + "\n" + read("src/support_routes.ts") + "\n" + read("src/seller_fulfillment_routes.ts") + "\n" + read("src/admin_control_center_routes.ts") + "\n" + read("src/admin_growth_routes.ts") + "\n" + read("src/admin_demo_readiness_routes.ts") + "\n" + read("src/admin_ops_overview_routes.ts");
+  const frontendRuntime = read("src/frontend_runtime.ts") + "\n" + read("src/support_routes.ts") + "\n" + read("src/seller_fulfillment_routes.ts") + "\n" + read("src/admin_control_center_routes.ts") + "\n" + read("src/admin_growth_routes.ts") + "\n" + read("src/admin_demo_readiness_routes.ts") + "\n" + read("src/admin_ops_overview_routes.ts") + "\n" + read("src/admin_operational_status_routes.ts");
   const sellerAnalytics = read("src/seller_analytics.ts");
   assert.match(sellerAnalytics, /attributed_gross/);
   assert.match(sellerAnalytics, /measurement_only: true/);

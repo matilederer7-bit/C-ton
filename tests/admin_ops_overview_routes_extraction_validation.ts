@@ -35,7 +35,8 @@ const OTHER_ROUTE_FILES = [
   "seller_fulfillment_routes.ts",
   "admin_control_center_routes.ts",
   "admin_growth_routes.ts",
-  "admin_demo_readiness_routes.ts"
+  "admin_demo_readiness_routes.ts",
+  "admin_operational_status_routes.ts"
 ];
 
 const ROUTES = ["/api/admin/payment-ops-status", "/api/admin/overview", "/api/admin/launch-console"] as const;
