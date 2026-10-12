@@ -95,25 +95,17 @@ Current invariants:
 - NEXT: continue PR #239 (admin operational status read extraction) against the current master.
 
 <!-- AGENT_STATUS:claude:START -->
-### Claude Code latest milestone — PR #239 closed out + Lean Refactor closure census (2026-10-12)
+### Claude Code latest milestone — Lean Refactor closure: #239 merged, census done, closure tasks in flight (2026-10-12)
 
 - UPDATED: 2026-10-12
-- PR #239 (ChatGPT's admin operational status extraction, which had stalled as non-mergeable): the only blocker was a `PROJECT_STATUS.md` conflict with #238/#240. Master was merged in without a rebase, keeping both ChatGPT entries (`e740203`). The move was re-verified as verbatim: 297 lines and 17,577 chars removed from `frontend_runtime.ts`, all present in `src/admin_operational_status_routes.ts`, wired at the original position.
-  - Unhandled Codex P2 found on `39b22b1`: `scripts/money_tax_invoice_gate.cjs` §12 `distributorSurface` had dropped the new module. Fixed in `ec00248`, with a fixture mutation in `tests/release_tools/money_tax_gate.test.cjs`. The mutation failed before the fix and passes after; release-tools 426/426.
-  - Codex on the final head `ec00248`: "Didn't find any major issues". PR Siton CI green on `ec00248` (`ci-verdict`).
-  - Squash-merged as `868a746`. Master Siton CI run 545 green. Render `siton-staging-web` (`dep-db691lavcj2c73fcehmg`) and `siton-staging-worker` (`dep-db691lavcj2c73fcei4g`) LIVE on `868a746`. Staging `/readiness` 200 on the new instance (Render app logs, matched by request id). No error- or fatal-level logs since the deploy.
-  - This supersedes the "80% / OPEN" lines of the ChatGPT #239 entry above.
-- TESTED (local, disposable PostgreSQL 16): `tsc` main + test, the two new #239 tests and the demo-readiness thresholds test PASS; `lint` PASS.
-  - Canonical verifier: migrations-isolated and route-authorization PASS (route inventory 0 unguarded); unit/db/api/payments/security/concurrency/failure groups PASS.
-  - Environment-only FAILs, all green in CI on the same head: no `web/` build in this container (`web/dist`, `web/node_modules`, `.mobile_dist` absent), which fails mobile-pwa-gate, `mobile_readiness`, `ux_closeout_issue39` and the 8 `frontend_browser_*` suites.
-- LEAN REFACTOR CLOSURE CENSUS: the per-finding table is in `docs/LEAN_REFACTOR_MAP_2026-09-30.md` §9. It found no dead runtime module, no unused dependency, no Base44 runtime code and no canonical-doc contradiction.
-  - Mandatory before closing: (1) one shared route-module list for the gates and tests (36 files copy the list today; the #239 Codex P2 is exactly this failure class); (2) `PROJECT_STATUS.md`: the Claude slot is trimmed in this PR (356 lines moved verbatim to `docs/archive/PROJECT_STATUS_CLAUDE_HISTORY_2026-09-30_TO_2026-10-05.md`, file 553 → about 200 lines). Still open: align `AI_WORKFLOW.md` §14 "append" with the AGENTS.md slot rule, and the ChatGPT and Codex agents replace their own stale entries.
-  - Optional: 17 zero-caller functions in `frontend/app.js`.
-  - Everything else is deferred or a separate senior/owner workstream.
-- BEHAVIOUR: none. No DB, migration, money, auth, provider or API-contract change.
-- OPEN: owner decision on the closure set (§9). PR-18 (three legacy Render services) is unchanged: re-verified 2026-10-12, they still build and fail on every master commit (`update_failed`).
-- PERCENT: PR #239 100%. Lean Refactor ≈90%: the census is done and the mandatory closure set is defined but not started.
-- NEXT: on owner approval, run the two mandatory closure tasks as two small PRs, then declare Lean Refactor closed and move to Production Readiness.
+- PR #239 (ChatGPT's admin operational status extraction): merged as `868a746` after a master merge (`PROJECT_STATUS.md` conflict only) and the fix for an unhandled Codex P2 (`scripts/money_tax_invoice_gate.cjs` `distributorSurface` had dropped the new module; fixture mutation added). Codex clean on the final head `ec00248`; master Siton CI run 545 green; Render web (`dep-db691lavcj2c73fcehmg`) + worker (`dep-db691lavcj2c73fcei4g`) live on `868a746`; staging `/readiness` 200; no error logs. This supersedes the "80% / OPEN" lines of the ChatGPT #239 entry above.
+- CLOSURE CENSUS: `docs/LEAN_REFACTOR_MAP_2026-09-30.md` §9 (merged in #247 `e5e0999`). No dead runtime module, no unused dependency, no Base44 runtime code, no canonical-doc contradiction. Mandatory closure set approved by the owner 2026-10-12: F1 one shared route-module registry; F2 `PROJECT_STATUS.md` trim + `AI_WORKFLOW.md` §14 alignment.
+- F2 — DONE: Claude slot trimmed in #247 (356 lines moved verbatim to `docs/archive/PROJECT_STATUS_CLAUDE_HISTORY_2026-09-30_TO_2026-10-05.md`; file 553 → ~200 lines). `AI_WORKFLOW.md` §14 now says "replace your own slot" (this PR, #248): the automated slot writers replace without archiving, and verbatim archival is a deliberate maintenance step for entries with evidence value, not a routine rule.
+- F1 — IMPLEMENTED, PR pending: `scripts/lib/route_modules.cjs` (ROUTE_MODULES 14, FRONTEND_RUNTIME_FAMILY 8) + `tests/helpers/route_sources.ts`; 13 inline family concatenations, 9 extraction-test sibling lists, the admin mutation inventory, spec-drift wave 3, legacy isolation, security hardening, 3 release-tool fixtures and the three gates (route inventory, legal, money) read the registry; new `tests/route_module_registry_validation.ts` (registry == `REFUND_READINESS_ROUTE_MODULES`, every `src/*_routes.ts` listed, an unlisted probe fails it). No assertion changed; route inventory output byte-identical; every touched test, the gates, release-tools 426/426 and lint pass locally. Opens as the next PR on this branch after #248 merges (local commit `1f2e8c0`).
+- BEHAVIOUR: none. No DB, migration, money, auth, provider or API-contract change in any of these PRs.
+- OPEN: F1 PR (CI + Codex + merge). PR-18 (three legacy Render services) unchanged: re-verified 2026-10-12, still build and fail on every master commit (`update_failed`) — owner dashboard action.
+- PERCENT: Lean Refactor ≈95%: census done, F2 done, F1 implemented and verified locally, not yet merged.
+- NEXT: merge #248, open and merge the F1 PR, then record Lean Refactor CLOSED and move to Production Readiness (owner-driven checklist, 21%).
 
 Earlier Claude Code milestones (2026-09-30 to 2026-10-05) moved verbatim to `docs/archive/PROJECT_STATUS_CLAUDE_HISTORY_2026-09-30_TO_2026-10-05.md` (2026-10-12).
 
