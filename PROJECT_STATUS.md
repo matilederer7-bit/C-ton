@@ -74,10 +74,10 @@ Two ChatGPT entries that sat here outside any agent slot (PR #239 extraction, 80
 ### Claude Code latest milestone — Lean Refactor CLOSED (2026-10-12)
 
 - UPDATED: 2026-10-12
-- RESULT: the Lean Refactor track is closed. The owner-approved closure set (map §9) is merged and deployed: F1 shared route-module registry (#249 `6375956`), F2 status-slot trim + `AI_WORKFLOW.md` §14 slot rule (#247 `e5e0999`, #248 `ef594a4`), after PR #239's extraction was finished and merged (`868a746`).
-- F1 (#249): `scripts/lib/route_modules.cjs` is the single list of route-bearing modules (`ROUTE_MODULES`, 14) and of the modules extracted verbatim from `frontend_runtime.ts` (`FRONTEND_RUNTIME_FAMILY`, 9, now including `admin_mission_control_routes`, which the derivation showed had been left out of the family scans); every gate and text-reading test reads it (13 inline family concatenations, 3 `Promise.all` copies, 9 extraction-test sibling lists, the admin mutation inventory, spec-drift ×4, legacy isolation, security hardening, 3 release-tool fixtures, route inventory, legal gate, money gate). `tests/route_module_registry_validation.ts` proves the registry both ways against the source tree: registrar discovery over all `src/*.ts` with the inventory's method set, family derived from the runtime's `register*Routes` imports plus a pinned exception list (`receipt_content_routes`, `distribution_hub`), and mutation proofs for every omission class. No assertion changed; coverage only widened; route inventory output byte-identical. Four Codex findings (2×P1, 2×P2) fixed on the way; Codex clean on the final head `629f992`; PR CI green (FULL profile).
+- RESULT: the Lean Refactor track is closed. The owner-approved closure set (map §9) is merged and deployed: F1 shared route-module registry (#249 `6375956`; final head `629f992`, PR CI run 38231529106, master run 560), F2 status-slot trim + `AI_WORKFLOW.md` §14 slot rule (#247 `e5e0999`; head `5c2387f`, PR run 38222903330, master run 549 — #248 `ef594a4`; head `476c8ce`, PR run 38227456500, master run 555), after PR #239's extraction was finished and merged (`868a746`; head `ec00248`, PR run 38217831874, master run 545). Codex "Didn't find any major issues" on each of those four final heads.
+- F1 (#249): `scripts/lib/route_modules.cjs` is the single list of route-bearing modules (`ROUTE_MODULES`, 14) and of the modules extracted verbatim from `frontend_runtime.ts` (`FRONTEND_RUNTIME_FAMILY`, 9, now including `admin_mission_control_routes`, which the derivation showed had been left out of the family scans); every gate and text-reading test reads it (13 inline family concatenations, 3 `Promise.all` copies, 9 extraction-test sibling lists, the admin mutation inventory, spec-drift ×4, legacy isolation, security hardening, 3 release-tool fixtures, route inventory, legal gate, money gate). `tests/route_module_registry_validation.ts` proves the registry both ways against the source tree: registrar discovery over all `src/*.ts` with the inventory's method set, family derived from the runtime's `register*Routes` imports plus a pinned exception list (`receipt_content_routes`, `distribution_hub`), and mutation proofs for every omission class. No assertion changed; coverage only widened; route inventory output byte-identical. Four Codex findings (2×P1, 2×P2) fixed on the way; Codex "Didn't find any major issues" on the final head `629f992`; PR Siton CI run 38231529106 (FULL profile) `ci-verdict` success.
 - VERIFIED: master Siton CI run 560 green on `6375956`; Render web `dep-db6atovavr4c73frur4g` + worker `dep-db6atovavr4c73frurj0` LIVE on `6375956`; staging `/readiness` 200 on the new instance (Render app logs, matched by request id); no error- or fatal-level logs since the deploy. Locally (disposable PostgreSQL 16, migrations applied): every touched test, the three gates, release-tools 426/426, lint.
-- CLOSURE STATE (map §9): F1 and F2 closed. Optional (B), not scheduled: 17 zero-caller functions in `frontend/app.js`; merging the 10 extraction tests into one table-driven test; the remaining mechanical read-only moves (admin payout / system-ops reads, `/app` shell routes); unused locals. Separate workstreams (C): duplicated money/auth helpers, admin mutations, `GET /api/admin/storage/orphan-report` writing on a GET, the `/app` legacy shell decision, and PR-18 (three legacy Render services, owner dashboard action, re-verified 2026-10-12 still failing on every master commit). Residual stale ChatGPT and Codex status slots are their owners' to replace under §14.
+- CLOSURE STATE (map §9): F1 and F2 closed. Optional (B), not scheduled: 17 zero-caller functions in `frontend/app.js`; merging the 10 extraction tests into one table-driven test; the remaining mechanical read-only moves (admin payout / system-ops reads, `/app` shell routes); unused locals. Separate workstreams (C): duplicated money/auth helpers, admin mutations, `GET /api/admin/storage/orphan-report` writing on a GET, the `/app` legacy shell decision, and PR-18 (three legacy Render services, owner dashboard action, re-verified 2026-10-12 still failing on every master commit). The superseded ChatGPT slot entry (which still called the track active) moved verbatim to `docs/archive/PROJECT_STATUS_CHATGPT_SLOT_HISTORY_TO_2026-10-04.md`; nothing in this file reports the closed track as open. The Codex slot (2026-09-25) is old but not about this track; Codex replaces it under §14.
 - BEHAVIOUR: none in any closure PR. No DB, migration, money, auth, provider or API-contract change.
 - OPEN: none on this track.
 - PERCENT: Lean Refactor 100% — CLOSED.
@@ -90,26 +90,10 @@ Earlier Claude Code milestones (2026-09-30 to 2026-10-05) moved verbatim to `doc
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
 
 <!-- AGENT_STATUS:chatgpt:START -->
-### ChatGPT active Lean Refactor — seller images merged, renderer deletion rebased
+### ChatGPT — slot awaiting its next entry (2026-10-12)
 
-- UPDATED: 2026-10-04
-- COMPLETED:
-  - PR #215 merged to `master` as `ec084934107b344d12879bd54b57c836b291ea4d`: seller deal-image upload/reorder/delete routes extracted from `src/app.ts` into `src/seller_deal_image_routes.ts`. Exact PR-head CI #434 was green; Claude senior re-review was clean; merge commit records Codex clean on the final head.
-  - Renderer-deletion work rebuilt from exact new master on isolated branch `chatgpt/delete-dead-legacy-renderers-v2`, avoiding the status conflict of old PR #216.
-  - Seven no-dispatcher legacy renderers are removed from `frontend/app.js`; completed-deal Excel export is preserved on live `renderCtonSellerDealPage`; payment hold-copy assertions target live `renderCtonPaymentPage`; `renderTrackingPage` remains pending §8.2.
-- TESTED:
-  - #215 PR head: Siton CI #434 SUCCESS and senior review clean.
-  - Renderer deletion: prior CI exposed two real gaps; both were fixed by preserving behavior/coverage, not by weakening gates. The rebased v2 still requires a fresh exact-head CI and review.
-- OPEN:
-  - #215 post-merge closeout: master CI on `ec084934` and canonical Render web/worker on the same SHA are not yet verified; do not call the slice 100% until both are true.
-  - Renderer deletion v2: PR, exact-head CI, independent review, merge, master CI and staging verification.
-  - Tracking document-visibility + cumulative-chart gaps remain an explicit owner/product decision.
-- PERCENT:
-  - #215 slice: 95% (merged; post-merge CI/deploy verification open).
-  - Renderer deletion v2: 80% (code/gap preservation/rebase done; final PR gates open).
-- NEXT:
-  - Verify master CI + Render exact SHA for #215.
-  - Replace superseded #216 with the rebased v2 PR and require fresh exact-head review + CI before merge.
+- The previous entry ("active Lean Refactor — seller images merged, renderer deletion rebased", 2026-10-04) was fully superseded by the merges of #239 (`868a746`) and the Lean Refactor closure (#247/#248/#249); it moved verbatim to `docs/archive/PROJECT_STATUS_CHATGPT_SLOT_HISTORY_TO_2026-10-04.md` (2026-10-12). ChatGPT replaces this slot with its next milestone.
+
 <!-- AGENT_STATUS:chatgpt:END -->
 
 
