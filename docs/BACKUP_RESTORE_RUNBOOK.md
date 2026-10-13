@@ -54,7 +54,7 @@ GitHub → repository → Settings → Secrets and variables → Actions:
 | `OFFSITE_BACKUP_S3_ENDPOINT` (optional) | non-AWS endpoint URL (R2, B2, MinIO …) | |
 | `OFFSITE_BACKUP_S3_REGION` (optional, default `us-east-1`) | | |
 | `OFFSITE_BACKUP_S3_PREFIX` (optional, default `siton-db/`) | key prefix | |
-| repository variable `OFFSITE_BACKUP_PG_MAJOR` (workflow default `16`) | `pg_dump` major ≥ the server's major | **Set to `17` before the first real run.** `siton-staging` is verified on PostgreSQL `17.6.1.166`; the workflow default is not sufficient for this project. |
+| repository variable `OFFSITE_BACKUP_PG_MAJOR` (optional, workflow default `17` since 2026-10-13) | `pg_dump` major ≥ the server's major | `siton-staging` is verified on PostgreSQL `17.6.1.166` (re-read 2026-10-13); the default now matches it, so no variable is needed until the server major changes. The earlier default `16` would have failed the first real run (`pg_dump` refuses a newer server). |
 
 Object layout: `<prefix><yyyy>/<mm>/siton-<yyyymmddThhmmssZ>.dump.age` and `….manifest.json` (`manifest.json` fields: `format`, `schemas`, `privileges: "not included (--no-privileges): re-apply supabase/staging grant files after restore"`, `created_at`, `repository`, `commit`, `run_id`, `pg_dump`, `plain_sha256`, `encrypted_sha256`, `encrypted_bytes`, `toc_entries`, `verified`).
 
