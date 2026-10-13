@@ -22,7 +22,8 @@ name: Off-site database backup
 #   OFFSITE_BACKUP_S3_REGION             default us-east-1
 #   OFFSITE_BACKUP_S3_PREFIX             key prefix, default "siton-db/"
 # Optional repository variable:
-#   OFFSITE_BACKUP_PG_MAJOR              pg_dump major version (>= server major), default 16
+#   OFFSITE_BACKUP_PG_MAJOR              pg_dump major version (>= server major), default 17
+#                                        (siton-staging runs PostgreSQL 17; pg_dump 16 refuses a 17 server)
 #
 # Verification without the private key: the UNENCRYPTED custom-format dump is
 # checked with `pg_restore --list` (TOC must list the money tables) BEFORE it is
@@ -83,7 +84,7 @@ jobs:
       - name: Install pg_dump / pg_restore and age
         if: steps.gate.outputs.ready == 'true'
         env:
-          PG_MAJOR: ${{ vars.OFFSITE_BACKUP_PG_MAJOR || '16' }}
+          PG_MAJOR: ${{ vars.OFFSITE_BACKUP_PG_MAJOR || '17' }}
         run: |
           set -euo pipefail
           sudo install -d /usr/share/postgresql-common/pgdg
