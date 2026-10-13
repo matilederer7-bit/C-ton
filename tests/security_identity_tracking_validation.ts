@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { readFrontendRuntimeFamily } from "./helpers/route_sources.js";
 
 async function run(name: string, fn: () => Promise<void>) {
   try {
@@ -13,7 +14,8 @@ async function run(name: string, fn: () => Promise<void>) {
 
 const adminIdentity = await readFile("src/admin_identity.ts", "utf8");
 const trackingSecurity = await readFile("src/participant_tracking_security.ts", "utf8");
-const runtime = await readFile("src/frontend_runtime.ts", "utf8");
+// Every module extracted from frontend_runtime.ts stays in this scan (scripts/lib/route_modules.cjs).
+const runtime = (await readFrontendRuntimeFamily());
 const app = await readFile("src/app.ts", "utf8");
 const mission = await readFile("src/admin_mission_control.ts", "utf8");
 const migration = await readFile("src/migrations/036_security_identity_tracking.sql", "utf8");

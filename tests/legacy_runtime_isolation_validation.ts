@@ -8,6 +8,7 @@
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { ROUTE_MODULES } from "./helpers/route_sources.js";
 
 const ROOT = process.cwd();
 const SRC = join(ROOT, "src");
@@ -75,7 +76,7 @@ check("payment_provider.ts only constructs providers the production guards know 
 });
 
 check("no route module registers a Render-legacy or Base44 HTTP path", () => {
-  const routeFiles = ["app.ts", "frontend_runtime.ts", "receipt_content_routes.ts", "admin_mission_control_routes.ts", "operational_health_routes.ts"].map((f) => readFileSync(join(SRC, f), "utf8")).join("\n");
+  const routeFiles = ROUTE_MODULES.map((name) => readFileSync(join(SRC, `${name}.ts`), "utf8")).join("\n");
   const paths = [...routeFiles.matchAll(/app\.(?:get|post|put|patch|delete)\(\s*["'`]([^"'`]+)/g)].map((m) => String(m[1]));
   assert.ok(paths.length > 150, `sanity: ${paths.length} routes`);
   const legacy = paths.filter((p) => /base44|\/legacy\/|\/render\//i.test(p));

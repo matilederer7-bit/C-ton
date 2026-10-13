@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import pg from "pg";
 import "dotenv/config";
+import { readFrontendRuntimeFamily } from "./helpers/route_sources.js";
 
 process.env.ADMIN_API_KEY = "admin-support-cases-key";
 process.env.DISABLE_OUTBOX_WORKER = "1";
@@ -226,8 +227,9 @@ try {
   });
 
   await run("guardrails: no duplicate catalog/search API, affiliate payout, or request-thread money action", async () => {
+    // Every module extracted from frontend_runtime.ts stays in this scan (scripts/lib/route_modules.cjs).
     const [frontendRuntime, appTs, appJs] = await Promise.all([
-      readFile("src/frontend_runtime.ts", "utf8"),
+      readFrontendRuntimeFamily(),
       readFile("src/app.ts", "utf8"),
       readFile("frontend/app.js", "utf8")
     ]);

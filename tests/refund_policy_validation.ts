@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { REFUND_READINESS_ROUTE_MODULES, scanManualRefundRoutes } from "../src/refund_route_readiness.js";
+import { ROUTE_MODULE_FILES, readFrontendRuntimeFamily } from "./helpers/route_sources.js";
 
 async function runTest(name: string, fn: () => Promise<void> | void) {
   try {
@@ -12,7 +17,8 @@ async function runTest(name: string, fn: () => Promise<void> | void) {
 }
 
 const app = await readFile("src/app.ts", "utf8");
-const runtime = await readFile("src/frontend_runtime.ts", "utf8");
+// Every module extracted from frontend_runtime.ts stays in this scan (scripts/lib/route_modules.cjs).
+const runtime = (await readFrontendRuntimeFamily());
 const controlPlane = await readFile("src/admin_control_plane.ts", "utf8");
 const mission = await readFile("src/admin_mission_control.ts", "utf8");
 const providerReadinessDoc = await readFile("docs/PROVIDER_LIVE_MONEY_READINESS.md", "utf8");
@@ -22,6 +28,7 @@ const legalDoc = await readFile("docs/LEGAL_TRUST_SURFACES.md", "utf8");
 const refundPolicyDoc = await readFile("docs/REFUND_POLICY.md", "utf8");
 const frontend = await readFile("frontend/app.js", "utf8");
 const packageJson = await readFile("package.json", "utf8");
+const routeInventory = await readFile("scripts/web_route_inventory.cjs", "utf8");
 
 const sourceRuntime = `${app}\n${runtime}`;
 
@@ -88,6 +95,46 @@ await runTest("refund_policy_mission_control_validation", async () => {
   assert.match(mission, /admin_commercial_refund_allowed:\s*false/);
   assert.match(mission, /system_refund_on_failed_deal_required:\s*true/);
   assert.match(mission, /provider_sandbox_required:\s*true/);
+  assert.match(mission, /scanManualRefundRoutes\(\)/);
+  assert.match(mission, /refund_route_sources_unreadable/);
+
+  // The route inventory reads the shared registry (scripts/lib/route_modules.cjs); the
+  // runtime readiness scan must list exactly the same modules in the same order.
+  assert.match(routeInventory, /require\("\.\/lib\/route_modules\.cjs"\)/, "route inventory must read the shared route-module registry");
+  const readinessSources = REFUND_READINESS_ROUTE_MODULES.map((moduleName) => `src/${moduleName}.ts`);
+  assert.deepEqual(readinessSources, [...ROUTE_MODULE_FILES], "refund readiness must scan the exact route-inventory source set");
+
+  const liveScan = await scanManualRefundRoutes();
+  const currentTestExtension = fileURLToPath(import.meta.url).endsWith(".js") ? ".js" : ".ts";
+  assert.equal(liveScan.source_extension, currentTestExtension);
+  assert.deepEqual(liveScan.unreadable_modules, [], "the executing build must expose every canonical route module to the scan");
+  assert.equal(liveScan.manual_refund_routes_found, false);
+});
+
+await runTest("refund_policy_mission_control_compiled_mutant_validation", async () => {
+  const extension = fileURLToPath(import.meta.url).endsWith(".js") ? ".js" : ".ts";
+  const sourceDir = extension === ".js"
+    ? resolve(dirname(fileURLToPath(import.meta.url)), "../src")
+    : resolve(process.cwd(), "src");
+  const fixtureDir = await mkdtemp(join(tmpdir(), "siton-refund-route-scan-"));
+  try {
+    for (const moduleName of REFUND_READINESS_ROUTE_MODULES) {
+      await cp(join(sourceDir, `${moduleName}${extension}`), join(fixtureDir, `${moduleName}${extension}`));
+    }
+    const sellerPath = join(fixtureDir, `seller_fulfillment_routes${extension}`);
+    const sellerText = await readFile(sellerPath, "utf8");
+    await writeFile(
+      sellerPath,
+      sellerText + `\napp.post("/api/seller/deals/:dealId/refund", async () => ({ ok: true }));\n`,
+      "utf8"
+    );
+
+    const mutantScan = await scanManualRefundRoutes({ moduleDir: fixtureDir, extension });
+    assert.deepEqual(mutantScan.unreadable_modules, []);
+    assert.equal(mutantScan.manual_refund_routes_found, true, "a manual refund route in an extracted runtime module must block readiness");
+  } finally {
+    await rm(fixtureDir, { recursive: true, force: true });
+  }
 });
 
 await runTest("refund_policy_copy_validation", async () => {

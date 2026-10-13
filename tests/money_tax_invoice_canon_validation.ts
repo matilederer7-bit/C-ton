@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 
 import { calculatePlatformFeeMoney } from "../src/platform_fee_money.js";
 import { SITON_PLATFORM_FEE_VAT_RATE } from "../src/runtime_config.js";
+import { readFrontendRuntimeFamilySync } from "./helpers/route_sources.js";
 
 function read(path: string) {
   return readFileSync(path, "utf8");
@@ -42,7 +43,8 @@ await run("shipping is included in charged gross and fee base", () => {
 
 await run("non-revenue states are not treated as settlement states in reporting", () => {
   const sellerAnalytics = read("src/seller_analytics.ts");
-  const frontendRuntime = read("src/frontend_runtime.ts");
+  // the seller export moved out of frontend_runtime.ts into src/seller_fulfillment_routes.ts (Lean Refactor); it stays in this check
+  const frontendRuntime = read("src/frontend_runtime.ts") + "\n" + read("src/seller_fulfillment_routes.ts");
   assert.match(sellerAnalytics, /money_state IN \('ChargedSuccess','RecoveredCharge'\)/);
   assert.match(frontendRuntime, /p\.money_state === "ChargedSuccess"\s*\|\|\s*p\.money_state === "RecoveredCharge"/);
   assert.match(sellerAnalytics, /AuthReleased/);
@@ -58,7 +60,8 @@ await run("auth hold is not invoice eligible and refund path has document route"
 });
 
 await run("seller export, invoice document, and payout use canonical fields", () => {
-  const frontendRuntime = read("src/frontend_runtime.ts");
+  // the seller export moved out of frontend_runtime.ts into src/seller_fulfillment_routes.ts (Lean Refactor); it stays in this check
+  const frontendRuntime = read("src/frontend_runtime.ts") + "\n" + read("src/seller_fulfillment_routes.ts");
   const app = read("src/app.ts");
   const payoutRail = read("src/payout_rail.ts");
   for (const field of [
@@ -78,7 +81,8 @@ await run("seller export, invoice document, and payout use canonical fields", ()
 });
 
 await run("distributor attribution does not create money rail", () => {
-  const frontendRuntime = read("src/frontend_runtime.ts");
+  // support, seller fulfillment, admin control-center (R6), admin growth and admin demo-readiness routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
+  const frontendRuntime = readFrontendRuntimeFamilySync();
   const sellerAnalytics = read("src/seller_analytics.ts");
   assert.match(sellerAnalytics, /attributed_gross/);
   assert.match(sellerAnalytics, /measurement_only: true/);

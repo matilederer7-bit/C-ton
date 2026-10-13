@@ -1,5 +1,6 @@
 import { strict as assert } from "node:assert";
 import { readFile } from "node:fs/promises";
+import { readFrontendRuntimeFamily } from "./helpers/route_sources.js";
 
 async function run(name: string, fn: () => Promise<void>) {
   try {
@@ -11,9 +12,10 @@ async function run(name: string, fn: () => Promise<void>) {
   }
 }
 
+// Every module extracted from frontend_runtime.ts stays in this scan (scripts/lib/route_modules.cjs).
 const [appJs, runtimeTs] = await Promise.all([
   readFile("frontend/app.js", "utf8"),
-  readFile("src/frontend_runtime.ts", "utf8")
+  readFrontendRuntimeFamily()
 ]);
 
 await run("seller receipt surface no longer invents pseudo receipt ids", async () => {

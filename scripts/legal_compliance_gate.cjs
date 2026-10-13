@@ -50,10 +50,12 @@ const norm = (text) => String(text).replace(/\s+/g, " ");
 for (const doc of requiredDocs) if (!exists(doc)) failures.push("missing required document: " + doc);
 
 const app = read("frontend/app.js");
-const runtime = read("src/frontend_runtime.ts") + "\n" + read("src/admin_mission_control_routes.ts"); // Mission Control routes moved out of frontend_runtime.ts (Lean Refactor); they stay in the product scan
+const routeModules = require("./lib/route_modules.cjs");
+// frontend_runtime.ts and every module extracted from it (shared registry, Mission Control included); they stay in the product scan
+const runtime = routeModules.readRouteModules(routeModules.FRONTEND_RUNTIME_FAMILY, root);
 // The server-rendered legal shell moved out of frontend_runtime.ts (Lean Refactor); it stays in the product surface.
 const legalShell = read("src/legal_html.ts");
-const server = read("src/app.ts") + "\n" + read("src/http_security_headers.ts") + "\n" + read("src/operational_health_routes.ts"); // response headers and /health + /readiness moved out of app.ts (Lean Refactor); they stay in the server scan
+const server = read("src/app.ts") + "\n" + read("src/http_security_headers.ts") + "\n" + read("src/operational_health_routes.ts") + "\n" + read("src/seller_deal_image_routes.ts"); // extracted app route modules stay in the server scan
 const buyerTerms = norm(read("docs/BUYER_TERMS_HE.md"));
 const privacy = norm(read("docs/PRIVACY_POLICY_HE.md"));
 const sellerTerms = norm(read("docs/SELLER_TERMS_HE.md"));

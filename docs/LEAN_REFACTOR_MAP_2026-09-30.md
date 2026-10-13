@@ -322,7 +322,7 @@ read-only passes (src / web / frontend; scripts / dependencies / config / root; 
 |---|---|
 | ~~`docs/archive/db-drift-resolution.md`, `docs/archive/runtime-contract-resolution.md`~~ | **DONE 2026-10-04** — zero consumers, no authority/history value beyond already-superseded runtime notes; deleted in the documentation-map cleanup |
 | ~~`/api/admin/notifications/status`~~ | DONE — removed by PR #190 (`5c5221f`) |
-| superseded renderers in `frontend/app.js` | dead (no dispatcher reaches them); slice tests retargeted (§7.2, round-2 slice 4). Deletion PR next, after the owner decides the §8.2 gaps (deleting removes the only implementation of e.g. buyer document visibility) |
+| superseded renderers in `frontend/app.js` | **DELETE READY (2026-10-04):** seven no-dispatcher legacy renderers removed (`renderHomeLegacy`, `renderDealPage`, `renderOtpPage`, `renderPaymentPage`, `renderConfirmationPage`, `renderSellerPage`, `renderSellerDealPage`). CI exposed two hidden dependencies before finalization: completed-deal Excel export was ported to live `renderCtonSellerDealPage`, and payment hold-copy assertions were retargeted to live `renderCtonPaymentPage`. `renderTrackingPage` remains deliberately because §8.2 still records document-visibility + cumulative-chart gaps. |
 | `src/stage10c_harden_deals.sql` | retired 3-line marker; only a comment in migration 022 names it (migrations are never edited, so it stays unless the owner accepts a dangling comment) |
 
 ### 7.3 Kept on purpose (SUPPORT / CORE despite few or no callers)
@@ -373,7 +373,7 @@ The per-branch list is in the owner report of 2026-10-01.
 | `src/frontend_runtime.ts` | 12 256 | 12 144 (legal HTML → `src/legal_html.ts`, 123) |
 | `src/app.ts` | 8 637 | 8 587 (security headers → `src/http_security_headers.ts`, 56) |
 | `src/*.ts` files / lines | 87 / 51 106 | 89 / 51 123 (moves only: +2 module headers and imports) |
-| `frontend/app.js` | 9 337 | 9 337 (8 dead renderers still present; tests no longer pin them) |
+| `frontend/app.js` | 9 337 | 8 527 executable lines plus trailing newline on the reconciled deletion branch (7 dead renderers removed; live Excel export preserved; `renderTrackingPage` retained pending §8.2) |
 | CDP launcher copies (operator proofs) | 6 identical + 4 differing + 5 retired | 1 shared (`scripts/lib/cdp.cjs`) + 4 differing (documented) + 5 retired |
 | `scripts/*.cjs` / `scripts/lib` | 93 / 14 | 93 / 15 |
 | `tests/*.ts` / release-tool tests | 322 / 28 | 322 / 29 (+`cdp_launcher.test.cjs`) |
@@ -393,14 +393,22 @@ Module boundaries added: `legal_html.ts` (pure HTML render, no I/O beyond the pr
 5. The explicit "no action needed now" copy (React gates the CTA instead).
 6. The "live buyer center" eyebrow headline.
 
-Deleting the dead renderers deletes the only implementation of 1–2; decide "build it in React" or "drop the requirement"
-first. Each GAP assertion fails if a live surface starts delivering the item, so a gap is retired deliberately.
+Deleting `renderTrackingPage` would delete the only legacy implementation of 1–2; decide "build it in React" or "drop the requirement" first. The seven other no-dispatcher renderers are now deletion-safe: CI first exposed the completed-deal seller Excel export and a stale whole-file payment-copy pin; the export was ported to `renderCtonSellerDealPage` and the copy assertion was retargeted to `renderCtonPaymentPage` before deletion.
 
 ### 8.3 Open candidates (in order)
 
 - npm scripts (157): mapped — the only identical pairs (`dev`/`start`, `lint`/`scan:backend`, `proof:no-real-money`/`gate:real-money`) all have consumers in docs, workflows or scripts; the 22 scripts without a textual consumer are developer entry points (CI group runners `test:unit|db|api|payments|e2e`, single-test shortcuts, `i18n:build`, `start:demo`), not aliases. Zero-consumer aliases: none, so nothing deleted.
 - Further `frontend_runtime.ts` / `app.ts` route-group moves (admin ops, support, pilot, `/app` shell; ops and seller-deal
   routes) — one concern per PR.
+  Done 2026-10-04: support (#219), seller fulfillment (#222), admin control-center R6 reads (`src/admin_control_center_routes.ts`,
+  six GET routes; `frontend_runtime.ts` 9,819 → 9,393 by `wc -l`), admin pilot / growth / viral reads (2026-10-05, `src/admin_growth_routes.ts`,
+  five GET routes; 9,393 → 9,208 by `wc -l`), the admin seller viral read (2026-10-05, second register function in
+  `src/admin_growth_routes.ts`; 9,208 → 9,203). The viral recompute mutation stays in the runtime (outbox write, not a
+  read). Demo readiness (2026-10-05, `src/admin_demo_readiness_routes.ts`; 9,203 → 8,990). Admin ops overview reads
+  (2026-10-05, `src/admin_ops_overview_routes.ts`: payment-ops-status, overview, launch-console; 8,990 → 8,540). Admin
+  operational status reads (2026-10-05, `src/admin_operational_status_routes.ts`: outbox-status, notifications-status,
+  invoice-status; 8,540 → 8,251). The admin actions / control-flags / team / seller-status / compute-upgrade / KYC
+  mutations stay in the runtime; payout and system-ops reads remain separate follow-up slices.
 - NOT mechanical (separate senior workstreams): `paymentMinorAmount`, `parsePositiveIntegerQuantity`, `roundMoney`,
   `sha256`, token generation, peppered hash, cookie parsers, `requireUuid`.
 
@@ -408,3 +416,41 @@ first. Each GAP assertion fails if a live surface starts delivering the item, so
 
 See `docs/BRANCH_CENSUS_2026-10-02.md`: 204 branches; 101 merged branches are verified recoverable through
 `refs/pull/<n>/head` and listed for owner deletion (the session could not delete them: permission policy).
+
+## 9. Closure census (2026-10-12, master `868a746`, after PR #239)
+
+There were three read-only passes: src/web/frontend; scripts/tests/workflows/docs; Render. Every "zero consumers" claim was re-checked with `git grep -w` before it was recorded.
+
+### 9.1 State
+
+| Metric | Value |
+|---|---|
+| `src/frontend_runtime.ts` | 8,251 lines (12,256 at round start), 125 direct route registrations |
+| `src/app.ts` | 8,259 lines, 15 routes, all lifecycle / money / outbox / seller-deal writes, none mechanical |
+| Dead runtime modules / unused deps (root + `web/`) | 0 / 0 |
+| Base44 in runtime | 0 (remaining hits are the guard gate, its tests, SQL comments in applied migrations, and history) |
+| Scripts / npm-script paths / tests pointing at missing files | 0 / 0 of 168 / 0; all 337 `tests/*.ts` are discovered |
+| REFERENCE docs contradicting the canonical sources | 0 |
+
+### 9.2 Findings
+
+| # | Finding | Real harm | Risk | Cost | Class |
+|---|---|---|---|---|---|
+| F1 | 36 files (32 tests incl. release-tool tests, 3 gates, `src/refund_route_readiness.ts`) each copied their own route-module list in two shapes. Each extraction PR changed 22–24 test files; a missed list silently narrowed a scan (#191; the #239 Codex P2). **DONE 2026-10-12 (#249 `6375956`):** `scripts/lib/route_modules.cjs` (`ROUTE_MODULES` 14, `FRONTEND_RUNTIME_FAMILY` 9 incl. `admin_mission_control_routes`, `FRONTEND_RUNTIME_WIRED_NOT_EXTRACTED` 2) + `tests/helpers/route_sources.ts`; every gate and test reads it; `tests/route_module_registry_validation.ts` proves it both ways (registrar discovery over `src/*.ts`, family derived from the runtime's `register*Routes` imports, mutation proofs). No assertion changed; coverage only widened. | A missed list silently narrowed a security / money / legal scan. | — | — | **A: closed.** |
+| F2 | `PROJECT_STATUS.md` had regrown to 533 lines / 145 KB (the D5 trim left 311 / 77 KB), most of it 28 "Claude Code latest milestone" entries, because `AI_WORKFLOW.md` §14 said "append" while AGENTS.md says "replace your slot". **DONE 2026-10-12:** the Claude slot was reduced to its latest entry in #247 (356 lines moved verbatim to `docs/archive/PROJECT_STATUS_CLAUDE_HISTORY_2026-09-30_TO_2026-10-05.md`), the two completed ChatGPT entries that sat above every slot moved verbatim to `docs/archive/PROJECT_STATUS_OUT_OF_SLOT_ENTRIES_2026-10-06.md` (#248), and §14 now says "replace the content of your own slot; archival is a deliberate maintenance step, not a routine rule" (#248). File now about 175 lines / 21 KB. **Residual, not a closure blocker:** the ChatGPT slot (renderer deletion already landed) and the Codex slot (2026-09-25) are stale; each is inside a marked slot that only its owner replaces (AGENTS.md), so they are explicit remaining work for those agents under the §14 rule. | Mandatory reading for every agent task; stale "OPEN" lines misled. | — | — | **A: closed** (residual assigned to the ChatGPT and Codex slots). |
+| F3 | 17 zero-caller functions in `frontend/app.js` (`renderExistingFlow`, `renderHome`, `renderSellerAnalytics*` ×4, `renderDeliveryHandoffSection`, `renderNavLegacy`, `renderDealVisual`, `classifySellerDeals`, `nextDealAction`, `getFlowStatus`, …; about 360 lines). `renderHome` is a slice anchor in 4 tests. | Dead code shipped to the browser; misleading to readers. | low | S | **B: optional.** Keep `renderTrackingPage` until the §8.2 decision. |
+| F4 | 10 `*_routes_extraction_validation.ts` files (2,597 lines) share one template and hard-code sibling lists. | Upkeep cost only; F1 removes most of it. | low | M | B: defer after F1. |
+| F5 | Remaining mechanical read-only moves: admin payout / system-ops reads (10 routes, about 650 lines, payout review tier) and the `/app` shell / static routes (33 routes, about 160 lines). | Readability only. | low–med | M / S | B: defer. Lean Refactor does not need `frontend_runtime.ts` to reach a target size. |
+| F6 | Unused locals and exports outside money/auth (`Locale` import, `TreeBranch`, `useIsWide`, 3 exports). | none | low | S | B: cosmetic, no value on its own. |
+| F7 | `GET /api/admin/storage/orphan-report` writes `siton.storage_orphan_reports`. | Semantic surprise on a GET. | med | S | C: behaviour change, separate ticket. |
+| F8 | Duplicated money/auth helpers (`paymentMinorAmount`, `parsePositiveIntegerQuantity`, `roundMoney` ×5, `requireUuid` ×3, cookie parsers ×2, token generation), plus admin mutations, auth, payments, and the `app.ts` lifecycle routes. | Real but behaviour-sensitive. | high | L | C: senior money / auth workstream, not mechanical. |
+| F9 | Three legacy Render services (`siton-staging-web-atp1`, `siton-demo-preview-atp1`, `siton-demo-preview`) still build and fail on every master commit (re-verified 2026-10-12). | Build minutes and noise; no runtime effect. | none | S (owner, dashboard) | C: Production Readiness PR-18, owner manual action (§2). |
+| F10 | `/app` legacy shell (`frontend/`) | It is still served, and the native apps depend on it. | — | L | C: product decision (§3.2). |
+
+### 9.3 Decision
+
+Lean Refactor closes after F1 and F2: two small, behaviour-free PRs. Every other item is either optional (B) or belongs to a separate owner or senior workstream (C), and none of them blocks Production Readiness.
+
+### 9.4 Closed (2026-10-12)
+
+F1 merged as #249 `6375956` (final head `629f992`: Codex "Didn't find any major issues", PR Siton CI run 38231529106 `ci-verdict` success; master run 560 / 38232561343) and F2 as #247 `e5e0999` (final head `5c2387f`: Codex clean, PR run 38222903330; master run 549 / 38224294550) + #248 `ef594a4` (final head `476c8ce`: Codex clean, PR run 38227456500; master run 555 / 38228848822), after #239 `868a746` (final head `ec00248`: Codex clean, PR run 38217831874; master run 545 / 38219327611); Render `siton-staging-web` and `siton-staging-worker` live on `6375956`, `/readiness` 200, no error logs. **The Lean Refactor track is closed.** The B rows stay optional and unscheduled; the C rows belong to their own workstreams (money/auth helpers, admin mutations, the orphan-report GET, the `/app` shell decision, PR-18). This document is now history for those rows and stays REFERENCE only as the record of what was removed and why.

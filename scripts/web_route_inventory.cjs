@@ -10,7 +10,9 @@ fs.mkdirSync(artifacts, { recursive: true });
 // report and the behavioural proof can never disagree about what is protected.
 const policy = require(path.join(root, "scripts", "protected_route_policy.cjs"));
 
-const sources = ["src/app.ts", "src/frontend_runtime.ts", "src/receipt_content_routes.ts", "src/distribution_hub.ts", "src/admin_mission_control_routes.ts", "src/operational_health_routes.ts"];
+const { ROUTE_MODULE_FILES, FRONTEND_RUNTIME_FAMILY_FILES } = require("./lib/route_modules.cjs");
+// Every route-bearing module, from the shared registry (kept identical to src/refund_route_readiness.ts by tests/route_module_registry_validation.ts).
+const sources = [...ROUTE_MODULE_FILES];
 const routePattern = /\bapp\.(get|post|put|patch|delete|options|head)\(\s*["'`]([^"'`]+)["'`]/g;
 const frontendPattern = /\b(?:fetch|api)\(\s*([`"'])(\/[^`"']+)\1\s*(?:,\s*\{([\s\S]{0,500}?)\})?/g;
 
@@ -185,10 +187,7 @@ for (const filename of sources) {
   }
 }
 
-const frontendText = [
-  "frontend/app.js",
-  "src/frontend_runtime.ts"
-].filter((file) => fs.existsSync(path.join(root, file)))
+const frontendText = ["frontend/app.js", ...FRONTEND_RUNTIME_FAMILY_FILES].filter((file) => fs.existsSync(path.join(root, file)))
   .map((file) => fs.readFileSync(path.join(root, file), "utf8"))
   .join("\n");
 const frontendCalls = [];

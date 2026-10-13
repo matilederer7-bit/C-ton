@@ -19,6 +19,7 @@
 import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { FRONTEND_RUNTIME_FAMILY_FILES, readFrontendRuntimeFamilySync } from "./helpers/route_sources.js";
 
 function read(relPath: string): string {
   return readFileSync(resolve(process.cwd(), relPath), "utf8");
@@ -54,7 +55,8 @@ await run("D1 — /app is the canonical Mall and duplicate discovery routes stay
 });
 
 await run("D1 — Mall uses bounded filters and has no arbitrary public text search", () => {
-  const runtime = read("src/frontend_runtime.ts");
+  // support, seller fulfillment, admin control-center (R6), admin growth and admin demo-readiness routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
+  const runtime = readFrontendRuntimeFamilySync();
   const mall = read("src/mall_read_model.ts");
   assert.match(runtime, /\/api\/mall\/deals/);
   assert.match(mall, /physical_product/);
@@ -85,7 +87,7 @@ await run("D2 — no `platform_fee_rate = 0.05` assignment anywhere in src/", ()
     "src/platform_fee_money.ts",
     "src/app.ts",
     "src/invoice_dispatch.ts",
-    "src/frontend_runtime.ts"
+    ...FRONTEND_RUNTIME_FAMILY_FILES
   ]) {
     const body = read(path);
     assert.ok(
@@ -122,7 +124,7 @@ await run("D3 — no comment/string claims fee excludes delivery in active sourc
     "src/app.ts",
     "src/platform_fee_money.ts",
     "src/product_surface_support.ts",
-    "src/frontend_runtime.ts",
+    ...FRONTEND_RUNTIME_FAMILY_FILES,
     "frontend/app.js"
   ]) {
     const body = read(path);
@@ -175,7 +177,7 @@ await run("D4 — no 'already joined' / 'single participation' copy in frontend 
     /one\s+purchase\s+per\s+buyer/i,
     /unique\s+buyer\s+per\s+deal/i
   ];
-  for (const path of ["frontend/app.js", "src/frontend_runtime.ts"]) {
+  for (const path of ["frontend/app.js", ...FRONTEND_RUNTIME_FAMILY_FILES]) {
     const body = read(path);
     for (const re of forbidden) {
       assert.ok(
@@ -197,7 +199,7 @@ await run("D5 — affiliate surface has no earnings/balance/withdraw wording", (
     /amount_owed/i
   ];
   for (const path of [
-    "src/frontend_runtime.ts",
+    ...FRONTEND_RUNTIME_FAMILY_FILES,
     "src/product_surface_support.ts",
     "frontend/app.js"
   ]) {

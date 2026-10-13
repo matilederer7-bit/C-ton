@@ -23,6 +23,7 @@ import { readFile } from "node:fs/promises";
 import pg from "pg";
 import { describeDeliveryEstimate, normalizeDeliveryEstimate } from "../src/delivery_estimate.js";
 import { deliveryEstimateText, validateEstimateRange } from "../web/src/deliveryEstimate.js";
+import { readFrontendRuntimeFamily } from "./helpers/route_sources.js";
 const { Pool } = pg;
 
 process.env.PORT = String(process.env.PORT || "3461");
@@ -39,9 +40,10 @@ async function run(name: string, fn: () => Promise<void> | void) {
   catch (e: any) { console.error(`FAIL ${name}: ${e.message}`); failed++; }
 }
 
+// Every module extracted from frontend_runtime.ts stays in this scan (scripts/lib/route_modules.cjs).
 const [app_src, runtime_src, sellerPage, dealPage, apiClient] = await Promise.all([
   readFile("src/app.ts", "utf8"),
-  readFile("src/frontend_runtime.ts", "utf8"),
+  readFrontendRuntimeFamily(),
   readFile("web/src/pages/seller.tsx", "utf8"),
   readFile("web/src/pages/deal.tsx", "utf8"),
   readFile("web/src/api.ts", "utf8")

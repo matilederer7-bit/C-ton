@@ -11,6 +11,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { ROUTE_MODULES } from "./helpers/route_sources.js";
 
 const SRC = join(process.cwd(), "src");
 const read = (file: string) => readFileSync(join(SRC, file), "utf8");
@@ -18,7 +19,7 @@ const app = read("app.ts");
 const routes = read("operational_health_routes.ts");
 // Every route module is required; only the Mission Control module (PR #202, may land before or after this slice) is optional.
 const OPTIONAL_ROUTE_FILES = new Set(["admin_mission_control_routes.ts"]);
-const ROUTE_FILES = ["app.ts", "frontend_runtime.ts", "receipt_content_routes.ts", "distribution_hub.ts", "admin_mission_control_routes.ts", "operational_health_routes.ts"]
+const ROUTE_FILES = ROUTE_MODULES.map((name) => `${name}.ts`)
   .filter((file) => !OPTIONAL_ROUTE_FILES.has(file) || existsSync(join(SRC, file)));
 const HEALTH_ROUTES = ["/health", "/readiness"];
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

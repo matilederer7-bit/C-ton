@@ -145,16 +145,25 @@ function moneyStateInLists(source) {
 }
 const collected = ["ChargedSuccess", "RecoveredCharge"].sort().join(",");
 assert(moneyStateInLists(read("src/seller_analytics.ts")).includes(collected), "seller analytics must count ChargedSuccess and RecoveredCharge together");
-const frontendRuntimeSource = read("src/frontend_runtime.ts");
-assert(moneyStateInLists(frontendRuntimeSource).includes(collected), "seller export/frontend runtime SQL must count ChargedSuccess and RecoveredCharge together");
+// frontend_runtime.ts and every module extracted from it (shared registry
+// scripts/lib/route_modules.cjs), each parsed on its own: their reporting,
+// payment, fee-ledger, settlement, queue and invoice SQL stays in these scans.
+const routeModules = require("./lib/route_modules.cjs");
+const sellerReportingFiles = routeModules.FRONTEND_RUNTIME_FAMILY_FILES.map((rel) => [rel, read(rel)]);
+const sellerReportingSource = sellerReportingFiles.map(([, source]) => source).join("\n");
+assert(moneyStateInLists(sellerReportingSource).includes(collected), "seller export/frontend runtime SQL must count ChargedSuccess and RecoveredCharge together");
 {
-  const frontendFile = ast.parse(path.join(root, "src/frontend_runtime.ts"), frontendRuntimeSource);
-  const comparisons = ast.collect(frontendFile, (node) => ts.isBinaryExpression(node)
-    && (node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken || node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsToken)
-    && /money_state$/.test(node.left.getText(frontendFile)) && ast.stringLiteralValue(node.right) !== null)
-    .map((node) => ast.stringLiteralValue(node.right));
+  const comparisons = [];
+  const buyerStateComparisons = [];
+  for (const [rel, source] of sellerReportingFiles) {
+    const frontendFile = ast.parse(path.join(root, rel), source);
+    comparisons.push(...ast.collect(frontendFile, (node) => ts.isBinaryExpression(node)
+      && (node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken || node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsToken)
+      && /money_state$/.test(node.left.getText(frontendFile)) && ast.stringLiteralValue(node.right) !== null)
+      .map((node) => ast.stringLiteralValue(node.right)));
+    buyerStateComparisons.push(...ast.collect(frontendFile, (node) => ts.isBinaryExpression(node) && /buyer_state$/.test(node.left.getText(frontendFile)) && ast.stringLiteralValue(node.right) === "Dropped"));
+  }
   assert(comparisons.includes("ChargedSuccess") && comparisons.includes("RecoveredCharge"), "seller export eligibility must compare money_state to both ChargedSuccess and RecoveredCharge");
-  const buyerStateComparisons = ast.collect(frontendFile, (node) => ts.isBinaryExpression(node) && /buyer_state$/.test(node.left.getText(frontendFile)) && ast.stringLiteralValue(node.right) === "Dropped");
   assert(buyerStateComparisons.length >= 1, "Dropped exclusion must remain visible in seller reporting code");
   assert(/AuthReleased/.test(read("src/seller_analytics.ts")), "AuthReleased exclusion must remain visible in seller analytics");
 }
@@ -164,7 +173,7 @@ assert(moneyStateInLists(frontendRuntimeSource).includes(collected), "seller exp
 // ---------------------------------------------------------------------------
 const sellerExportTest = exists("tests/seller_deal_excel_export_validation.ts") ? read("tests/seller_deal_excel_export_validation.ts") : "";
 for (const required of ["gross_amount", "platform_fee_base_amount", "platform_fee_vat_amount", "platform_fee_total_amount", "seller_net_amount"]) {
-  assert(sellerExportTest.includes(required) || frontendRuntimeSource.includes(required), "seller export missing " + required);
+  assert(sellerExportTest.includes(required) || sellerReportingSource.includes(required), "seller export missing " + required);
 }
 
 // ---------------------------------------------------------------------------
@@ -222,8 +231,9 @@ for (const required of ["gross_amount", "platform_fee_base_amount", "platform_fe
 // 12. Distributor surface carries no money wording; C-ton is never the seller.
 // ---------------------------------------------------------------------------
 {
-  // the Mission Control routes moved out of frontend_runtime.ts (Lean Refactor); they stay in the scan
-  const distributorSurface = ast.stripComments(frontendRuntimeSource, "frontend_runtime.ts") + "\n" + ast.stripComments(read("src/admin_mission_control_routes.ts"), "admin_mission_control_routes.ts") + "\n" + read("frontend/app.js");
+  // frontend_runtime.ts, every module extracted from it (Mission Control included) and the legacy shell stay in the scan
+  const distributorSurface = [...routeModules.FRONTEND_RUNTIME_FAMILY_FILES]
+    .map((rel) => ast.stripComments(read(rel), path.basename(rel))).join("\n") + "\n" + read("frontend/app.js");
   for (const re of [/affiliate[^.\n]{0,80}commission/i, /distributor[^.\n]{0,80}commission/i, /affiliate[^.\n]{0,80}payout/i, /distributor[^.\n]{0,80}payout/i, /affiliate[^.\n]{0,80}balance/i, /distributor[^.\n]{0,80}balance/i]) {
     assert(!re.test(distributorSurface), "distributor surface contains forbidden money wording: " + re);
   }

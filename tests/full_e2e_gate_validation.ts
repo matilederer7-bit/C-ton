@@ -3,6 +3,7 @@ import { createHmac, randomUUID } from "node:crypto";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readFrontendRuntimeFamily } from "./helpers/route_sources.js";
 
 process.env.ADMIN_API_KEY = "full-e2e-admin-key";
 process.env.APP_DEPLOYMENT_MODE = "demo-preview";
@@ -592,7 +593,8 @@ try {
     assert.equal(terms.statusCode, 200);
     const privacy = await app.inject({ method: "GET", url: "/app/privacy" });
     assert.equal(privacy.statusCode, 200);
-    const runtime = await readFile("src/frontend_runtime.ts", "utf8");
+    // support, seller fulfillment, admin control-center (R6), admin growth and admin demo-readiness routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
+    const runtime = (await readFrontendRuntimeFamily());
     assert.doesNotMatch(runtime, /affiliate.*commission/i);
     assert.match(runtime, /Prevent formula injection/);
 

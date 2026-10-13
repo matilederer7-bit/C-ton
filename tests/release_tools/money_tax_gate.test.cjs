@@ -6,17 +6,16 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createFixtureRepo } = require("./support/fixture_repo.cjs");
+const { ROUTE_MODULE_FILES } = require("../../scripts/lib/route_modules.cjs");
 
 const FIXTURE_FILES = [
+  ...ROUTE_MODULE_FILES,
   "src/platform_fee_money.ts",
   "src/runtime_config.ts",
   "src/vat_authority.ts",
   "src/schema_contract.ts",
   "src/seller_analytics.ts",
-  "src/frontend_runtime.ts",
-  "src/admin_mission_control_routes.ts",
   "src/invoice_dispatch.ts",
-  "src/app.ts",
   "src/payout_rail.ts",
   "src/migrations/019_platform_fee_money_events.sql",
   "docs/MONEY_TAX_INVOICE_CANON.md",
@@ -113,6 +112,30 @@ const MUTATIONS = [
     from: "COALESCE(SUM(seller_net_amount), 0) AS seller_net_payable",
     to: "COALESCE(SUM(gross_amount), 0) AS seller_net_payable",
     expect: /seller_net_payable/
+  },
+  {
+    // the seller exports moved to src/seller_fulfillment_routes.ts (Lean Refactor); the gate must still see them
+    name: "moved seller export stops excluding Dropped buyers",
+    file: "src/seller_fulfillment_routes.ts",
+    from: 'p.buyer_state === "Dropped"',
+    to: 'p.buyer_state === "Dropped_"',
+    all: true,
+    expect: /Dropped exclusion/
+  },
+  {
+    name: "moved seller fulfillment routes gain distributor commission wording",
+    file: "src/seller_fulfillment_routes.ts",
+    from: "  function pickupCodeNotFound(reply: any) {",
+    to: '  const distributorNote = "affiliate commission";\n  function pickupCodeNotFound(reply: any) {',
+    expect: /forbidden money wording/
+  },
+  {
+    // the admin operational status reads moved to src/admin_operational_status_routes.ts (Lean Refactor); the distributor-money scan must still see them
+    name: "moved admin operational status routes gain distributor commission wording",
+    file: "src/admin_operational_status_routes.ts",
+    from: "  const { requireAdminRead, ensureInvoiceWebhookTables } = deps;",
+    to: '  const { requireAdminRead, ensureInvoiceWebhookTables } = deps;\n  const distributorNote = "affiliate commission";',
+    expect: /forbidden money wording/
   }
 ];
 
@@ -120,7 +143,7 @@ for (const mutation of MUTATIONS) {
   test("money/tax gate fails when: " + mutation.name, () => {
     const fixture = createFixtureRepo(FIXTURE_FILES);
     try {
-      fixture.mutate(mutation.file, mutation.from, mutation.to);
+      fixture.mutate(mutation.file, mutation.from, mutation.to, { all: Boolean(mutation.all) });
       const result = runGate(fixture);
       assert.notEqual(result.status, 0, "gate should fail: " + mutation.name + "\n" + result.out);
       assert.match(result.out, /MONEY_TAX_INVOICE_CANON_FAIL/);

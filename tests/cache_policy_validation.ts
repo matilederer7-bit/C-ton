@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { readFrontendRuntimeFamily } from "./helpers/route_sources.js";
 
 async function runTest(name: string, fn: () => Promise<void>) {
   try {
@@ -57,7 +58,8 @@ await runTest("unhashed frontend assets require revalidation", async () => {
 await runTest("cache hardening added no dependency or business cache", async () => {
   const packageLock = await readFile("package-lock.json", "utf8");
   const appSource = await readFile("src/app.ts", "utf8");
-  const frontendRuntime = await readFile("src/frontend_runtime.ts", "utf8");
+  // support, seller fulfillment, admin control-center (R6), admin growth and admin demo-readiness routes moved out of frontend_runtime.ts (Lean Refactor); they stay in this scan
+  const frontendRuntime = (await readFrontendRuntimeFamily());
   assert.doesNotMatch(packageLock, /"redis"|"ioredis"|"memcached"/i);
   assert.doesNotMatch(appSource + frontendRuntime, /money_state.*new Map|buyer_state.*new Map|outbox.*new Map|webhook.*new Map/i);
 });

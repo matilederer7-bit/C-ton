@@ -4,6 +4,7 @@ import {
   calculatePlatformFeeMoney,
   SITON_PLATFORM_FEE_RATE
 } from "../src/platform_fee_money.js";
+import { readFrontendRuntimeFamily } from "./helpers/route_sources.js";
 
 assert.equal(SITON_PLATFORM_FEE_RATE, 0.08);
 
@@ -30,7 +31,8 @@ assert.match(moneySource, /Number\(row\.delivery_cost \|\| 0\)/);
 assert.match(moneySource, /computeCustomerChargeVat/);
 assert.doesNotMatch(moneySource, /distributor_commission|commission_rate/i);
 
-const frontendSource = await readFile("src/frontend_runtime.ts", "utf8");
+// Every module extracted from frontend_runtime.ts stays in this scan (scripts/lib/route_modules.cjs).
+const frontendSource = (await readFrontendRuntimeFamily());
 const serverMoneyAssignment = frontendSource.indexOf("authorizeInput.amount_minor = serverMoney");
 assert.ok(serverMoneyAssignment >= 0, "provider amount must be overwritten with server-derived money");
 assert.doesNotMatch(frontendSource, /authorizeInput\.(?:vat_amount|buyer_vat_amount)\s*=\s*body\./);

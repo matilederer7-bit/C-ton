@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { readFrontendRuntimeFamily } from "./helpers/route_sources.js";
 
-const runtime = await readFile("src/frontend_runtime.ts", "utf8");
+// Every module extracted from frontend_runtime.ts stays in this scan (scripts/lib/route_modules.cjs).
+const runtime = (await readFrontendRuntimeFamily());
 const frontend = await readFile("frontend/app.js", "utf8");
 
 assert.match(runtime, /app\.get\(["']\/api\/mall\/deals/);

@@ -79,8 +79,12 @@ await run("seller live deal page exposes operational summary and deterministic o
 });
 
 await run("seller completed deal surface exposes Excel export only after completion", async () => {
-  assert.match(appJs, /deal\.state === "Completed" \? `[\s\S]*data-inline-action="seller-excel-export"/);
-  assert.match(appJs, /data-inline-action="seller-excel-export"/);
+  const start = appJs.indexOf("function renderCtonSellerDealPage()");
+  const end = appJs.indexOf("function adjustJoinQty", start);
+  assert.ok(start >= 0 && end > start, "live seller deal renderer must exist");
+  const liveSellerDeal = appJs.slice(start, end);
+  assert.match(liveSellerDeal, /deal\.state === "Completed" \? `[\s\S]*data-inline-action="seller-excel-export"/);
+  assert.match(liveSellerDeal, /data-inline-action="seller-excel-export"/);
   assert.match(appJs, /\/api\/seller\/deals\/\$\{encodeURIComponent\(dealId\)\}\/export\.xlsx/);
 });
 
