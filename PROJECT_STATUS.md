@@ -1,9 +1,9 @@
 # SITON PROJECT STATUS
 
-Updated: 2026-10-04
+Updated: 2026-10-12
 Canonical branch: `master`
-Current runtime baseline: `4acc867` (PR #212 health/readiness route extraction), on top of `1008ec7` (PR #210 documentation-map cleanup) and `7c5c0ed` (PR #202 Mission Control route extraction). Master Siton CI run 424 on `4acc867` completed successfully with no failed jobs. Black Sky Engineering remains **100% closed**; Production Readiness remains a separate owner-driven track and real money remains blocked.
-Render staging: canonical services `siton-staging-web` (`srv-daa5o9u7bikc73fgjskg`) and `siton-staging-worker` (`srv-daakn0tg1s2s73dfk3pg`) are both **LIVE on `4acc867`**, directly verified in Render after the green master CI. The web service health check path is `/readiness`. Three legacy services still exist and are not touched by this work.
+Current runtime baseline: `6375956` (PR #249, the shared route-module registry that closes the Lean Refactor), on top of `ef594a4` (PR #248 §14 slot rule + status archives), `e5e0999` (PR #247 closure census) and `868a746` (PR #239 admin operational status extraction). Master Siton CI run 560 on `6375956` completed successfully with no failed jobs. Black Sky Engineering remains **100% closed**; **Lean Refactor is CLOSED (2026-10-12)**; Production Readiness remains a separate owner-driven track and real money remains blocked.
+Render staging: canonical services `siton-staging-web` (`srv-daa5o9u7bikc73fgjskg`) and `siton-staging-worker` (`srv-daakn0tg1s2s73dfk3pg`) are both **LIVE on `6375956`** (`dep-db6atovavr4c73frur4g`, `dep-db6atovavr4c73frurj0`), directly verified in Render after the green master CI; staging `/readiness` 200 on the new instance; no error- or fatal-level logs. The web service health check path is `/readiness`. Three legacy services still exist (PR-18, owner dashboard action) and are not touched by this work.
 Supabase staging (`siton-staging`, `hnptacfzuqebfgeshadq`): migration ledger **75/75**, high-water `082` (re-read 2026-10-03); `deal-images` bucket `public=true`, `file_size_limit=10485760`, MIME exactly JPEG/PNG/WebP/MP4/WebM; `storage-broker` ACTIVE v2 (`verify_jwt=false`, broker-key auth).
 Agent-platform expansion is frozen until there is a concrete product-delivery need and live provider evidence. PR #211 (CI META audit) was closed without merge after evidence supported **NO CHANGE**; no classifier/workflow/gate change entered master. The health/readiness Lean Refactor slice is complete: replacement PR #212 was rebuilt from current master, merged, master CI is green and both canonical staging services are live on the merge SHA. PR #205 was superseded. Dependabot work remains separate.
 
@@ -71,17 +71,17 @@ Current invariants:
 Two ChatGPT entries that sat here outside any agent slot (PR #239 extraction, 80%/OPEN at the time — merged as `868a746`; demo-readiness threshold closeout, 100%) moved verbatim to `docs/archive/PROJECT_STATUS_OUT_OF_SLOT_ENTRIES_2026-10-06.md` (2026-10-12).
 
 <!-- AGENT_STATUS:claude:START -->
-### Claude Code latest milestone — Lean Refactor closure: #239 merged, census done, closure tasks in flight (2026-10-12)
+### Claude Code latest milestone — Lean Refactor CLOSED (2026-10-12)
 
 - UPDATED: 2026-10-12
-- PR #239 (ChatGPT's admin operational status extraction): merged as `868a746` after a master merge (`PROJECT_STATUS.md` conflict only) and the fix for an unhandled Codex P2 (`scripts/money_tax_invoice_gate.cjs` `distributorSurface` had dropped the new module; fixture mutation added). Codex clean on the final head `ec00248`; master Siton CI run 545 green; Render web (`dep-db691lavcj2c73fcehmg`) + worker (`dep-db691lavcj2c73fcei4g`) live on `868a746`; staging `/readiness` 200; no error logs. This supersedes the "80% / OPEN" lines of the ChatGPT #239 entry above.
-- CLOSURE CENSUS: `docs/LEAN_REFACTOR_MAP_2026-09-30.md` §9 (merged in #247 `e5e0999`). No dead runtime module, no unused dependency, no Base44 runtime code, no canonical-doc contradiction. Mandatory closure set approved by the owner 2026-10-12: F1 one shared route-module registry; F2 `PROJECT_STATUS.md` trim + `AI_WORKFLOW.md` §14 alignment.
-- F2 — DONE: the two completed ChatGPT entries that sat above every agent slot moved verbatim to `docs/archive/PROJECT_STATUS_OUT_OF_SLOT_ENTRIES_2026-10-06.md` (#248); residual stale ChatGPT and Codex slots are those agents' own to replace under the §14 rule. Claude slot trimmed in #247 (356 lines moved verbatim to `docs/archive/PROJECT_STATUS_CLAUDE_HISTORY_2026-09-30_TO_2026-10-05.md`; file 553 → ~200 lines). `AI_WORKFLOW.md` §14 now says "replace your own slot" (this PR, #248): the automated slot writers replace without archiving, and verbatim archival is a deliberate maintenance step for entries with evidence value, not a routine rule.
-- F1 — IMPLEMENTED, PR pending: `scripts/lib/route_modules.cjs` (ROUTE_MODULES 14, FRONTEND_RUNTIME_FAMILY 8) + `tests/helpers/route_sources.ts`; 13 inline family concatenations, 9 extraction-test sibling lists, the admin mutation inventory, spec-drift wave 3, legacy isolation, security hardening, 3 release-tool fixtures and the three gates (route inventory, legal, money) read the registry; new `tests/route_module_registry_validation.ts` (registry == `REFUND_READINESS_ROUTE_MODULES`, every `src/*_routes.ts` listed, an unlisted probe fails it). No assertion changed; route inventory output byte-identical; every touched test, the gates, release-tools 426/426 and lint pass locally. Opens as the next PR on this branch after #248 merges (local commit `1f2e8c0`).
-- BEHAVIOUR: none. No DB, migration, money, auth, provider or API-contract change in any of these PRs.
-- OPEN: F1 PR (CI + Codex + merge). PR-18 (three legacy Render services) unchanged: re-verified 2026-10-12, still build and fail on every master commit (`update_failed`) — owner dashboard action.
-- PERCENT: Lean Refactor ≈95%: census done, F2 done, F1 implemented and verified locally, not yet merged.
-- NEXT: merge #248, open and merge the F1 PR, then record Lean Refactor CLOSED and move to Production Readiness (owner-driven checklist, 21%).
+- RESULT: the Lean Refactor track is closed. The owner-approved closure set (map §9) is merged and deployed: F1 shared route-module registry (#249 `6375956`; final head `629f992`, PR CI run 38231529106, master run 560), F2 status-slot trim + `AI_WORKFLOW.md` §14 slot rule (#247 `e5e0999`; head `5c2387f`, PR run 38222903330, master run 549 — #248 `ef594a4`; head `476c8ce`, PR run 38227456500, master run 555), after PR #239's extraction was finished and merged (`868a746`; head `ec00248`, PR run 38217831874, master run 545). Codex "Didn't find any major issues" on each of those four final heads.
+- F1 (#249): `scripts/lib/route_modules.cjs` is the single list of route-bearing modules (`ROUTE_MODULES`, 14) and of the modules extracted verbatim from `frontend_runtime.ts` (`FRONTEND_RUNTIME_FAMILY`, 9, now including `admin_mission_control_routes`, which the derivation showed had been left out of the family scans); every gate and text-reading test reads it (13 inline family concatenations, 3 `Promise.all` copies, 9 extraction-test sibling lists, the admin mutation inventory, spec-drift ×4, legacy isolation, security hardening, 3 release-tool fixtures, route inventory, legal gate, money gate). `tests/route_module_registry_validation.ts` proves the registry both ways against the source tree: registrar discovery over all `src/*.ts` with the inventory's method set, family derived from the runtime's `register*Routes` imports plus a pinned exception list (`receipt_content_routes`, `distribution_hub`), and mutation proofs for every omission class. No assertion changed; coverage only widened; route inventory output byte-identical. Four Codex findings (2×P1, 2×P2) fixed on the way; Codex "Didn't find any major issues" on the final head `629f992`; PR Siton CI run 38231529106 (FULL profile) `ci-verdict` success.
+- VERIFIED: master Siton CI run 560 green on `6375956`; Render web `dep-db6atovavr4c73frur4g` + worker `dep-db6atovavr4c73frurj0` LIVE on `6375956`; staging `/readiness` 200 on the new instance (Render app logs, matched by request id); no error- or fatal-level logs since the deploy. Locally (disposable PostgreSQL 16, migrations applied): every touched test, the three gates, release-tools 426/426, lint.
+- CLOSURE STATE (map §9): F1 and F2 closed. Optional (B), not scheduled: 17 zero-caller functions in `frontend/app.js`; merging the 10 extraction tests into one table-driven test; the remaining mechanical read-only moves (admin payout / system-ops reads, `/app` shell routes); unused locals. Separate workstreams (C): duplicated money/auth helpers, admin mutations, `GET /api/admin/storage/orphan-report` writing on a GET, the `/app` legacy shell decision, and PR-18 (three legacy Render services, owner dashboard action, re-verified 2026-10-12 still failing on every master commit). The superseded ChatGPT slot entry (which still called the track active) moved verbatim to `docs/archive/PROJECT_STATUS_CHATGPT_SLOT_HISTORY_TO_2026-10-04.md`; nothing in this file reports the closed track as open. The Codex slot (2026-09-25) is old but not about this track; Codex replaces it under §14.
+- BEHAVIOUR: none in any closure PR. No DB, migration, money, auth, provider or API-contract change.
+- OPEN: none on this track.
+- PERCENT: Lean Refactor 100% — CLOSED.
+- NEXT: Production Readiness (owner-driven checklist, 21%, 6 of 28; 12 open REAL MONEY LAUNCH BLOCKERS). First engineering-side items: PR-15 storage-broker redeploy with `SITON_BROKER_ALLOWED_PREFIXES`, PR-24 hosted browser proofs on the launch SHA, PR-19 adversarial-review evidence; the rest are owner provisioning decisions.
 
 Earlier Claude Code milestones (2026-09-30 to 2026-10-05) moved verbatim to `docs/archive/PROJECT_STATUS_CLAUDE_HISTORY_2026-09-30_TO_2026-10-05.md` (2026-10-12).
 
@@ -90,26 +90,10 @@ Earlier Claude Code milestones (2026-09-30 to 2026-10-05) moved verbatim to `doc
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
 
 <!-- AGENT_STATUS:chatgpt:START -->
-### ChatGPT active Lean Refactor — seller images merged, renderer deletion rebased
+### ChatGPT — slot awaiting its next entry (2026-10-12)
 
-- UPDATED: 2026-10-04
-- COMPLETED:
-  - PR #215 merged to `master` as `ec084934107b344d12879bd54b57c836b291ea4d`: seller deal-image upload/reorder/delete routes extracted from `src/app.ts` into `src/seller_deal_image_routes.ts`. Exact PR-head CI #434 was green; Claude senior re-review was clean; merge commit records Codex clean on the final head.
-  - Renderer-deletion work rebuilt from exact new master on isolated branch `chatgpt/delete-dead-legacy-renderers-v2`, avoiding the status conflict of old PR #216.
-  - Seven no-dispatcher legacy renderers are removed from `frontend/app.js`; completed-deal Excel export is preserved on live `renderCtonSellerDealPage`; payment hold-copy assertions target live `renderCtonPaymentPage`; `renderTrackingPage` remains pending §8.2.
-- TESTED:
-  - #215 PR head: Siton CI #434 SUCCESS and senior review clean.
-  - Renderer deletion: prior CI exposed two real gaps; both were fixed by preserving behavior/coverage, not by weakening gates. The rebased v2 still requires a fresh exact-head CI and review.
-- OPEN:
-  - #215 post-merge closeout: master CI on `ec084934` and canonical Render web/worker on the same SHA are not yet verified; do not call the slice 100% until both are true.
-  - Renderer deletion v2: PR, exact-head CI, independent review, merge, master CI and staging verification.
-  - Tracking document-visibility + cumulative-chart gaps remain an explicit owner/product decision.
-- PERCENT:
-  - #215 slice: 95% (merged; post-merge CI/deploy verification open).
-  - Renderer deletion v2: 80% (code/gap preservation/rebase done; final PR gates open).
-- NEXT:
-  - Verify master CI + Render exact SHA for #215.
-  - Replace superseded #216 with the rebased v2 PR and require fresh exact-head review + CI before merge.
+- The previous entry ("active Lean Refactor — seller images merged, renderer deletion rebased", 2026-10-04) was fully superseded by the merges of #239 (`868a746`) and the Lean Refactor closure (#247/#248/#249); it moved verbatim to `docs/archive/PROJECT_STATUS_CHATGPT_SLOT_HISTORY_TO_2026-10-04.md` (2026-10-12). ChatGPT replaces this slot with its next milestone.
+
 <!-- AGENT_STATUS:chatgpt:END -->
 
 

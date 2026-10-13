@@ -12,7 +12,7 @@ Three tiers. A document's tier is decided by its role today, not by its title. H
 
 Physical relocation of ARCHIVE files into `docs/archive/` is incremental and mechanical: several gates and tests read documents by path (`scripts/architecture_truth_gate.cjs`, `scripts/legal_compliance_gate.cjs`, `src/admin_mission_control.ts`, `tests/*`), so moves happen in small consumer-proven batches, never in bulk. D5 batches 1–5 (2026-10-01) moved one hundred and seven zero-consumer records (the Morning Handoffs and their DECISION / ISSUES / LOG companions; delivery, closure and audit reports, including the eight `*_DELIVERY_REPORT.md` files that sat at the repository root; stage, pass, red-team, payment-plan and decision records) without changing their contents. Batch 6 moved 39 ARCHIVE records that only other documents link (the links in active documents now point into `docs/archive/`; links inside archived records are left as history). The 29 ARCHIVE documents still outside `docs/archive/` are read by code, a test, a config or a team plan, or linked from a record that stays for that reason, or keep their path by the D2 decision; they stay where their consumer needs them. `docs/archive/` is tracked (`.gitignore` exception) and stays inside every repository scan (`scripts/lib/repo_scan_policy.cjs` `INCLUDED_DIR_PATHS`), so archiving a document never removes it from the secret/PII scan or the sweeps.
 
-Counts after the 2026-10-12 status archives: CANONICAL 12 · REFERENCE 102 · ARCHIVE 176 = **290 mapped Markdown documents** (286 Markdown files under `docs/` plus the four root canonical files `AGENTS.md`, `CLAUDE.md`, `AI_WORKFLOW.md`, `PROJECT_STATUS.md`). Non-Markdown support/data files under `docs/` — 24 JSON, 11 DOCX and 1 SQL file — are not tier rows. Out of scope: `.claude/agents/*.md` (agent definitions, CI-checked), `scripts/README.md`, `scripts/retired/README.md`, `ios/App/CapApp-SPM/README.md`.
+Counts after the 2026-10-12 status archives: CANONICAL 12 · REFERENCE 102 · ARCHIVE 177 = **291 mapped Markdown documents** (287 Markdown files under `docs/` plus the four root canonical files `AGENTS.md`, `CLAUDE.md`, `AI_WORKFLOW.md`, `PROJECT_STATUS.md`). Non-Markdown support/data files under `docs/` — 24 JSON, 11 DOCX and 1 SQL file — are not tier rows. Out of scope: `.claude/agents/*.md` (agent definitions, CI-checked), `scripts/README.md`, `scripts/retired/README.md`, `ios/App/CapApp-SPM/README.md`.
 
 ## CANONICAL (read these)
 
@@ -82,7 +82,7 @@ Reading order for a new agent is exactly the "Start every meaningful task" list 
 | `docs/INVOICE_ACCOUNTING_GROUNDWORK.md` | Invoice / Accounting Groundwork | invoice design |
 | `docs/INVOICE_PROVIDER_MORNING_ADAPTER.md` | Morning / Green Invoice Adapter | provider adapter |
 | `docs/KNOWN_GAPS_AND_DECISIONS.md` | Known Gaps And Decisions | closed product decisions |
-| `docs/LEAN_REFACTOR_MAP_2026-09-30.md` | Lean Refactor Map | active repository cleanup / decomposition plan and evidence |
+| `docs/LEAN_REFACTOR_MAP_2026-09-30.md` | Lean Refactor Map | closed refactor record and evidence: the Lean Refactor track closed 2026-10-12 (§9.4); its B rows stay optional and its C rows belong to their own workstreams |
 | `docs/LANDING_HERO_VIDEO.md` | Landing hero video spec | asset spec |
 | `docs/LEGAL_TRUST_SURFACES.md` | Legal / Trust Surfaces | legal surfaces |
 | `docs/LOCAL_RESTORE_CHECKLIST.md` | Local Restore Checklist | checklist |
@@ -325,6 +325,7 @@ Historical. Any claim inside these files about the current runtime, the Mall, a 
 | `docs/archive/PROJECT_STATUS_HISTORY_TO_2026-09-30.md` | PROJECT_STATUS history (to 2026-09-30) | status history moved verbatim by the D5 status trim (2026-10-02) |
 | `docs/archive/PROJECT_STATUS_CLAUDE_HISTORY_2026-09-30_TO_2026-10-05.md` | PROJECT_STATUS Claude slot history (2026-09-30 to 2026-10-05) | Claude slot entries moved verbatim when the slot was reduced to its latest entry (2026-10-12) |
 | `docs/archive/PROJECT_STATUS_OUT_OF_SLOT_ENTRIES_2026-10-06.md` | PROJECT_STATUS out-of-slot entries (2026-10-06) | two completed ChatGPT entries that sat above every agent slot, moved verbatim (2026-10-12) |
+| `docs/archive/PROJECT_STATUS_CHATGPT_SLOT_HISTORY_TO_2026-10-04.md` | PROJECT_STATUS ChatGPT slot history (to 2026-10-04) | the superseded ChatGPT slot entry moved verbatim when the Lean Refactor closed (2026-10-12) |
 
 ## Known drift markers added 2026-09-30
 
