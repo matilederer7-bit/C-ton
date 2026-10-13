@@ -8,7 +8,7 @@ This document extends `docs/SECURITY_INCIDENT_RUNBOOK.md` (§4 rotation implicat
 
 1. Never rotate before the evidence snapshot (`docs/INCIDENT_RESPONSE_RUNBOOK.md` §5). Session tables and security events are the only record of what the leaked credential was used for.
 2. Never rotate `GROW_REFERENCE_ENCRYPTION_KEY` by replacing it: **add** the new key as primary and keep the old one in `GROW_REFERENCE_ENCRYPTION_PREVIOUS_KEYS` until `scripts/grow_reference_reseal.cjs` reports `retire_safe` for its kid (§3.7). Replacing it outright makes every stored Grow reference unreadable (`grow_reference_invalid`) and blocks settle/refund/status on in-flight attempts.
-3. Never give the CI runner the age **private** identity; `.github/workflows/offsite-db-backup.yml:77-80` refuses anything that is not an `age1…` public recipient, and the restore path (`docs/DISASTER_RECOVERY_RUNBOOK.md` §5) is the only place the identity is used.
+3. Never give the CI runner the age **private** identity; `.github/workflows/offsite-db-backup.yml:78-81` refuses anything that is not an `age1…` public recipient, and the restore path (`docs/DISASTER_RECOVERY_RUNBOOK.md` §5) is the only place the identity is used.
 4. Never set `SUPABASE_SERVICE_ROLE_KEY` on any Render service or in CI; `npm run gate:runtime-env` and the boot guard fail on it. It belongs only to the `storage-broker` Edge Function runtime.
 5. Never reuse the web `DATABASE_URL` on the worker (or vice versa); each service has its own LOGIN role and password.
 6. Never paste a value into a commit, a test fixture, a log line, a ticket, `PROJECT_STATUS.md` or chat. `npm run scan:secrets` (working tree + full git history) is the gate; if it ever fires on a real value, that value is compromised by definition.
