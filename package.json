@@ -194,8 +194,8 @@
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
-    "@capacitor/cli": "^8.5.2",
-    "@types/node": "^26.6.3",
+    "@capacitor/cli": "^8.5.3",
+    "@types/node": "^26.6.4",
     "@types/pg": "^8.23.1",
     "ts-node": "^10.9.2",
     "tsx": "^4.23.15",
